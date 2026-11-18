@@ -189,3 +189,16 @@ does not parse and counts it.
 every cap (a pass's, a day's) reads it. An errand with no known cost counts zero, and a call
 that timed out after starting is recorded with its cap as its cost, since it was probably
 paid for.
+
+## Fences
+
+`fences.rs`. `Fences::for_project(project)` lists what a researcher may never read or send
+to a model: `.env*` anywhere, `.sorcerer/` (other findings, the ledger), `.git/`, anything
+outside the root, and the user's `[model] not_evidence` globs. `allows(path)` resolves the
+path first (symlinks and `..`, through the nearest existing ancestor for a file not yet
+written) and then matches, ignoring case. A path that cannot be resolved for certain (a
+`..` past a missing directory, a dangling symlink) is fenced.
+
+The researcher's tools check every path they read, and every citation is checked before
+it is shown. `patterns()` gives the list for prompts and for `claude`'s deny rules. Secrets
+never reach a model.

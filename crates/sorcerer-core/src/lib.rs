@@ -10,6 +10,7 @@ pub mod cost;
 pub mod env;
 pub mod error;
 pub mod facts;
+pub mod fences;
 pub mod fingerprint;
 pub mod fnv;
 pub mod grammar;
