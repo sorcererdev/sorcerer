@@ -17,6 +17,7 @@
 
 use tree_sitter::{Node, Parser, QueryCursor, StreamingIterator};
 
+use crate::fingerprint::{Fingerprint, fingerprint};
 use crate::language::Loaded;
 use crate::{Error, Result};
 
@@ -70,7 +71,7 @@ pub struct Unit {
     pub span: Span,
     /// The grammar's `body` field, when it has one.
     pub body: Option<Span>,
-    pub fingerprint: String,
+    pub fingerprint: Fingerprint,
 }
 
 /// A definition as the queries found it.
@@ -191,7 +192,7 @@ pub fn units_of(lang: &Loaded, text: &str) -> Result<Vec<Unit>> {
                 kind,
                 span: *span,
                 body: d.body,
-                fingerprint: String::new(),
+                fingerprint: fingerprint(text, *span),
             }
         })
         .collect();

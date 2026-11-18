@@ -113,3 +113,19 @@ olifant's:
 A Rust impl is a unit named by its type (`queries/impls.scm`), so methods of a trait impl
 are still `Type::method`. `unit_at(units, line)` gives the innermost unit holding a line.
 Units are nested: a changed method also changes its class.
+
+## Fingerprints
+
+`fingerprint.rs`. `fingerprint(text, span)` names a unit's text with formatting removed:
+seven hex digits, olifant's function exactly. The span's lines are trimmed (which also
+drops a `\r`), blank lines are dropped, and `reflowed` joins lines a formatter split (after
+an opening bracket, before a closing one, after a trailing comma). Then FNV-1a 64, first
+seven hex digits.
+
+So re-indenting, CRLF line endings, blank lines and a formatter's line splitting keep it;
+any token changes it, and so does a comment. Every verdict sorcerer records is "true when
+the unit hashed to this". `Fingerprint` serialises as its seven-character string.
+
+`compare.rs`: `compare_units(before, after)` pairs units by name and by which of that name
+they are (the second `Order` impl with the second), and says `Same`, `Changed`, `Added` or
+`Removed`. Scry's scope is the `Added` and `Changed` units of a file against `HEAD`.
