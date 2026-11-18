@@ -86,3 +86,30 @@ every reader of units would be wrong in a different way.
 
 Tests never fetch: `tests/grammars/{python,rust}` hold the vendored sources at the
 shipped pins, and `Languages::override_grammar` points a language at them.
+
+## Units
+
+`unit.rs` and `query.rs`. `Languages::load(name, cache)` gives a `Loaded`: the language,
+its grammar, and its query files compiled by `query::compile`, which refuses any predicate
+or directive the `tree-sitter` crate would silently ignore (only `#eq?`, `#match?`,
+`#any-of?` and their `#not-` forms are evaluated).
+
+`units_of(loaded, text)` parses the text and runs every query file over it. The rules are
+olifant's:
+
+1. **A definition** is a capture named `definition.<kind>`, for a kind in `UNIT_KINDS`
+   (function, method, class, interface, module, type, impl, instance), or `unit.<anything>`
+   other than `unit.name`, in a match that also captures `@name`. Its bare name is the
+   `@name` texts in source order. A node captured by two patterns is one definition.
+2. **Its span** is widened to the earliest-starting `@function.outer` or `@class.outer`
+   capture that contains it, ends where it ends, and holds no other definition except ones
+   inside it. That is how a Python decorator joins its function.
+3. **Its name** is qualified one level by containment: the bare name of the innermost
+   other unit around it, then the language's `unit_separator` (`Order.cancel`,
+   `Order::new`).
+4. **Its kind** comes from the capture's suffix. A `function` inside a class, impl or type
+   is a `Method`.
+
+A Rust impl is a unit named by its type (`queries/impls.scm`), so methods of a trait impl
+are still `Type::method`. `unit_at(units, line)` gives the innermost unit holding a line.
+Units are nested: a changed method also changes its class.

@@ -11,6 +11,8 @@ pub mod fnv;
 pub mod grammar;
 pub mod language;
 pub mod project;
+pub mod query;
+pub mod unit;
 
 pub use cancel::Cancel;
 pub use error::{Error, Result};

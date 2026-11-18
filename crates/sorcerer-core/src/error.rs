@@ -27,6 +27,8 @@ pub enum Error {
         min: usize,
         max: usize,
     },
+    #[error("query {file}: {why}")]
+    Query { file: String, why: String },
     #[error("{}: {source}", path.display())]
     Io {
         path: PathBuf,

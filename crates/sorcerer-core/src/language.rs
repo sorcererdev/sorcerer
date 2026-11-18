@@ -9,11 +9,14 @@
 //! each key and each query file, for `doctor`.
 
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use include_dir::{Dir, include_dir};
 
+use crate::grammar::{self, GrammarCache};
 use crate::{Error, Result};
 
 /// The shipped languages, embedded in the binary.
@@ -63,6 +66,23 @@ pub struct Language {
 pub struct Languages {
     by_name: BTreeMap<String, Language>,
     globs: Vec<(String, GlobSet)>,
+    loaded: Arc<Mutex<HashMap<String, Arc<Loaded>>>>,
+}
+
+/// A language ready to parse: its grammar loaded and its queries compiled.
+pub struct Loaded {
+    pub language: Language,
+    pub grammar: tree_sitter::Language,
+    /// Each query file's name and compiled query, in name order.
+    pub queries: Vec<(String, tree_sitter::Query)>,
+}
+
+impl std::fmt::Debug for Loaded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Loaded")
+            .field("language", &self.language.name)
+            .finish_non_exhaustive()
+    }
 }
 
 /// One layer as read: its table (grammar paths made absolute) and queries.
@@ -132,11 +152,44 @@ impl Languages {
             .and_then(|(n, _)| self.by_name.get(n))
     }
 
+    /// NAME loaded: its grammar fetched, built and loaded through CACHE, and
+    /// its queries compiled. Once per name per `Languages`.
+    pub fn load(&self, name: &str, cache: &GrammarCache) -> Result<Arc<Loaded>> {
+        let mut loaded = self.loaded.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(l) = loaded.get(name) {
+            return Ok(l.clone());
+        }
+        let language = self
+            .get(name)
+            .ok_or_else(|| Error::Language {
+                name: name.into(),
+                why: "no such language".into(),
+            })?
+            .clone();
+        let grammar = grammar::load(cache, name, &language.grammar)?;
+        let queries = language
+            .queries
+            .iter()
+            .map(|(file, text)| Ok((file.clone(), crate::query::compile(&grammar, file, text)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let l = Arc::new(Loaded {
+            language,
+            grammar,
+            queries,
+        });
+        loaded.insert(name.to_string(), l.clone());
+        Ok(l)
+    }
+
     /// Points NAME's grammar at SOURCE (vendored sources in tests, an
     /// offline mirror). Does nothing when there is no such language.
     pub fn override_grammar(&mut self, name: &str, source: GrammarSource) {
         if let Some(l) = self.by_name.get_mut(name) {
             l.grammar = source;
+            self.loaded
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(name);
             l.origins.insert("grammar".into(), "override".into());
         }
     }
