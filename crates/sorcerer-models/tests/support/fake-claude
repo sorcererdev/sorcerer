@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Stands in for `claude` in tests: records its arguments, stdin, working
+# directory and CLAUDECODE, then sleeps and prints a canned reply.
+printf '%s\n' "$@" > "${FAKE_CLAUDE_ARGS:-/dev/null}"
+cat > "${FAKE_CLAUDE_STDIN:-/dev/null}"
+{ echo "CLAUDECODE=${CLAUDECODE-unset}"; echo "MDS=${CLAUDE_CODE_DISABLE_CLAUDE_MDS-unset}"; echo "PWD=$(pwd -P)"; } > "${FAKE_CLAUDE_ENV:-/dev/null}"
+sleep "${FAKE_CLAUDE_SLEEP:-0}"
+printf '%s' "${FAKE_CLAUDE_REPLY:-{\"result\":\"ok\",\"total_cost_usd\":0.01,\"duration_ms\":1500,\"is_error\":false,\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}}"

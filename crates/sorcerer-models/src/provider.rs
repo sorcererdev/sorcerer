@@ -4,6 +4,7 @@
 //! vendor's model id.
 
 pub mod anthropic;
+pub mod claude;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;

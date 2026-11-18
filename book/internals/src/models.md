@@ -31,3 +31,16 @@ overridden in `[model.providers.anthropic]`.
 Every HTTP provider sends through `post_json` in `provider.rs`: a 429 or 529 is retried
 twice (after one and two seconds), and the request runs on its own thread so a cancel
 returns within a tenth of a second.
+
+### claude
+
+`provider/claude.rs`. Claude Code on a subscription, with no API key: `claude -p
+--output-format json` as a subprocess, the prompt on stdin. The flags are olifant's: no
+tools (`--tools ""`), no session saved, no settings files, and the child gets
+`CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and no `CLAUDECODE` (so a run started from inside Claude
+Code is not refused as nested). The reply's `result` is the text, `total_cost_usd` the cost
+and `duration_ms` the time; `is_error` is an error with the result's text.
+
+`run_claude` is shared with the claude researcher. It runs the child in its own process
+group and kills the group on timeout or cancel, so nothing `claude` started is left
+running. Aliases pass straight through: `claude` understands `sonnet` and `haiku` itself.
