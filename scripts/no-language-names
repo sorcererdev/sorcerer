@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# The engine knows no language: no language name or file extension in crates/*/src.
+# Tests that name a language live under crates/*/tests/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if grep -rnE -i '"(python|rust)"|\.py"|\.rs"' crates/*/src; then
+  echo "a language is named in crates/*/src; languages are data under library/languages/"
+  exit 1
+fi

@@ -1,0 +1,11 @@
+[package]
+name = "sorcerer-core"
+description = "Sorcerer's core: projects, config, languages, units, store, ledger, fences"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]

@@ -1,0 +1,5 @@
+[book]
+title = "Sorcerer: how it works"
+authors = ["The sorcerer authors"]
+language = "en"
+src = "src"
