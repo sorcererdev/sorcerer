@@ -100,3 +100,20 @@ The three tools run over the `CodebaseView`, under fences:
 
 A fenced `read` returns exactly `refused: <path> is fenced (not evidence)` and never opens
 the file. Fenced `grep` hits and `glob` paths are dropped, and `grep` says how many.
+
+## The decider
+
+`decide.rs`. A `Decider` answers typed questions with calibrated probabilities and never
+writes text: a `Question` has a kind (its name in the batch), instructions, a `Shape`
+(`Choice`, `Noul` with its yes and no sides, or `Score`), named context texts, and whether
+"none of these fits" is allowed. `ask` sends a batch as one call with one shared state and
+returns a `Weighed` per question: the `Answer` and, for a choice, the distribution.
+
+`decide/jev.rs` is Jev, ported from olifant's `Decide.hs`. `jev_body` builds the request
+(context names shared across the batch must agree), the model is pinned (`jev-1.14.0`),
+and 429 and 529 are retried twice. A reply that does not fit a question's shape, or a call
+that fails, makes the whole batch `Unsure`: a decider never guesses, and a pass that gets
+`Unsure` stops. Each call is a ledger row with verb `decide`.
+
+`decide/recorded.rs` answers from `<dir>/<question_key>.json`, where the key is FNV-1a 64
+of the question's own Jev body. Given a live `Jev`, it records what is missing.
