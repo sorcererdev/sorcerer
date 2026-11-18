@@ -159,3 +159,20 @@ cargo run -p sorcerer-core --example units -- src/orders.py
 ```
 
 It prints each unit's lines, fingerprint, kind and name, then what changed against `HEAD`.
+
+## Stores
+
+`store.rs`. A product's state is a `Store<T>`: one JSON file under
+`.sorcerer/state/<product>/`, shaped `{"version": N, "data": …}`, where `T: Versioned`
+names its `VERSION`.
+
+- `read()` gives `Absent`, `Current(T)`, or `Unreadable(why)` (corrupt JSON, data that
+  does not fit, or another version).
+- `update(f)` takes an exclusive OS lock on `<file>.lock` (std's `File::lock`, released if
+  the process dies), reads (absent is `T::default()`), applies `f`, writes to a temporary
+  file, syncs it, and renames it over the store. So the editor's server and a command-line
+  run can update one store at once and lose nothing.
+
+An unreadable store is never overwritten: `update` returns `Error::StoreUnreadable` and
+the product pauses for the project, saying so in `doctor`. Starting over would bring back
+every finding the user dismissed.

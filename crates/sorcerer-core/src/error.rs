@@ -33,6 +33,8 @@ pub enum Error {
     NotText { path: PathBuf },
     #[error("git: {why}")]
     Git { why: String },
+    #[error("{} cannot be read ({why}); it is left as it is, and nothing is written until it is fixed or moved aside", path.display())]
+    StoreUnreadable { path: PathBuf, why: String },
     #[error("{}: {source}", path.display())]
     Io {
         path: PathBuf,

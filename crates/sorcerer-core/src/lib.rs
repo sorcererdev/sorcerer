@@ -15,6 +15,7 @@ pub mod grammar;
 pub mod language;
 pub mod project;
 pub mod query;
+pub mod store;
 pub mod unit;
 pub mod view;
 
