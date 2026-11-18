@@ -19,3 +19,15 @@ or failure. `price(prices, model, usage)` turns usage into dollars from a table 
 
 `ScriptedProvider` is the test double: its replies in order, each request recorded in
 `seen`.
+
+### anthropic
+
+`provider/anthropic.rs`. Anthropic's Messages API: `POST {url}/v1/messages` with the key
+from `ANTHROPIC_API_KEY` (or the table's `api_key_env`), tools native. `ALIASES` maps
+`sonnet`, `haiku`, `opus`, `strong` and `cheap` to model ids, and `PRICES` holds dollars
+per million tokens from Anthropic's pricing page (dated in the source). Both can be
+overridden in `[model.providers.anthropic]`.
+
+Every HTTP provider sends through `post_json` in `provider.rs`: a 429 or 529 is retried
+twice (after one and two seconds), and the request runs on its own thread so a cancel
+returns within a tenth of a second.
