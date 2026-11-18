@@ -623,7 +623,12 @@ dependencies = [
 name = "sorcerer-models"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
  "sorcerer-core",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
