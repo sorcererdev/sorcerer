@@ -1,0 +1,16 @@
+Check one sentence of a software plan against this repository (the current directory).
+
+Section: (none)
+Sentence: cancel() returns None when the repository has no order with that id.
+
+Use Read, Grep and Glob to find the code the sentence is about, and read it.
+Behaviour can live in any layer: server code, templates, and front-end scripts and styles. Before you conclude that something does not exist, search for it across the whole repository.
+Rule: judge what the sentence says is true of the code now; if it also wishes or asks for something, ignore that part.
+If the code cannot settle it (it is about people, documents or outside services), the verdict is cannot_tell.
+
+Answer with one fenced ```json block holding one object, after any notes:
+```json
+{"verdict": "right | wrong | cannot_tell", "why": "<one sentence>", "evidence": [{"path": "<path relative to the current directory>", "unit": "<function or class name, or null>", "line": <line number, or null>}]}
+```
+For right or wrong, give at least one evidence entry: the code the verdict rests on.
+In evidence, "unit" is the exact name of one function, class or method as the file defines it (Class.method for a method), or null. For anything else (a template, a heading, part of a function, several names) give null and the line. A unit the file does not define voids the verdict.

@@ -117,3 +117,28 @@ that fails, makes the whole batch `Unsure`: a decider never guesses, and a pass 
 
 `decide/recorded.rs` answers from `<dir>/<question_key>.json`, where the key is FNV-1a 64
 of the question's own Jev body. Given a live `Jev`, it records what is missing.
+
+## The claim checker
+
+`checker.rs` and `checker/prompts.rs`, ported from olifant's plans cascade
+(`Server/Cascade.hs`, `Server/Checker.hs`) with the prompt and guard texts word for word.
+`tests/golden/claim-prompt.txt` was printed by olifant itself, so the port is checked
+against the original.
+
+`check(claim, deps, cancel)` checks a statement about code:
+
+1. **With a decider**, the cheap model (`haiku`) checks first through the researcher. Jev
+   then asks three yes/no guards in one call: does the reason speak to the claim
+   (`why-fits`), is the cited code what the claim is about (`evidence-fits`), and does the
+   verdict follow from the reason (`verdict-follows`). The guards see up to three
+   citations with twelve lines of code each. If any guard is under the threshold (0.60,
+   where olifant's corpus met every bar), or unsure, or the first verdict is
+   `cannot_tell`, or the first check failed, the strong model (`sonnet`) checks again and
+   its verdict stands (`escalated`).
+2. **Without a decider**, the strong model checks alone.
+3. **Citations are confirmed**: inside the root, not fenced, and the named unit found in
+   the file (or the cited line inside it). One that is not found makes the verdict
+   `cannot_tell` ("cited code not found"). Each confirmed citation carries the
+   fingerprint of its lines, so a later change to the cited code shows.
+
+Scry's verify step runs it on `bug` and `assumption` findings.

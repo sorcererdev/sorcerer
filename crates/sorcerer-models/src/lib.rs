@@ -2,6 +2,7 @@
 //! claim checker. Everything here can spend money, so every paid call is
 //! recorded in the ledger, and each piece has a recorded double for tests.
 
+pub mod checker;
 pub mod decide;
 pub mod error;
 pub mod provider;
