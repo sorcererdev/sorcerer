@@ -176,3 +176,16 @@ names its `VERSION`.
 An unreadable store is never overwritten: `update` returns `Error::StoreUnreadable` and
 the product pauses for the project, saying so in `doctor`. Starting over would bring back
 every finding the user dismissed.
+
+## The ledger and cost
+
+`ledger.rs`. Every paid call of every product is an `Errand` (when, product, verb, model,
+provider, cost, tokens, seconds, whether it succeeded, a note) appended as one JSON line to
+`.sorcerer/state/ledger.jsonl` by `Ledger::append`. Each line is one write to a file opened
+for appending, so two processes never interleave lines. `Ledger::read` skips a line that
+does not parse and counts it.
+
+`cost.rs`. `cost::spent(ledger, product, since)` sums a product's spend from a local day on;
+every cap (a pass's, a day's) reads it. An errand with no known cost counts zero, and a call
+that timed out after starting is recorded with its cap as its cost, since it was probably
+paid for.

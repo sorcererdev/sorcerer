@@ -6,6 +6,7 @@
 pub mod cancel;
 pub mod compare;
 pub mod config;
+pub mod cost;
 pub mod env;
 pub mod error;
 pub mod facts;
@@ -13,6 +14,7 @@ pub mod fingerprint;
 pub mod fnv;
 pub mod grammar;
 pub mod language;
+pub mod ledger;
 pub mod project;
 pub mod query;
 pub mod store;
