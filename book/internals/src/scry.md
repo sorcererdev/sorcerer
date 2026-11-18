@@ -71,3 +71,25 @@ keeps six digits, rehashing with a counter while taken. `get` takes an id or a u
 at least four characters. `dismiss` sets `dismissed-here` or `dismissed-everywhere`. `shown_in`
 is a file's open findings whose kind is in `[scry] kinds`, best `keep` first, at most
 `max_shown`.
+
+## The find call
+
+`src/find.rs` is inspect's find call, ported word for word. A `FindAsk` carries the pack's
+`FindUnit`s (file, name, `lines`, enclosing `header`, `text`, `in_progress`), the diff, the
+steering text, `reported` (always empty in v1; spellbook's slot) and the `open` findings to
+re-answer. `find_prompt` renders it; `tests/golden/find-prompt.txt` is inspect's golden, matched
+byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first line.
+
+`parse_find` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
+to the last `}`, then the first `[` to the last `]` (the array first when it opens first, so a
+bare array of findings is not mistaken for its first object); the first that decodes wins. A
+finding needs one of the four kinds, a file, a statement and `lines` (`[a, z]`, one element, or
+`line`); a bad finding is dropped, a bad evidence entry is dropped and the finding kept. `open`
+answers need `holds` to be exactly `still holds` or `no longer holds`; a numeric id is accepted.
+Only a reply with no JSON at all is an `Err`.
+
+`pack_units` keeps units in order in packs of at most 600 numbered lines; a longer unit goes
+alone. `Finder` is the seam: `find(ask, model, cap_usd, cancel)` returns a `Found` (the reply
+text and its `Errand`). `ResearchFinder` is the live one, one `Research` (product `scry`, verb
+`find`, tools Read/Grep/Glob, `FIND_TIMEOUT` 420 s); the corpus gate swaps in recorded replies
+through the same trait.
