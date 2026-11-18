@@ -79,7 +79,8 @@ binary. `grammar::load(cache, name, source)` returns a `tree_sitter::Language`:
 The cache is the user's (`GrammarCache::user`: `~/.cache/sorcerer/grammars`), shared by
 every project. Every write goes to a temporary name and is renamed into place, so a
 reader never sees half a library and two processes building at once race harmlessly.
-`load` remembers each library once per process, failures included.
+`load` remembers each library once per process, failures included, except a failed fetch
+or file error: being offline at first start must not cost units until a restart.
 
 A missing compiler is `Error::NoCompiler` with an install hint, never a silent fallback:
 every reader of units would be wrong in a different way.
@@ -173,6 +174,9 @@ names its `VERSION`.
   file, syncs it, and renames it over the store. So the editor's server and a command-line
   run can update one store at once and lose nothing.
 
+Products open a store with `Store::in_project(project, "scry/findings.json")`, which
+creates the state directory and its `.gitignore` first.
+
 An unreadable store is never overwritten: `update` returns `Error::StoreUnreadable` and
 the product pauses for the project, saying so in `doctor`. Starting over would bring back
 every finding the user dismissed.
@@ -200,5 +204,7 @@ written) and then matches, ignoring case. A path that cannot be resolved for cer
 `..` past a missing directory, a dangling symlink) is fenced.
 
 The researcher's tools check every path they read, and every citation is checked before
-it is shown. `patterns()` gives the list for prompts and for `claude`'s deny rules. Secrets
-never reach a model.
+it is shown. `patterns()` gives the list for prompts and for `claude`'s deny rules; a
+`not_evidence` entry with no glob characters (`docs/plans`) fences the directory and
+everything under it. `fenced_links()` lists the symbolic links in the project that lead out
+of the root or onto a fenced path, for a researcher that cannot check each path itself.

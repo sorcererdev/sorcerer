@@ -52,11 +52,21 @@ impl ClaudeCodeResearcher {
             .collect::<Vec<_>>()
             .join(",");
         let patterns = self.fences.patterns();
-        let deny: Vec<String> = patterns
-            .iter()
-            .map(|p| format!("Read(./{p})"))
-            .chain(["WebSearch".to_string(), "WebFetch".to_string()])
-            .collect();
+        // `**/x` and its root form `x` both, as olifant's measured rules did;
+        // a symlink out of the root or onto a fenced file is denied by name
+        // (claude reads through links; measured 2026-11-17)
+        let mut deny: Vec<String> = Vec::new();
+        for p in &patterns {
+            deny.push(format!("Read(./{p})"));
+            if let Some(root_form) = p.strip_prefix("**/") {
+                deny.push(format!("Read(./{root_form})"));
+            }
+        }
+        for link in self.fences.fenced_links() {
+            deny.push(format!("Read(./{})", link.display()));
+            deny.push(format!("Read(./{}/**)", link.display()));
+        }
+        deny.extend(["WebSearch".to_string(), "WebFetch".to_string()]);
         let settings = json!({"permissions": {"deny": deny}}).to_string();
         let prompt = FENCE_PROMPT
             .trim()

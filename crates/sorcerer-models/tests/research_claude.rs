@@ -119,3 +119,24 @@ fn a_timeout_is_charged_the_cap_and_not_ok() {
     assert_eq!((rows[0].cost_usd, rows[0].ok), (Some(0.25), false));
     assert!(rows[0].note.as_deref().unwrap().contains("timed out"));
 }
+
+#[test]
+fn deny_rules_cover_the_root_form_and_fenced_symlinks() {
+    let d = support::git_project(None);
+    let outside = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(d.path().join("src")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), d.path().join("src/link")).unwrap();
+    let f = support::FakeClaude::new();
+    let (r, _) = researcher(d.path(), &f, &[]);
+    r.research(research(Duration::from_secs(5)), &Cancel::default())
+        .unwrap();
+    let args = f.args();
+    let settings: serde_json::Value =
+        serde_json::from_str(&args[args.iter().position(|a| a == "--settings").unwrap() + 1])
+            .unwrap();
+    let deny: Vec<String> =
+        serde_json::from_value(settings["permissions"]["deny"].clone()).unwrap();
+    for rule in ["Read(./.env*)", "Read(./src/link)", "Read(./src/link/**)"] {
+        assert!(deny.contains(&rule.to_string()), "{rule} not in {deny:?}");
+    }
+}

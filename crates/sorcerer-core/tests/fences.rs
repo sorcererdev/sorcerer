@@ -110,3 +110,42 @@ fn a_dangling_symlink_is_fenced() {
     symlink("/nonexistent/secret", d.path().join("src/dangling")).unwrap();
     assert!(!fences(d.path()).allows(Path::new("src/dangling")));
 }
+
+#[test]
+fn a_directory_style_not_evidence_entry_fences_the_whole_directory() {
+    let d = project();
+    support::write(
+        d.path(),
+        ".sorcerer/config.toml",
+        "[model]\nnot_evidence = [\"docs/plans\", \"notes/\"]\n",
+    );
+    support::write(d.path(), "docs/plans/p.md", "plan\n");
+    support::write(d.path(), "notes/n.md", "n\n");
+    let f = fences(d.path());
+    assert!(!f.allows(Path::new("docs/plans/p.md")));
+    assert!(!f.allows(Path::new("docs/plans")));
+    assert!(!f.allows(Path::new("notes/n.md")));
+    assert!(
+        f.patterns().contains(&"docs/plans/**".to_string()),
+        "{:?}",
+        f.patterns()
+    );
+}
+
+#[test]
+fn fenced_links_lists_symlinks_out_of_the_root_or_onto_fenced_files() {
+    let d = project();
+    let outside = tempfile::TempDir::new().unwrap();
+    symlink(outside.path(), d.path().join("src/out")).unwrap();
+    symlink(d.path().join(".env"), d.path().join("src/e")).unwrap();
+    symlink(d.path().join("src/a.py"), d.path().join("src/ok")).unwrap();
+    let mut links = fences(d.path()).fenced_links();
+    links.sort();
+    assert_eq!(
+        links,
+        vec![
+            std::path::PathBuf::from("src/e"),
+            std::path::PathBuf::from("src/out")
+        ]
+    );
+}

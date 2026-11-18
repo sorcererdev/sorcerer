@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::{Error, Result};
+use crate::{Error, Project, Result};
 
 pub trait Versioned: Serialize + DeserializeOwned + Default {
     const VERSION: u32;
@@ -55,6 +55,12 @@ impl<T: Versioned> Store<T> {
             lock: lock.into(),
             _t: PhantomData,
         }
+    }
+
+    /// A store at REL under the project's state directory, which is
+    /// created (with its `.gitignore`) first. Products open stores this way.
+    pub fn in_project(project: &Project, rel: &str) -> Result<Store<T>> {
+        Ok(Store::at(project.state_dir()?.join(rel)))
     }
 
     pub fn path(&self) -> &Path {

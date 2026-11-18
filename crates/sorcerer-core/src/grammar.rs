@@ -57,7 +57,8 @@ const EXT: &str = if cfg!(target_os = "macos") {
 
 /// Loads NAME's grammar from SOURCE, fetching and building it first when
 /// the cache has no library for it. Once per process per library: a
-/// failure is remembered too, so a missing compiler is reported once.
+/// failure is remembered too (a missing compiler is reported once), except
+/// a failed fetch or a file error, which may pass (offline at first start).
 pub fn load(
     cache: &GrammarCache,
     name: &str,
@@ -78,10 +79,13 @@ pub fn load(
         });
     }
     let r = build_if_absent(cache, name, source, "cc").and_then(|lib| open_library(name, &lib));
-    loaded.insert(
-        path,
-        r.as_ref().map(Clone::clone).map_err(ToString::to_string),
-    );
+    // a fetch or a file error may be passing (offline at first start): try again next time
+    if !matches!(r, Err(Error::GrammarFetch { .. } | Error::Io { .. })) {
+        loaded.insert(
+            path,
+            r.as_ref().map(Clone::clone).map_err(ToString::to_string),
+        );
+    }
     r
 }
 

@@ -152,3 +152,39 @@ fn a_url_outside_gits_transports_is_refused() {
     assert!(matches!(e, Error::GrammarFetch { .. }), "{e}");
     assert!(!Path::new("/tmp/pwned").exists());
 }
+
+#[test]
+fn a_failed_fetch_is_tried_again_on_the_next_load() {
+    let repo = support::git_project();
+    for f in [
+        "parser.c",
+        "scanner.c",
+        "tree_sitter/alloc.h",
+        "tree_sitter/array.h",
+        "tree_sitter/parser.h",
+    ] {
+        support::write(
+            repo.path(),
+            &format!("src/{f}"),
+            &std::fs::read_to_string(support::vendored("python").join(f)).unwrap(),
+        );
+    }
+    support::commit(repo.path(), "grammar");
+    let rev = support::git(repo.path(), &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let away = repo.path().with_extension("away");
+    std::fs::rename(repo.path(), &away).unwrap();
+    let d = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(d.path().into());
+    let src = GrammarSource::Git {
+        url: format!("file://{}", repo.path().display()),
+        rev,
+    };
+    assert!(matches!(
+        grammar::load(&cache, "python", &src),
+        Err(Error::GrammarFetch { .. })
+    ));
+    std::fs::rename(&away, repo.path()).unwrap();
+    assert!(grammar::load(&cache, "python", &src).is_ok());
+}

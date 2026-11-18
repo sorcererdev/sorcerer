@@ -1,0 +1,53 @@
+# Configuration
+
+Everything is optional. With no `.sorcerer/config.toml`, the tools use their defaults
+(see [What sorcerer is](what-sorcerer-is.md)). Each tool reads its own table (`[scry]`,
+and later `[conjure]` and `[spellbook]`) and refuses keys it does not know; a top-level
+table no tool knows is reported as a warning, since it is probably a typo.
+
+## `[model]`
+
+| key | meaning |
+|---|---|
+| `provider` | the provider to use: `claude`, `anthropic`, or the name of a `[model.providers.<name>]` table |
+| `not_evidence` | paths a model may never read, in addition to the ones that are always fenced (below). A glob (`docs/**/*.draft.md`) or a directory (`docs/plans`), which fences everything under it |
+
+## `[model.providers.<name>]`
+
+| key | meaning |
+|---|---|
+| `kind` | `anthropic`, `claude` or `openai-compatible`; defaults to the table's name |
+| `url` | the server's address (`openai-compatible` needs one; `anthropic` defaults to Anthropic's API) |
+| `api_key_env` | the environment variable holding the key (`ANTHROPIC_API_KEY` for `anthropic`) |
+| `runner` | for `claude`: the command to run instead of `claude` on PATH |
+| `aliases` | which model each name means (`{ sonnet = "qwen3:32b" }`) |
+| `prices` | dollars per million input and output tokens by name (`{ sonnet = [2.0, 10.0] }`), so spend is counted |
+
+## `[decide]`
+
+| key | meaning |
+|---|---|
+| `model` | the Jev model; pinned by default |
+| `key_env` | the environment variable holding the Jev key (`JEV_API_KEY` by default) |
+
+## `[languages]`
+
+| key | meaning |
+|---|---|
+| `names` | languages the project uses beyond the shipped ones; each needs a file under `.sorcerer/languages/<name>/` (see [Adding a language](adding-a-language.md)) |
+
+## What a model never reads
+
+Some paths are fenced: no model is shown them, and no citation may point at them.
+
+- `.env` and anything starting with `.env`, in any directory;
+- `.sorcerer/` (what the tools remember, including other findings and costs) and `.git/`;
+- anything outside the project, including through a symbolic link;
+- your `not_evidence` paths.
+
+When the model runs through sorcerer's own tools (Anthropic's API, an OpenAI-compatible
+server), every path is checked before it is read. When it runs through `claude -p`,
+Claude Code enforces the fences with deny rules, including one for each symbolic link
+that leads out of the project. Claude Code cannot be told to refuse every path outside the
+project, though: there, only the instructions keep it inside. Keep secrets out of the
+project's files, or under a fenced path, either way.

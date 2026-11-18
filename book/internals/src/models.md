@@ -73,8 +73,12 @@ There are two ways to get one:
 
 - **`ClaudeCodeResearcher`** (`research/claude_code.rs`): `claude -p` in the project root
   with `--tools Read,Grep,Glob`. The fences become `claude`'s deny rules
-  (`Read(./**/.env*)` and so on, which fence Grep and Glob too) and a line in the system
-  prompt (`prompts/fence.md`). Web tools are denied.
+  (`Read(./**/.env*)` with its root form `Read(./.env*)`, which fence Grep and Glob too),
+  one pair of deny rules for each symbolic link `Fences::fenced_links` finds, and a line in
+  the system prompt (`prompts/fence.md`). Web tools are denied. Measured on 2026-11-17:
+  `claude` reads through a symbolic link unless the link's path is denied, and reads an
+  absolute path outside the project when asked. Denying all absolute paths (`Read(//**)`)
+  also denies the project's own files, so that last case is guarded by the prompt alone.
 - **`LoopResearcher`** (`research/tool_loop.rs`): core's own tool loop over any provider
   that supports tools.
 

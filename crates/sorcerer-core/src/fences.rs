@@ -28,7 +28,13 @@ impl Fences {
         let patterns: Vec<String> = ALWAYS
             .iter()
             .map(|s| s.to_string())
-            .chain(p.config.model.not_evidence.iter().cloned())
+            .chain(
+                p.config
+                    .model
+                    .not_evidence
+                    .iter()
+                    .flat_map(|g| directory_style(g)),
+            )
             .collect();
         let mut set = GlobSetBuilder::new();
         for pat in &patterns {
@@ -66,6 +72,27 @@ impl Fences {
         self.patterns.clone()
     }
 
+    /// Symlinks in the project (outside `.git/`) that lead out of the root
+    /// or onto a fenced path, relative to the root. A researcher that cannot
+    /// check each path itself (`claude -p`) denies these by name.
+    pub fn fenced_links(&self) -> Vec<PathBuf> {
+        ignore::WalkBuilder::new(&self.root)
+            .hidden(false)
+            .follow_links(false)
+            .filter_entry(|e| e.file_name() != ".git")
+            .build()
+            .flatten()
+            .filter(|e| e.path_is_symlink())
+            .filter_map(|e| {
+                e.path()
+                    .strip_prefix(&self.root)
+                    .ok()
+                    .map(Path::to_path_buf)
+            })
+            .filter(|rel| !self.allows(rel))
+            .collect()
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -84,6 +111,16 @@ impl Fences {
             .ok()
             .map(Path::to_path_buf)
     }
+}
+
+/// A `not_evidence` entry with no glob characters names a directory or a
+/// file (`docs/plans`, `notes/`): it fences the path and everything under it.
+fn directory_style(g: &str) -> Vec<String> {
+    if g.contains(['*', '?', '[', '{']) {
+        return vec![g.to_string()];
+    }
+    let bare = g.trim_end_matches('/');
+    vec![bare.to_string(), format!("{bare}/**")]
 }
 
 /// FULL with every symlink and `..` resolved. A path that does not exist

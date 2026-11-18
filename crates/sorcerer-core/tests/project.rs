@@ -93,3 +93,24 @@ fn jev_is_the_decider_when_its_key_is_set() {
     };
     assert!(default_decider(&own, &MapEnv::default().var_set("MY_JEV", "k")).is_some());
 }
+
+#[test]
+fn a_store_in_the_project_writes_the_state_gitignore() {
+    #[derive(serde::Serialize, serde::Deserialize, Default)]
+    struct S {
+        n: u32,
+    }
+    impl sorcerer_core::store::Versioned for S {
+        const VERSION: u32 = 1;
+    }
+    let d = support::git_project();
+    let p = Project::open(d.path()).unwrap();
+    let s: sorcerer_core::store::Store<S> =
+        sorcerer_core::store::Store::in_project(&p, "scry/findings.json").unwrap();
+    s.update(|x| x.n = 1).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(p.state.join(".gitignore")).unwrap(),
+        "*\n"
+    );
+    assert!(p.state.join("scry/findings.json").exists());
+}

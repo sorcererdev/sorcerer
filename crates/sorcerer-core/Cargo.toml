@@ -23,5 +23,6 @@ grep-regex.workspace = true
 grep-searcher.workspace = true
 
 [dev-dependencies]
+serde.workspace = true
 anyhow.workspace = true
 tempfile.workspace = true
