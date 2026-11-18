@@ -8,6 +8,8 @@ pub enum Error {
     Config { file: PathBuf, why: String },
     #[error("unknown key `{key}` in [{table}]")]
     UnknownKey { table: String, key: String },
+    #[error("no project at {}: no .sorcerer/ directory and no git repository above it", from.display())]
+    NoProject { from: PathBuf },
     #[error("{}: {source}", path.display())]
     Io {
         path: PathBuf,

@@ -22,3 +22,18 @@ might own it, so it is a warning in `Config::warnings`, not an error.
 The environment is a seam (`env.rs`): `Env` answers variables and executables on PATH.
 `SystemEnv` is the real one, `MapEnv` a fixed one for tests. `Cancel` (`cancel.rs`) is
 the flag every long call checks.
+
+## Project
+
+`project.rs`. `Project::open(dir)` walks up from `dir`. The first directory holding
+`.sorcerer/` is the root, and its `config.toml` is read if present. With no `.sorcerer/`
+anywhere above, the git root is the project and the config is `Config::default()`: that is
+the out-of-the-box case, and every product must work in it. With neither, the error says
+so in one sentence.
+
+`Project::state_dir()` creates `.sorcerer/state/` on first use and writes a `.gitignore`
+of `*` into it, so nothing a tool remembers is ever committed.
+
+`default_provider` and `default_decider` choose what runs a model when the config does not
+say, and why, for `doctor` to print: `claude` when it is on PATH, else `anthropic` when
+`ANTHROPIC_API_KEY` is set; Jev when `JEV_API_KEY` is set.

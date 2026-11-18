@@ -7,6 +7,8 @@ pub mod cancel;
 pub mod config;
 pub mod env;
 pub mod error;
+pub mod project;
 
 pub use cancel::Cancel;
 pub use error::{Error, Result};
+pub use project::Project;

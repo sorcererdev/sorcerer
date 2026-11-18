@@ -22,3 +22,16 @@ directory.
 
 You do not need a `.sorcerer/` directory to start. In a git repository with none, the
 tools use their defaults.
+
+## Two keys, no config
+
+Out of the box, sorcerer needs two things:
+
+- **A model.** If the `claude` command (Claude Code) is on your PATH, sorcerer uses it,
+  on your subscription. Otherwise it uses Anthropic's API when `ANTHROPIC_API_KEY` is set.
+  `[model] provider = "…"` in `.sorcerer/config.toml` overrides the choice.
+- **Jev.** `JEV_API_KEY`, from a free sign-up at typesafe.ai. Jev answers the yes-or-no
+  questions that keep the margin quiet (is this a nitpick, are these two findings the
+  same) with calibrated probabilities, for a fraction of a cent.
+
+Each tool's `doctor` command prints what it chose and why.
