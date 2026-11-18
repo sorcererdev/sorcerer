@@ -84,7 +84,7 @@ struct Def {
 }
 
 /// The lines a node covers. A node ending at column 0 ends on the line before.
-fn lines_of(n: &Node) -> Span {
+pub(crate) fn lines_of(n: &Node) -> Span {
     let (s, e) = (n.start_position(), n.end_position());
     let end = if e.column == 0 && e.row > s.row {
         e.row

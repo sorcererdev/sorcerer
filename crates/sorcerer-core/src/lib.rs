@@ -8,6 +8,7 @@ pub mod compare;
 pub mod config;
 pub mod env;
 pub mod error;
+pub mod facts;
 pub mod fingerprint;
 pub mod fnv;
 pub mod grammar;

@@ -129,3 +129,13 @@ the unit hashed to this". `Fingerprint` serialises as its seven-character string
 `compare.rs`: `compare_units(before, after)` pairs units by name and by which of that name
 they are (the second `Order` impl with the second), and says `Same`, `Changed`, `Added` or
 `Removed`. Scry's scope is the `Added` and `Changed` units of a file against `HEAD`.
+
+## Facts
+
+`facts.rs`. `facts_of(loaded, text, unit)` tells what the code says about a unit without a
+model: the lines of parse errors inside it, the lines of comments saying `TODO` or `FIXME`,
+and whether its body is empty (absent, or only comments and placeholders). All of it is
+decided by node kinds tree-sitter grammars share: a kind containing `comment`, the
+placeholders in `EMPTY_BODY_KINDS` (`pass_statement`, `ellipsis`), and a `macro_invocation`
+of `todo` or `unimplemented`. No language is named. Scry v1 does not use facts; conjure
+does.
