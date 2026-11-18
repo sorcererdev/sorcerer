@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{Config, DecideConfig, ModelConfig};
 use crate::env::Env;
+use crate::language::Languages;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
@@ -13,6 +14,8 @@ pub struct Project {
     /// The directory holding `.sorcerer/`, or the git root when there is none.
     pub root: PathBuf,
     pub config: Config,
+    /// The shipped and project language layers, merged.
+    pub languages: Languages,
     /// `.sorcerer/state`, created on first write ([`Project::state_dir`]).
     pub state: PathBuf,
 }
@@ -32,10 +35,12 @@ impl Project {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
             Err(e) => return Err(Error::io(&file, e)),
         };
+        let languages = Languages::assemble(&root, &config.languages)?;
         let state = root.join(".sorcerer/state");
         Ok(Project {
             root,
             config,
+            languages,
             state,
         })
     }

@@ -7,6 +7,7 @@ pub mod cancel;
 pub mod config;
 pub mod env;
 pub mod error;
+pub mod language;
 pub mod project;
 
 pub use cancel::Cancel;

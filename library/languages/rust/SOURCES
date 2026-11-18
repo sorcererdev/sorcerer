@@ -1,0 +1,6 @@
+# Rust: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-rust 0.24.2, git 77a3747266f4d621d0757825e6b11edcbf991ca5. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/rust/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+tags.scm         tree-sitter/tree-sitter-rust v0.24.2  77a3747266f4d621d0757825e6b11edcbf991ca5  queries/tags.scm  MIT (queries/LICENSE-tree-sitter-rust)
+impls.scm        sorcerer's own (from olifant, not vendored): an impl as a unit, named by its type.
+# changes: none (the vendored files are byte-for-byte the pinned upstream files).

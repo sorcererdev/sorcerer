@@ -37,3 +37,24 @@ of `*` into it, so nothing a tool remembers is ever committed.
 `default_provider` and `default_decider` choose what runs a model when the config does not
 say, and why, for `doctor` to print: `claude` when it is on PATH, else `anthropic` when
 `ANTHROPIC_API_KEY` is set; Jev when `JEV_API_KEY` is set.
+
+## Languages
+
+`language.rs`. A language is layers of TOML merged in order, then query files:
+
+1. **shipped**: `library/languages/<name>/{language.toml, queries/*.scm}`, embedded in the
+   binary with `include_dir!` (`SHIPPED`);
+2. **project**: `.sorcerer/languages/<name>/`, either file optional.
+
+`Languages::assemble(root, extra)` reads every layer and `merge` combines them: a top-level
+key in a later layer replaces the earlier one whole, and query files merge by name.
+`Language::origins` records which layer set each key (`files`, `grammar`, …) and each query
+file (`queries/tags.scm`), for `doctor`. A project-only language (no shipped layer) must
+have `files` and `grammar`.
+
+Core reads `files`, `grammar`, `comment`, `unit_words`, `unit_separator` and `[unit] name`
+(the `CORE_KEYS`). Every other table stays in `Language::rest` for the product that owns it;
+the product reads it with the same strictness as its config table.
+
+`Languages::for_path(rel)` gives the first language, in name order, whose `files` globs
+match a project-relative path.

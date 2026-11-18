@@ -10,6 +10,8 @@ pub enum Error {
     UnknownKey { table: String, key: String },
     #[error("no project at {}: no .sorcerer/ directory and no git repository above it", from.display())]
     NoProject { from: PathBuf },
+    #[error("language {name}: {why}")]
+    Language { name: String, why: String },
     #[error("{}: {source}", path.display())]
     Io {
         path: PathBuf,
