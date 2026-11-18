@@ -41,6 +41,12 @@ pub trait CodebaseView: Send + Sync {
     /// Files that differ from REV in the working tree, plus untracked files
     /// git does not ignore, sorted.
     fn changed_since(&self, rev: &str) -> Result<Vec<PathBuf>>;
+    /// The file's change against REV in the working tree, as `git diff` prints
+    /// it; empty when there is none (also for an untracked file).
+    fn diff(&self, path: &Path, rev: &str) -> Result<String>;
+    /// The commit id where HEAD and REV last agree. An unknown REV is
+    /// [`Error::Git`] naming it.
+    fn merge_base(&self, rev: &str) -> Result<String>;
 }
 
 pub struct FilesView {
@@ -213,5 +219,28 @@ impl CodebaseView for FilesView {
         out.sort();
         out.dedup();
         Ok(out)
+    }
+
+    fn diff(&self, path: &Path, rev: &str) -> Result<String> {
+        let rel = path.display().to_string();
+        self.git(&[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--relative",
+            "--end-of-options",
+            rev,
+            "--",
+            &rel,
+        ])
+        .map_err(|why| Error::Git { why })
+    }
+
+    fn merge_base(&self, rev: &str) -> Result<String> {
+        self.git(&["merge-base", "--end-of-options", rev, "HEAD"])
+            .map(|s| s.trim().to_string())
+            .map_err(|why| Error::Git {
+                why: format!("no merge base with {rev}: {why}"),
+            })
     }
 }

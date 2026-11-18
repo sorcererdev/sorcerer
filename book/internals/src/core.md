@@ -149,6 +149,11 @@ ask a `CodebaseView` for a file's `text`, its `text_at(rev)`, its `units`, a uni
 separate sorcerer tool will serve a codebase as a graph over an API; when a product needs
 it, that service is one more implementation of this trait.
 
+Two more questions are git's: `diff(path, rev)` is the file's change against REV in the
+working tree (`git diff --no-color --no-ext-diff`, empty for an unchanged or untracked
+file), and `merge_base(rev)` is the commit where HEAD and REV last agree, so a product can
+review a branch against where it left its base. An unknown REV is an `Error::Git` naming it.
+
 `FilesView` is the one implementation today: the working tree (walked with the `ignore`
 crate, so `.gitignore` holds), git subprocesses for `text_at` and `changed_since`, and
 tree-sitter through `Languages::load` for units and facts.

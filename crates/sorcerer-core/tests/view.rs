@@ -122,3 +122,49 @@ fn glob_lists_matching_files() {
         vec![PathBuf::from("src/a.py"), PathBuf::from("src/c/d.py")]
     );
 }
+
+#[test]
+fn diff_shows_an_uncommitted_change() {
+    let d = support::git_project();
+    support::write(d.path(), "a.py", "x = 1\n");
+    support::commit(d.path(), "a");
+    support::write(d.path(), "a.py", "x = 2\n");
+    let got = view(d.path()).diff(Path::new("a.py"), "HEAD").unwrap();
+    assert!(got.contains("-x = 1"), "{got}");
+    assert!(got.contains("+x = 2"), "{got}");
+}
+
+#[test]
+fn diff_of_an_untracked_file_is_empty() {
+    let d = project();
+    support::write(d.path(), "src/b.py", "x = 1\n");
+    assert_eq!(
+        view(d.path()).diff(Path::new("src/b.py"), "HEAD").unwrap(),
+        ""
+    );
+}
+
+#[test]
+fn merge_base_of_a_branch_is_the_branch_point() {
+    let d = support::git_project();
+    support::write(d.path(), "a.py", "x = 1\n");
+    support::commit(d.path(), "first");
+    let first = support::git(d.path(), &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    support::git(d.path(), &["checkout", "-q", "-b", "f"]);
+    support::write(d.path(), "b.py", "y = 1\n");
+    support::commit(d.path(), "on f");
+    support::git(d.path(), &["checkout", "-q", "main"]);
+    support::write(d.path(), "c.py", "z = 1\n");
+    support::commit(d.path(), "on main");
+    support::git(d.path(), &["checkout", "-q", "f"]);
+    assert_eq!(view(d.path()).merge_base("main").unwrap(), first);
+}
+
+#[test]
+fn merge_base_of_an_unknown_rev_names_it() {
+    let d = project();
+    let err = view(d.path()).merge_base("nosuch").unwrap_err();
+    assert!(err.to_string().contains("nosuch"), "{err}");
+}
