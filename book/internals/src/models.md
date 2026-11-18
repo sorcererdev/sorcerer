@@ -59,3 +59,25 @@ key to set. A model name with `/` or `:` (`qwen3:32b`) passes through.
 `[model.providers.<name>]` table by its `kind` (which defaults to the name).
 `default_provider_for(project, env)` uses core's `default_provider` to pick the name and
 says why.
+
+## Researchers
+
+`research.rs`. A researcher is a model that may look things up in the project (read a file,
+grep, glob) under fences and answer with citations. Scry's find call and the claim checker
+both need one. `Researcher::research(Research, &Cancel) -> Researched` takes the product
+and verb (for the ledger), the prompt, a model alias, the tools allowed, a spend cap and a
+timeout. Every implementation appends its errand to the ledger, success or failure; a
+timeout is charged its cap.
+
+There are two ways to get one:
+
+- **`ClaudeCodeResearcher`** (`research/claude_code.rs`): `claude -p` in the project root
+  with `--tools Read,Grep,Glob`. The fences become `claude`'s deny rules
+  (`Read(./**/.env*)` and so on, which fence Grep and Glob too) and a line in the system
+  prompt (`prompts/fence.md`). Web tools are denied.
+- **`LoopResearcher`** (`research/tool_loop.rs`): core's own tool loop over any provider
+  that supports tools.
+
+`RecordedResearcher` (`research/recorded.rs`) answers from `<dir>/<key>.json`, where the
+key is FNV-1a 64 of the model and the prompt. A missing recording is an error, unless a live
+researcher is given to record it.

@@ -1,0 +1,1 @@
+The repository is the current directory. Search and read only inside it: never a parent directory, the home directory or another repository. These paths are not evidence and must not be read: {fences}. They hold secrets, sorcerer's own state and earlier answers, which would only repeat what the writer believes; judge from the code alone.

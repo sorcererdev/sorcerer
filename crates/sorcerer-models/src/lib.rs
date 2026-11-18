@@ -5,5 +5,6 @@
 pub mod error;
 pub mod provider;
 pub mod providers;
+pub mod research;
 
 pub use error::{Error, Result};
