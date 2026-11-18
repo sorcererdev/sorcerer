@@ -132,6 +132,15 @@ impl Languages {
             .and_then(|(n, _)| self.by_name.get(n))
     }
 
+    /// Points NAME's grammar at SOURCE (vendored sources in tests, an
+    /// offline mirror). Does nothing when there is no such language.
+    pub fn override_grammar(&mut self, name: &str, source: GrammarSource) {
+        if let Some(l) = self.by_name.get_mut(name) {
+            l.grammar = source;
+            l.origins.insert("grammar".into(), "override".into());
+        }
+    }
+
     pub fn names(&self) -> Vec<&str> {
         self.by_name.keys().map(String::as_str).collect()
     }

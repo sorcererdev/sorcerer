@@ -7,6 +7,8 @@ pub mod cancel;
 pub mod config;
 pub mod env;
 pub mod error;
+pub mod fnv;
+pub mod grammar;
 pub mod language;
 pub mod project;
 

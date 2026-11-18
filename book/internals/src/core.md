@@ -58,3 +58,31 @@ the product reads it with the same strictness as its config table.
 
 `Languages::for_path(rel)` gives the first language, in name order, whose `files` globs
 match a project-relative path.
+
+## Grammars
+
+`grammar.rs`, ported from olifant's `Language/Grammar.hs`. No grammar is compiled into a
+binary. `grammar::load(cache, name, source)` returns a `tree_sitter::Language`:
+
+1. `library_path` names the compiled library `<cache>/<name>-<key>.<dylib|so>`. The key is
+   FNV-1a 64 (`fnv.rs`) over the source's identity (the git rev, or a local directory's
+   path with `parser.c`'s and `scanner.c`'s sizes and times), the tree-sitter runtime's
+   ABI, the OS and the arch. A changed key is a new file.
+2. `build_if_absent` fetches a git source into `<cache>/src/<name>-<rev7>/` (`git fetch
+   --depth 1` of the pinned rev; only `https`, `ssh`, `git` and `file` URLs, since git's
+   `ext::` transport would run a command) and compiles `parser.c` and `scanner.c` with
+   `cc -shared -fPIC -O2`.
+3. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`, checks the ABI
+   against the runtime's range, and leaks the library handle so the language outlives
+   every parser.
+
+The cache is the user's (`GrammarCache::user`: `~/.cache/sorcerer/grammars`), shared by
+every project. Every write goes to a temporary name and is renamed into place, so a
+reader never sees half a library and two processes building at once race harmlessly.
+`load` remembers each library once per process, failures included.
+
+A missing compiler is `Error::NoCompiler` with an install hint, never a silent fallback:
+every reader of units would be wrong in a different way.
+
+Tests never fetch: `tests/grammars/{python,rust}` hold the vendored sources at the
+shipped pins, and `Languages::override_grammar` points a language at them.

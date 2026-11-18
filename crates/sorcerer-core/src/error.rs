@@ -12,6 +12,21 @@ pub enum Error {
     NoProject { from: PathBuf },
     #[error("language {name}: {why}")]
     Language { name: String, why: String },
+    #[error("grammar {name}: {why}")]
+    GrammarFetch { name: String, why: String },
+    #[error("no C compiler (cc) found; install one: {hint}")]
+    NoCompiler { hint: String },
+    #[error("grammar {name} did not compile: {stderr}")]
+    GrammarBuild { name: String, stderr: String },
+    #[error("grammar {name} could not be loaded: {why}")]
+    GrammarLoad { name: String, why: String },
+    #[error("grammar {name} has ABI {abi}; this sorcerer reads {min}–{max}")]
+    GrammarAbi {
+        name: String,
+        abi: usize,
+        min: usize,
+        max: usize,
+    },
     #[error("{}: {source}", path.display())]
     Io {
         path: PathBuf,
