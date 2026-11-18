@@ -5,6 +5,7 @@
 
 pub mod anthropic;
 pub mod claude;
+pub mod openai;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;

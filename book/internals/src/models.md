@@ -44,3 +44,18 @@ and `duration_ms` the time; `is_error` is an error with the result's text.
 `run_claude` is shared with the claude researcher. It runs the child in its own process
 group and kills the group on timeout or cancel, so nothing `claude` started is left
 running. Aliases pass straight through: `claude` understands `sonnet` and `haiku` itself.
+
+### openai-compatible
+
+`provider/openai.rs`. Any server speaking OpenAI's chat completions (Ollama, LM Studio,
+vLLM, OpenAI and most others): `POST {url}/chat/completions`, tools in the function shape,
+tool results as `tool` messages. There are no shipped aliases; the table's `aliases` say
+which model an alias means on that server, and an unmapped alias is an error naming the
+key to set. A model name with `/` or `:` (`qwen3:32b`) passes through.
+
+### Choosing a provider
+
+`providers.rs`. `provider_named(project, name, env)` builds the provider of a
+`[model.providers.<name>]` table by its `kind` (which defaults to the name).
+`default_provider_for(project, env)` uses core's `default_provider` to pick the name and
+says why.

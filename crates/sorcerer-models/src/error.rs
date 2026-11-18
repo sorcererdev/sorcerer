@@ -26,6 +26,8 @@ pub enum Error {
     },
     #[error("{provider}: {why}")]
     Reply { provider: String, why: String },
+    #[error("{why}")]
+    Setup { why: String },
     #[error("{runner}: {why}")]
     Subprocess { runner: String, why: String },
 }

@@ -35,3 +35,22 @@ Out of the box, sorcerer needs two things:
   same) with calibrated probabilities, for a fraction of a cent.
 
 Each tool's `doctor` command prints what it chose and why.
+
+## Other providers
+
+Any OpenAI-compatible server works as a provider. For a local Ollama:
+
+```toml
+# .sorcerer/config.toml
+[model]
+provider = "local"
+
+[model.providers.local]
+kind = "openai-compatible"
+url = "http://localhost:11434/v1"
+# which model each name the tools ask for means here
+aliases = { sonnet = "qwen3:32b", haiku = "qwen3:8b" }
+```
+
+Add `api_key_env = "MY_KEY"` when the server needs a key, and `prices = { sonnet = [0.5,
+1.5] }` (dollars per million input and output tokens) if you want its spend counted.
