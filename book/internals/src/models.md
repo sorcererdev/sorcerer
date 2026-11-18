@@ -81,3 +81,22 @@ There are two ways to get one:
 `RecordedResearcher` (`research/recorded.rs`) answers from `<dir>/<key>.json`, where the
 key is FNV-1a 64 of the model and the prompt. A missing recording is an error, unless a live
 researcher is given to record it.
+
+### LoopResearcher
+
+`research/tool_loop.rs` and `research/tools.rs`. Core's own tool loop, which makes any
+provider with tools (Anthropic's API, an OpenAI-compatible server) a researcher. It sends
+the prompt; while the model asks for tools it runs them and sends the results back; it
+stops when the model answers, at `MAX_TURNS` (12), or when the spend reaches the cap. One
+errand covers the whole research, its usage and cost summed over the turns.
+
+The three tools run over the `CodebaseView`, under fences:
+
+| tool | gives the model | limits |
+|---|---|---|
+| `read` | the file's lines, numbered, optionally a range | 400 lines |
+| `grep` | `path:line: text` for each hit | 100 hits, 200 characters a line |
+| `glob` | matching paths | 200 paths |
+
+A fenced `read` returns exactly `refused: <path> is fenced (not evidence)` and never opens
+the file. Fenced `grep` hits and `glob` paths are dropped, and `grep` says how many.

@@ -6,6 +6,8 @@
 
 pub mod claude_code;
 pub mod recorded;
+pub mod tool_loop;
+pub mod tools;
 
 use std::path::PathBuf;
 use std::time::Duration;
