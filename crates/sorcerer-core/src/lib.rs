@@ -16,6 +16,7 @@ pub mod language;
 pub mod project;
 pub mod query;
 pub mod unit;
+pub mod view;
 
 pub use cancel::Cancel;
 pub use error::{Error, Result};

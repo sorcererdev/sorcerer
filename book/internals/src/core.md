@@ -139,3 +139,23 @@ decided by node kinds tree-sitter grammars share: a kind containing `comment`, t
 placeholders in `EMPTY_BODY_KINDS` (`pass_statement`, `ellipsis`), and a `macro_invocation`
 of `todo` or `unimplemented`. No language is named. Scry v1 does not use facts; conjure
 does.
+
+## The codebase view
+
+`view.rs`. Products and the researcher's tools never touch the file system directly: they
+ask a `CodebaseView` for a file's `text`, its `text_at(rev)`, its `units`, a unit's
+`facts`, a `grep`, a `glob`, or the files `changed_since(rev)`. The trait exists because a
+separate sorcerer tool will serve a codebase as a graph over an API; when a product needs
+it, that service is one more implementation of this trait.
+
+`FilesView` is the one implementation today: the working tree (walked with the `ignore`
+crate, so `.gitignore` holds), git subprocesses for `text_at` and `changed_since`, and
+tree-sitter through `Languages::load` for units and facts.
+
+To see units on a real file, run the demo from inside a project:
+
+```text
+cargo run -p sorcerer-core --example units -- src/orders.py
+```
+
+It prints each unit's lines, fingerprint, kind and name, then what changed against `HEAD`.

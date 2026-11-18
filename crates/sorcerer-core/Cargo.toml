@@ -17,6 +17,10 @@ globset.workspace = true
 tree-sitter.workspace = true
 tree-sitter-language.workspace = true
 libloading.workspace = true
+ignore.workspace = true
+grep-regex.workspace = true
+grep-searcher.workspace = true
 
 [dev-dependencies]
+anyhow.workspace = true
 tempfile.workspace = true

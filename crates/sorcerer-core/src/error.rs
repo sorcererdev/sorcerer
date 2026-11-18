@@ -29,6 +29,10 @@ pub enum Error {
     },
     #[error("query {file}: {why}")]
     Query { file: String, why: String },
+    #[error("{} is not UTF-8 text", path.display())]
+    NotText { path: PathBuf },
+    #[error("git: {why}")]
+    Git { why: String },
     #[error("{}: {source}", path.display())]
     Io {
         path: PathBuf,

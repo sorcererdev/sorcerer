@@ -1,0 +1,217 @@
+//! The questions a product asks about a codebase, behind one trait so that
+//! a service (the graph tool the design names in §3) can answer them later.
+//! `FilesView` answers them from the working tree, git and tree-sitter.
+//! Every path is relative to the project root.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Arc;
+
+use globset::Glob;
+use grep_regex::RegexMatcher;
+use grep_searcher::Searcher;
+use grep_searcher::sinks::UTF8;
+
+use crate::facts::{Facts, facts_of};
+use crate::grammar::GrammarCache;
+use crate::unit::{Unit, units_of};
+use crate::{Error, Project, Result};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrepHit {
+    pub path: PathBuf,
+    /// 1-based.
+    pub line: u32,
+    /// The line without its line ending.
+    pub text: String,
+}
+
+pub trait CodebaseView: Send + Sync {
+    /// The file's text now. Not UTF-8 is [`Error::NotText`].
+    fn text(&self, path: &Path) -> Result<String>;
+    /// The file's text at REV; None when it did not exist there.
+    fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>>;
+    /// The file's units now; empty when no language covers it.
+    fn units(&self, path: &Path) -> Result<Vec<Unit>>;
+    fn facts(&self, path: &Path, unit: &Unit) -> Result<Facts>;
+    /// Lines matching PATTERN (a regex), in files matching GLOB when given.
+    fn grep(&self, pattern: &str, glob: Option<&str>) -> Result<Vec<GrepHit>>;
+    /// Files matching PATTERN, sorted.
+    fn glob(&self, pattern: &str) -> Result<Vec<PathBuf>>;
+    /// Files that differ from REV in the working tree, plus untracked files
+    /// git does not ignore, sorted.
+    fn changed_since(&self, rev: &str) -> Result<Vec<PathBuf>>;
+}
+
+pub struct FilesView {
+    project: Arc<Project>,
+    cache: GrammarCache,
+}
+
+impl FilesView {
+    pub fn new(project: Arc<Project>, cache: GrammarCache) -> FilesView {
+        FilesView { project, cache }
+    }
+
+    pub fn project(&self) -> &Project {
+        &self.project
+    }
+
+    fn git(&self, args: &[&str]) -> std::result::Result<String, String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&self.project.root)
+            .args(args)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+
+    /// Every file under the root that git would not ignore, relative, sorted.
+    fn files(&self) -> Vec<PathBuf> {
+        let root = &self.project.root;
+        let mut out: Vec<PathBuf> = ignore::WalkBuilder::new(root)
+            .require_git(false)
+            .build()
+            .flatten()
+            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+            .filter_map(|e| e.path().strip_prefix(root).ok().map(Path::to_path_buf))
+            .collect();
+        out.sort();
+        out
+    }
+
+    fn units_in(&self, path: &Path, text: &str) -> Result<Vec<Unit>> {
+        match self.project.languages.for_path(path) {
+            None => Ok(Vec::new()),
+            Some(lang) => {
+                let loaded = self.project.languages.load(&lang.name, &self.cache)?;
+                units_of(&loaded, text)
+            }
+        }
+    }
+}
+
+fn glob_matcher(pattern: &str) -> Result<globset::GlobMatcher> {
+    Glob::new(pattern)
+        .map(|g| g.compile_matcher())
+        .map_err(|e| Error::Config {
+            file: PathBuf::from(pattern),
+            why: e.to_string(),
+        })
+}
+
+impl CodebaseView for FilesView {
+    fn text(&self, path: &Path) -> Result<String> {
+        let full = self.project.root.join(path);
+        let bytes = std::fs::read(&full).map_err(|e| Error::io(&full, e))?;
+        String::from_utf8(bytes).map_err(|_| Error::NotText {
+            path: path.to_path_buf(),
+        })
+    }
+
+    fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>> {
+        let commit = format!("{rev}^{{commit}}");
+        self.git(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &commit,
+        ])
+        .map_err(|_| Error::Git {
+            why: format!("{rev} is not a commit"),
+        })?;
+        let object = format!("{rev}:./{}", path.display());
+        if self
+            .git(&["cat-file", "-e", "--end-of-options", &object])
+            .is_err()
+        {
+            return Ok(None);
+        }
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&self.project.root)
+            .args(["show", "--end-of-options", &object])
+            .output()
+            .map_err(|e| Error::Git { why: e.to_string() })?;
+        String::from_utf8(out.stdout)
+            .map(Some)
+            .map_err(|_| Error::NotText {
+                path: path.to_path_buf(),
+            })
+    }
+
+    fn units(&self, path: &Path) -> Result<Vec<Unit>> {
+        if self.project.languages.for_path(path).is_none() {
+            return Ok(Vec::new());
+        }
+        let text = self.text(path)?;
+        self.units_in(path, &text)
+    }
+
+    fn facts(&self, path: &Path, unit: &Unit) -> Result<Facts> {
+        let Some(lang) = self.project.languages.for_path(path) else {
+            return Ok(Facts::default());
+        };
+        let loaded = self.project.languages.load(&lang.name, &self.cache)?;
+        facts_of(&loaded, &self.text(path)?, unit)
+    }
+
+    fn grep(&self, pattern: &str, glob: Option<&str>) -> Result<Vec<GrepHit>> {
+        let matcher = RegexMatcher::new(pattern).map_err(|e| Error::Config {
+            file: PathBuf::from("grep"),
+            why: e.to_string(),
+        })?;
+        let only = glob.map(glob_matcher).transpose()?;
+        let mut hits = Vec::new();
+        for path in self.files() {
+            if only.as_ref().is_some_and(|g| !g.is_match(&path)) {
+                continue;
+            }
+            let full = self.project.root.join(&path);
+            let _ = Searcher::new().search_path(
+                &matcher,
+                &full,
+                UTF8(|line, text| {
+                    hits.push(GrepHit {
+                        path: path.clone(),
+                        line: line as u32,
+                        text: text.trim_end_matches(['\n', '\r']).to_string(),
+                    });
+                    Ok(true)
+                }),
+            );
+        }
+        Ok(hits)
+    }
+
+    fn glob(&self, pattern: &str) -> Result<Vec<PathBuf>> {
+        let g = glob_matcher(pattern)?;
+        Ok(self.files().into_iter().filter(|p| g.is_match(p)).collect())
+    }
+
+    fn changed_since(&self, rev: &str) -> Result<Vec<PathBuf>> {
+        let git = |args: &[&str]| self.git(args).map_err(|why| Error::Git { why });
+        let mut out: Vec<PathBuf> = git(&[
+            "diff",
+            "--name-only",
+            "--relative",
+            "--end-of-options",
+            rev,
+            "--",
+        ])?
+        .lines()
+        .chain(git(&["ls-files", "--others", "--exclude-standard"])?.lines())
+        .filter(|l| !l.is_empty())
+        .map(PathBuf::from)
+        .collect();
+        out.sort();
+        out.dedup();
+        Ok(out)
+    }
+}

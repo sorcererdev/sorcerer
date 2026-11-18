@@ -1,0 +1,124 @@
+mod support;
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use sorcerer_core::Project;
+use sorcerer_core::view::{CodebaseView, FilesView};
+
+fn view(d: &Path) -> FilesView {
+    let mut p = Project::open(d).unwrap();
+    p.languages = support::languages_with_vendored_grammars();
+    FilesView::new(Arc::new(p), support::test_cache())
+}
+
+fn project() -> tempfile::TempDir {
+    let d = support::git_project();
+    support::write(d.path(), "src/a.py", "def f():\n    return 1\n");
+    support::write(d.path(), ".gitignore", "build/\n");
+    support::commit(d.path(), "a");
+    d
+}
+
+#[test]
+fn text_at_head_is_the_committed_text() {
+    let d = project();
+    support::write(d.path(), "src/a.py", "def f():\n    return 2\n");
+    let v = view(d.path());
+    assert_eq!(
+        v.text_at(Path::new("src/a.py"), "HEAD").unwrap().as_deref(),
+        Some("def f():\n    return 1\n")
+    );
+    assert_eq!(
+        v.text(Path::new("src/a.py")).unwrap(),
+        "def f():\n    return 2\n"
+    );
+}
+
+#[test]
+fn text_at_head_of_an_untracked_file_is_none() {
+    let d = project();
+    support::write(d.path(), "src/b.py", "x = 1\n");
+    assert_eq!(
+        view(d.path())
+            .text_at(Path::new("src/b.py"), "HEAD")
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn text_at_a_bad_rev_is_an_error() {
+    let d = project();
+    assert!(
+        view(d.path())
+            .text_at(Path::new("src/a.py"), "no-such-branch")
+            .is_err()
+    );
+}
+
+#[test]
+fn changed_since_head_lists_edited_and_untracked_files() {
+    let d = project();
+    support::write(d.path(), "src/a.py", "def f():\n    return 2\n");
+    support::write(d.path(), "src/b.py", "x = 1\n");
+    support::write(d.path(), "build/out.py", "x = 1\n");
+    let got = view(d.path()).changed_since("HEAD").unwrap();
+    assert_eq!(
+        got,
+        vec![PathBuf::from("src/a.py"), PathBuf::from("src/b.py")]
+    );
+}
+
+#[test]
+fn units_of_a_python_file_and_none_for_markdown() {
+    let d = project();
+    support::write(d.path(), "README.md", "# hi\n");
+    let v = view(d.path());
+    assert_eq!(v.units(Path::new("src/a.py")).unwrap()[0].name, "f");
+    assert!(v.units(Path::new("README.md")).unwrap().is_empty());
+}
+
+#[test]
+fn facts_of_a_unit() {
+    let d = project();
+    let v = view(d.path());
+    let u = v.units(Path::new("src/a.py")).unwrap().remove(0);
+    assert!(!v.facts(Path::new("src/a.py"), &u).unwrap().body_empty);
+}
+
+#[test]
+fn a_non_utf8_file_is_not_text() {
+    let d = project();
+    std::fs::write(d.path().join("bin.dat"), [0xff, 0xfe, 0x00]).unwrap();
+    let e = view(d.path()).text(Path::new("bin.dat")).unwrap_err();
+    assert!(matches!(e, sorcerer_core::Error::NotText { .. }), "{e}");
+}
+
+#[test]
+fn grep_finds_lines_and_respects_gitignore() {
+    let d = project();
+    support::write(d.path(), "build/out.py", "return 1\n");
+    let hits = view(d.path()).grep("return 1", None).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(
+        (hits[0].path.as_path(), hits[0].line, hits[0].text.as_str()),
+        (Path::new("src/a.py"), 2, "    return 1")
+    );
+    assert!(
+        view(d.path())
+            .grep("return", Some("**/*.md"))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn glob_lists_matching_files() {
+    let d = project();
+    support::write(d.path(), "src/c/d.py", "");
+    assert_eq!(
+        view(d.path()).glob("src/**/*.py").unwrap(),
+        vec![PathBuf::from("src/a.py"), PathBuf::from("src/c/d.py")]
+    );
+}
