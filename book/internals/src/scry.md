@@ -15,11 +15,12 @@
   `Report`, `Outcome`, `merge_into`.
 - `src/rounds.rs`: `find_estimate`, `check_estimate`, `Budget`, `cost_of`, and the
   crate-private `verify` (with `Around`, `Verified`).
+- `src/live.rs`: `Live`, `Wired`, `jev_for`, `checker_over`, `PRODUCT`.
+- `src/cli.rs`: `main`, `main_with`, `doctor_rows`.
+- `src/main.rs`: the binary, `cli::main` with the real environment.
 - `tests/support/mod.rs`: git fixtures, `project_with_vendored_grammars`, and the doubles
   `StubFinder`, `StubDecider`, `FixedClock`.
 - `library/scry.md`: the shipped steering layer.
-
-A later task adds the CLI here.
 
 ## Config
 
@@ -259,6 +260,58 @@ sent, so what opened shows before the checks finish. The round's checks run side
 and added to the finding's `cost_usd`); an `Err` leaves it waiting, its place free for the
 next round, which takes the rest. The rounds end when a round takes nobody.
 
+## The live wiring
+
+`src/live.rs`. `Wired` is what the command line needs from a wiring: `deps()`, the pass's
+`PassDeps`, and `cancel()`. `Live` is the real one, built by `Live::open(project, env)`:
+
+- Jev first, by `jev_for`: `Jev::from_env` over `[decide]` with the project's ledger, then
+  `for_product("scry")`, so its errands are scry's `decide`. No key is an error naming the
+  variable (`JEV_API_KEY` unless `[decide] key_env` says otherwise).
+- The provider by `default_provider_for`. When its kind is `claude` the researcher is
+  `ClaudeCodeResearcher` (Claude Code reads the files itself); otherwise `LoopResearcher` over
+  the provider, the view, the fences and the ledger.
+- The view, a `FilesView` on the user's `GrammarCache`.
+- The finder, `LiveFinder`, which lends the shared researcher to a `ResearchFinder` per call
+  (scry's `find`).
+- The claim checker, `checker_over(researcher, decider, fences, view, cancel)`: a boxed
+  closure that runs `sorcerer_models::checker::check` with `CheckerDeps::defaults(.., "scry")`,
+  so its errands are scry's `check` and Jev guards it.
+- `SystemClock`, and a progress callback that prints nothing.
+
+Everything is shared through `Arc`s so `Live` owns it all and `deps()` lends it.
+
+## The command line
+
+`src/cli.rs`, parsed with clap (`Cli`, `RunArgs`, `Cmd`; `args_conflicts_with_subcommands`, so
+bare files and subcommands do not mix). `main(args, env, out, err)` is what the binary calls:
+it takes the process's directory, the terminal's width (`terminal_size`, 100 when stdout is not
+a terminal) and `Live::open` as the wiring, and hands them to `main_with`, which the tests call
+with their own directory, width and a `Wired` of doubles. Every error is one `scry: …` line on
+stderr and exit 2; clap's usage errors exit 2, `--help` 0.
+
+A run (`run`): open the project from the directory, `scry_config`, the wiring, then
+`scope_of` with `Since(rev)`, `Named` (files joined to the directory, so `../a.py` works from a
+subdirectory) or `Working`; `pass` with `Caps { pass: None, day: day_cost, budget: --budget }`
+(the day's cap already counts what scry spent earlier today, so leaving `budget` unset is "the
+day's remaining"); then the store is read again and `shown_in_scope` takes every open finding
+of a shown kind whose place's file and unit are a scope unit, best `keep` first, with no
+`max_shown`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
+one object a line. The summary line is skipped when nothing was shown, looked at or spent.
+`held_back` prints the failures and caps. Exit: `Skipped` or an error is 2; anything shown is
+1; else 2 when a find failed, a unit was capped or a claim check was held back
+(`Report::checks_capped`), else 0.
+
+`doctor_rows(project, env, cache)` reads only (the store through `Store::at`, the ledger
+through `Ledger::at`, so nothing creates `.sorcerer/state`): `provider` (`default_provider_for`),
+`jev` (`Jev::from_env` without a ledger), `languages` (`[languages] names`, else the
+languages whose `files` cover a file `glob("**")` lists, each `Languages::load`ed through the
+cache), `steering`, `store` and `ledger`. `doctor` prints them `name  ok|FAIL  detail` and
+exits 2 when any failed.
+
+`list`, `cost`, `dismiss` and `why` are parsed but print "not built yet" and exit 2 until the
+next task.
+
 ## Test support
 
 `crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
@@ -273,3 +326,7 @@ as a paid call would append it. The rounds tests (`tests/rounds.rs`) seed waitin
 straight into the store with `cancel` already inspected, so no find call runs, and pass a
 claim checker closure; the pass tests use one that always errs (a waiting finding stays
 waiting).
+
+The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar view, `StubFinder`,
+`StubDecider`, `FixedClock` and a checker that says right) into `main_with` through
+`impl Wired for &Doubles`, so the finder's asks can be read after two runs.

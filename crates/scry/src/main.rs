@@ -1,1 +1,15 @@
-fn main() {}
+use std::io::Write;
+
+use sorcerer_core::env::SystemEnv;
+
+fn main() {
+    let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());
+    let code = scry::cli::main(
+        std::env::args_os().collect(),
+        &SystemEnv,
+        &mut out,
+        &mut err,
+    );
+    let _ = out.flush();
+    std::process::exit(code);
+}

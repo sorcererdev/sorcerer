@@ -13,6 +13,76 @@ lost: a later pass can raise a finding again.
 Findings stay in `.sorcerer/state/scry/findings.json` until the code changes or you dismiss
 them. Scry spends money, so it stops at a per-pass and a per-day cap.
 
+## Running scry
+
+```
+scry                       # the units your working tree changed against HEAD
+scry src/orders.py …       # the changed units of these files (--all: every unit)
+scry --since main          # what your branch changed since it left main
+scry --json                # the findings as JSON, one object a line
+scry --fresh               # look again at units already looked at as they are now
+scry --budget 0.50         # spend at most this much on this run
+scry doctor                # whether scry can run here
+```
+
+A run looks at the units in scope it has not already looked at as they are now, then prints
+every open finding placed in a unit in scope, best first, the ones found earlier included. So
+running `scry` twice prints the same findings twice, and the second run costs nothing:
+
+```
+src/orders/cancel.py:41  bug  cancel() returns None when the repository has no order with that id; the
+                              caller in api/orders.py:88 indexes the result.  (0.91)
+  evidence: src/orders/cancel.py:41-44, src/api/orders.py:86-90
+  scry why 7f3a2c
+1 finding, 2 units looked at, $0.05
+```
+
+Each finding is its place, its kind and its statement, wrapped to your terminal (100 columns
+when the output is not a terminal), then Jev's keep score: one minus the chance it is a
+nitpick. Under it are the lines it cites and the command that shows it in full. The last line
+counts the findings, the units sent to the finder this run and what the run spent; a run that
+had nothing to look at and nothing to show prints nothing.
+
+With `--json`, each finding is one line on stdout:
+`{"id", "kind", "rule", "statement", "file", "lines": [first, last], "unit", "evidence":
+[{"file", "lines"}], "keep", "verdict", "status"}`. The summary line goes to stderr.
+
+Problems go to stderr, one line each: a find call that failed (`scry: find failed for
+src/a.py: …`; its units are looked at again next run), and units or a claim check a cap held
+back (`scry: the day's cap stopped 2 units; they wait for the next run`).
+
+A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`) is passed as
+`./list`. `--since` takes no files.
+
+### Exit codes
+
+| code | means |
+|---|---|
+| 0 | nothing open in scope |
+| 1 | open findings in scope |
+| 2 | scry could not run: no Jev key, no provider, the store does not read, a bad `--since` rev; or nothing is open but a find call failed or a cap held work back |
+
+So a pre-commit hook is one line, in `.git/hooks/pre-commit`:
+
+```sh
+scry || exit $?
+```
+
+### Doctor
+
+`scry doctor` checks, a row each, what a run needs, and writes nothing:
+
+- `provider`: the model provider scry would use, and why (`[model] provider`, else `claude`
+  on PATH, else `ANTHROPIC_API_KEY`). Scry runs Claude Code itself as the finder when
+  the provider is `claude`.
+- `jev`: Jev's key (`JEV_API_KEY`, or `[decide] key_env`). Scry does not run without Jev.
+- `languages`: each language your files use (or `[languages] names`) loads its grammar.
+- `steering`: the rules in `.sorcerer/scry.md`.
+- `store`: the finding store reads (one from a newer scry does not, and is left alone).
+- `ledger`: the cost ledger reads.
+
+It exits 2 when any row fails.
+
 ## What a pass looks at
 
 A pass looks at the units a change adds or alters, compared with a base:
