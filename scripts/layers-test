@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Tests scripts/layers over a throwaway crate: each planted violation is
+# refused by name, and clean code passes.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+check="$here/layers"
+d=$(mktemp -d)
+trap 'rm -rf "$d"' EXIT
+src="$d/crates/x/src"
+mkdir -p "$src/domain" "$src/ports" "$src/usecases/feature" "$src/adapters" "$src/cli"
+
+put() { mkdir -p "$(dirname "$src/$1")"; cat > "$src/$1"; }
+
+put domain/grouped.rs <<'EOF'
+use crate::{
+    adapters::wiring::Wiring,
+};
+EOF
+put domain/one_line.rs <<'EOF'
+use crate::{cli::format, domain::finding};
+EOF
+put domain/plain.rs <<'EOF'
+use crate::ports::reviewer::Reviewer;
+EOF
+put domain/std_group.rs <<'EOF'
+use std::{env, fmt};
+EOF
+put domain/clock.rs <<'EOF'
+fn x() { let _ = std::time::Instant::now(); }
+EOF
+put domain/stdin.rs <<'EOF'
+fn x() { let _ = std::io::stdin(); }
+EOF
+put domain/foreign.rs <<'EOF'
+use sorcerer_core::adapters::project;
+EOF
+put domain/helper_then_code.rs <<'EOF'
+#[cfg(test)]
+fn helper() {}
+
+use crate::adapters::late;
+EOF
+put domain/tested.rs <<'EOF'
+pub fn pure() {}
+
+#[cfg(test)]
+mod tests {
+    use crate::adapters::fixture;
+    fn f() { let _ = std::fs::read("a"); }
+}
+EOF
+put usecases/feature/step.rs <<'EOF'
+use super::super::super::adapters::scry_toml;
+use super::other_step;
+EOF
+put usecases/feature/mod.rs <<'EOF'
+mod step;
+// use crate::adapters::only_a_comment;
+use crate::domain::fine;
+EOF
+put ports/port.rs <<'EOF'
+use crate::usecases::feature;
+EOF
+put adapters/a.rs <<'EOF'
+use crate::cli::format;
+use crate::usecases::feature;
+EOF
+put cli/c.rs <<'EOF'
+use crate::adapters::a;
+EOF
+
+out=$("$check" "$d" 2>&1) && { echo "FAIL: layers passed a tree full of violations"; exit 1; }
+want=(
+  "domain/grouped.rs:2: domain may not use crate::adapters"
+  "domain/one_line.rs:1: domain may not use crate::cli"
+  "domain/plain.rs:1: domain may not use crate::ports"
+  "domain/std_group.rs:1: domain may not use std::env"
+  "domain/clock.rs:1: domain may not use Instant::now"
+  "domain/stdin.rs:1: domain may not use std::io::stdin"
+  "domain/foreign.rs:1: domain may not use sorcerer_core::adapters"
+  "domain/helper_then_code.rs:4: domain may not use crate::adapters"
+  "usecases/feature/step.rs:1: usecases may not use crate::adapters"
+  "ports/port.rs:1: ports may not use crate::usecases"
+  "adapters/a.rs:1: adapters may not use crate::cli"
+)
+for w in "${want[@]}"; do
+  if ! grep -qF "crates/x/src/$w" <<<"$out"; then
+    echo "FAIL: missing: $w"; echo "$out"; exit 1
+  fi
+done
+n=$(grep -c . <<<"$out")
+if [ "$n" -ne "${#want[@]}" ]; then
+  echo "FAIL: expected ${#want[@]} refusals, got $n:"; echo "$out"; exit 1
+fi
+echo "layers-test: ${#want[@]} refusals as expected"

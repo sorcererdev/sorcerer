@@ -169,7 +169,7 @@ It prints each unit's lines, fingerprint, kind and name, then what changed again
 
 ## Stores
 
-`adapters/json_store.rs`. A product's state is a `Store<T>`: one JSON file under
+`adapters/json_store.rs` (the data, `Versioned` and `Snapshot`, are `domain/versioned.rs`). A product's state is a `Store<T>`: one JSON file under
 `.sorcerer/state/<product>/`, shaped `{"version": N, "data": …}`, where `T: Versioned`
 names its `VERSION`.
 

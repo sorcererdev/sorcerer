@@ -15,11 +15,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use sorcerer_core::adapters::json_store::Snapshot;
 use sorcerer_core::domain::cost::spent_in;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::versioned::Snapshot;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Cancel, Error, Result};

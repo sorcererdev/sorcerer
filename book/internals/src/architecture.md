@@ -11,9 +11,11 @@ Every crate is laid out the same way, in layers. A layer is a directory under th
 | `adapters/` | the ports implemented over the disk, git, a model, the clock; the wiring | anything but `cli` |
 | `cli/` | parse the arguments, call one use case, print | anything |
 
-A crate root (`lib.rs`, `main.rs`, `error.rs`, `cancel.rs`) sits outside the layers. A crate
-uses another crate's public items freely: scry's use cases call core's `Fences::for_project`
-and read core's `Snapshot`; the rule is about the layers inside one crate.
+A crate root (`lib.rs`, `main.rs`, `error.rs`, `cancel.rs`) sits outside the layers. Across
+crates the same rule holds: a product's `domain/`, `ports/` and `usecases/` use another
+crate's domain and ports (core's `Snapshot`, `CodebaseView`, `Ledger`; models' `Decider`), never
+its `adapters/`. What needs a real adapter (scry's `doctor`, which probes the provider, Jev's
+key and the grammars) lives in `cli/` or `adapters/`.
 
 A domain type whose construction needs the disk keeps that half as an inherent `impl` in an
 adapter file: `struct Project` is `domain/project.rs`, `Project::open` is
@@ -27,12 +29,13 @@ method names and the domain file stays pure.
 - `domain/`: `config.rs` (the parsed `.sorcerer/config.toml`), `project.rs` (`Project`),
   `language.rs` (the merged language layers, `Languages`), `query.rs` (compiled queries),
   `unit.rs` (units from the queries), `fingerprint.rs`, `compare.rs` (units before and
-  after), `facts.rs`, `errand.rs` (one paid call), `cost.rs` (`spent_in`), `fences.rs` (the
+  after), `facts.rs`, `versioned.rs` (`Versioned`, `Snapshot`: a product's state file as data),
+  `errand.rs` (one paid call), `cost.rs` (`spent_in`), `fences.rs` (the
   patterns and `allows_relative`), `fnv.rs`.
 - `ports/`: `view.rs` (`CodebaseView`), `ledger.rs` (`Ledger`), `env.rs` (`Env`).
 - `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars fetched,
   built and loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
-  `json_store.rs` (`Store`, `Versioned`, `Snapshot`), `jsonl_ledger.rs` (`JsonlLedger`),
+  `json_store.rs` (`Store`), `jsonl_ledger.rs` (`JsonlLedger`),
   `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`), `env.rs`
   (`SystemEnv`, `MapEnv`).
 
@@ -53,8 +56,7 @@ method names and the domain file stays pure.
 
 - `usecases/`: `review_change/` (`mod.rs` with `review_change` and its request, ports and
   report; the steps `scope.rs`, `ask.rs`, `judge.rs`, `remember.rs`, `verify.rs`),
-  `list_findings.rs`, `explain_finding.rs`, `dismiss_finding.rs`, `report_cost.rs`,
-  `check_setup.rs`.
+  `list_findings.rs`, `explain_finding.rs`, `dismiss_finding.rs`, `report_cost.rs`.
 - `domain/`: `config.rs`, `issue_type.rs`, `finding.rs`, `findings.rs`, `steering.rs`,
   `scope.rs`, `review_prompt.rs`, `judging.rs`, `budget.rs`, `verification.rs`,
   `log_text.rs`.
@@ -93,11 +95,17 @@ An editor's language server is one more caller beside `cli/`: it calls the same 
 
 ## The rule, checked
 
-`scripts/layers` runs in CI. For each crate's layer directories it refuses a `use crate::…`
-of a layer that is not inside (`domain` may not use `ports`, `usecases`, `adapters` or `cli`;
-`ports` may not use `usecases`, `adapters` or `cli`; `usecases` may not use `adapters` or
-`cli`; `adapters` may not use `cli`), and in a `domain/` file it refuses `std::fs`,
-`std::process`, `std::env`, `std::net`, `std::time::SystemTime`, `Utc::now`, `Local::now`,
-`reqwest` and `canonicalize`. It reads each file's code up to its `#[cfg(test)]` module (a
+`scripts/layers` runs in CI. For each crate's layer directories it refuses a path to a layer
+that is not inside (`domain` may not use `ports`, `usecases`, `adapters` or `cli`; `ports` may
+not use `usecases`, `adapters` or `cli`; `usecases` may not use `adapters` or `cli`;
+`adapters` may not use `cli`), however the path is written: `crate::<layer>` in a `use` or an
+expression, an item of a `use crate::{…}` group on one line or several, or a `super::` chain
+that climbs out of the file's module into another layer. `domain`, `ports` and `usecases` may
+not name `sorcerer_core::adapters` or `sorcerer_models::adapters`. In a `domain/` file it also
+refuses `std::fs`, `std::process`, `std::env`, `std::net` (also inside a `use std::{…}`
+group), `std::time::SystemTime`, `Instant::now`, `Utc::now`, `Local::now`, `std::io::stdin`,
+`reqwest` and `canonicalize`. It reads each file's code up to its `#[cfg(test)] mod tests` (a
 test may set up files) and skips comment lines. Each refusal is printed as
-`file:line: <layer> may not use crate::<layer>`, and the script exits 1.
+`file:line: <layer> may not use <what>`, and the script exits 1. `scripts/layers-test`
+plants each kind of violation in a scratch crate and checks every one is refused; CI runs it
+too.

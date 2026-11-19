@@ -5,52 +5,100 @@
 #   usecases  uses domain and ports
 #   adapters  uses anything but cli
 #   cli       uses anything
-# Checked on `use crate::<layer>` paths (a `super::` path stays inside its
-# layer) in each file's code before its `#[cfg(test)]` module: a test may
-# set up files. Files outside a layer directory (lib.rs, main.rs, error.rs,
+# A path reaches a layer as `crate::<layer>`, inside a `use crate::{…}` group
+# (on one line or several), or through enough `super::` to climb out of the
+# file's own module. domain, ports and usecases may not name another crate's
+# adapters (`sorcerer_core::adapters`, `sorcerer_models::adapters`). Code in
+# the file's `#[cfg(test)] mod tests` is not checked: a test may set up
+# files. Files outside a layer directory (lib.rs, main.rs, error.rs,
 # cancel.rs) are not checked.
+#
+# Usage: scripts/layers [ROOT]   (ROOT defaults to the repository)
 set -euo pipefail
-cd "$(dirname "$0")/.."
-
-refused() {
-  case "$1" in
-    domain) echo "ports usecases adapters cli" ;;
-    ports) echo "usecases adapters cli" ;;
-    usecases) echo "adapters cli" ;;
-    adapters) echo "cli" ;;
-    *) echo "" ;;
-  esac
-}
-
-# What a domain file may not touch: the file system, processes, the
-# environment, the network and the clock.
-IMPURE='std::fs|std::process|std::env|std::net|std::time::SystemTime|Utc::now|Local::now|reqwest|canonicalize'
-
-bad=0
-for src in crates/*/src; do
-  for layer in domain ports usecases adapters cli; do
-    dir="$src/$layer"
-    [ -d "$dir" ] || continue
-    no=$(refused "$layer")
-    while IFS= read -r -d '' file; do
-      # the code before the test module, with its line numbers
-      code=$(awk '/^#\[cfg\(test\)\]/ { exit } { printf "%d:%s\n", NR, $0 }' "$file")
-      for other in $no; do
-        while IFS= read -r hit; do
-          [ -n "$hit" ] || continue
-          echo "$file:${hit%%:*}: $layer may not use crate::$other"
-          bad=1
-        done < <(printf '%s\n' "$code" | grep -E "\bcrate::$other\b" | grep -vE '^[0-9]+:[[:space:]]*//' || true)
-      done
-      if [ "$layer" = domain ]; then
-        while IFS= read -r hit; do
-          [ -n "$hit" ] || continue
-          what=$(printf '%s\n' "$hit" | grep -oE "$IMPURE" | head -1)
-          echo "$file:${hit%%:*}: domain may not use $what"
-          bad=1
-        done < <(printf '%s\n' "$code" | grep -E "$IMPURE" | grep -vE '^[0-9]+:[[:space:]]*//' || true)
-      fi
-    done < <(find "$dir" -name '*.rs' -print0 | sort -z)
-  done
-done
-exit "$bad"
+root=${1:-$(cd "$(dirname "$0")/.." && pwd)}
+cd "$root"
+find crates -path '*/src/*' -name '*.rs' -print0 2>/dev/null | sort -z | perl -0 -ne '
+  BEGIN {
+    %refused = (
+      domain   => [qw(ports usecases adapters cli)],
+      ports    => [qw(usecases adapters cli)],
+      usecases => [qw(adapters cli)],
+      adapters => [qw(cli)],
+    );
+    # what a domain file may not touch: the file system, processes, the
+    # environment, the network, standard input and the clock
+    @impure = (qr/std::fs\b/, qr/std::process\b/, qr/std::env\b/, qr/std::net\b/,
+      qr/std::time::SystemTime\b/, qr/\bInstant::now\b/, qr/\bUtc::now\b/,
+      qr/\bLocal::now\b/, qr/\breqwest\b/, qr/\bcanonicalize\b/, qr/std::io::stdin\b/);
+    $bad = 0;
+  }
+  chomp(my $file = $_);
+  next unless $file =~ m{^crates/[^/]+/src/(domain|ports|usecases|adapters|cli)/(.*)\.rs$};
+  my ($layer, $rest) = ($1, $2);
+  my @refused = @{ $refused{$layer} || [] };
+  # the module path of the file below src/: a mod.rs is its directory
+  my @module = ($layer, split m{/}, $rest);
+  pop @module if $module[-1] eq "mod";
+  open my $fh, "<", $file or die "$file: $!";
+  my @lines = do { local $/ = "\n"; <$fh> };
+  close $fh;
+  # code up to the test module, comment lines blanked, line numbers kept
+  my @code;
+  for my $i (0 .. $#lines) {
+    if ($lines[$i] =~ /^#\[cfg\(test\)\]\s*$/) {
+      my $j = $i + 1;
+      $j++ while $j <= $#lines && $lines[$j] =~ /^\s*$/;
+      last if $j <= $#lines && $lines[$j] =~ /^(pub\s+)?mod\s+tests\b/;
+    }
+    push @code, $lines[$i] =~ m{^\s*//} ? "\n" : $lines[$i];
+  }
+  my $text = join "", @code;
+  my $say = sub {
+    my ($pos, $what) = @_;
+    my $line = 1 + (() = substr($text, 0, $pos) =~ /\n/g);
+    print "$file:$line: $layer may not use $what\n";
+    $bad = 1;
+  };
+  for my $other (@refused) {
+    # crate::<layer> anywhere: a use, a path in an expression
+    while ($text =~ /\bcrate::\Q$other\E\b/g) { $say->($-[0], "crate::$other") }
+    # use crate::{ …, <layer>::…, … }, on one line or several
+    while ($text =~ /\bcrate::\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g) {
+      my ($start, $inner) = ($-[1], $1);
+      while ($inner =~ /(?:^|[{,])\s*\Q$other\E\b/g) {
+        my $at = $start + $-[0];
+        $at++ while substr($text, $at, 1) =~ /[\s{,]/;
+        $say->($at, "crate::$other");
+      }
+    }
+  }
+  # super:: chains that climb into another layer
+  while ($text =~ /\b((?:super::)+)(\w+)/g) {
+    my ($pos, $chain, $name) = ($-[0], $1, $2);
+    my $ups = () = $chain =~ /super::/g;
+    my @base = @module;
+    splice @base, -$ups if $ups <= @base;
+    @base = () if $ups > @module;
+    my $target = @base ? $base[0] : $name;
+    $say->($pos, "crate::$target") if grep { $_ eq $target } @refused;
+  }
+  if ($layer =~ /^(domain|ports|usecases)$/) {
+    while ($text =~ /\b(sorcerer_\w+::adapters)\b/g) { $say->($-[0], $1) }
+  }
+  if ($layer eq "domain") {
+    for my $re (@impure) {
+      while ($text =~ /$re/g) {
+        (my $what = $&) =~ s/^\W+//;
+        $say->($-[0], $what);
+      }
+    }
+    # use std::{ …, fs, env, … }
+    while ($text =~ /\bstd::\{([^}]*)\}/g) {
+      my ($start, $inner) = ($-[1], $1);
+      while ($inner =~ /(?:^|[{,])\s*(fs|process|env|net)\b/g) {
+        $say->($start + $-[1], "std::$1");
+      }
+    }
+  }
+  END { exit $bad }
+'

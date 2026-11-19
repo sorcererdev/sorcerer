@@ -26,7 +26,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   verification rounds (`Run::verify_files`, `verify`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
-  `DayCost`), `check_setup.rs` (`check_setup`, `languages_row`).
+  `DayCost`).
 
 **Domain** (`src/domain/`), data and rules, no I/O:
 
@@ -34,7 +34,8 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 - `issue_type.rs`: `IssueType`, `Verify`, `ISSUE_TYPES`, `issue_type`.
 - `finding.rs`: `Finding`, `FindingId`, `Status`, `Place`, `Evidence`, `Scores`,
   `StoredVerdict`, `StoredCitation`, `status_word`.
-- `findings.rs`: `Findings` (`new_id`, `get`, `dismiss`, `shown_in`), `merge_into`, `renamed`.
+- `findings.rs`: `Findings` (`new_id`, `get`, `dismiss`, `shown_in`, `shown_in_scope`),
+  `merge_into`, `renamed`.
 - `steering.rs`: `Steering`, `Rule`, `Include`, `RawSteering`, `parse_steering`,
   `STEERING_CAP`.
 - `scope.rs`: `ScopeRequest`, `Scope`, `ScopedUnit`, `ScopedFile`, `header_of`.
@@ -61,7 +62,7 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `go`,
 `clock_of`), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`,
-`doctor.rs` with `doctor_rows`, `log.rs`), and `format.rs` (`table`, `cut_to`, `finding_text`,
+`doctor.rs` with `doctor_rows`, `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`table`, `cut_to`, `finding_text`,
 `finding_json`, `cited_range`, `lines_text`). `src/main.rs` is the binary, `cli::main` with
 the real environment.
 
@@ -420,7 +421,7 @@ wiring, then `review_change` with a `ReviewRequest` of `Since(rev)`, `Files` (jo
 directory, so `../a.py` works from a subdirectory) or `Working`, `--all`, `--fresh` and
 `--budget`, and no caps of its own, so the use case's `Caps { pass: None, day: budget_per_day,
 budget: --budget }` hold (the day's cap already counts what scry spent earlier today, so leaving `budget` unset is "the
-day's remaining"); then the store is read again and `shown_in_scope` takes every open finding
+day's remaining"); then the store is read again and `Findings::shown_in_scope` (domain) takes every open finding
 of a shown issue type whose place's file and unit are a scope unit, best confidence first, with no
 `MAX_SHOWN`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
 one object a line. The summary line is skipped when nothing was shown, looked at or spent.
@@ -464,8 +465,9 @@ pass; `Skipped` or an error is 2; anything shown is
 1; else 2 when a review failed, a unit was capped or a claim check was held back
 (`ReviewReport::checks_capped`), else 0.
 
-`doctor_rows(project, env, cache)` (`cli/doctor.rs`) calls `check_setup` over
-`JsonFindingStore::at` and `JsonlLedger::at`, so nothing creates `.sorcerer/state`: `provider` (`default_provider_for`),
+`doctor_rows(project, env, cache)` (`cli/doctor.rs`, with `check_setup` and `languages_row`:
+doctor probes real adapters, so it is not a use case) reads over `JsonFindingStore::at` and
+`JsonlLedger::at`, so nothing creates `.sorcerer/state`: `provider` (`default_provider_for`),
 `jev` (`Jev::from_env` without a ledger), `languages` (`[languages] names`, else the
 languages whose `files` cover a file `glob("**")` lists, each `Languages::load`ed through the
 cache), `steering` (`2 rules, 1 include, context 120 B, 1.4 KB; .sorcerer/scry.toml`,

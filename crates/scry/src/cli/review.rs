@@ -212,7 +212,7 @@ fn run(
     };
     let stored = read_findings(deps.store)?;
     let scope = &report.scope;
-    let shown = shown_in_scope(&stored, scope, &cfg.issue_types);
+    let shown = stored.shown_in_scope(scope, &cfg.issue_types);
     for f in &shown {
         if a.json {
             writeln!(out, "{}", finding_json(f))?;
@@ -385,27 +385,4 @@ fn held_back(r: &ReviewReport, budget: bool, err: &mut dyn Write) -> Result<()> 
         )?;
     }
     Ok(())
-}
-
-/// Open findings of ISSUE_TYPES whose place is a unit of SCOPE, best confidence first.
-fn shown_in_scope<'s>(s: &'s Findings, scope: &Scope, issue_types: &[String]) -> Vec<&'s Finding> {
-    let mut v: Vec<&Finding> = s
-        .findings
-        .iter()
-        .filter(|f| {
-            f.status == Status::Open
-                && issue_types.contains(&f.issue_type)
-                && scope.units.iter().any(|u| {
-                    u.file == f.place.file && f.place.unit.as_deref() == Some(u.unit.name.as_str())
-                })
-        })
-        .collect();
-    v.sort_by(|a, b| {
-        let (ka, kb) = (
-            a.scores.confidence.unwrap_or(0.0),
-            b.scores.confidence.unwrap_or(0.0),
-        );
-        kb.total_cmp(&ka)
-    });
-    v
 }

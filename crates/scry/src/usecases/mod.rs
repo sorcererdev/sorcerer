@@ -1,13 +1,12 @@
 //! What scry does, one module a feature.
 
-pub mod check_setup;
 pub mod dismiss_finding;
 pub mod explain_finding;
 pub mod list_findings;
 pub mod report_cost;
 pub mod review_change;
 
-use sorcerer_core::adapters::json_store::Snapshot;
+use sorcerer_core::domain::versioned::Snapshot;
 
 use crate::domain::findings::Findings;
 use crate::ports::finding_store::FindingStore;

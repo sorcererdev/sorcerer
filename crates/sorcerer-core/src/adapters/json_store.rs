@@ -13,21 +13,10 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use serde::de::DeserializeOwned;
 
 use crate::domain::project::Project;
+pub use crate::domain::versioned::{Snapshot, Versioned};
 use crate::{Error, Result};
-
-pub trait Versioned: Serialize + DeserializeOwned + Default {
-    const VERSION: u32;
-}
-
-#[derive(Debug)]
-pub enum Snapshot<T> {
-    Absent,
-    Current(T),
-    Unreadable(String),
-}
 
 pub struct Store<T: Versioned> {
     path: PathBuf,

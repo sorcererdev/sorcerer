@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use sorcerer_core::Result;
-use sorcerer_core::adapters::json_store::Snapshot;
+use sorcerer_core::domain::versioned::Snapshot;
 
 use crate::domain::findings::Findings;
 

@@ -12,6 +12,7 @@ use sorcerer_core::domain::unit::Span;
 
 use crate::domain::config::{MAX_SHOWN, ScryConfig};
 use crate::domain::finding::{Finding, FindingId, Status};
+use crate::domain::scope::Scope;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Findings {
@@ -89,6 +90,32 @@ impl Findings {
             at,
         );
         Ok(())
+    }
+
+    /// What a review prints: every open finding of ISSUE_TYPES whose place
+    /// is a unit of SCOPE, best confidence first (no `MAX_SHOWN`: the rounds
+    /// already held each file to it).
+    pub fn shown_in_scope(&self, scope: &Scope, issue_types: &[String]) -> Vec<&Finding> {
+        let mut v: Vec<&Finding> = self
+            .findings
+            .iter()
+            .filter(|f| {
+                f.status == Status::Open
+                    && issue_types.contains(&f.issue_type)
+                    && scope.units.iter().any(|u| {
+                        u.file == f.place.file
+                            && f.place.unit.as_deref() == Some(u.unit.name.as_str())
+                    })
+            })
+            .collect();
+        v.sort_by(|a, b| {
+            let (ka, kb) = (
+                a.scores.confidence.unwrap_or(0.0),
+                b.scores.confidence.unwrap_or(0.0),
+            );
+            kb.total_cmp(&ka)
+        });
+        v
     }
 
     /// The file's open findings of shown issue types, best confidence first, at most `MAX_SHOWN`.
@@ -293,6 +320,56 @@ mod tests {
         assert_eq!(s.get("abcd02").unwrap().id.0, "abcd02");
         assert_eq!(s.get("ffee").unwrap().id.0, "ffee11");
         assert!(s.get("ff").is_none());
+    }
+
+    #[test]
+    fn shown_in_scope_is_open_findings_of_shown_issue_types_in_scope_units_best_first() {
+        use crate::domain::scope::{Scope, ScopeRequest, ScopedUnit};
+        use sorcerer_core::domain::unit::{Unit, UnitKind};
+        let unit = |name: &str| ScopedUnit {
+            file: "a.txt".into(),
+            unit: Unit {
+                name: name.into(),
+                kind: UnitKind::Function,
+                span: Span { start: 1, end: 3 },
+                body: None,
+                fingerprint: Fingerprint::parse("0123abc").unwrap(),
+            },
+            header: None,
+        };
+        let scope = Scope {
+            request: ScopeRequest::Working,
+            base: "HEAD".into(),
+            units: vec![unit("f")],
+            files: vec![],
+            skipped: vec![],
+        };
+        let mut s = Findings::default();
+        s.findings
+            .push(finding("000001", "bug", 0.75, Status::Open));
+        s.findings
+            .push(finding("000002", "design", 0.99, Status::Open));
+        s.findings
+            .push(finding("000003", "bug", 0.95, Status::Open));
+        s.findings
+            .push(finding("000004", "bug", 0.99, Status::Withheld));
+        let mut elsewhere = finding("000005", "bug", 0.99, Status::Open);
+        elsewhere.place.unit = Some("g".into());
+        s.findings.push(elsewhere);
+        for n in 6..10 {
+            s.findings
+                .push(finding(&format!("00000{n}"), "bug", 0.7, Status::Open));
+        }
+        let ids: Vec<&str> = s
+            .shown_in_scope(&scope, &ScryConfig::default().issue_types)
+            .iter()
+            .map(|f| f.id.0.as_str())
+            .collect();
+        // no MAX_SHOWN here: every open finding in scope is printed
+        assert_eq!(
+            ids,
+            ["000003", "000001", "000006", "000007", "000008", "000009"]
+        );
     }
 
     #[test]
