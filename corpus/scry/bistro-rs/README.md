@@ -62,3 +62,16 @@ What `sorcerer-core`'s `units_of` makes of the base's shapes (checked on `create
 
 One difference from Python: a unit starts at its `fn` line, so a `#[test]` (or any attribute) line
 above it is outside the unit, where Python's decorators are inside theirs.
+
+## The conventions, frozen
+
+`conventions.md` (for people) and `scry.toml` (the steering the reviewer reads: `context` is the
+conventions' opening paragraph, one `[[rule]]` per rule with its heading line and body) were frozen
+before any case was written; a change to either restarts the cases. `scry.toml` is generated from
+`conventions.md` (the heading and body of each `###`, in order). `rules-classes.md` gives each rule's
+class and why; `cases.md` is the case plan and, once the cases exist, their table.
+
+```
+f34c8acd0e7c4cca6c550419416467d386ce96eb0d8a61b31f4778acb2cb05fc  conventions.md
+d4bce8f54dda36b47936a8b0a77cc9bf723465db56556c7f292af182ff57f4f9  scry.toml
+```
