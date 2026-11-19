@@ -141,7 +141,9 @@ against the original.
    its verdict stands (`escalated`).
 2. **Without a decider**, the strong model checks alone.
 3. **Citations are confirmed**: inside the root, not fenced, and the named unit found in
-   the file (or the cited line inside it). One that is not found makes the verdict
+   the file (or the cited line inside it). `unit_named` reads `.` and `::` alike, since the
+   prompt asks for `Class.method` while a language may name it `Type::method`, and takes a
+   bare name that ends exactly one qualified name. One that is not found makes the verdict
    `cannot_tell` ("cited code not found"). Each confirmed citation carries the
    fingerprint of its lines, so a later change to the cited code shows.
 
