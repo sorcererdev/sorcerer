@@ -1,0 +1,135 @@
+diff --git a/src/bistro/booking/commands/hold_earliest_slot.py b/src/bistro/booking/commands/hold_earliest_slot.py
+new file mode 100644
+index 0000000..04eaec9
+--- /dev/null
++++ b/src/bistro/booking/commands/hold_earliest_slot.py
+@@ -0,0 +1,54 @@
++"""Hold the earliest free slot at a table that fits, for a guest."""
++
++from dataclasses import dataclass
++from datetime import date, time
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.id_generator.id_generator import IdGenerator
++from bistro.shared.result import Ok
++
++START_TIMES = [time(minutes // 60, minutes % 60) for minutes in range(17 * 60, 21 * 60 + 30, 30)]
++
++
++@dataclass(frozen=True)
++class HoldEarliestSlotInput:
++    day: date
++    party: int
++    guest: str
++
++
++@dataclass(frozen=True)
++class NoSlotFree:
++    reason: str
++
++
++type HoldEarliestSlotFailure = (
++    NoSlotFree
++)
++
++type HoldEarliestSlotOutput = Ok[Booking] | HoldEarliestSlotFailure
++
++
++class HoldEarliestSlot:
++    def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
++        self.bookings = bookings
++        self.ids = ids
++
++    def handle(self, input: HoldEarliestSlotInput) -> HoldEarliestSlotOutput:
++        fitting = sorted((t for t in self.bookings.tables() if t.seats >= input.party), key=lambda t: t.seats)
++        taken = {(b.table_id, b.slot.start) for b in self.bookings.bookings_on(input.day)}
++        for start in START_TIMES:
++            for table in fitting:
++                if (table.id, start) not in taken:
++                    booking = Booking(
++                        id=self.ids.next_id(),
++                        table_id=table.id,
++                        slot=Slot(day=input.day, start=start),
++                        party=input.party,
++                        guest=input.guest,
++                    )
++                    self.bookings.save(booking)
++                    return Ok(booking)
++        return NoSlotFree(f"no table for {input.party} is free on {input.day:%Y-%m-%d}")
+diff --git a/src/bistro/booking/commands/hold_earliest_slot__test.py b/src/bistro/booking/commands/hold_earliest_slot__test.py
+new file mode 100644
+index 0000000..7a0a1a5
+--- /dev/null
++++ b/src/bistro/booking/commands/hold_earliest_slot__test.py
+@@ -0,0 +1,46 @@
++from datetime import date, time
++
++from bistro.booking.commands.hold_earliest_slot import (
++    HoldEarliestSlot,
++    HoldEarliestSlotInput,
++    NoSlotFree,
++)
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
++from bistro.shared.result import Ok
++
++DAY = date(2026, 10, 9)
++
++
++def command() -> tuple[HoldEarliestSlot, InMemoryBookingRepository]:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=2), Table(id="t2", seats=4)])
++    hold = HoldEarliestSlot(
++        bookings=bookings,
++        ids=InMemoryIdGenerator(),
++    )
++    return hold, bookings
++
++
++def test_holds_the_earliest_slot_at_a_fitting_table() -> None:
++    hold, bookings = command()
++    result = hold.handle(HoldEarliestSlotInput(day=DAY, party=3, guest="Ada"))
++    expected = Booking(id="b1", table_id="t2", slot=Slot(day=DAY, start=time(17, 0)), party=3, guest="Ada")
++    assert result == Ok(expected)
++    assert bookings.booking_at("t2", expected.slot) == expected
++
++
++def test_the_next_caller_is_offered_another_slot() -> None:
++    hold, _ = command()
++    hold.handle(HoldEarliestSlotInput(day=DAY, party=3, guest="Ada"))
++    result = hold.handle(HoldEarliestSlotInput(day=DAY, party=3, guest="Grace"))
++    assert isinstance(result, Ok)
++    assert result.value.slot.start == time(17, 30)
++
++
++def test_a_party_too_large_for_every_table_has_no_slot() -> None:
++    hold, _ = command()
++    result = hold.handle(HoldEarliestSlotInput(day=DAY, party=9, guest="Ada"))
++    assert isinstance(result, NoSlotFree)
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..42d26d2 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -4,7 +4,7 @@ Failures are named through their command's module (`create_booking.SlotTaken`):
+ a new failure needs no new import here.
+ """
+ 
+-from bistro.booking.commands import create_booking
++from bistro.booking.commands import create_booking, hold_earliest_slot
+ 
+ 
+ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+@@ -15,3 +15,9 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++
++
++def hold_earliest_slot_status(failure: hold_earliest_slot.HoldEarliestSlotFailure) -> int:
++    match failure:
++        case hold_earliest_slot.NoSlotFree():
++            return 409

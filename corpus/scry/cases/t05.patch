@@ -1,0 +1,109 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..f8b2e12 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -1,6 +1,7 @@
+ """Book a table for a party in a slot."""
+ 
+ from dataclasses import dataclass
++from datetime import time
+ 
+ from bistro.booking.models.booking import Booking
+ from bistro.booking.models.slot import Slot
+@@ -9,6 +10,11 @@ from bistro.booking.ports.id_generator.id_generator import IdGenerator
+ from bistro.shared.result import Ok
+ 
+ 
++MONDAY = 0
++OPENING = time(17, 0)
++LAST_BOOKING = time(21, 30)
++
++
+ @dataclass(frozen=True)
+ class CreateBookingInput:
+     table_id: str
+@@ -32,10 +38,16 @@ class TableNotFound:
+     reason: str
+ 
+ 
++@dataclass(frozen=True)
++class OutsideOpeningHours:
++    reason: str
++
++
+ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
+     | TableNotFound
++    | OutsideOpeningHours
+ )
+ 
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+@@ -47,6 +59,10 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if input.slot.day.weekday() == MONDAY:
++            return OutsideOpeningHours("the restaurant is closed on Mondays")
++        if not OPENING <= input.slot.start <= LAST_BOOKING:
++            return OutsideOpeningHours("bookings are taken from 17:00 to 21:30")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..49f6248 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -3,6 +3,7 @@ from datetime import date, time
+ from bistro.booking.commands.create_booking import (
+     CreateBooking,
+     CreateBookingInput,
++    OutsideOpeningHours,
+     PartyTooLarge,
+     SlotTaken,
+     TableNotFound,
+@@ -47,6 +48,34 @@ def test_a_party_larger_than_the_table_is_refused() -> None:
+     assert isinstance(result, PartyTooLarge)
+ 
+ 
++def test_a_monday_is_closed() -> None:
++    create, _ = command()
++    monday = Slot(day=date(2026, 10, 12), start=time(19, 0))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=monday, party=2, guest="Ada"))
++    assert isinstance(result, OutsideOpeningHours)
++
++
++def test_before_opening_is_refused() -> None:
++    create, _ = command()
++    early = Slot(day=date(2026, 10, 9), start=time(16, 30))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=early, party=2, guest="Ada"))
++    assert isinstance(result, OutsideOpeningHours)
++
++
++def test_after_the_last_booking_is_refused() -> None:
++    create, _ = command()
++    late = Slot(day=date(2026, 10, 9), start=time(22, 0))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=late, party=2, guest="Ada"))
++    assert isinstance(result, OutsideOpeningHours)
++
++
++def test_the_last_booking_time_is_accepted() -> None:
++    create, _ = command()
++    last = Slot(day=date(2026, 10, 9), start=time(21, 30))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=last, party=2, guest="Ada"))
++    assert isinstance(result, Ok)
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..9dcc69c 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -15,3 +15,5 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++        case create_booking.OutsideOpeningHours():
++            return 422

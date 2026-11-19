@@ -1,0 +1,12 @@
+id = "vm16"
+set = "V-must"
+scenario = "swap two bookings"
+patch = "cases/vm16.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py:52,56,57", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py:32,35"]
+expect = "The repository's swap_tables reads both bookings and writes both in one adapter method; the swap belongs in a command making single reads and writes."
+made = "natural: sonnet without the conventions file (cache tag vs4b, prompt in scripts/gen.py)"
+twin = "t16"
+changed_files = ["src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/booking_repository__test.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py"]

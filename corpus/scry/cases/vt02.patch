@@ -1,0 +1,230 @@
+diff --git a/src/bistro/booking/commands/join_waitlist.py b/src/bistro/booking/commands/join_waitlist.py
+new file mode 100644
+index 0000000..0f4c834
+--- /dev/null
++++ b/src/bistro/booking/commands/join_waitlist.py
+@@ -0,0 +1,50 @@
++"""Put a guest's party on a day's waitlist."""
++
++from dataclasses import dataclass
++from datetime import date
++
++from bistro.booking.models.waitlist_entry import WaitlistEntry
++from bistro.booking.ports.waitlist_repository.waitlist_repository import WaitlistRepository
++from bistro.shared.result import Ok
++
++MAX_PARTIES_PER_DAY = 10
++
++
++@dataclass(frozen=True)
++class JoinWaitlistInput:
++    day: date
++    party: int
++    guest: str
++
++
++@dataclass(frozen=True)
++class AlreadyOnWaitlist:
++    reason: str
++
++
++@dataclass(frozen=True)
++class WaitlistFull:
++    reason: str
++
++
++type JoinWaitlistFailure = (
++    AlreadyOnWaitlist
++    | WaitlistFull
++)
++
++type JoinWaitlistOutput = Ok[WaitlistEntry] | JoinWaitlistFailure
++
++
++class JoinWaitlist:
++    def __init__(self, waitlist: WaitlistRepository) -> None:
++        self.waitlist = waitlist
++
++    def handle(self, input: JoinWaitlistInput) -> JoinWaitlistOutput:
++        entries = self.waitlist.entries_on(input.day)
++        if any(e.guest == input.guest for e in entries):
++            return AlreadyOnWaitlist(f"{input.guest} is already on the waitlist for {input.day:%Y-%m-%d}")
++        if len(entries) >= MAX_PARTIES_PER_DAY:
++            return WaitlistFull(f"the waitlist for {input.day:%Y-%m-%d} is full")
++        entry = WaitlistEntry(day=input.day, party=input.party, guest=input.guest)
++        self.waitlist.save(entry)
++        return Ok(entry)
+diff --git a/src/bistro/booking/commands/join_waitlist__test.py b/src/bistro/booking/commands/join_waitlist__test.py
+new file mode 100644
+index 0000000..130052c
+--- /dev/null
++++ b/src/bistro/booking/commands/join_waitlist__test.py
+@@ -0,0 +1,50 @@
++from datetime import date
++
++from bistro.booking.commands.join_waitlist import (
++    AlreadyOnWaitlist,
++    JoinWaitlist,
++    JoinWaitlistInput,
++    WaitlistFull,
++)
++from bistro.booking.models.waitlist_entry import WaitlistEntry
++from bistro.booking.ports.waitlist_repository.in_memory_waitlist_repository import InMemoryWaitlistRepository
++from bistro.shared.result import Ok
++
++DAY = date(2026, 10, 9)
++
++
++def command() -> tuple[JoinWaitlist, InMemoryWaitlistRepository]:
++    waitlist = InMemoryWaitlistRepository()
++    join = JoinWaitlist(
++        waitlist=waitlist,
++    )
++    return join, waitlist
++
++
++def test_joins_the_waitlist() -> None:
++    join, waitlist = command()
++    result = join.handle(JoinWaitlistInput(day=DAY, party=2, guest="Ada"))
++    assert result == Ok(WaitlistEntry(day=DAY, party=2, guest="Ada"))
++    assert waitlist.entries_on(DAY) == [WaitlistEntry(day=DAY, party=2, guest="Ada")]
++
++
++def test_the_same_guest_cannot_join_twice_for_a_day() -> None:
++    join, _ = command()
++    join.handle(JoinWaitlistInput(day=DAY, party=2, guest="Ada"))
++    result = join.handle(JoinWaitlistInput(day=DAY, party=4, guest="Ada"))
++    assert isinstance(result, AlreadyOnWaitlist)
++
++
++def test_the_same_guest_can_join_another_day() -> None:
++    join, _ = command()
++    join.handle(JoinWaitlistInput(day=DAY, party=2, guest="Ada"))
++    result = join.handle(JoinWaitlistInput(day=date(2026, 10, 10), party=2, guest="Ada"))
++    assert isinstance(result, Ok)
++
++
++def test_a_day_holds_at_most_ten_parties() -> None:
++    join, _ = command()
++    for i in range(10):
++        join.handle(JoinWaitlistInput(day=DAY, party=2, guest=f"guest{i}"))
++    result = join.handle(JoinWaitlistInput(day=DAY, party=2, guest="Ada"))
++    assert isinstance(result, WaitlistFull)
+diff --git a/src/bistro/booking/models/waitlist_entry.py b/src/bistro/booking/models/waitlist_entry.py
+new file mode 100644
+index 0000000..7550467
+--- /dev/null
++++ b/src/bistro/booking/models/waitlist_entry.py
+@@ -0,0 +1,9 @@
++from dataclasses import dataclass
++from datetime import date
++
++
++@dataclass(frozen=True)
++class WaitlistEntry:
++    day: date
++    party: int
++    guest: str
+diff --git a/src/bistro/booking/ports/waitlist_repository/__init__.py b/src/bistro/booking/ports/waitlist_repository/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/bistro/booking/ports/waitlist_repository/in_memory_waitlist_repository.py b/src/bistro/booking/ports/waitlist_repository/in_memory_waitlist_repository.py
+new file mode 100644
+index 0000000..3d2c4de
+--- /dev/null
++++ b/src/bistro/booking/ports/waitlist_repository/in_memory_waitlist_repository.py
+@@ -0,0 +1,16 @@
++"""A WaitlistRepository in memory: for tests and the first run."""
++
++from datetime import date
++
++from bistro.booking.models.waitlist_entry import WaitlistEntry
++
++
++class InMemoryWaitlistRepository:
++    def __init__(self) -> None:
++        self._entries: list[WaitlistEntry] = []
++
++    def entries_on(self, day: date) -> list[WaitlistEntry]:
++        return [e for e in self._entries if e.day == day]
++
++    def save(self, entry: WaitlistEntry) -> None:
++        self._entries.append(entry)
+diff --git a/src/bistro/booking/ports/waitlist_repository/sqlite_waitlist_repository.py b/src/bistro/booking/ports/waitlist_repository/sqlite_waitlist_repository.py
+new file mode 100644
+index 0000000..5b947af
+--- /dev/null
++++ b/src/bistro/booking/ports/waitlist_repository/sqlite_waitlist_repository.py
+@@ -0,0 +1,31 @@
++"""A WaitlistRepository in SQLite (stdlib sqlite3)."""
++
++import sqlite3
++from datetime import date
++
++from bistro.booking.models.waitlist_entry import WaitlistEntry
++
++SCHEMA = """
++create table if not exists waitlist (
++    day text not null, party integer not null, guest text not null
++);
++"""
++
++
++class SqliteWaitlistRepository:
++    def __init__(self, path: str) -> None:
++        self._db = sqlite3.connect(path, check_same_thread=False)
++        self._db.executescript(SCHEMA)
++
++    def entries_on(self, day: date) -> list[WaitlistEntry]:
++        rows: list[tuple[str, int, str]] = self._db.execute(
++            "select day, party, guest from waitlist where day = ? order by rowid", (day.isoformat(),)
++        ).fetchall()
++        return [WaitlistEntry(day=date.fromisoformat(d), party=p, guest=g) for d, p, g in rows]
++
++    def save(self, entry: WaitlistEntry) -> None:
++        self._db.execute(
++            "insert into waitlist (day, party, guest) values (?, ?, ?)",
++            (entry.day.isoformat(), entry.party, entry.guest),
++        )
++        self._db.commit()
+diff --git a/src/bistro/booking/ports/waitlist_repository/waitlist_repository.py b/src/bistro/booking/ports/waitlist_repository/waitlist_repository.py
+new file mode 100644
+index 0000000..0798961
+--- /dev/null
++++ b/src/bistro/booking/ports/waitlist_repository/waitlist_repository.py
+@@ -0,0 +1,10 @@
++from datetime import date
++from typing import Protocol
++
++from bistro.booking.models.waitlist_entry import WaitlistEntry
++
++
++class WaitlistRepository(Protocol):
++    def entries_on(self, day: date) -> list[WaitlistEntry]: ...
++
++    def save(self, entry: WaitlistEntry) -> None: ...
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..9674e6d 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -4,7 +4,7 @@ Failures are named through their command's module (`create_booking.SlotTaken`):
+ a new failure needs no new import here.
+ """
+ 
+-from bistro.booking.commands import create_booking
++from bistro.booking.commands import create_booking, join_waitlist
+ 
+ 
+ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+@@ -15,3 +15,11 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++
++
++def join_waitlist_status(failure: join_waitlist.JoinWaitlistFailure) -> int:
++    match failure:
++        case join_waitlist.AlreadyOnWaitlist():
++            return 409
++        case join_waitlist.WaitlistFull():
++            return 409

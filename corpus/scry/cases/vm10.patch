@@ -1,0 +1,52 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..e002af7 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -47,6 +47,10 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if not input.guest.strip():
++            raise ValueError("the guest name is blank")
++        if len(input.guest) > 60:
++            raise ValueError("the guest name is longer than 60 characters")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..1fa9951 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -1,5 +1,7 @@
+ from datetime import date, time
+ 
++import pytest
++
+ from bistro.booking.commands.create_booking import (
+     CreateBooking,
+     CreateBookingInput,
+@@ -47,6 +49,24 @@ def test_a_party_larger_than_the_table_is_refused() -> None:
+     assert isinstance(result, PartyTooLarge)
+ 
+ 
++def test_a_blank_guest_name_is_refused() -> None:
++    create, _ = command()
++    with pytest.raises(ValueError):
++        create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="   "))
++
++
++def test_a_guest_name_over_60_characters_is_refused() -> None:
++    create, _ = command()
++    with pytest.raises(ValueError):
++        create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="a" * 61))
++
++
++def test_a_guest_name_of_60_characters_is_accepted() -> None:
++    create, _ = command()
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="a" * 60))
++    assert isinstance(result, Ok)
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))

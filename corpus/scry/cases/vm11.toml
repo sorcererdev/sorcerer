@@ -1,0 +1,12 @@
+id = "vm11"
+set = "V-must"
+scenario = "weekly bookings"
+patch = "cases/vm11.patch"
+rule = "statuses-failures"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/bistro/web/bookings/routes.py:28,30,31"]
+expect = "The weekly-booking route's failure statuses come from a status function written in routes.py instead of one in failures.py."
+made = "natural: sonnet without the conventions file (cache tag st1, prompt in scripts/gen.py); the command it routes was written by a model with the file (twin t11's command)"
+twin = "t11"
+changed_files = ["src/bistro/booking/commands/create_weekly_booking.py", "src/bistro/booking/commands/create_weekly_booking__test.py", "src/bistro/main.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py"]

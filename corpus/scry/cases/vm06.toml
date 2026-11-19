@@ -1,0 +1,13 @@
+id = "vm06"
+set = "V-must"
+scenario = "maximum party"
+patch = "cases/vm06.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = true
+also_breaks = ["failures-returned", "rule-tests"]
+planted_lines = ["src/bistro/booking/models/booking.py:14,16"]
+expect = "The 1-to-8 party limit is enforced in the Booking model (raising ValueError in __post_init__) instead of in a command that returns a failure."
+made = "natural: sonnet without the conventions file (cache tag ve3, prompt in scripts/gen.py)"
+twin = "t06"
+changed_files = ["src/bistro/booking/models/booking.py"]

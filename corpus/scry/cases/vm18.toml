@@ -1,0 +1,12 @@
+id = "vm18"
+set = "V-must"
+scenario = "closed on Mondays"
+patch = "cases/vm18.patch"
+rule = "rule-tests"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/bistro/booking/commands/create_booking.py:59", "src/bistro/web/bookings/routes__test.py:54"]
+expect = "The closed-on-Mondays rule in CreateBooking is tested only through the web in routes__test.py, not in create_booking__test.py."
+made = "hand-written: the natural try (vs6) tested at the command too; its command test was removed"
+twin = "t18"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes__test.py"]

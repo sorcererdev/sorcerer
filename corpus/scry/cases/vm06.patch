@@ -1,0 +1,12 @@
+diff --git a/src/bistro/booking/models/booking.py b/src/bistro/booking/models/booking.py
+index d4ed7b2..85aac07 100644
+--- a/src/bistro/booking/models/booking.py
++++ b/src/bistro/booking/models/booking.py
+@@ -10,3 +10,7 @@ class Booking:
+     slot: Slot
+     party: int
+     guest: str
++
++    def __post_init__(self) -> None:
++        if not 1 <= self.party <= 8:
++            raise ValueError("party must be between 1 and 8")

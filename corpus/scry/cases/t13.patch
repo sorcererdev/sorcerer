@@ -1,0 +1,194 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..ebc66fc 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -5,6 +5,7 @@ from dataclasses import dataclass
+ from bistro.booking.models.booking import Booking
+ from bistro.booking.models.slot import Slot
+ from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.clock.clock import Clock
+ from bistro.booking.ports.id_generator.id_generator import IdGenerator
+ from bistro.shared.result import Ok
+ 
+@@ -32,21 +33,30 @@ class TableNotFound:
+     reason: str
+ 
+ 
++@dataclass(frozen=True)
++class SlotInPast:
++    reason: str
++
++
+ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
+     | TableNotFound
++    | SlotInPast
+ )
+ 
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+ 
+ 
+ class CreateBooking:
+-    def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
++    def __init__(self, bookings: BookingRepository, ids: IdGenerator, clock: Clock) -> None:
+         self.bookings = bookings
+         self.ids = ids
++        self.clock = clock
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if input.slot.day < self.clock.today():
++            return SlotInPast(f"{input.slot.day:%Y-%m-%d} is in the past")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..e240d53 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -4,6 +4,7 @@ from bistro.booking.commands.create_booking import (
+     CreateBooking,
+     CreateBookingInput,
+     PartyTooLarge,
++    SlotInPast,
+     SlotTaken,
+     TableNotFound,
+ )
+@@ -11,6 +12,7 @@ from bistro.booking.models.booking import Booking
+ from bistro.booking.models.slot import Slot
+ from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.clock.in_memory_clock import InMemoryClock
+ from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
+ from bistro.shared.result import Ok
+ 
+@@ -22,6 +24,7 @@ def command() -> tuple[CreateBooking, InMemoryBookingRepository]:
+     create = CreateBooking(
+         bookings=bookings,
+         ids=InMemoryIdGenerator(),
++        clock=InMemoryClock(today=date(2026, 10, 1)),
+     )
+     return create, bookings
+ 
+@@ -47,6 +50,13 @@ def test_a_party_larger_than_the_table_is_refused() -> None:
+     assert isinstance(result, PartyTooLarge)
+ 
+ 
++def test_a_past_day_is_refused() -> None:
++    create, _ = command()
++    past = Slot(day=date(2026, 9, 30), start=time(19, 0))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=past, party=2, guest="Ada"))
++    assert isinstance(result, SlotInPast)
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))
+diff --git a/src/bistro/booking/ports/clock/__init__.py b/src/bistro/booking/ports/clock/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/bistro/booking/ports/clock/clock.py b/src/bistro/booking/ports/clock/clock.py
+new file mode 100644
+index 0000000..c35de65
+--- /dev/null
++++ b/src/bistro/booking/ports/clock/clock.py
+@@ -0,0 +1,8 @@
++"""Where the current date comes from."""
++
++from datetime import date
++from typing import Protocol
++
++
++class Clock(Protocol):
++    def today(self) -> date: ...
+diff --git a/src/bistro/booking/ports/clock/in_memory_clock.py b/src/bistro/booking/ports/clock/in_memory_clock.py
+new file mode 100644
+index 0000000..a3fc091
+--- /dev/null
++++ b/src/bistro/booking/ports/clock/in_memory_clock.py
+@@ -0,0 +1,11 @@
++"""Clock fixed on a given day, for tests and demos."""
++
++from datetime import date
++
++
++class InMemoryClock:
++    def __init__(self, today: date) -> None:
++        self._today = today
++
++    def today(self) -> date:
++        return self._today
+diff --git a/src/bistro/booking/ports/clock/system_clock.py b/src/bistro/booking/ports/clock/system_clock.py
+new file mode 100644
+index 0000000..ff7f0c8
+--- /dev/null
++++ b/src/bistro/booking/ports/clock/system_clock.py
+@@ -0,0 +1,8 @@
++"""The real date, for real use."""
++
++from datetime import date
++
++
++class SystemClock:
++    def today(self) -> date:
++        return date.today()
+diff --git a/src/bistro/main.py b/src/bistro/main.py
+index 527a135..1a3ea17 100644
+--- a/src/bistro/main.py
++++ b/src/bistro/main.py
+@@ -9,6 +9,7 @@ from fastapi import APIRouter, FastAPI
+ from bistro.booking.commands.create_booking import CreateBooking
+ from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.sqlite_booking_repository import SqliteBookingRepository
++from bistro.booking.ports.clock.system_clock import SystemClock
+ from bistro.booking.ports.id_generator.uuid_id_generator import UuidIdGenerator
+ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+ from bistro.web.app import create_app
+@@ -20,10 +21,12 @@ def create(db_path: str = "bistro.sqlite3") -> FastAPI:
+     booking_repository = SqliteBookingRepository(db_path)
+     booking_repository.add_tables([Table(id="t1", seats=2), Table(id="t2", seats=4), Table(id="t3", seats=6)])
+     id_generator = UuidIdGenerator()
++    clock = SystemClock()
+     # commands and queries
+     create_booking = CreateBooking(
+         bookings=booking_repository,
+         ids=id_generator,
++        clock=clock,
+     )
+     get_day_schedule = GetDaySchedule(
+         bookings=booking_repository,
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..d1b7ae2 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -15,3 +15,5 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++        case create_booking.SlotInPast():
++            return 422
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..a00bfba 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -1,9 +1,12 @@
++from datetime import date
++
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ 
+ from bistro.booking.commands.create_booking import CreateBooking
+ from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.clock.in_memory_clock import InMemoryClock
+ from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
+ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+ from bistro.web.bookings.routes import bookings_routes
+@@ -20,6 +23,7 @@ def client() -> TestClient:
+             create_booking=CreateBooking(
+                 bookings=bookings,
+                 ids=InMemoryIdGenerator(),
++                clock=InMemoryClock(today=date(2026, 10, 1)),
+             ),
+         )
+     )

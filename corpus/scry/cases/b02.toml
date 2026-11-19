@@ -1,0 +1,11 @@
+id = "b02"
+set = "B"
+scenario = "cancel a booking (web)"
+patch = "cases/b02.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py:48"]
+expect = "SqliteBookingRepository.delete never commits, so a cancellation is lost when the connection closes and other connections still see the booking."
+made = "hand-planted in f-cancel-route (commit removed); the contract test uses one connection so it passes"
+changed_files = ["src/bistro/booking/commands/cancel_booking.py", "src/bistro/booking/commands/cancel_booking__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/booking_repository__test.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/main.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py"]

@@ -1,0 +1,12 @@
+id = "vm01"
+set = "V-must"
+scenario = "demo setup"
+patch = "cases/vm01.patch"
+rule = "adapters-main"
+rule_class = "pattern"
+rule_broken = true
+planted_lines = ["src/bistro/booking/commands/create_booking.py:9,49"]
+expect = "CreateBooking imports the in-memory adapters and builds them as constructor defaults; only main.py (or a test) should choose adapters."
+made = "natural: sonnet without the conventions file (cache tag vp3a, prompt in scripts/gen.py)"
+twin = "t01"
+changed_files = ["src/bistro/booking/commands/create_booking.py"]

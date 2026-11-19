@@ -1,0 +1,12 @@
+id = "vm13"
+set = "V-must"
+scenario = "no bookings in the past"
+patch = "cases/vm13.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/bistro/booking/commands/create_booking.py:57"]
+expect = "CreateBooking calls date.today() itself instead of taking today from a Clock port."
+made = "hand-written: natural tries all kept time out of the command (vs1 injected a today callable defaulting to date.today, see bl02; vs1b and vs2b took the time as an argument)"
+twin = "t13"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes__test.py"]

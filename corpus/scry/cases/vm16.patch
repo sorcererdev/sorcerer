@@ -1,0 +1,65 @@
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository.py b/src/bistro/booking/ports/booking_repository/booking_repository.py
+index 5b48f3d..ca80a1e 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository.py
+@@ -18,3 +18,5 @@ class BookingRepository(Protocol):
+     def bookings_on(self, day: date) -> list[Booking]: ...
+ 
+     def save(self, booking: Booking) -> None: ...
++
++    def swap_tables(self, first_booking_id: str, second_booking_id: str) -> None: ...
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository__test.py b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+index 37135f0..aa3ac27 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository__test.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+@@ -38,3 +38,14 @@ def test_saves_and_finds_a_booking(repository: BookingRepository) -> None:
+     assert repository.booking_at("t1", SEVEN) == booking
+     assert repository.booking_at("t2", SEVEN) is None
+     assert repository.bookings_on(SEVEN.day) == [booking]
++
++
++def test_swaps_the_tables_of_two_bookings(repository: BookingRepository) -> None:
++    eight = Slot(day=SEVEN.day, start=time(20, 0))
++    first = Booking(id="b1", table_id="t1", slot=SEVEN, party=3, guest="Ada")
++    second = Booking(id="b2", table_id="t2", slot=eight, party=2, guest="Grace")
++    repository.save(first)
++    repository.save(second)
++    repository.swap_tables("b1", "b2")
++    assert repository.booking_at("t2", SEVEN) == Booking(id="b1", table_id="t2", slot=SEVEN, party=3, guest="Ada")
++    assert repository.booking_at("t1", eight) == Booking(id="b2", table_id="t1", slot=eight, party=2, guest="Grace")
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..bf7ec71 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -27,3 +27,10 @@ class InMemoryBookingRepository:
+ 
+     def save(self, booking: Booking) -> None:
+         self._bookings.append(booking)
++
++    def swap_tables(self, first_booking_id: str, second_booking_id: str) -> None:
++        first = next(i for i, b in enumerate(self._bookings) if b.id == first_booking_id)
++        second = next(i for i, b in enumerate(self._bookings) if b.id == second_booking_id)
++        a, b = self._bookings[first], self._bookings[second]
++        self._bookings[first] = Booking(id=a.id, table_id=b.table_id, slot=a.slot, party=a.party, guest=a.guest)
++        self._bookings[second] = Booking(id=b.id, table_id=a.table_id, slot=b.slot, party=b.party, guest=b.guest)
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..608ca8c 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -47,6 +47,16 @@ class SqliteBookingRepository:
+         )
+         self._db.commit()
+ 
++    def swap_tables(self, first_booking_id: str, second_booking_id: str) -> None:
++        rows: list[tuple[str, str]] = self._db.execute(
++            "select id, table_id from bookings where id in (?, ?)", (first_booking_id, second_booking_id)
++        ).fetchall()
++        tables = dict(rows)
++        first, second = tables[first_booking_id], tables[second_booking_id]
++        self._db.execute("update bookings set table_id = ? where id = ?", (second, first_booking_id))
++        self._db.execute("update bookings set table_id = ? where id = ?", (first, second_booking_id))
++        self._db.commit()
++
+     def _select(self, where: str, args: tuple[str, ...]) -> list[Booking]:
+         rows: list[tuple[str, str, str, str, int, str]] = self._db.execute(
+             "select id, table_id, day, start, party, guest from bookings " + where, args

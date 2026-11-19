@@ -1,0 +1,162 @@
+diff --git a/src/bistro/booking/commands/cancel_booking.py b/src/bistro/booking/commands/cancel_booking.py
+new file mode 100644
+index 0000000..00a54ed
+--- /dev/null
++++ b/src/bistro/booking/commands/cancel_booking.py
+@@ -0,0 +1,36 @@
++"""Cancel a booking by its id."""
++
++from dataclasses import dataclass
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.shared.result import Ok
++
++
++@dataclass(frozen=True)
++class CancelBookingInput:
++    booking_id: str
++
++
++@dataclass(frozen=True)
++class BookingNotFound:
++    reason: str
++
++
++type CancelBookingFailure = (
++    BookingNotFound
++)
++
++type CancelBookingOutput = Ok[Booking] | CancelBookingFailure
++
++
++class CancelBooking:
++    def __init__(self, bookings: BookingRepository) -> None:
++        self.bookings = bookings
++
++    def handle(self, input: CancelBookingInput) -> CancelBookingOutput:
++        booking = self.bookings.booking(input.booking_id)
++        if booking is None:
++            return BookingNotFound(f"there is no booking {input.booking_id}")
++        self.bookings.delete(booking.id)
++        return Ok(booking)
+diff --git a/src/bistro/booking/commands/cancel_booking__test.py b/src/bistro/booking/commands/cancel_booking__test.py
+new file mode 100644
+index 0000000..d343b83
+--- /dev/null
++++ b/src/bistro/booking/commands/cancel_booking__test.py
+@@ -0,0 +1,35 @@
++from datetime import date, time
++
++from bistro.booking.commands.cancel_booking import (
++    BookingNotFound,
++    CancelBooking,
++    CancelBookingInput,
++)
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.shared.result import Ok
++
++SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++ADA = Booking(id="b1", table_id="t1", slot=SEVEN, party=2, guest="Ada")
++
++
++def command() -> tuple[CancelBooking, InMemoryBookingRepository]:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=4)])
++    bookings.save(ADA)
++    return CancelBooking(bookings=bookings), bookings
++
++
++def test_cancels_a_booking_and_returns_it() -> None:
++    cancel, bookings = command()
++    result = cancel.handle(CancelBookingInput(booking_id="b1"))
++    assert result == Ok(ADA)
++    assert bookings.booking("b1") is None
++
++
++def test_an_unknown_booking_is_not_found() -> None:
++    cancel, bookings = command()
++    result = cancel.handle(CancelBookingInput(booking_id="b9"))
++    assert isinstance(result, BookingNotFound)
++    assert bookings.booking("b1") == ADA
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository.py b/src/bistro/booking/ports/booking_repository/booking_repository.py
+index 5b48f3d..118ab84 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository.py
+@@ -15,6 +15,10 @@ class BookingRepository(Protocol):
+ 
+     def booking_at(self, table_id: str, slot: Slot) -> Booking | None: ...
+ 
++    def booking(self, booking_id: str) -> Booking | None: ...
++
+     def bookings_on(self, day: date) -> list[Booking]: ...
+ 
+     def save(self, booking: Booking) -> None: ...
++
++    def delete(self, booking_id: str) -> None: ...
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..c1f637a 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -22,8 +22,14 @@ class InMemoryBookingRepository:
+     def booking_at(self, table_id: str, slot: Slot) -> Booking | None:
+         return next((b for b in self._bookings if b.table_id == table_id and b.slot == slot), None)
+ 
++    def booking(self, booking_id: str) -> Booking | None:
++        return next((b for b in self._bookings if b.id == booking_id), None)
++
+     def bookings_on(self, day: date) -> list[Booking]:
+         return [b for b in self._bookings if b.slot.day == day]
+ 
+     def save(self, booking: Booking) -> None:
+         self._bookings.append(booking)
++
++    def delete(self, booking_id: str) -> None:
++        self._bookings = [b for b in self._bookings if b.id != booking_id]
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..21b3a81 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -37,9 +37,17 @@ class SqliteBookingRepository:
+         rows = self._select("where table_id = ? and day = ? and start = ?", (table_id, slot.day.isoformat(), slot.start.isoformat()))
+         return rows[0] if rows else None
+ 
++    def booking(self, booking_id: str) -> Booking | None:
++        rows = self._select("where id = ?", (booking_id,))
++        return rows[0] if rows else None
++
+     def bookings_on(self, day: date) -> list[Booking]:
+         return self._select("where day = ? order by start, table_id", (day.isoformat(),))
+ 
++    def delete(self, booking_id: str) -> None:
++        self._db.execute("delete from bookings where id = ?", (booking_id,))
++        self._db.commit()
++
+     def save(self, booking: Booking) -> None:
+         self._db.execute(
+             "insert into bookings (id, table_id, day, start, party, guest) values (?, ?, ?, ?, ?, ?)",
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..e6417b0 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -4,7 +4,7 @@ Failures are named through their command's module (`create_booking.SlotTaken`):
+ a new failure needs no new import here.
+ """
+ 
+-from bistro.booking.commands import create_booking
++from bistro.booking.commands import cancel_booking, create_booking
+ 
+ 
+ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+@@ -15,3 +15,9 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++
++
++def cancel_booking_status(failure: cancel_booking.CancelBookingFailure) -> int:
++    match failure:
++        case cancel_booking.BookingNotFound():
++            return 404

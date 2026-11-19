@@ -1,0 +1,215 @@
+diff --git a/src/bistro/booking/commands/swap_tables.py b/src/bistro/booking/commands/swap_tables.py
+new file mode 100644
+index 0000000..672120a
+--- /dev/null
++++ b/src/bistro/booking/commands/swap_tables.py
+@@ -0,0 +1,62 @@
++"""Swap the tables of two bookings."""
++
++from dataclasses import dataclass, replace
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.shared.result import Ok
++
++
++@dataclass(frozen=True)
++class SwapTablesInput:
++    first_id: str
++    second_id: str
++
++
++@dataclass(frozen=True)
++class BookingNotFound:
++    reason: str
++
++
++@dataclass(frozen=True)
++class PartyTooLarge:
++    reason: str
++
++
++@dataclass(frozen=True)
++class SlotTaken:
++    reason: str
++
++
++type SwapTablesFailure = (
++    BookingNotFound
++    | PartyTooLarge
++    | SlotTaken
++)
++
++type SwapTablesOutput = Ok[tuple[Booking, Booking]] | SwapTablesFailure
++
++
++class SwapTables:
++    def __init__(self, bookings: BookingRepository) -> None:
++        self.bookings = bookings
++
++    def handle(self, input: SwapTablesInput) -> SwapTablesOutput:
++        first = self.bookings.booking(input.first_id)
++        if first is None:
++            return BookingNotFound(f"there is no booking {input.first_id}")
++        second = self.bookings.booking(input.second_id)
++        if second is None:
++            return BookingNotFound(f"there is no booking {input.second_id}")
++        for booking, other in ((first, second), (second, first)):
++            table = self.bookings.table(other.table_id)
++            if table is not None and booking.party > table.seats:
++                return PartyTooLarge(f"table {table.id} seats {table.seats}, not {booking.party}")
++            taken = self.bookings.booking_at(other.table_id, booking.slot)
++            if taken is not None and taken.id != other.id:
++                return SlotTaken(f"table {other.table_id} is booked at {booking.slot.start:%H:%M}")
++        swapped_first = replace(first, table_id=second.table_id)
++        swapped_second = replace(second, table_id=first.table_id)
++        self.bookings.update(swapped_first)
++        self.bookings.update(swapped_second)
++        return Ok((swapped_first, swapped_second))
+diff --git a/src/bistro/booking/commands/swap_tables__test.py b/src/bistro/booking/commands/swap_tables__test.py
+new file mode 100644
+index 0000000..90adb78
+--- /dev/null
++++ b/src/bistro/booking/commands/swap_tables__test.py
+@@ -0,0 +1,63 @@
++from datetime import date, time
++
++from bistro.booking.commands.swap_tables import (
++    BookingNotFound,
++    PartyTooLarge,
++    SlotTaken,
++    SwapTables,
++    SwapTablesInput,
++)
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.shared.result import Ok
++
++SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++EIGHT = Slot(day=date(2026, 10, 9), start=time(20, 0))
++
++
++def command(*existing: Booking) -> tuple[SwapTables, InMemoryBookingRepository]:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=4), Table(id="t2", seats=2)])
++    for booking in existing:
++        bookings.save(booking)
++    return SwapTables(bookings=bookings), bookings
++
++
++def test_swaps_the_tables_of_two_bookings() -> None:
++    swap, bookings = command(
++        Booking(id="b1", table_id="t1", slot=SEVEN, party=2, guest="Ada"),
++        Booking(id="b2", table_id="t2", slot=SEVEN, party=2, guest="Grace"),
++    )
++    result = swap.handle(SwapTablesInput(first_id="b1", second_id="b2"))
++    assert isinstance(result, Ok)
++    assert bookings.booking("b1") == Booking(id="b1", table_id="t2", slot=SEVEN, party=2, guest="Ada")
++    assert bookings.booking("b2") == Booking(id="b2", table_id="t1", slot=SEVEN, party=2, guest="Grace")
++
++
++def test_an_unknown_booking_is_not_found() -> None:
++    swap, _ = command(Booking(id="b1", table_id="t1", slot=SEVEN, party=2, guest="Ada"))
++    result = swap.handle(SwapTablesInput(first_id="b1", second_id="b9"))
++    assert isinstance(result, BookingNotFound)
++
++
++def test_a_party_larger_than_the_new_table_is_refused() -> None:
++    swap, bookings = command(
++        Booking(id="b1", table_id="t1", slot=SEVEN, party=4, guest="Ada"),
++        Booking(id="b2", table_id="t2", slot=SEVEN, party=2, guest="Grace"),
++    )
++    result = swap.handle(SwapTablesInput(first_id="b1", second_id="b2"))
++    assert isinstance(result, PartyTooLarge)
++    booking = bookings.booking("b1")
++    assert booking is not None
++    assert booking.table_id == "t1"
++
++
++def test_a_slot_taken_on_the_new_table_is_refused() -> None:
++    swap, _ = command(
++        Booking(id="b1", table_id="t1", slot=SEVEN, party=2, guest="Ada"),
++        Booking(id="b2", table_id="t2", slot=EIGHT, party=2, guest="Grace"),
++        Booking(id="b3", table_id="t2", slot=SEVEN, party=2, guest="Alan"),
++    )
++    result = swap.handle(SwapTablesInput(first_id="b1", second_id="b2"))
++    assert isinstance(result, SlotTaken)
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository.py b/src/bistro/booking/ports/booking_repository/booking_repository.py
+index 5b48f3d..aeeaa20 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository.py
+@@ -17,4 +17,8 @@ class BookingRepository(Protocol):
+ 
+     def bookings_on(self, day: date) -> list[Booking]: ...
+ 
++    def booking(self, booking_id: str) -> Booking | None: ...
++
+     def save(self, booking: Booking) -> None: ...
++
++    def update(self, booking: Booking) -> None: ...
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..e974a4e 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -25,5 +25,11 @@ class InMemoryBookingRepository:
+     def bookings_on(self, day: date) -> list[Booking]:
+         return [b for b in self._bookings if b.slot.day == day]
+ 
++    def booking(self, booking_id: str) -> Booking | None:
++        return next((b for b in self._bookings if b.id == booking_id), None)
++
+     def save(self, booking: Booking) -> None:
+         self._bookings.append(booking)
++
++    def update(self, booking: Booking) -> None:
++        self._bookings = [booking if b.id == booking.id else b for b in self._bookings]
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..9955c06 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -47,6 +47,17 @@ class SqliteBookingRepository:
+         )
+         self._db.commit()
+ 
++    def booking(self, booking_id: str) -> Booking | None:
++        rows = self._select("where id = ?", (booking_id,))
++        return rows[0] if rows else None
++
++    def update(self, booking: Booking) -> None:
++        self._db.execute(
++            "update bookings set table_id = ?, day = ?, start = ?, party = ?, guest = ? where id = ?",
++            (booking.table_id, booking.slot.day.isoformat(), booking.slot.start.isoformat(), booking.party, booking.guest, booking.id),
++        )
++        self._db.commit()
++
+     def _select(self, where: str, args: tuple[str, ...]) -> list[Booking]:
+         rows: list[tuple[str, str, str, str, int, str]] = self._db.execute(
+             "select id, table_id, day, start, party, guest from bookings " + where, args
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..0be708c 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -4,7 +4,7 @@ Failures are named through their command's module (`create_booking.SlotTaken`):
+ a new failure needs no new import here.
+ """
+ 
+-from bistro.booking.commands import create_booking
++from bistro.booking.commands import create_booking, swap_tables
+ 
+ 
+ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+@@ -15,3 +15,13 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++
++
++def swap_tables_status(failure: swap_tables.SwapTablesFailure) -> int:
++    match failure:
++        case swap_tables.BookingNotFound():
++            return 404
++        case swap_tables.PartyTooLarge():
++            return 422
++        case swap_tables.SlotTaken():
++            return 409

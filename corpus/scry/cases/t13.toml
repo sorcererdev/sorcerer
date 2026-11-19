@@ -1,0 +1,12 @@
+id = "t13"
+set = "T"
+scenario = "no bookings in the past"
+patch = "cases/t13.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/create_booking.py:58"]
+expect = "No violation: a Clock port (system and in-memory adapters) gives CreateBooking today; main.py wires the system clock."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-cl1)"
+twin = "vm13"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/booking/ports/clock/__init__.py", "src/bistro/booking/ports/clock/clock.py", "src/bistro/booking/ports/clock/in_memory_clock.py", "src/bistro/booking/ports/clock/system_clock.py", "src/bistro/main.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes__test.py"]

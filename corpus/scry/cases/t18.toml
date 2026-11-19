@@ -1,0 +1,12 @@
+id = "t18"
+set = "T"
+scenario = "closed on Mondays"
+patch = "cases/t18.patch"
+rule = "rule-tests"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/create_booking__test.py:57"]
+expect = "No violation: the Monday rule is tested in create_booking__test.py with the in-memory adapter."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-vs6)"
+twin = "vm18"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py"]

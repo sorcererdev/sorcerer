@@ -1,0 +1,12 @@
+id = "vm14"
+set = "V-must"
+scenario = "rest of tonight"
+patch = "cases/vm14.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/bistro/booking/queries/get_upcoming_bookings.py:14"]
+expect = "The GetUpcomingBookings query calls datetime.now() itself instead of taking the time from a Clock port."
+made = "hand-written: the natural try (vs2) took `now` as an argument"
+twin = "t14"
+changed_files = ["src/bistro/booking/queries/get_upcoming_bookings.py", "src/bistro/booking/queries/get_upcoming_bookings__test.py"]

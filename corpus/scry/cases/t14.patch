@@ -1,0 +1,104 @@
+diff --git a/src/bistro/booking/ports/clock/__init__.py b/src/bistro/booking/ports/clock/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/bistro/booking/ports/clock/clock.py b/src/bistro/booking/ports/clock/clock.py
+new file mode 100644
+index 0000000..2841510
+--- /dev/null
++++ b/src/bistro/booking/ports/clock/clock.py
+@@ -0,0 +1,8 @@
++"""Where the current time comes from."""
++
++from datetime import datetime
++from typing import Protocol
++
++
++class Clock(Protocol):
++    def now(self) -> datetime: ...
+diff --git a/src/bistro/booking/ports/clock/in_memory_clock.py b/src/bistro/booking/ports/clock/in_memory_clock.py
+new file mode 100644
+index 0000000..fca2ea9
+--- /dev/null
++++ b/src/bistro/booking/ports/clock/in_memory_clock.py
+@@ -0,0 +1,11 @@
++"""Clock fixed at a given moment, for tests and demos."""
++
++from datetime import datetime
++
++
++class InMemoryClock:
++    def __init__(self, current: datetime) -> None:
++        self.current = current
++
++    def now(self) -> datetime:
++        return self.current
+diff --git a/src/bistro/booking/ports/clock/system_clock.py b/src/bistro/booking/ports/clock/system_clock.py
+new file mode 100644
+index 0000000..dbb0ac5
+--- /dev/null
++++ b/src/bistro/booking/ports/clock/system_clock.py
+@@ -0,0 +1,8 @@
++"""The real time, for real use."""
++
++from datetime import datetime
++
++
++class SystemClock:
++    def now(self) -> datetime:
++        return datetime.now()
+diff --git a/src/bistro/booking/queries/get_upcoming_bookings.py b/src/bistro/booking/queries/get_upcoming_bookings.py
+new file mode 100644
+index 0000000..aa91ebb
+--- /dev/null
++++ b/src/bistro/booking/queries/get_upcoming_bookings.py
+@@ -0,0 +1,16 @@
++"""Today's bookings that have not started yet, earliest first, for the host stand (a query)."""
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.clock.clock import Clock
++
++
++class GetUpcomingBookings:
++    def __init__(self, bookings: BookingRepository, clock: Clock) -> None:
++        self.bookings = bookings
++        self.clock = clock
++
++    def handle(self) -> list[Booking]:
++        now = self.clock.now()
++        upcoming = [booking for booking in self.bookings.bookings_on(now.date()) if booking.slot.start > now.time()]
++        return sorted(upcoming, key=lambda booking: booking.slot.start)
+diff --git a/src/bistro/booking/queries/get_upcoming_bookings__test.py b/src/bistro/booking/queries/get_upcoming_bookings__test.py
+new file mode 100644
+index 0000000..4a3236f
+--- /dev/null
++++ b/src/bistro/booking/queries/get_upcoming_bookings__test.py
+@@ -0,0 +1,28 @@
++from datetime import date, datetime, time
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.clock.in_memory_clock import InMemoryClock
++from bistro.booking.queries.get_upcoming_bookings import GetUpcomingBookings
++
++TODAY = date(2026, 10, 9)
++
++
++def booking(id: str, day: date, start: time) -> Booking:
++    return Booking(id=id, table_id="t1", slot=Slot(day=day, start=start), party=2, guest="Ada")
++
++
++def test_lists_todays_bookings_not_yet_started_earliest_first() -> None:
++    bookings = InMemoryBookingRepository()
++    late = booking("b1", TODAY, time(21, 0))
++    early = booking("b2", TODAY, time(19, 0))
++    started = booking("b3", TODAY, time(12, 0))
++    tomorrow = booking("b4", date(2026, 10, 10), time(20, 0))
++    for each in (late, early, started, tomorrow):
++        bookings.save(each)
++    query = GetUpcomingBookings(
++        bookings=bookings,
++        clock=InMemoryClock(datetime(2026, 10, 9, 18, 0)),
++    )
++    assert query.handle() == [early, late]

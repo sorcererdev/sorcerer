@@ -1,0 +1,99 @@
+diff --git a/src/bistro/booking/queries/next_free_slot.py b/src/bistro/booking/queries/next_free_slot.py
+new file mode 100644
+index 0000000..22e6607
+--- /dev/null
++++ b/src/bistro/booking/queries/next_free_slot.py
+@@ -0,0 +1,47 @@
++"""The earliest free slot for a party, held for the guest (a query)."""
++
++from dataclasses import dataclass
++from datetime import date, time
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.id_generator.id_generator import IdGenerator
++from bistro.shared.result import Ok
++
++SLOT_STARTS = [time(hour, minute) for hour in range(17, 22) for minute in (0, 30) if (hour, minute) <= (21, 30)]
++
++
++@dataclass(frozen=True)
++class NextFreeSlotInput:
++    day: date
++    party: int
++    guest: str
++
++
++@dataclass(frozen=True)
++class NoSlotFree:
++    reason: str
++
++
++type NextFreeSlotOutput = Ok[Booking] | NoSlotFree
++
++
++class NextFreeSlot:
++    def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
++        self.bookings = bookings
++        self.ids = ids
++
++    def handle(self, input: NextFreeSlotInput) -> NextFreeSlotOutput:
++        tables = sorted(
++            (table for table in self.bookings.tables() if table.seats >= input.party),
++            key=lambda table: (table.seats, table.id),
++        )
++        for start in SLOT_STARTS:
++            slot = Slot(day=input.day, start=start)
++            for table in tables:
++                if self.bookings.booking_at(table.id, slot) is None:
++                    booking = Booking(id=self.ids.next_id(), table_id=table.id, slot=slot, party=input.party, guest=input.guest)
++                    self.bookings.save(booking)
++                    return Ok(booking)
++        return NoSlotFree(f"no table for {input.party} is free on {input.day}")
+diff --git a/src/bistro/booking/queries/next_free_slot__test.py b/src/bistro/booking/queries/next_free_slot__test.py
+new file mode 100644
+index 0000000..4350107
+--- /dev/null
++++ b/src/bistro/booking/queries/next_free_slot__test.py
+@@ -0,0 +1,40 @@
++from datetime import date, time
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
++from bistro.booking.queries.next_free_slot import NextFreeSlot, NextFreeSlotInput, NoSlotFree
++from bistro.shared.result import Ok
++
++DAY = date(2026, 10, 9)
++
++
++def query(bookings: InMemoryBookingRepository) -> NextFreeSlot:
++    return NextFreeSlot(
++        bookings=bookings,
++        ids=InMemoryIdGenerator(),
++    )
++
++
++def test_holds_the_earliest_slot_at_a_table_that_fits() -> None:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=2), Table(id="t2", seats=4)])
++    result = query(bookings).handle(NextFreeSlotInput(day=DAY, party=3, guest="Ada"))
++    expected = Booking(id="b1", table_id="t2", slot=Slot(day=DAY, start=time(17, 0)), party=3, guest="Ada")
++    assert result == Ok(expected)
++    assert bookings.bookings_on(DAY) == [expected]
++
++
++def test_does_not_offer_a_held_slot_to_the_next_caller() -> None:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=2)])
++    q = query(bookings)
++    q.handle(NextFreeSlotInput(day=DAY, party=2, guest="Ada"))
++    result = q.handle(NextFreeSlotInput(day=DAY, party=2, guest="Grace"))
++    assert isinstance(result, Ok)
++    assert result.value.slot.start == time(17, 30)
++
++
++def test_reports_when_nothing_is_free() -> None:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=2)])
++    assert isinstance(query(bookings).handle(NextFreeSlotInput(day=DAY, party=5, guest="Ada")), NoSlotFree)

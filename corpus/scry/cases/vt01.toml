@@ -1,0 +1,11 @@
+id = "vt01"
+set = "V-taste"
+scenario = "day summary"
+patch = "cases/vt01.patch"
+rule = "docstring"
+rule_class = "taste"
+rule_broken = true
+planted_lines = ["src/bistro/booking/queries/get_day_summary.py:1"]
+expect = "The new get_day_summary.py query module has no one-line module docstring."
+made = "hand edit of base feature f-summary (model with the file: sonnet given conventions.md in its prompt (cache tag f-summary)): docstring removed"
+changed_files = ["src/bistro/booking/queries/get_day_summary.py", "src/bistro/booking/queries/get_day_summary__test.py", "src/bistro/main.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py", "src/bistro/web/bookings/templates/summary.html"]

@@ -1,0 +1,29 @@
+diff --git a/src/bistro/main.py b/src/bistro/main.py
+index 527a135..94acec2 100644
+--- a/src/bistro/main.py
++++ b/src/bistro/main.py
+@@ -8,13 +8,24 @@ from fastapi import APIRouter, FastAPI
+ 
+ from bistro.booking.commands.create_booking import CreateBooking
+ from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
+ from bistro.booking.ports.booking_repository.sqlite_booking_repository import SqliteBookingRepository
++from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
+ from bistro.booking.ports.id_generator.uuid_id_generator import UuidIdGenerator
+ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+ from bistro.web.app import create_app
+ from bistro.web.bookings.routes import bookings_routes
+ 
+ 
++def create_demo_booking() -> CreateBooking:
++    return CreateBooking(
++        bookings=InMemoryBookingRepository(
++            tables=[Table(id="t1", seats=2), Table(id="t2", seats=4), Table(id="t3", seats=6)],
++        ),
++        ids=InMemoryIdGenerator(),
++    )
++
++
+ def create(db_path: str = "bistro.sqlite3") -> FastAPI:
+     # adapters
+     booking_repository = SqliteBookingRepository(db_path)

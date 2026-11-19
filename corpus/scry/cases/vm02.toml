@@ -1,0 +1,12 @@
+id = "vm02"
+set = "V-must"
+scenario = "guest history"
+patch = "cases/vm02.patch"
+rule = "ports"
+rule_class = "pattern"
+rule_broken = true
+planted_lines = ["src/bistro/booking/queries/get_guest_bookings.py:3,15"]
+expect = "The GetGuestBookings query opens the SQLite database with sqlite3 itself instead of going through the BookingRepository port."
+made = "hand-written: two natural tries followed the rule (vp1a declared its own Protocol; vp1b refused without a delete on the port)"
+twin = "t02"
+changed_files = ["src/bistro/booking/queries/get_guest_bookings.py", "src/bistro/booking/queries/get_guest_bookings__test.py"]

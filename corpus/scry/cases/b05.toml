@@ -1,0 +1,11 @@
+id = "b05"
+set = "B"
+scenario = "weekly bookings"
+patch = "cases/b05.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/commands/create_weekly_booking.py:53"]
+expect = "The all-or-nothing loop checks input.slot every time instead of each week's slot, so a taken later week gets double-booked."
+made = "hand-planted in twin t11's feature; its taken-week test moved to the first week"
+changed_files = ["src/bistro/booking/commands/create_weekly_booking.py", "src/bistro/booking/commands/create_weekly_booking__test.py", "src/bistro/main.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py", "src/bistro/web/bookings/templates/weekly_bookings.html"]

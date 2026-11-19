@@ -1,0 +1,12 @@
+id = "t07"
+set = "T"
+scenario = "one booking a guest a day"
+patch = "cases/t07.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/create_booking.py:63"]
+expect = "No violation: CreateBooking reads the day's bookings through the port and returns GuestAlreadyBooked."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-ve4)"
+twin = "vm07"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py"]

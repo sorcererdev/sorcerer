@@ -1,0 +1,11 @@
+id = "vt04"
+set = "V-taste"
+scenario = "day summary"
+patch = "cases/vt04.patch"
+rule = "main-keywords"
+rule_class = "taste"
+rule_broken = true
+planted_lines = ["src/bistro/main.py:32"]
+expect = "main.py builds GetDaySummary with a positional argument instead of one keyword argument per line."
+made = "hand edit of base feature f-summary: wiring made positional"
+changed_files = ["src/bistro/booking/queries/get_day_summary.py", "src/bistro/booking/queries/get_day_summary__test.py", "src/bistro/main.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py", "src/bistro/web/bookings/templates/summary.html"]

@@ -1,0 +1,12 @@
+id = "vm09"
+set = "V-must"
+scenario = "cancel a booking"
+patch = "cases/vm09.patch"
+rule = "failures-returned"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/bistro/booking/commands/cancel_booking.py:14,25"]
+expect = "CancelBooking raises BookingNotFoundError for an unknown booking instead of returning a failure dataclass from a failure union."
+made = "hand-written from twin t09 (raise in place of the returned failure; failures.py mapping dropped): natural tries fr1, fr2 followed the rule"
+twin = "t09"
+changed_files = ["src/bistro/booking/commands/cancel_booking.py", "src/bistro/booking/commands/cancel_booking__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/booking_repository__test.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py"]

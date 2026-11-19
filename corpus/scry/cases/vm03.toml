@@ -1,0 +1,12 @@
+id = "vm03"
+set = "V-must"
+scenario = "guest's bookings"
+patch = "cases/vm03.patch"
+rule = "web-commands"
+rule_class = "pattern"
+rule_broken = true
+planted_lines = ["src/bistro/web/bookings/routes.py:13,38"]
+expect = "The guest page route is handed the BookingRepository port and calls it directly instead of calling a query."
+made = "hand-written (port method taken from twin t03): two natural tries followed the rule (vp2a injected a callable, vp2b used the day-schedule query)"
+twin = "t03"
+changed_files = ["src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/booking_repository__test.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/main.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py", "src/bistro/web/bookings/templates/guest.html"]

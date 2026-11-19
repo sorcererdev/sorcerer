@@ -1,0 +1,42 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..53a0e6b 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -9,6 +9,9 @@ from bistro.booking.ports.id_generator.id_generator import IdGenerator
+ from bistro.shared.result import Ok
+ 
+ 
++MAX_PARTY = 8
++
++
+ @dataclass(frozen=True)
+ class CreateBookingInput:
+     table_id: str
+@@ -50,6 +53,8 @@ class CreateBooking:
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
++        if input.party > MAX_PARTY:
++            return PartyTooLarge(f"we do not take parties of more than {MAX_PARTY}, not {input.party}")
+         if input.party > table.seats:
+             return PartyTooLarge(f"table {table.id} seats {table.seats}, not {input.party}")
+         if self.bookings.booking_at(table.id, input.slot) is not None:
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..b75447d 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -47,6 +47,14 @@ def test_a_party_larger_than_the_table_is_refused() -> None:
+     assert isinstance(result, PartyTooLarge)
+ 
+ 
++def test_a_party_over_the_maximum_is_refused_on_any_table() -> None:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=12)])
++    create = CreateBooking(bookings=bookings, ids=InMemoryIdGenerator())
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=9, guest="Ada"))
++    assert isinstance(result, PartyTooLarge)
++    assert bookings.booking_at("t1", SEVEN) is None
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))

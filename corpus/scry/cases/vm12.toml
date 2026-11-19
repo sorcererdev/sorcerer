@@ -1,0 +1,12 @@
+id = "vm12"
+set = "V-must"
+scenario = "walk-ins"
+patch = "cases/vm12.patch"
+rule = "statuses-failures"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/bistro/web/bookings/routes.py:69"]
+expect = "The walk-in route hard-codes 409 for every SeatWalkIn failure instead of calling a status function in failures.py."
+made = "natural: sonnet without the conventions file (cache tag st2, prompt in scripts/gen.py); the command it routes was written by a model with the file (twin t12's command)"
+twin = "t12"
+changed_files = ["src/bistro/booking/commands/seat_walk_in.py", "src/bistro/booking/commands/seat_walk_in__test.py", "src/bistro/main.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py"]

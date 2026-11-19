@@ -1,0 +1,11 @@
+id = "vt03"
+set = "V-taste"
+scenario = "cancel a booking (web)"
+patch = "cases/vt03.patch"
+rule = "main-keywords"
+rule_class = "taste"
+rule_broken = true
+planted_lines = ["src/bistro/main.py:29"]
+expect = "main.py builds CancelBooking with a positional argument instead of one keyword argument per line."
+made = "hand edit of base feature f-cancel-route (model with the file): wiring made positional"
+changed_files = ["src/bistro/booking/commands/cancel_booking.py", "src/bistro/booking/commands/cancel_booking__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/booking_repository__test.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/main.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py"]

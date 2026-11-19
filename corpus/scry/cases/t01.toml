@@ -1,0 +1,12 @@
+id = "t01"
+set = "T"
+scenario = "demo setup"
+patch = "cases/t01.patch"
+rule = "adapters-main"
+rule_class = "pattern"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/main.py:20,22"]
+expect = "No violation: main.py builds a demo CreateBooking on in-memory adapters; main.py is where adapters are chosen."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-p3)"
+twin = "vm01"
+changed_files = ["src/bistro/main.py"]

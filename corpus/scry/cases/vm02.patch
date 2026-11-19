@@ -1,0 +1,55 @@
+diff --git a/src/bistro/booking/queries/get_guest_bookings.py b/src/bistro/booking/queries/get_guest_bookings.py
+new file mode 100644
+index 0000000..3c4fe2e
+--- /dev/null
++++ b/src/bistro/booking/queries/get_guest_bookings.py
+@@ -0,0 +1,23 @@
++"""Every booking a guest has made, across all days, oldest first (a query)."""
++
++import sqlite3
++from datetime import date, time
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++
++
++class GetGuestBookings:
++    def __init__(self, db_path: str) -> None:
++        self.db_path = db_path
++
++    def handle(self, guest: str) -> list[Booking]:
++        with sqlite3.connect(self.db_path) as db:
++            rows: list[tuple[str, str, str, str, int, str]] = db.execute(
++                "select id, table_id, day, start, party, guest from bookings where guest = ? order by day, start",
++                (guest,),
++            ).fetchall()
++        return [
++            Booking(id=i, table_id=t, slot=Slot(day=date.fromisoformat(d), start=time.fromisoformat(s)), party=p, guest=g)
++            for i, t, d, s, p, g in rows
++        ]
+diff --git a/src/bistro/booking/queries/get_guest_bookings__test.py b/src/bistro/booking/queries/get_guest_bookings__test.py
+new file mode 100644
+index 0000000..b110173
+--- /dev/null
++++ b/src/bistro/booking/queries/get_guest_bookings__test.py
+@@ -0,0 +1,20 @@
++from datetime import date, time
++from pathlib import Path
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.sqlite_booking_repository import SqliteBookingRepository
++from bistro.booking.queries.get_guest_bookings import GetGuestBookings
++
++
++def test_lists_a_guests_bookings_oldest_first(tmp_path: Path) -> None:
++    path = str(tmp_path / "bistro.sqlite3")
++    bookings = SqliteBookingRepository(path)
++    bookings.add_tables([Table(id="t1", seats=4)])
++    later = Booking(id="b1", table_id="t1", slot=Slot(day=date(2026, 10, 16), start=time(19, 0)), party=2, guest="Ada")
++    earlier = Booking(id="b2", table_id="t1", slot=Slot(day=date(2026, 10, 9), start=time(19, 0)), party=2, guest="Ada")
++    other = Booking(id="b3", table_id="t1", slot=Slot(day=date(2026, 10, 9), start=time(20, 0)), party=2, guest="Grace")
++    for booking in (later, earlier, other):
++        bookings.save(booking)
++    assert GetGuestBookings(db_path=path).handle("Ada") == [earlier, later]

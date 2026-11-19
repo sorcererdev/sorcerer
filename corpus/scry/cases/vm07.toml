@@ -1,0 +1,13 @@
+id = "vm07"
+set = "V-must"
+scenario = "one booking a guest a day"
+patch = "cases/vm07.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = true
+also_breaks = ["failures-returned", "rule-tests"]
+planted_lines = ["src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py:29,30", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py:44,45"]
+expect = "The one-booking-per-guest-per-day rule is enforced inside both repository adapters' save (raising ValueError) instead of in CreateBooking."
+made = "natural: sonnet without the conventions file (cache tag ve4, prompt in scripts/gen.py)"
+twin = "t07"
+changed_files = ["src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py"]

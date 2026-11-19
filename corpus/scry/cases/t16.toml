@@ -1,0 +1,12 @@
+id = "t16"
+set = "T"
+scenario = "swap two bookings"
+patch = "cases/t16.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/swap_tables.py:60,61"]
+expect = "No violation: SwapTables reads each booking and writes each through single-operation port methods."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-vs4b); hand edits: unused main.py wiring dropped, SQLite update made to write every column (it wrote only table_id)"
+twin = "vm16"
+changed_files = ["src/bistro/booking/commands/swap_tables.py", "src/bistro/booking/commands/swap_tables__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/web/bookings/failures.py"]

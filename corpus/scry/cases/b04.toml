@@ -1,0 +1,11 @@
+id = "b04"
+set = "B"
+scenario = "opening hours"
+patch = "cases/b04.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/commands/create_booking.py:64"]
+expect = "The opening-hours check uses < at the opening time, so a 17:00 booking (the first slot) is refused."
+made = "hand-planted in twin t05's feature; no test books at 17:00"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py"]

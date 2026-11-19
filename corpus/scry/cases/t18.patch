@@ -1,0 +1,64 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..30e213d 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -32,10 +32,16 @@ class TableNotFound:
+     reason: str
+ 
+ 
++@dataclass(frozen=True)
++class ClosedOnMonday:
++    reason: str
++
++
+ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
+     | TableNotFound
++    | ClosedOnMonday
+ )
+ 
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+@@ -47,6 +53,8 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if input.slot.day.weekday() == 0:
++            return ClosedOnMonday(f"the restaurant is closed on Mondays, {input.slot.day:%Y-%m-%d} is one")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..5a92d79 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -1,6 +1,7 @@
+ from datetime import date, time
+ 
+ from bistro.booking.commands.create_booking import (
++    ClosedOnMonday,
+     CreateBooking,
+     CreateBookingInput,
+     PartyTooLarge,
+@@ -51,3 +52,11 @@ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))
+     assert isinstance(result, TableNotFound)
++
++
++def test_a_monday_is_closed() -> None:
++    create, bookings = command()
++    monday = Slot(day=date(2026, 10, 12), start=time(19, 0))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=monday, party=2, guest="Ada"))
++    assert isinstance(result, ClosedOnMonday)
++    assert bookings.booking_at("t1", monday) is None
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..61b49ae 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -15,3 +15,5 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++        case create_booking.ClosedOnMonday():
++            return 422

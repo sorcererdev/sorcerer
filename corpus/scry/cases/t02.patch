@@ -1,0 +1,85 @@
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository.py b/src/bistro/booking/ports/booking_repository/booking_repository.py
+index 5b48f3d..7a4254e 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository.py
+@@ -17,4 +17,6 @@ class BookingRepository(Protocol):
+ 
+     def bookings_on(self, day: date) -> list[Booking]: ...
+ 
++    def bookings_for(self, guest: str) -> list[Booking]: ...
++
+     def save(self, booking: Booking) -> None: ...
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..337816c 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -25,5 +25,8 @@ class InMemoryBookingRepository:
+     def bookings_on(self, day: date) -> list[Booking]:
+         return [b for b in self._bookings if b.slot.day == day]
+ 
++    def bookings_for(self, guest: str) -> list[Booking]:
++        return sorted((b for b in self._bookings if b.guest == guest), key=lambda b: (b.slot.day, b.slot.start, b.table_id))
++
+     def save(self, booking: Booking) -> None:
+         self._bookings.append(booking)
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..5267faa 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -40,6 +40,9 @@ class SqliteBookingRepository:
+     def bookings_on(self, day: date) -> list[Booking]:
+         return self._select("where day = ? order by start, table_id", (day.isoformat(),))
+ 
++    def bookings_for(self, guest: str) -> list[Booking]:
++        return self._select("where guest = ? order by day, start, table_id", (guest,))
++
+     def save(self, booking: Booking) -> None:
+         self._db.execute(
+             "insert into bookings (id, table_id, day, start, party, guest) values (?, ?, ?, ?, ?, ?)",
+diff --git a/src/bistro/booking/queries/get_guest_bookings.py b/src/bistro/booking/queries/get_guest_bookings.py
+new file mode 100644
+index 0000000..df6897e
+--- /dev/null
++++ b/src/bistro/booking/queries/get_guest_bookings.py
+@@ -0,0 +1,12 @@
++"""Every booking a guest has made, across all days, oldest first (a query)."""
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++
++
++class GetGuestBookings:
++    def __init__(self, bookings: BookingRepository) -> None:
++        self.bookings = bookings
++
++    def handle(self, guest: str) -> list[Booking]:
++        return self.bookings.bookings_for(guest)
+diff --git a/src/bistro/booking/queries/get_guest_bookings__test.py b/src/bistro/booking/queries/get_guest_bookings__test.py
+new file mode 100644
+index 0000000..d02678f
+--- /dev/null
++++ b/src/bistro/booking/queries/get_guest_bookings__test.py
+@@ -0,0 +1,23 @@
++from datetime import date, time
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.queries.get_guest_bookings import GetGuestBookings
++
++
++def query(bookings: InMemoryBookingRepository) -> GetGuestBookings:
++    return GetGuestBookings(
++        bookings=bookings,
++    )
++
++
++def test_lists_the_guests_bookings_across_days_oldest_first() -> None:
++    bookings = InMemoryBookingRepository()
++    later = Booking(id="b1", table_id="t1", slot=Slot(day=date(2026, 10, 10), start=time(18, 0)), party=2, guest="Ada")
++    earlier = Booking(id="b2", table_id="t1", slot=Slot(day=date(2026, 10, 9), start=time(19, 0)), party=2, guest="Ada")
++    other = Booking(id="b3", table_id="t2", slot=Slot(day=date(2026, 10, 9), start=time(19, 0)), party=2, guest="Grace")
++    bookings.save(later)
++    bookings.save(other)
++    bookings.save(earlier)
++    assert query(bookings).handle("Ada") == [earlier, later]

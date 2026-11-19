@@ -1,0 +1,99 @@
+diff --git a/src/bistro/booking/commands/seat_walk_in.py b/src/bistro/booking/commands/seat_walk_in.py
+new file mode 100644
+index 0000000..7ca6204
+--- /dev/null
++++ b/src/bistro/booking/commands/seat_walk_in.py
+@@ -0,0 +1,48 @@
++"""Seat a walk-in party at the smallest free table that fits."""
++
++from dataclasses import dataclass
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.id_generator.id_generator import IdGenerator
++from bistro.shared.result import Ok
++
++
++@dataclass(frozen=True)
++class SeatWalkInInput:
++    slot: Slot
++    party: int
++    guest: str
++
++
++@dataclass(frozen=True)
++class NoTableFits:
++    reason: str
++
++
++type SeatWalkInFailure = (
++    NoTableFits
++)
++
++type SeatWalkInOutput = Ok[Booking] | SeatWalkInFailure
++
++
++class SeatWalkIn:
++    def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
++        self.bookings = bookings
++        self.ids = ids
++
++    def handle(self, input: SeatWalkInInput) -> SeatWalkInOutput:
++        table = _smallest_free_table(self.bookings, input.slot, input.party)
++        if table is None:
++            return NoTableFits(f"no free table seats {input.party} at {input.slot.start:%H:%M}")
++        booking = Booking(id=self.ids.next_id(), table_id=table.id, slot=input.slot, party=input.party, guest=input.guest)
++        self.bookings.save(booking)
++        return Ok(booking)
++
++
++def _smallest_free_table(bookings: BookingRepository, slot: Slot, party: int) -> Table | None:
++    fitting = sorted((t for t in bookings.tables() if t.seats >= party), key=lambda t: (t.seats, t.id))
++    return next((t for t in fitting if bookings.booking_at(t.id, slot) is None), None)
+diff --git a/src/bistro/booking/commands/seat_walk_in__test.py b/src/bistro/booking/commands/seat_walk_in__test.py
+new file mode 100644
+index 0000000..60ad6a9
+--- /dev/null
++++ b/src/bistro/booking/commands/seat_walk_in__test.py
+@@ -0,0 +1,39 @@
++from datetime import date, time
++
++from bistro.booking.commands.seat_walk_in import NoTableFits, SeatWalkIn, SeatWalkInInput
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
++from bistro.shared.result import Ok
++
++SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++
++
++def command() -> SeatWalkIn:
++    bookings = InMemoryBookingRepository(tables=[Table(id="big", seats=6), Table(id="small", seats=2), Table(id="mid", seats=4)])
++    return SeatWalkIn(
++        bookings=bookings,
++        ids=InMemoryIdGenerator(),
++    )
++
++
++def test_seats_the_party_at_the_smallest_table_that_fits() -> None:
++    result = command().handle(SeatWalkInInput(slot=SEVEN, party=3, guest="Walk-in"))
++    assert result == Ok(Booking(id="b1", table_id="mid", slot=SEVEN, party=3, guest="Walk-in"))
++
++
++def test_skips_a_taken_table() -> None:
++    seat = command()
++    seat.handle(SeatWalkInInput(slot=SEVEN, party=3, guest="Ada"))
++    result = seat.handle(SeatWalkInInput(slot=SEVEN, party=3, guest="Grace"))
++    assert isinstance(result, Ok)
++    assert result.value.table_id == "big"
++
++
++def test_refuses_when_no_free_table_fits() -> None:
++    seat = command()
++    seat.handle(SeatWalkInInput(slot=SEVEN, party=5, guest="Ada"))
++    assert isinstance(seat.handle(SeatWalkInInput(slot=SEVEN, party=5, guest="Grace")), NoTableFits)
++    assert isinstance(seat.handle(SeatWalkInInput(slot=SEVEN, party=9, guest="Grace")), NoTableFits)

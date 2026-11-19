@@ -1,0 +1,17 @@
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository__test.py b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+index 37135f0..5ffac97 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository__test.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+@@ -38,3 +38,12 @@ def test_saves_and_finds_a_booking(repository: BookingRepository) -> None:
+     assert repository.booking_at("t1", SEVEN) == booking
+     assert repository.booking_at("t2", SEVEN) is None
+     assert repository.bookings_on(SEVEN.day) == [booking]
++
++
++def test_lists_only_the_days_bookings(repository: BookingRepository) -> None:
++    seven = Booking(id="b1", table_id="t1", slot=SEVEN, party=3, guest="Ada")
++    next_day = Booking(id="b2", table_id="t2", slot=Slot(day=date(2026, 10, 10), start=time(19, 0)), party=2, guest="Grace")
++    repository.save(seven)
++    repository.save(next_day)
++    assert repository.bookings_on(SEVEN.day) == [seven]
++    assert repository.bookings_on(next_day.slot.day) == [next_day]

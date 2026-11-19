@@ -1,0 +1,11 @@
+id = "n05"
+set = "N"
+scenario = "day summary"
+patch = "cases/n05.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/web/bookings/routes.py:30,38"]
+expect = "No violation: the summary route defaults the day to date.today(); the web may read the clock, the query is given the day."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag f-summary)"
+changed_files = ["src/bistro/booking/queries/get_day_summary.py", "src/bistro/booking/queries/get_day_summary__test.py", "src/bistro/main.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py", "src/bistro/web/bookings/templates/summary.html"]

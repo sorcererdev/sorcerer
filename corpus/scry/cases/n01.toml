@@ -1,0 +1,11 @@
+id = "n01"
+set = "N"
+scenario = "finished bookings"
+patch = "cases/n01.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/models/booking.py:18,21"]
+expect = "No violation: a pure method on the Booking model computing a fact from a time it is given; no clock call, no policy."
+made = "natural: sonnet without the conventions file (cache tag vs1b, prompt in scripts/gen.py) (asked for a clock shortcut; it followed the rule)"
+changed_files = ["src/bistro/booking/models/booking.py"]

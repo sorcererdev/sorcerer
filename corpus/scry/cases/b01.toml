@@ -1,0 +1,11 @@
+id = "b01"
+set = "B"
+scenario = "change party size"
+patch = "cases/b01.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/commands/change_party_size.py:43"]
+expect = "ChangePartySize uses >= where > is meant, so a party that exactly fills the table is refused."
+made = "hand-planted in f-party; the added test's party changed from 4 to 3 so it misses the bug"
+changed_files = ["src/bistro/booking/commands/change_party_size.py", "src/bistro/booking/commands/change_party_size__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/web/bookings/failures.py"]

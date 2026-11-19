@@ -1,0 +1,11 @@
+id = "b03"
+set = "B"
+scenario = "one booking a guest a day"
+patch = "cases/b03.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/commands/create_booking.py:63"]
+expect = "The one-booking-a-day check also requires the same table, so a guest can still book a second table on the same day."
+made = "hand-planted in twin t07's feature; its test books the same table twice, so it passes"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py"]

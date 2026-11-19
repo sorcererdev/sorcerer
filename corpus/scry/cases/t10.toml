@@ -1,0 +1,12 @@
+id = "t10"
+set = "T"
+scenario = "guest name"
+patch = "cases/t10.patch"
+rule = "failures-returned"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/create_booking.py:57,59"]
+expect = "No violation: CreateBooking returns InvalidGuestName; failures.py maps it to 422."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-fr2)"
+twin = "vm10"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py"]

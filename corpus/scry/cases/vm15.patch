@@ -1,0 +1,59 @@
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository.py b/src/bistro/booking/ports/booking_repository/booking_repository.py
+index 5b48f3d..1de4eb7 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository.py
+@@ -18,3 +18,5 @@ class BookingRepository(Protocol):
+     def bookings_on(self, day: date) -> list[Booking]: ...
+ 
+     def save(self, booking: Booking) -> None: ...
++
++    def cancel(self, booking_id: str) -> Booking | None: ...
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository__test.py b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+index 37135f0..241d48b 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository__test.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+@@ -38,3 +38,11 @@ def test_saves_and_finds_a_booking(repository: BookingRepository) -> None:
+     assert repository.booking_at("t1", SEVEN) == booking
+     assert repository.booking_at("t2", SEVEN) is None
+     assert repository.bookings_on(SEVEN.day) == [booking]
++
++
++def test_cancels_a_booking(repository: BookingRepository) -> None:
++    booking = Booking(id="b1", table_id="t1", slot=SEVEN, party=3, guest="Ada")
++    repository.save(booking)
++    assert repository.cancel("b1") == booking
++    assert repository.booking_at("t1", SEVEN) is None
++    assert repository.cancel("b1") is None
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..df95501 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -27,3 +27,9 @@ class InMemoryBookingRepository:
+ 
+     def save(self, booking: Booking) -> None:
+         self._bookings.append(booking)
++
++    def cancel(self, booking_id: str) -> Booking | None:
++        booking = next((b for b in self._bookings if b.id == booking_id), None)
++        if booking is not None:
++            self._bookings.remove(booking)
++        return booking
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..5e72744 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -47,6 +47,14 @@ class SqliteBookingRepository:
+         )
+         self._db.commit()
+ 
++    def cancel(self, booking_id: str) -> Booking | None:
++        rows = self._select("where id = ?", (booking_id,))
++        if not rows:
++            return None
++        self._db.execute("delete from bookings where id = ?", (booking_id,))
++        self._db.commit()
++        return rows[0]
++
+     def _select(self, where: str, args: tuple[str, ...]) -> list[Booking]:
+         rows: list[tuple[str, str, str, str, int, str]] = self._db.execute(
+             "select id, table_id, day, start, party, guest from bookings " + where, args
