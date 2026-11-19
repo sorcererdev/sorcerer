@@ -163,7 +163,7 @@ fn cancel_print(f: &Fixture) -> String {
 }
 
 #[test]
-fn a_clean_change_with_an_empty_reply_stores_nothing_and_marks_inspected() {
+fn a_clean_change_with_an_empty_reply_stores_nothing_and_marks_reviewed() {
     let f = Fixture::new();
     let reviewer = StubReviewer::new();
     let r = ran(f.run(&reviewer, &StubDecider::new(), false));
@@ -186,7 +186,7 @@ fn a_clean_change_with_an_empty_reply_stores_nothing_and_marks_inspected() {
 }
 
 #[test]
-fn a_second_pass_sends_nothing_already_inspected() {
+fn a_second_pass_sends_nothing_already_reviewed() {
     let f = Fixture::new();
     let reviewer = StubReviewer::new();
     ran(f.run(&reviewer, &StubDecider::new(), false));

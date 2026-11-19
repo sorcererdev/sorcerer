@@ -582,11 +582,11 @@ mod stored {
     };
     use sorcerer_core::unit::Span;
 
-    pub fn finding(id: &str, kind: &str, status: Status, file: &str, line: u32) -> Finding {
+    pub fn finding(id: &str, issue_type: &str, status: Status, file: &str, line: u32) -> Finding {
         let t: DateTime<Utc> = "2026-11-18T12:00:00Z".parse().unwrap();
         Finding {
             id: FindingId(id.into()),
-            issue_type: kind.into(),
+            issue_type: issue_type.into(),
             rule: None,
             statement: format!("statement of {id}"),
             place: Place {

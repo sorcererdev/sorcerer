@@ -151,12 +151,12 @@ fn read_store(p: &Project) -> ScryStore {
     }
 }
 
-/// A finding on `cancel` citing line 2, with ID, KIND, KEEP and STATUS.
-fn finding(id: &str, kind: &str, keep: f64, status: Status) -> Finding {
+/// A finding on `cancel` citing line 2, with ID, ISSUE_TYPE, CONFIDENCE and STATUS.
+fn finding(id: &str, issue_type: &str, confidence: f64, status: Status) -> Finding {
     let t = t0() - chrono::Duration::hours(1);
     Finding {
         id: FindingId(id.into()),
-        issue_type: kind.into(),
+        issue_type: issue_type.into(),
         rule: None,
         statement: format!("claim {id}"),
         place: Place {
@@ -172,7 +172,7 @@ fn finding(id: &str, kind: &str, keep: f64, status: Status) -> Finding {
             print: None,
         }],
         scores: Scores {
-            confidence: Some(keep),
+            confidence: Some(confidence),
             asked_on: Some("h".into()),
         },
         verdict: None,

@@ -280,7 +280,7 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
         for f in &s.findings {
             let first: String = f.statement.chars().take(90).collect();
             println!(
-                "{} {} {:?} {} keep={:?} verdict={:?} unit={:?} lines={:?} {}",
+                "{} {} {:?} {} confidence={:?} verdict={:?} unit={:?} lines={:?} {}",
                 c.id,
                 f.place.file.display(),
                 f.status,
