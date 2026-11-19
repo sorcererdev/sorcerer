@@ -1,0 +1,4 @@
+{
+  "reply": "{\"findings\": [{\"issue_type\": \"design\", \"file\": \"src/bistro/main.py\", \"lines\": [20, 26], \"statement\": \"create_demo_booking is never called: it is not used by create() or by any route, test or other module. It also duplicates the table seed list that create() already builds on line 32, so the two can drift apart. It adds an unused wiring path to the composition root.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/main.py\", \"lines\": [29, 45]}]}], \"open\": []}",
+  "cost_usd": 0.04
+}

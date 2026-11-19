@@ -11,8 +11,9 @@ come later.
 
 `cargo install --path crates/scry`, then in a git repository run `scry`: it reviews what your
 working tree changed against HEAD, prints the findings that survive a claim check and a nitpick
-screen, and exits 1 when any are open. `scry doctor` says whether it can run here; the user
-book's Scry chapter has the rest.
+screen, and exits 1 when any are open. Tell it your project's rules in `.sorcerer/scry.toml`
+(`context`, `include`, and `[[rule]]`s with an `id` and `text`; findings cite a rule by its
+id). `scry doctor` says whether it can run here; the user book's Scry chapter has the rest.
 
 ## Try the core
 
@@ -33,7 +34,8 @@ The first run for a language fetches and compiles its tree-sitter grammar into
 ## Books
 
 - `book/user/`: using sorcerer (`mdbook serve book/user`)
-- `book/internals/`: how it works, so you can change it
+- `book/internals/`: how it works, so you can change it (start with its Architecture
+  chapter: every crate is in layers, checked by `scripts/layers`)
 
 ## License
 

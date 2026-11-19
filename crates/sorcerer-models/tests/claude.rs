@@ -4,8 +4,9 @@ use std::time::{Duration, Instant};
 
 use sorcerer_core::Cancel;
 use sorcerer_models::Error;
-use sorcerer_models::provider::claude::Claude;
-use sorcerer_models::provider::{Completion, Message, ModelId, Provider};
+use sorcerer_models::adapters::claude::Claude;
+use sorcerer_models::domain::model::{Completion, Message, ModelId};
+use sorcerer_models::ports::provider::Provider;
 
 fn req(timeout: Duration) -> Completion {
     Completion {

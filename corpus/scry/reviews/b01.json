@@ -1,0 +1,4 @@
+{
+  "reply": "{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/change_party_size.py\", \"lines\": [43, 45], \"statement\": \"The check `input.party >= table.seats` refuses a party that exactly fills the table (party 4 on a 4-seat table), and `create_booking` allows that case with `>`. A guest can book a full table but cannot change an existing booking to one, and the tests don't cover the boundary.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [53, 54]}]}], \"open\": []}",
+  "cost_usd": 0.04
+}

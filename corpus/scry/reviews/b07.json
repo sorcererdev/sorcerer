@@ -1,0 +1,4 @@
+{
+  "reply": "{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/queries/get_day_summary.py\", \"lines\": [23, 24], \"statement\": \"booked_tables is built from booking ids (b.id) but is then compared with table ids (t.id), so no table is ever treated as booked. empty_tables always equals the total number of tables, and the summary page shows the wrong number. It should use b.table_id.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/queries/get_day_summary__test.py\", \"lines\": [12, 21]}]}], \"open\": []}",
+  "cost_usd": 0.04
+}

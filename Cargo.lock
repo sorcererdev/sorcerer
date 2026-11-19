@@ -1369,6 +1369,7 @@ dependencies = [
  "tempfile",
  "terminal_size",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

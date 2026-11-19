@@ -1,0 +1,181 @@
+//! `scry doctor`: whether scry can run in a project, a row each:
+//! provider, Jev, languages, steering, store and ledger. It probes the real
+//! adapters (the provider, Jev's key, the grammars) and so lives here, with
+//! the wiring's other callers, not among the use cases. Reads only.
+
+use std::io::Write;
+
+use anyhow::Result;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::versioned::Snapshot;
+use sorcerer_core::ports::env::Env;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_models::adapters::jev::Jev;
+use sorcerer_models::adapters::providers::{default_decider, default_provider_for};
+
+use crate::adapters::json_finding_store::JsonFindingStore;
+use crate::adapters::scry_toml::ScryToml;
+use crate::domain::finding::Status;
+use crate::domain::log_text::{bytes, count};
+use crate::ports::finding_store::FindingStore;
+use crate::ports::settings::Settings;
+
+/// Prints each doctor row; 2 when any failed.
+pub(super) fn doctor(
+    project: &Project,
+    env: &dyn Env,
+    cache: &GrammarCache,
+    out: &mut dyn Write,
+) -> Result<i32> {
+    let rows = doctor_rows(project, env, cache);
+    let mut code = 0;
+    for (name, row) in rows {
+        match row {
+            Ok(s) => writeln!(out, "{name:<10} ok    {s}")?,
+            Err(s) => {
+                code = 2;
+                writeln!(out, "{name:<10} FAIL  {s}")?
+            }
+        }
+    }
+    Ok(code)
+}
+
+/// Whether scry can run in PROJECT, a row each: `provider`, `jev`,
+/// `languages` (each language the project's files use loads), `steering`,
+/// `store`, `ledger`. Reads only: nothing creates `.sorcerer/state`.
+pub fn doctor_rows(
+    project: &Project,
+    env: &dyn Env,
+    cache: &GrammarCache,
+) -> Vec<(String, std::result::Result<String, String>)> {
+    check_setup(
+        project,
+        env,
+        cache,
+        &JsonFindingStore::at(project.state.join("scry/findings.json")),
+        &JsonlLedger::at(project.state.join("ledger.jsonl")),
+        &ScryToml::for_project(project),
+    )
+}
+
+/// Whether scry can run in PROJECT, a row each: `provider`, `jev`,
+/// `languages` (each language the project's files use loads), `steering`,
+/// `store`, `ledger`. Reads only; writes nothing.
+fn check_setup(
+    project: &Project,
+    env: &dyn Env,
+    cache: &GrammarCache,
+    store: &dyn FindingStore,
+    ledger: &dyn Ledger,
+    settings: &dyn Settings,
+) -> Vec<(String, Result<String, String>)> {
+    let provider = default_provider_for(project, env)
+        .map(|(_, c)| format!("{} ({})", c.name, c.why))
+        .map_err(|e| e.to_string());
+    let jev = match Jev::from_env(&project.config.decide, env, None) {
+        Ok(_) => Ok(default_decider(&project.config.decide, env)
+            .map(|c| format!("{} ({})", c.name, c.why))
+            .unwrap_or_else(|| "jev".into())),
+        Err(e) => Err(format!("{e}; scry does not run without Jev")),
+    };
+    let steering_row = settings
+        .steering()
+        .map(|s| match settings.steering_source() {
+            None => "no .sorcerer/scry.toml: no rules".to_string(),
+            Some(file) => format!(
+                "{}, {}, {}, {}; {}",
+                count(s.rules.len(), "rule"),
+                count(s.includes.len(), "include"),
+                if s.context.trim().is_empty() {
+                    "no context".to_string()
+                } else {
+                    format!("context {}", bytes(s.context.trim().len()))
+                },
+                bytes(s.size()),
+                file.strip_prefix(&project.root).unwrap_or(&file).display()
+            ),
+        })
+        .map_err(|e| e.to_string());
+    let store_row = {
+        let st = store;
+        match st.read() {
+            Ok(Snapshot::Absent) => Ok("no findings yet".into()),
+            Ok(Snapshot::Current(s)) => {
+                let open = s
+                    .findings
+                    .iter()
+                    .filter(|f| f.status == Status::Open)
+                    .count();
+                Ok(format!(
+                    "{}, {open} open",
+                    count(s.findings.len(), "finding")
+                ))
+            }
+            Ok(Snapshot::Unreadable(why)) => Err(format!(
+                "{} cannot be read ({why}); scry does not run until it is fixed or moved aside",
+                st.path().display()
+            )),
+            Err(e) => Err(e.to_string()),
+        }
+    };
+    let ledger_row = match ledger.read() {
+        Ok(rows) => {
+            let scry = rows.errands.iter().filter(|e| e.product == "scry").count();
+            let mut s = format!(
+                "{}, {scry} of them scry's",
+                count(rows.errands.len(), "row")
+            );
+            if rows.skipped > 0 {
+                s.push_str(&format!("; {} did not read", count(rows.skipped, "line")));
+            }
+            Ok(s)
+        }
+        Err(e) => Err(e.to_string()),
+    };
+    vec![
+        ("provider".into(), provider),
+        ("jev".into(), jev),
+        ("languages".into(), languages_row(project, cache)),
+        ("steering".into(), steering_row),
+        ("store".into(), store_row),
+        ("ledger".into(), ledger_row),
+    ]
+}
+
+/// The project's languages (`[languages] names`, else those covering a
+/// file in the project), each loaded through CACHE.
+fn languages_row(project: &Project, cache: &GrammarCache) -> Result<String, String> {
+    let names: Vec<String> = if project.config.languages.is_empty() {
+        let view = FilesView::new(std::sync::Arc::new(project.clone()), cache.clone());
+        let files = view.glob("**").map_err(|e| e.to_string())?;
+        let mut used: Vec<String> = files
+            .iter()
+            .filter_map(|f| project.languages.for_path(f).map(|l| l.name.clone()))
+            .collect();
+        used.sort();
+        used.dedup();
+        used
+    } else {
+        project.config.languages.clone()
+    };
+    if names.is_empty() {
+        return Ok("no file here is in a language sorcerer knows".into());
+    }
+    let failed: Vec<String> = names
+        .iter()
+        .filter_map(|n| match project.languages.load(n, cache) {
+            Ok(_) => None,
+            Err(e) => Some(format!("{n}: {e}")),
+        })
+        .collect();
+    if failed.is_empty() {
+        Ok(format!("{} load", names.join(", ")))
+    } else {
+        Err(failed.join("; "))
+    }
+}

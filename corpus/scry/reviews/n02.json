@@ -1,0 +1,4 @@
+{
+  "reply": "{\"findings\": [{\"issue_type\": \"design\", \"file\": \"src/bistro/main__test.py\", \"lines\": [24, 28], \"statement\": \"The test asserts that `tmp_path` is empty, but `create(None)` is never pointed at `tmp_path` and the working directory is not changed to it. The assertion passes whether or not a SQLite file gets created, so the test does not prove that bookings stay in memory. Chdir to `tmp_path` (monkeypatch.chdir) or check that `bistro.sqlite3` is absent from the cwd.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/main.py\", \"lines\": [26, 31]}]}], \"open\": []}",
+  "cost_usd": 0.04
+}

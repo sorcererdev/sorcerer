@@ -15,7 +15,7 @@ directory.
 ```
 .sorcerer/
   config.toml      one config file for every tool (committed)
-  scry.md          scry's steering: your rules (committed)
+  scry.toml        scry's steering: context, includes and rules (committed)
   languages/       your project's language files (committed)
   state/           what the tools remember (not committed)
 ```

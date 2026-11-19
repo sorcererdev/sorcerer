@@ -2,16 +2,17 @@ mod support;
 
 use std::path::{Path, PathBuf};
 
-use scry::config::ScryConfig;
-use scry::scope::{Scope, ScopeWhy, scope_of};
+use scry::domain::config::ScryConfig;
+use scry::domain::scope::{Scope, ScopeRequest};
+use scry::usecases::review_change::scope::scope_of;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
 
-fn scope(dir: &Path, why: ScopeWhy, all: bool) -> Scope {
+fn scope(dir: &Path, why: ScopeRequest, all: bool) -> Scope {
     scope_with(dir, why, all, &ScryConfig::default())
 }
 
-fn scope_with(dir: &Path, why: ScopeWhy, all: bool, cfg: &ScryConfig) -> Scope {
+fn scope_with(dir: &Path, why: ScopeRequest, all: bool, cfg: &ScryConfig) -> Scope {
     let (p, v) = support::project_with_vendored_grammars(dir);
     scope_of(&p, &v, why, all, cfg).unwrap()
 }
@@ -42,7 +43,7 @@ fn working_scope_is_the_changed_and_added_units() {
             ORDERS.replace("order.cancel()", "order.cancel(now=True)")
         ),
     );
-    let s = scope(d.path(), ScopeWhy::Working, false);
+    let s = scope(d.path(), ScopeRequest::Working, false);
     assert_eq!(s.base, "HEAD");
     assert_eq!(names(&s), ["cancel", "refund"]);
     assert_eq!(files(&s), [PathBuf::from("orders.py")]);
@@ -58,7 +59,7 @@ fn named_files_with_all_take_every_unit() {
     let d = committed();
     support::write(d.path(), "pay.py", "def charge(x):\n    return x\n");
     support::commit(d.path(), "pay");
-    let why = ScopeWhy::Named(vec!["orders.py".into(), "pay.py".into()]);
+    let why = ScopeRequest::Files(vec!["orders.py".into(), "pay.py".into()]);
     assert_eq!(
         names(&scope(d.path(), why.clone(), true)),
         ["cancel", "place", "charge"]
@@ -74,7 +75,11 @@ fn a_saved_file_is_its_changed_units() {
         "orders.py",
         &ORDERS.replace("order.place()", "None"),
     );
-    let s = scope(d.path(), ScopeWhy::Saved("orders.py".into()), false);
+    let s = scope(
+        d.path(),
+        ScopeRequest::Files(vec!["orders.py".into()]),
+        false,
+    );
     assert_eq!(names(&s), ["place"]);
 }
 
@@ -99,7 +104,7 @@ fn since_compares_against_the_merge_base() {
         &ORDERS.replace("order.cancel()", "None"),
     );
     support::commit(d.path(), "cancel on f");
-    let s = scope(d.path(), ScopeWhy::Since("main".into()), false);
+    let s = scope(d.path(), ScopeRequest::Since("main".into()), false);
     assert_eq!(s.base, base);
     assert_eq!(names(&s), ["cancel"]);
 }
@@ -109,7 +114,7 @@ fn an_untracked_file_is_all_units_and_its_diff_is_its_text() {
     let d = committed();
     let text = "def charge(x):\n    return x\n\n\ndef void(x):\n    pass\n";
     support::write(d.path(), "pay.py", text);
-    let s = scope(d.path(), ScopeWhy::Working, false);
+    let s = scope(d.path(), ScopeRequest::Working, false);
     assert_eq!(names(&s), ["charge", "void"]);
     assert_eq!(s.files.len(), 1);
     assert_eq!(s.files[0].diff, text);
@@ -119,10 +124,14 @@ fn an_untracked_file_is_all_units_and_its_diff_is_its_text() {
 fn a_repository_with_no_commit_is_all_units() {
     let d = support::git_repo();
     support::write(d.path(), "orders.py", ORDERS);
-    let s = scope(d.path(), ScopeWhy::Working, false);
+    let s = scope(d.path(), ScopeRequest::Working, false);
     assert_eq!(names(&s), ["cancel", "place"]);
     assert_eq!(s.files[0].diff, ORDERS);
-    let s = scope(d.path(), ScopeWhy::Saved("orders.py".into()), false);
+    let s = scope(
+        d.path(),
+        ScopeRequest::Files(vec!["orders.py".into()]),
+        false,
+    );
     assert_eq!(names(&s), ["cancel", "place"]);
 }
 
@@ -130,7 +139,7 @@ fn a_repository_with_no_commit_is_all_units() {
 fn a_deleted_file_is_a_scoped_file_marked_deleted_with_no_units() {
     let d = committed();
     std::fs::remove_file(d.path().join("orders.py")).unwrap();
-    let s = scope(d.path(), ScopeWhy::Working, false);
+    let s = scope(d.path(), ScopeRequest::Working, false);
     assert!(s.units.is_empty());
     assert_eq!(files(&s), [PathBuf::from("orders.py")]);
     let f = &s.files[0];
@@ -143,7 +152,7 @@ fn a_deleted_file_is_a_scoped_file_marked_deleted_with_no_units() {
 fn a_renamed_file_is_all_added() {
     let d = committed();
     support::git(d.path(), &["mv", "orders.py", "shop.py"]);
-    let s = scope(d.path(), ScopeWhy::Working, false);
+    let s = scope(d.path(), ScopeRequest::Working, false);
     assert_eq!(names(&s), ["cancel", "place"]);
     assert!(s.units.iter().all(|u| u.file == Path::new("shop.py")));
     assert_eq!(
@@ -165,10 +174,10 @@ fn excluded_fenced_and_unknown_files_are_left_out() {
         exclude: vec!["gen/**".into()],
         ..ScryConfig::default()
     };
-    let s = scope_with(d.path(), ScopeWhy::Working, false, &cfg);
+    let s = scope_with(d.path(), ScopeRequest::Working, false, &cfg);
     assert_eq!(files(&s), [PathBuf::from("pay.py")]);
     assert_eq!(names(&s), ["charge"]);
-    let named = ScopeWhy::Named(vec![
+    let named = ScopeRequest::Files(vec![
         "gen/made.py".into(),
         ".env.py".into(),
         "notes.txt".into(),
@@ -181,7 +190,11 @@ fn the_enclosing_class_header_is_given() {
     let d = support::git_project();
     let text = "@dataclass\nclass Order:\n    def cancel(self):\n        return 1\n\n\ndef top():\n    pass\n";
     support::write(d.path(), "orders.py", text);
-    let s = scope(d.path(), ScopeWhy::Named(vec!["orders.py".into()]), true);
+    let s = scope(
+        d.path(),
+        ScopeRequest::Files(vec!["orders.py".into()]),
+        true,
+    );
     let header = |n: &str| {
         s.units
             .iter()
@@ -202,7 +215,7 @@ fn a_bad_since_rev_names_it() {
     let err = scope_of(
         &p,
         &v,
-        ScopeWhy::Since("no-such-branch".into()),
+        ScopeRequest::Since("no-such-branch".into()),
         false,
         &ScryConfig::default(),
     )

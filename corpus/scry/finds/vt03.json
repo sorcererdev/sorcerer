@@ -1,4 +1,0 @@
-{
-  "reply": "{\"findings\": [{\"kind\": \"convention\", \"file\": \"src/bistro/main.py\", \"lines\": [29, 29], \"statement\": \"CancelBooking is built with a positional argument, while the other commands in main.py use one keyword argument per line. A new dependency would not be a one-line diff here.\", \"rule\": \"main-keywords\", \"evidence\": [{\"file\": \"src/bistro/main.py\", \"lines\": [25, 32]}]}], \"open\": []}",
-  "cost_usd": 0.04
-}

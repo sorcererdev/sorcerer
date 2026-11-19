@@ -24,6 +24,8 @@ jobs:
       - run: mdbook build book/user
       - run: mdbook build book/internals
       - run: scripts/no-language-names
+      - run: scripts/layers
+      - run: bash scripts/layers-test
       - run: bash scripts/book-check-test
       - if: github.event_name == 'pull_request'
         run: scripts/book-check origin/${{ github.base_ref }}

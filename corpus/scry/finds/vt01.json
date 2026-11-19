@@ -1,4 +1,0 @@
-{
-  "reply": "{\"findings\": [{\"kind\": \"convention\", \"file\": \"src/bistro/booking/queries/get_day_summary.py\", \"lines\": [1, 1], \"statement\": \"The new query module has no opening one-line docstring saying what it is for. Every command, query, port, adapter and web module is expected to have one, and the sibling query get_day_schedule.py has it.\", \"rule\": \"docstring\", \"evidence\": [{\"file\": \"src/bistro/booking/queries/get_day_schedule.py\", \"lines\": [1, 1]}]}], \"open\": []}",
-  "cost_usd": 0.04
-}

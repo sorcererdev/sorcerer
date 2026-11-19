@@ -2,8 +2,8 @@ mod support;
 
 use std::sync::Arc;
 
-use sorcerer_core::language::Loaded;
-use sorcerer_core::unit::{Span, Unit, UnitKind, unit_at, units_of};
+use sorcerer_core::domain::language::Loaded;
+use sorcerer_core::domain::unit::{Span, Unit, UnitKind, unit_at, units_of};
 
 fn loaded(name: &str) -> Arc<Loaded> {
     support::languages_with_vendored_grammars()
@@ -89,7 +89,7 @@ fn the_body_is_the_grammars_body_field() {
 #[test]
 fn an_unsupported_predicate_names_itself() {
     let l = loaded("python");
-    let e = sorcerer_core::query::compile(
+    let e = sorcerer_core::domain::query::compile(
         &l.grammar,
         "x.scm",
         "((identifier) @x (#lua-match? @x \"a\"))",
@@ -102,8 +102,12 @@ fn an_unsupported_predicate_names_itself() {
 #[test]
 fn a_supported_predicate_compiles() {
     let l = loaded("python");
-    sorcerer_core::query::compile(&l.grammar, "x.scm", "((identifier) @x (#match? @x \"^a\"))")
-        .unwrap();
+    sorcerer_core::domain::query::compile(
+        &l.grammar,
+        "x.scm",
+        "((identifier) @x (#match? @x \"^a\"))",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -121,10 +125,12 @@ fn a_project_query_that_does_not_compile_is_an_error_naming_its_file() {
         ".sorcerer/languages/python/queries/tags.scm",
         "(not_a_node) @x\n",
     );
-    let mut ls = sorcerer_core::Project::open(d.path()).unwrap().languages;
+    let mut ls = sorcerer_core::domain::project::Project::open(d.path())
+        .unwrap()
+        .languages;
     ls.override_grammar(
         "python",
-        sorcerer_core::language::GrammarSource::Local(support::vendored("python")),
+        sorcerer_core::domain::language::GrammarSource::Local(support::vendored("python")),
     );
     let e = ls
         .load("python", &support::test_cache())

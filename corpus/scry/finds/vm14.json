@@ -1,4 +1,0 @@
-{
-  "reply": "{\"findings\": [{\"kind\": \"convention\", \"file\": \"src/bistro/booking/queries/get_upcoming_bookings.py\", \"lines\": [14, 15], \"statement\": \"handle() calls datetime.now() directly to get today's date and the current time. Queries must get the time from a Clock port, so tests can fix the date. As written, the 'upcoming' filter cannot be tested deterministically, and the only test added covers other days, not the time cut-off.\", \"rule\": \"clock\", \"evidence\": [{\"file\": \"src/bistro/booking/queries/get_upcoming_bookings.py\", \"lines\": [13, 16]}]}], \"open\": []}",
-  "cost_usd": 0.04
-}

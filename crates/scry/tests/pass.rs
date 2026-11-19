@@ -4,23 +4,29 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use scry::config::ScryConfig;
-use scry::finding::{Finding, Status};
-use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, merge_into, pass, renamed};
-use scry::scope::{ScopeWhy, scope_of};
-use scry::store::{ScryStore, store};
-use sorcerer_core::store::Snapshot;
-use sorcerer_core::view::{CodebaseView, FilesView};
-use sorcerer_core::{Cancel, Project};
-use sorcerer_models::checker::{Checked, Claim};
-use sorcerer_models::decide::Answer;
-use support::{FixedClock, StubDecider, StubFinder, commit, git_project, write};
+use scry::domain::budget::Caps;
+use scry::domain::finding::{Finding, Status};
+use scry::domain::findings::Findings;
+use scry::domain::findings::{merge_into, renamed};
+use scry::domain::scope::ScopeRequest;
+use scry::ports::finding_store::FindingStore;
+use scry::ports::run_log::Quiet;
+use scry::usecases::review_change::{
+    Progress, ReviewDeps, ReviewOutcome, ReviewReport, ReviewRequest, review_change,
+};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::json_store::Snapshot;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_models::domain::claim::{Checked, Claim};
+use sorcerer_models::domain::decide::Answer;
+use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
 
-const STEERING: &str =
-    "## Rules\n\n### Commands return a Result\nA command never panics; it returns an error.\n";
+const STEERING: &str = "[[rule]]\nid = \"result\"\ntext = \"\"\"\nCommands return a Result\nA command never panics; it returns an error.\"\"\"\n\n[[rule]]\nid = \"clock-port\"\ntext = \"Time comes from the clock port.\"\n";
 
 fn t0() -> DateTime<Utc> {
     "2026-11-18T23:00:00Z".parse().unwrap()
@@ -36,7 +42,7 @@ impl Fixture {
     /// orders.py committed (with steering), then `cancel` changed.
     fn new() -> Fixture {
         let dir = git_project();
-        write(dir.path(), ".sorcerer/scry.md", STEERING);
+        write(dir.path(), ".sorcerer/scry.toml", STEERING);
         write(dir.path(), "orders.py", ORDERS);
         commit(dir.path(), "orders");
         write(
@@ -52,24 +58,16 @@ impl Fixture {
         self.dir.path()
     }
 
-    fn run(&self, finder: &StubFinder, decider: &StubDecider, fresh: bool) -> Outcome {
-        self.try_run(finder, decider, fresh).unwrap()
+    fn run(&self, reviewer: &StubReviewer, decider: &StubDecider, fresh: bool) -> ReviewOutcome {
+        self.try_run(reviewer, decider, fresh).unwrap()
     }
 
     fn try_run(
         &self,
-        finder: &StubFinder,
+        reviewer: &StubReviewer,
         decider: &StubDecider,
         fresh: bool,
-    ) -> sorcerer_core::Result<Outcome> {
-        let scope = scope_of(
-            &self.project,
-            &self.view,
-            ScopeWhy::Working,
-            false,
-            &ScryConfig::default(),
-        )
-        .unwrap();
+    ) -> sorcerer_core::Result<ReviewOutcome> {
         // a claim check that fails: a waiting finding stays waiting
         let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
             Err(sorcerer_models::Error::Reply {
@@ -79,40 +77,43 @@ impl Fixture {
         };
         let clock = FixedClock::at(t0());
         let progress = |_: &Progress| {};
-        let deps = PassDeps {
+        let ports = support::Ports::of(&self.project);
+        let cancel = Cancel::default();
+        let deps = ReviewDeps {
             view: &self.view,
-            finder,
+            reviewer,
             decider,
             checker: &checker,
+            store: &ports.store,
+            ledger: &ports.ledger,
+            settings: &ports.settings,
             clock: &clock,
+            log: &Quiet,
             progress: &progress,
-            trace: &scry::log::quiet,
+            cancel: &cancel,
         };
-        let caps = Caps {
-            pass: None,
-            day: f64::INFINITY,
-            budget: None,
-        };
-        pass(
-            &self.project,
-            &scope,
-            &caps,
+        let req = ReviewRequest {
             fresh,
-            &deps,
-            &Cancel::default(),
-        )
+            caps: Some(Caps {
+                pass: None,
+                day: f64::INFINITY,
+                budget: None,
+            }),
+            ..ReviewRequest::of(ScopeRequest::Working)
+        };
+        review_change(&self.project, &req, &deps)
     }
 
-    fn store(&self) -> ScryStore {
-        match store(&self.project).unwrap().read().unwrap() {
+    fn store(&self) -> Findings {
+        match support::store_of(&self.project).read().unwrap() {
             Snapshot::Current(s) => s,
-            Snapshot::Absent => ScryStore::default(),
+            Snapshot::Absent => Findings::default(),
             Snapshot::Unreadable(why) => panic!("{why}"),
         }
     }
 
     fn store_path(&self) -> PathBuf {
-        store(&self.project).unwrap().path().to_path_buf()
+        support::store_of(&self.project).path().to_path_buf()
     }
 
     fn edit(&self, from: &str, to: &str) {
@@ -123,18 +124,18 @@ impl Fixture {
     }
 }
 
-fn ran(o: Outcome) -> Report {
+fn ran(o: ReviewOutcome) -> ReviewReport {
     match o {
-        Outcome::Ran(r) => r,
-        Outcome::Skipped(why) => panic!("skipped: {why}"),
+        ReviewOutcome::Ran(r) => r,
+        ReviewOutcome::Skipped(why) => panic!("skipped: {why}"),
     }
 }
 
-/// A find reply holding one finding on orders.py with evidence at its lines.
+/// A review reply holding one finding on orders.py with evidence at its lines.
 fn reply(kind: &str, line: u32, statement: &str, rule: &str) -> String {
     serde_json::json!({
         "findings": [{
-            "kind": kind,
+            "issue_type": kind,
             "file": "orders.py",
             "lines": [line, line],
             "statement": statement,
@@ -146,13 +147,13 @@ fn reply(kind: &str, line: u32, statement: &str, rule: &str) -> String {
     .to_string()
 }
 
-fn only(s: &ScryStore) -> &Finding {
+fn only(s: &Findings) -> &Finding {
     assert_eq!(s.findings.len(), 1, "{:#?}", s.findings);
     &s.findings[0]
 }
 
-fn bug_finder(statement: &str) -> StubFinder {
-    StubFinder::new().reply(&["orders.py"], &reply("bug", 2, statement, ""))
+fn bug_reviewer(statement: &str) -> StubReviewer {
+    StubReviewer::new().reply(&["orders.py"], &reply("bug", 2, statement, ""))
 }
 
 /// The fingerprint of `cancel` in orders.py as it is now.
@@ -163,35 +164,35 @@ fn cancel_print(f: &Fixture) -> String {
 }
 
 #[test]
-fn a_clean_change_with_an_empty_reply_stores_nothing_and_marks_inspected() {
+fn a_clean_change_with_an_empty_reply_stores_nothing_and_marks_reviewed() {
     let f = Fixture::new();
-    let finder = StubFinder::new();
-    let r = ran(f.run(&finder, &StubDecider::new(), false));
+    let reviewer = StubReviewer::new();
+    let r = ran(f.run(&reviewer, &StubDecider::new(), false));
     assert_eq!(r.looked_at, 1);
     assert!(r.new.is_empty());
     assert!(r.failures.is_empty());
     assert!(r.whole);
     assert_eq!(r.capped, 0);
     assert!((r.spent - 0.04).abs() < 1e-9, "{}", r.spent);
-    let ask = &finder.asks()[0];
+    let ask = &reviewer.asks()[0];
     assert_eq!(ask.units.len(), 1);
     assert_eq!(ask.units[0].name, "cancel");
     assert!(ask.diff.contains("cancel(now=True)"), "{}", ask.diff);
-    assert!(ask.steering.contains("### Commands return a Result"));
+    assert!(ask.steering.contains("- result: Commands return a Result"));
     assert!(ask.reported.is_empty() && ask.open.is_empty());
     let s = f.store();
     assert!(s.findings.is_empty());
-    let inspected = &s.inspected[Path::new("orders.py")];
-    assert!(inspected.contains(&cancel_print(&f)), "{inspected:?}");
+    let reviewed = &s.reviewed[Path::new("orders.py")];
+    assert!(reviewed.contains(&cancel_print(&f)), "{reviewed:?}");
 }
 
 #[test]
-fn a_second_pass_sends_nothing_already_inspected() {
+fn a_second_pass_sends_nothing_already_reviewed() {
     let f = Fixture::new();
-    let finder = StubFinder::new();
-    ran(f.run(&finder, &StubDecider::new(), false));
-    let r = ran(f.run(&finder, &StubDecider::new(), false));
-    assert_eq!(finder.asks().len(), 1);
+    let reviewer = StubReviewer::new();
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    let r = ran(f.run(&reviewer, &StubDecider::new(), false));
+    assert_eq!(reviewer.asks().len(), 1);
     assert_eq!(r.looked_at, 0);
     assert!(r.whole);
 }
@@ -199,32 +200,32 @@ fn a_second_pass_sends_nothing_already_inspected() {
 #[test]
 fn fresh_sends_again() {
     let f = Fixture::new();
-    let finder = StubFinder::new();
-    ran(f.run(&finder, &StubDecider::new(), false));
-    ran(f.run(&finder, &StubDecider::new(), true));
-    assert_eq!(finder.asks().len(), 2);
+    let reviewer = StubReviewer::new();
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    ran(f.run(&reviewer, &StubDecider::new(), true));
+    assert_eq!(reviewer.asks().len(), 2);
 }
 
 #[test]
 fn a_convention_with_citations_becomes_open() {
     let f = Fixture::new();
-    let finder = StubFinder::new().reply(
+    let reviewer = StubReviewer::new().reply(
         &["orders.py"],
         &reply(
             "convention",
             2,
             "cancel() can raise out of a command.",
-            "commands return a result",
+            "result",
         ),
     );
-    let r = ran(f.run(&finder, &StubDecider::new(), false));
+    let r = ran(f.run(&reviewer, &StubDecider::new(), false));
     let s = f.store();
     let g = only(&s);
     assert_eq!(r.new, std::slice::from_ref(&g.id));
     assert_eq!(g.status, Status::Open);
-    assert_eq!(g.rule.as_deref(), Some("Commands return a Result"));
+    assert_eq!(g.rule.as_deref(), Some("result"));
     assert_eq!(g.place.unit.as_deref(), Some("cancel"));
-    assert_eq!(g.scores.keep, Some(1.0));
+    assert_eq!(g.scores.confidence, Some(1.0));
     assert!(g.scores.asked_on.is_some());
     assert!(g.evidence[0].print.is_some(), "{:?}", g.evidence);
     assert_eq!(g.seen, 1);
@@ -235,12 +236,12 @@ fn a_convention_with_citations_becomes_open() {
 fn a_nitpick_is_withheld() {
     let f = Fixture::new();
     let decider = StubDecider::new().on("nitpick", |_| true, StubDecider::p_yes(0.9));
-    let finder = bug_finder("cancel is a poor name.");
-    ran(f.run(&finder, &decider, false));
+    let reviewer = bug_reviewer("cancel is a poor name.");
+    ran(f.run(&reviewer, &decider, false));
     let s = f.store();
     let g = only(&s);
     assert_eq!(g.status, Status::Withheld);
-    assert!((g.scores.keep.unwrap() - 0.1).abs() < 1e-9);
+    assert!((g.scores.confidence.unwrap() - 0.1).abs() < 1e-9);
     let asked = decider.asked();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].kind, "nitpick");
@@ -250,7 +251,7 @@ fn a_nitpick_is_withheld() {
 fn a_bug_waits_for_its_claim_check() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
@@ -264,7 +265,7 @@ fn a_bug_waits_for_its_claim_check() {
 fn a_finding_outside_the_scope_is_elsewhere() {
     let f = Fixture::new();
     let decider = StubDecider::new();
-    ran(f.run(&bug_finder_at(6), &decider, false));
+    ran(f.run(&bug_reviewer_at(6), &decider, false));
     let s = f.store();
     let g = only(&s);
     assert_eq!(g.status, Status::Elsewhere);
@@ -272,17 +273,17 @@ fn a_finding_outside_the_scope_is_elsewhere() {
     assert!(decider.asked().is_empty());
 }
 
-fn bug_finder_at(line: u32) -> StubFinder {
-    StubFinder::new().reply(
+fn bug_reviewer_at(line: u32) -> StubReviewer {
+    StubReviewer::new().reply(
         &["orders.py"],
         &reply("bug", line, "place() never checks stock.", ""),
     )
 }
 
 #[test]
-fn an_unresolved_rule_is_dropped_and_the_finding_kept() {
+fn an_unknown_rule_id_is_dropped_and_the_finding_kept() {
     let f = Fixture::new();
-    let finder = StubFinder::new().reply(
+    let reviewer = StubReviewer::new().reply(
         &["orders.py"],
         &reply(
             "convention",
@@ -291,7 +292,7 @@ fn an_unresolved_rule_is_dropped_and_the_finding_kept() {
             "Tabs, never spaces",
         ),
     );
-    ran(f.run(&finder, &StubDecider::new(), false));
+    ran(f.run(&reviewer, &StubDecider::new(), false));
     let s = f.store();
     let g = only(&s);
     assert_eq!(g.rule, None);
@@ -299,19 +300,63 @@ fn an_unresolved_rule_is_dropped_and_the_finding_kept() {
 }
 
 #[test]
+fn a_rule_cited_by_id_is_kept_and_jev_sees_its_text() {
+    let f = Fixture::new();
+    let reviewer = StubReviewer::new().reply(
+        &["orders.py"],
+        &reply("convention", 2, "cancel() panics.", "`Result`"),
+    );
+    let decider = StubDecider::new();
+    ran(f.run(&reviewer, &decider, false));
+    assert_eq!(only(&f.store()).rule.as_deref(), Some("result"));
+    let q = decider
+        .asked()
+        .into_iter()
+        .find(|q| q.kind == "nitpick")
+        .unwrap();
+    assert_eq!(
+        StubDecider::context(&q, "project rule"),
+        "Commands return a Result\nA command never panics; it returns an error."
+    );
+    let prompt = scry::domain::review_prompt::review_prompt(&reviewer.asks()[0]);
+    assert!(
+        prompt.contains("- result: Commands return a Result"),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn a_rule_text_citation_is_not_resolved_by_substring() {
+    let f = Fixture::new();
+    for cited in ["clock", "Commands return a Result"] {
+        let reviewer = StubReviewer::new().reply(
+            &["orders.py"],
+            &reply("convention", 2, "cancel() reads the time.", cited),
+        );
+        ran(f.run(&reviewer, &StubDecider::new(), true));
+    }
+    let s = f.store();
+    assert!(
+        s.findings.iter().all(|g| g.rule.is_none()),
+        "{:#?}",
+        s.findings
+    );
+}
+
+#[test]
 fn the_same_problem_merges_into_the_stored_id() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
     let id = only(&f.store()).id.clone();
     let decider = StubDecider::new().on("same", |_| true, StubDecider::p_yes(0.8));
-    let finder = bug_finder("cancel() gives back None, not the order.");
-    let r = ran(f.run(&finder, &decider, true));
+    let reviewer = bug_reviewer("cancel() gives back None, not the order.");
+    let r = ran(f.run(&reviewer, &decider, true));
     assert!(r.new.is_empty());
-    assert_eq!(finder.asks()[0].open.len(), 1);
+    assert_eq!(reviewer.asks()[0].open.len(), 1);
     let s = f.store();
     let g = only(&s);
     assert_eq!(g.id, id);
@@ -327,7 +372,7 @@ fn a_duplicate_within_one_pass_keeps_the_first_wording() {
     let f = Fixture::new();
     let finding = |line: u32, statement: &str| {
         serde_json::json!({
-            "kind": "bug",
+            "issue_type": "bug",
             "file": "orders.py",
             "lines": [line, line],
             "statement": statement,
@@ -343,9 +388,9 @@ fn a_duplicate_within_one_pass_keeps_the_first_wording() {
         "open": [],
     })
     .to_string();
-    let finder = StubFinder::new().reply(&["orders.py"], &reply);
+    let reviewer = StubReviewer::new().reply(&["orders.py"], &reply);
     let decider = StubDecider::new().on("same", |_| true, StubDecider::p_yes(0.8));
-    let r = ran(f.run(&finder, &decider, false));
+    let r = ran(f.run(&reviewer, &decider, false));
     let s = f.store();
     let g = only(&s);
     assert_eq!(r.new, std::slice::from_ref(&g.id));
@@ -359,18 +404,20 @@ fn a_duplicate_within_one_pass_keeps_the_first_wording() {
 fn dismissed_everywhere_drops_the_new_finding() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
     let id = only(&f.store()).id.clone();
-    store(&f.project)
-        .unwrap()
-        .update(|s| s.dismiss(&id.0, true, t0()))
+    support::update_store(&f.project, |s| s.dismiss(&id.0, true, t0()))
         .unwrap()
         .unwrap();
     let decider = StubDecider::new().on("same", |_| true, StubDecider::p_yes(0.8));
-    let r = ran(f.run(&bug_finder("cancel() returns None again."), &decider, true));
+    let r = ran(f.run(
+        &bug_reviewer("cancel() returns None again."),
+        &decider,
+        true,
+    ));
     assert!(r.new.is_empty());
     let s = f.store();
     let g = only(&s);
@@ -382,7 +429,7 @@ fn dismissed_everywhere_drops_the_new_finding() {
 fn no_longer_holds_resolves() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
@@ -393,9 +440,9 @@ fn no_longer_holds_resolves() {
         "open": [{"id": id.0, "holds": "no longer holds", "why": "it returns the order"}],
     })
     .to_string();
-    let finder = StubFinder::new().reply(&["orders.py"], &answer);
-    ran(f.run(&finder, &StubDecider::new(), false));
-    assert_eq!(finder.asks()[0].open[0].id, id);
+    let reviewer = StubReviewer::new().reply(&["orders.py"], &answer);
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    assert_eq!(reviewer.asks()[0].open[0].id, id);
     assert_eq!(only(&f.store()).status, Status::Resolved);
 }
 
@@ -403,54 +450,52 @@ fn no_longer_holds_resolves() {
 fn still_holds_keeps_the_finding() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
     let id = only(&f.store()).id.clone();
-    // edited without a fix: a new fingerprint, and the finder may not raise it again
+    // edited without a fix: a new fingerprint, and the reviewer may not raise it again
     f.edit("cancel(now=True)", "cancel(now=True)  # log");
     let answer = serde_json::json!({
         "findings": [],
         "open": [{"id": id.0, "holds": "still holds", "why": "it still returns None"}],
     })
     .to_string();
-    let finder = StubFinder::new().reply(&["orders.py"], &answer);
-    let r = ran(f.run(&finder, &StubDecider::new(), false));
+    let reviewer = StubReviewer::new().reply(&["orders.py"], &answer);
+    let r = ran(f.run(&reviewer, &StubDecider::new(), false));
     assert!(r.whole);
-    assert_eq!(finder.asks()[0].open[0].id, id);
+    assert_eq!(reviewer.asks()[0].open[0].id, id);
     let s = f.store();
     assert_eq!(only(&s).status, Status::Waiting);
-    assert!(s.inspected[Path::new("orders.py")].contains(&cancel_print(&f)));
+    assert!(s.reviewed[Path::new("orders.py")].contains(&cancel_print(&f)));
 }
 
 #[test]
 fn no_longer_holds_resolves_only_a_finding_the_call_was_shown() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
     // a waiting finding on `place`, which this pass does not send
-    store(&f.project)
-        .unwrap()
-        .update(|s| {
-            let mut other = s.findings[0].clone();
-            other.id = scry::finding::Id("abcdef".into());
-            other.place.unit = Some("place".into());
-            s.findings.push(other);
-        })
-        .unwrap();
+    support::update_store(&f.project, |s| {
+        let mut other = s.findings[0].clone();
+        other.id = scry::domain::finding::FindingId("abcdef".into());
+        other.place.unit = Some("place".into());
+        s.findings.push(other);
+    })
+    .unwrap();
     f.edit("cancel(now=True)", "cancel(now=True) or order");
     let answer = serde_json::json!({
         "findings": [],
         "open": [{"id": "abcdef", "holds": "no longer holds", "why": "a wrong id"}],
     })
     .to_string();
-    let finder = StubFinder::new().reply(&["orders.py"], &answer);
-    ran(f.run(&finder, &StubDecider::new(), false));
-    assert!(finder.asks()[0].open.iter().all(|o| o.id.0 != "abcdef"));
+    let reviewer = StubReviewer::new().reply(&["orders.py"], &answer);
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    assert!(reviewer.asks()[0].open.iter().all(|o| o.id.0 != "abcdef"));
     let s = f.store();
     let other = s.findings.iter().find(|g| g.id.0 == "abcdef").unwrap();
     assert_eq!(other.status, Status::Waiting);
@@ -465,7 +510,7 @@ fn not_found_again_at_a_new_fingerprint_resolves_only_when_whole() {
     support::git(f.root(), &["commit", "-q", "-m", "big"]);
     f.edit("cancel(now=True)", "cancel(now=False)");
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
@@ -474,7 +519,7 @@ fn not_found_again_at_a_new_fingerprint_resolves_only_when_whole() {
     // cancel changes again and big too; big's call fails: nothing resolves
     f.edit("cancel(now=False)", "cancel(now=True)");
     write(f.root(), "big.py", &big.replace("x = 1", "x = 2"));
-    let failing = StubFinder::new().reply(&["big.py"], "I could not finish.");
+    let failing = StubReviewer::new().reply(&["big.py"], "I could not finish.");
     let r = ran(f.run(&failing, &StubDecider::new(), false));
     assert_eq!(failing.asks().len(), 2);
     assert!(!r.whole);
@@ -482,7 +527,7 @@ fn not_found_again_at_a_new_fingerprint_resolves_only_when_whole() {
     assert_eq!(only(&f.store()).status, Status::Waiting);
 
     // the same tree again, every call answering: not found again, resolved
-    let r = ran(f.run(&StubFinder::new(), &StubDecider::new(), true));
+    let r = ran(f.run(&StubReviewer::new(), &StubDecider::new(), true));
     assert!(r.whole);
     assert_eq!(only(&f.store()).status, Status::Resolved);
 }
@@ -491,7 +536,7 @@ fn not_found_again_at_a_new_fingerprint_resolves_only_when_whole() {
 fn a_unit_removed_from_the_file_makes_its_findings_gone() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
@@ -500,7 +545,7 @@ fn a_unit_removed_from_the_file_makes_its_findings_gone() {
         "def place(order):\n    return order.place()\n",
     )
     .unwrap();
-    ran(f.run(&StubFinder::new(), &StubDecider::new(), false));
+    ran(f.run(&StubReviewer::new(), &StubDecider::new(), false));
     let s = f.store();
     let g = only(&s);
     assert_eq!(g.status, Status::Gone);
@@ -508,29 +553,29 @@ fn a_unit_removed_from_the_file_makes_its_findings_gone() {
 }
 
 #[test]
-fn a_find_reply_with_no_json_is_a_failure_and_leaves_units_uninspected() {
+fn a_review_reply_with_no_json_is_a_failure_and_leaves_units_unreviewed() {
     let f = Fixture::new();
-    let finder = StubFinder::new().reply(&["orders.py"], "Nothing to report, I think.");
-    let r = ran(f.run(&finder, &StubDecider::new(), false));
+    let reviewer = StubReviewer::new().reply(&["orders.py"], "Nothing to report, I think.");
+    let r = ran(f.run(&reviewer, &StubDecider::new(), false));
     assert_eq!(r.failures.len(), 1);
     assert!(r.failures[0].contains("orders.py"), "{:?}", r.failures);
     assert!(r.failures[0].contains("no JSON"), "{:?}", r.failures);
     assert!(!r.whole);
     assert_eq!(r.looked_at, 0);
-    assert!(f.store().inspected.is_empty());
-    ran(f.run(&finder, &StubDecider::new(), false));
-    assert_eq!(finder.asks().len(), 2);
+    assert!(f.store().reviewed.is_empty());
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    assert_eq!(reviewer.asks().len(), 2);
 }
 
 #[test]
 fn jev_silent_skips_and_writes_nothing() {
     let f = Fixture::new();
-    ran(f.run(&StubFinder::new(), &StubDecider::new(), false));
+    ran(f.run(&StubReviewer::new(), &StubDecider::new(), false));
     let before = std::fs::read(f.store_path()).unwrap();
     let decider = StubDecider::new().on("nitpick", |_| true, Answer::Unsure);
-    match f.run(&bug_finder("cancel() returns None."), &decider, true) {
-        Outcome::Skipped(why) => assert_eq!(why, "Jev did not answer"),
-        Outcome::Ran(r) => panic!("ran: {r:?}"),
+    match f.run(&bug_reviewer("cancel() returns None."), &decider, true) {
+        ReviewOutcome::Skipped(why) => assert_eq!(why, "Jev did not answer"),
+        ReviewOutcome::Ran(r) => panic!("ran: {r:?}"),
     }
     assert_eq!(std::fs::read(f.store_path()).unwrap(), before);
 }
@@ -539,27 +584,25 @@ fn jev_silent_skips_and_writes_nothing() {
 fn a_dismissal_during_the_pass_stands() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
     let id = only(&f.store()).id.clone();
     let project = f.project.clone();
     let dismissed = id.clone();
-    let finder = bug_finder("cancel() gives back None.").on_find(move |_| {
-        store(&project)
-            .unwrap()
-            .update(|s| s.dismiss(&dismissed.0, false, t0()))
+    let reviewer = bug_reviewer("cancel() gives back None.").on_review(move |_| {
+        support::update_store(&project, |s| s.dismiss(&dismissed.0, false, t0()))
             .unwrap()
             .unwrap();
     });
     let decider = StubDecider::new().on("same", |_| true, StubDecider::p_yes(0.8));
-    ran(f.run(&finder, &decider, true));
+    ran(f.run(&reviewer, &decider, true));
     let s = f.store();
     let g = only(&s);
     assert_eq!(g.id, id);
     assert_eq!(g.status, Status::DismissedHere);
-    assert!(!s.inspected.is_empty());
+    assert!(!s.reviewed.is_empty());
 }
 
 #[test]
@@ -569,13 +612,13 @@ fn an_unreadable_store_stops_the_pass_untouched() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let bytes = br#"{"version": 2, "data": {}}"#;
     std::fs::write(&path, bytes).unwrap();
-    let finder = StubFinder::new();
+    let reviewer = StubReviewer::new();
     let e = f
-        .try_run(&finder, &StubDecider::new(), false)
+        .try_run(&reviewer, &StubDecider::new(), false)
         .unwrap_err()
         .to_string();
     assert!(e.contains("version 2"), "{e}");
-    assert!(finder.asks().is_empty());
+    assert!(reviewer.asks().is_empty());
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }
 
@@ -585,21 +628,21 @@ fn an_unreadable_store_stops_the_pass_untouched() {
 fn a_new_finding_whose_id_was_taken_meanwhile_is_re_ided() {
     let f = Fixture::new();
     ran(f.run(
-        &bug_finder("cancel() returns None."),
+        &bug_reviewer("cancel() returns None."),
         &StubDecider::new(),
         false,
     ));
     let ours = only(&f.store()).clone();
     let mut theirs = ours.clone();
     theirs.statement = "added from another terminal".into();
-    let base = ScryStore::default();
-    let mine = ScryStore {
+    let base = Findings::default();
+    let mine = Findings {
         findings: vec![ours.clone()],
-        ..ScryStore::default()
+        ..Findings::default()
     };
-    let current = ScryStore {
+    let current = Findings {
         findings: vec![theirs.clone()],
-        ..ScryStore::default()
+        ..Findings::default()
     };
     let mut renames = std::collections::HashMap::new();
     let written = merge_into(&base, &mine, &current, &mut renames);
@@ -627,20 +670,12 @@ fn a_new_finding_whose_id_was_taken_meanwhile_is_re_ided() {
 /// say what was sent, what came back and what each step decided.
 #[test]
 fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
-    use sorcerer_models::checker::{Cited, RawCitation, Verdict};
+    use sorcerer_models::domain::claim::{Cited, RawCitation, Verdict};
     use std::cell::RefCell;
 
     let f = Fixture::new();
     write(f.root(), "notes.txt", "not code\n");
-    let scope = scope_of(
-        &f.project,
-        &f.view,
-        ScopeWhy::Working,
-        false,
-        &ScryConfig::default(),
-    )
-    .unwrap();
-    let finder = bug_finder("cancel ignores the order's state");
+    let reviewer = bug_reviewer("cancel ignores the order's state");
     let decider = StubDecider::new().on("nitpick", |_| true, StubDecider::p_yes(0.2));
     let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
         Ok(Checked {
@@ -674,33 +709,46 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
             ],
         })
     };
-    let log = RefCell::new(scry::log::scope_text(&scope));
+    let log = RefCell::new(String::new());
     let trace = |s: &str| log.borrow_mut().push_str(s);
     let clock = FixedClock::at(t0());
     let progress = |_: &Progress| {};
-    let deps = PassDeps {
+    let ports = support::Ports::of(&f.project);
+    let cancel = Cancel::default();
+    let deps = ReviewDeps {
         view: &f.view,
-        finder: &finder,
+        reviewer: &reviewer,
         decider: &decider,
         checker: &checker,
+        store: &ports.store,
+        ledger: &ports.ledger,
+        settings: &ports.settings,
         clock: &clock,
+        log: &trace,
         progress: &progress,
-        trace: &trace,
+        cancel: &cancel,
     };
-    let caps = Caps {
-        pass: None,
-        day: f64::INFINITY,
-        budget: None,
+    let req = ReviewRequest {
+        caps: Some(Caps {
+            pass: None,
+            day: f64::INFINITY,
+            budget: None,
+        }),
+        ..ReviewRequest::of(ScopeRequest::Working)
     };
-    let r = ran(pass(&f.project, &scope, &caps, false, &deps, &Cancel::default()).unwrap());
+    let r = ran(review_change(&f.project, &req, &deps).unwrap());
     assert_eq!(r.new.len(), 1);
     assert_eq!(r.touched, r.new);
     let log = log.into_inner();
     let has = |s: &str| assert!(log.contains(s), "no {s:?} in the trace:\n{log}");
     has("`notes.txt`: skipped (no language)");
-    has(&scry::find::find_prompt(&finder.asks()[0]));
+    has("## Review calls");
+    has("## Reviewed");
+    has(&scry::domain::review_prompt::review_prompt(
+        &reviewer.asks()[0],
+    ));
     has(&reply("bug", 2, "cancel ignores the order's state", ""));
-    has("nitpick? P(yes) 0.20 → keep 0.80, cut 0.70 → waiting");
+    has("nitpick? P(yes) 0.20 → confidence 0.80, threshold 0.70 → waiting");
     has(&format!("id {}", r.new[0].0));
     has("cannot_tell");
     has("escalated: yes");

@@ -6,25 +6,32 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset, Utc};
-use scry::config::ScryConfig;
-use scry::finding::{Evidence, Finding, Id, Place, Scores, Status};
-use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, pass};
-use scry::rounds::{Budget, check_estimate, find_estimate};
-use scry::scope::{ScopeWhy, scope_of};
-use scry::store::{ScryStore, store};
-use sorcerer_core::ledger::{Errand, Ledger};
-use sorcerer_core::store::Snapshot;
-use sorcerer_core::unit::Span;
-use sorcerer_core::view::{CodebaseView, FilesView};
-use sorcerer_core::{Cancel, Project};
-use sorcerer_models::checker::{Checked, Claim, Verdict};
-use support::{FixedClock, StubDecider, StubFinder, commit, git_project, write};
+use scry::domain::budget::Caps;
+use scry::domain::budget::{Budget, check_estimate, review_estimate};
+use scry::domain::config::ScryConfig;
+use scry::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
+use scry::domain::findings::Findings;
+use scry::domain::scope::ScopeRequest;
+use scry::ports::claim_checker::ClaimChecker;
+use scry::ports::run_log::Quiet;
+use scry::usecases::review_change::{
+    Progress, ReviewDeps, ReviewOutcome, ReviewReport, ReviewRequest, review_change,
+};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Span;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
+use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
 
-const STEERING: &str =
-    "## Rules\n\n### Commands return a Result\nA command never panics; it returns an error.\n";
+const STEERING: &str = "[[rule]]\nid = \"result\"\ntext = \"\"\"\nCommands return a Result\nA command never panics; it returns an error.\"\"\"\n";
 
 fn t0() -> DateTime<Utc> {
     "2026-11-18T23:00:00Z".parse().unwrap()
@@ -38,7 +45,7 @@ fn no_caps() -> Caps {
     }
 }
 
-type CheckFn<'a> = dyn Fn(&Claim) -> sorcerer_models::Result<Checked> + Sync + 'a;
+type CheckFn<'a> = dyn ClaimChecker + 'a;
 
 struct Fixture {
     dir: TempDir,
@@ -50,7 +57,7 @@ impl Fixture {
     /// orders.py committed (with steering), then `cancel` changed.
     fn new() -> Fixture {
         let dir = git_project();
-        write(dir.path(), ".sorcerer/scry.md", STEERING);
+        write(dir.path(), ".sorcerer/scry.toml", STEERING);
         write(dir.path(), "orders.py", ORDERS);
         commit(dir.path(), "orders");
         write(
@@ -62,58 +69,51 @@ impl Fixture {
         Fixture { dir, project, view }
     }
 
-    fn run(&self, finder: &StubFinder, checker: &CheckFn<'_>, caps: &Caps) -> Report {
+    fn run(&self, reviewer: &StubReviewer, checker: &CheckFn<'_>, caps: &Caps) -> ReviewReport {
         let progress = |_: &Progress| {};
-        self.run_with(finder, checker, caps, &FixedClock::at(t0()), &progress)
+        self.run_with(reviewer, checker, caps, &FixedClock::at(t0()), &progress)
     }
 
     fn run_with(
         &self,
-        finder: &StubFinder,
+        reviewer: &StubReviewer,
         checker: &CheckFn<'_>,
         caps: &Caps,
         clock: &FixedClock,
         progress: &(dyn Fn(&Progress) + Sync),
-    ) -> Report {
-        let scope = scope_of(
-            &self.project,
-            &self.view,
-            ScopeWhy::Working,
-            false,
-            &ScryConfig::default(),
-        )
-        .unwrap();
+    ) -> ReviewReport {
         let decider = StubDecider::new();
-        let deps = PassDeps {
+        let ports = support::Ports::of(&self.project);
+        let cancel = Cancel::default();
+        let deps = ReviewDeps {
             view: &self.view,
-            finder,
+            reviewer,
             decider: &decider,
             checker,
+            store: &ports.store,
+            ledger: &ports.ledger,
+            settings: &ports.settings,
             clock,
+            log: &Quiet,
             progress,
-            trace: &scry::log::quiet,
+            cancel: &cancel,
         };
-        match pass(
-            &self.project,
-            &scope,
-            caps,
-            false,
-            &deps,
-            &Cancel::default(),
-        )
-        .unwrap()
-        {
-            Outcome::Ran(r) => r,
-            Outcome::Skipped(why) => panic!("skipped: {why}"),
+        let req = ReviewRequest {
+            caps: Some(caps.clone()),
+            ..ReviewRequest::of(ScopeRequest::Working)
+        };
+        match review_change(&self.project, &req, &deps).unwrap() {
+            ReviewOutcome::Ran(r) => r,
+            ReviewOutcome::Skipped(why) => panic!("skipped: {why}"),
         }
     }
 
-    fn store(&self) -> ScryStore {
+    fn store(&self) -> Findings {
         read_store(&self.project)
     }
 
-    fn ledger(&self) -> Ledger {
-        Ledger::for_project(&self.project).unwrap()
+    fn ledger(&self) -> JsonlLedger {
+        JsonlLedger::for_project(&self.project).unwrap()
     }
 
     /// The fingerprint of `cancel` as it is now.
@@ -127,36 +127,30 @@ impl Fixture {
             .to_string()
     }
 
-    /// FINDINGS stored, with `cancel` already inspected (nothing to find).
+    /// FINDINGS stored, with `cancel` already reviewed (nothing to review).
     fn seed(&self, findings: Vec<Finding>) {
         let print = self.cancel_print();
-        store(&self.project)
-            .unwrap()
-            .update(|s| {
-                s.findings = findings;
-                s.inspected
-                    .entry("orders.py".into())
-                    .or_default()
-                    .insert(print);
-            })
-            .unwrap();
+        support::update_store(&self.project, |s| {
+            s.findings = findings;
+            s.reviewed
+                .entry("orders.py".into())
+                .or_default()
+                .insert(print);
+        })
+        .unwrap();
     }
 }
 
-fn read_store(p: &Project) -> ScryStore {
-    match store(p).unwrap().read().unwrap() {
-        Snapshot::Current(s) => s,
-        Snapshot::Absent => ScryStore::default(),
-        Snapshot::Unreadable(why) => panic!("{why}"),
-    }
+fn read_store(p: &Project) -> Findings {
+    support::read_store(p)
 }
 
-/// A finding on `cancel` citing line 2, with ID, KIND, KEEP and STATUS.
-fn finding(id: &str, kind: &str, keep: f64, status: Status) -> Finding {
+/// A finding on `cancel` citing line 2, with ID, ISSUE_TYPE, CONFIDENCE and STATUS.
+fn finding(id: &str, issue_type: &str, confidence: f64, status: Status) -> Finding {
     let t = t0() - chrono::Duration::hours(1);
     Finding {
-        id: Id(id.into()),
-        kind: kind.into(),
+        id: FindingId(id.into()),
+        issue_type: issue_type.into(),
         rule: None,
         statement: format!("claim {id}"),
         place: Place {
@@ -172,7 +166,7 @@ fn finding(id: &str, kind: &str, keep: f64, status: Status) -> Finding {
             print: None,
         }],
         scores: Scores {
-            keep: Some(keep),
+            confidence: Some(confidence),
             asked_on: Some("h".into()),
         },
         verdict: None,
@@ -194,7 +188,7 @@ fn waiting_bugs(keeps: &[f64]) -> Vec<Finding> {
         .collect()
 }
 
-fn status_of(s: &ScryStore, id: &str) -> Status {
+fn status_of(s: &Findings, id: &str) -> Status {
     s.findings.iter().find(|f| f.id.0 == id).unwrap().status
 }
 
@@ -229,24 +223,24 @@ fn failing(_: &Claim) -> sorcerer_models::Result<Checked> {
 
 #[test]
 fn estimates_default_then_follow_the_record() {
-    assert_eq!(find_estimate(&[], "sonnet"), 0.04);
-    assert_eq!(find_estimate(&[], "claude-haiku-5-5"), 0.005);
+    assert_eq!(review_estimate(&[], "sonnet"), 0.04);
+    assert_eq!(review_estimate(&[], "claude-haiku-5-5"), 0.005);
     assert_eq!(check_estimate(&[]), 0.016);
 
     let mut rows = Vec::new();
     for i in 1..=25 {
-        rows.push(row("find", t0(), Some(i as f64 * 0.01)));
+        rows.push(row("review", t0(), Some(i as f64 * 0.01)));
         rows.push(row("check", t0(), Some(i as f64 * 0.001)));
     }
     // unpriced rows, other verbs and other products do not count
-    rows.push(row("find", t0(), None));
+    rows.push(row("review", t0(), None));
     rows.push(row("decide", t0(), Some(9.0)));
-    let mut other = row("find", t0(), Some(9.0));
+    let mut other = row("review", t0(), Some(9.0));
     other.product = "conjure".into();
     rows.push(other);
     // the last 20 of 1..=25 are 6..=25, mean 15.5
-    assert!((find_estimate(&rows, "sonnet") - 0.155).abs() < 1e-9);
-    assert!((find_estimate(&rows, "claude-haiku-5-5") - 0.155).abs() < 1e-9);
+    assert!((review_estimate(&rows, "sonnet") - 0.155).abs() < 1e-9);
+    assert!((review_estimate(&rows, "claude-haiku-5-5") - 0.155).abs() < 1e-9);
     assert!((check_estimate(&rows) - 0.0155).abs() < 1e-9);
 }
 
@@ -269,33 +263,37 @@ fn a_budget_is_over_on_any_cap() {
 }
 
 #[test]
-fn a_day_cap_stops_the_find_and_leaves_units_for_later() {
+fn a_day_cap_stops_the_review_and_leaves_units_for_later() {
     let f = Fixture::new();
     f.ledger()
-        .append(&row("find", t0() - chrono::Duration::hours(1), Some(2.99)))
+        .append(&row(
+            "review",
+            t0() - chrono::Duration::hours(1),
+            Some(2.99),
+        ))
         .unwrap();
-    let finder = StubFinder::new();
+    let reviewer = StubReviewer::new();
     let caps = Caps {
         pass: None,
         day: 3.00,
         budget: None,
     };
-    let r = f.run(&finder, &right, &caps);
-    assert!(finder.asks().is_empty());
+    let r = f.run(&reviewer, &right, &caps);
+    assert!(reviewer.asks().is_empty());
     assert_eq!(r.capped, 1);
     assert!(!r.whole);
     assert_eq!(r.looked_at, 0);
     let s = f.store();
-    assert!(s.inspected.is_empty(), "{:?}", s.inspected);
+    assert!(s.reviewed.is_empty(), "{:?}", s.reviewed);
     assert!(s.capped[Path::new("orders.py")].contains("cancel"));
 
     // a later pass with room inspects it and clears the record
-    let r = f.run(&finder, &right, &no_caps());
-    assert_eq!(finder.asks().len(), 1);
+    let r = f.run(&reviewer, &right, &no_caps());
+    assert_eq!(reviewer.asks().len(), 1);
     assert_eq!(r.capped, 0);
     let s = f.store();
     assert!(s.capped.is_empty(), "{:?}", s.capped);
-    assert!(s.inspected[Path::new("orders.py")].contains(&f.cancel_print()));
+    assert!(s.reviewed[Path::new("orders.py")].contains(&f.cancel_print()));
 }
 
 #[test]
@@ -306,14 +304,14 @@ fn a_budget_caps_the_run() {
     support::git(f.dir.path(), &["add", "big.py"]);
     support::git(f.dir.path(), &["commit", "-q", "-m", "big"]);
     write(f.dir.path(), "big.py", &big.replace("x = 1", "x = 2"));
-    let finder = StubFinder::new();
+    let reviewer = StubReviewer::new();
     let caps = Caps {
         pass: None,
         day: f64::INFINITY,
         budget: Some(0.06),
     };
-    let r = f.run(&finder, &right, &caps);
-    assert_eq!(finder.asks().len(), 1);
+    let r = f.run(&reviewer, &right, &caps);
+    assert_eq!(reviewer.asks().len(), 1);
     assert_eq!(r.looked_at, 1);
     assert_eq!(r.capped, 1);
     assert!((r.spent - 0.04).abs() < 1e-9, "{}", r.spent);
@@ -327,14 +325,14 @@ fn yesterdays_spend_does_not_count() {
     // 03:00 UTC on the 18th is 22:00 on the 17th in New York
     f.ledger()
         .append(&row(
-            "find",
+            "review",
             "2026-11-18T03:00:00Z".parse().unwrap(),
             Some(2.99),
         ))
         .unwrap();
     // Jev's questions do not count against the caps
     f.ledger().append(&row("decide", t0(), Some(5.0))).unwrap();
-    let finder = StubFinder::new();
+    let reviewer = StubReviewer::new();
     let caps = Caps {
         pass: None,
         day: 3.00,
@@ -342,8 +340,8 @@ fn yesterdays_spend_does_not_count() {
     };
     let clock = FixedClock::at(t0()).in_zone(FixedOffset::west_opt(5 * 3600).unwrap());
     let progress = |_: &Progress| {};
-    let r = f.run_with(&finder, &right, &caps, &clock, &progress);
-    assert_eq!(finder.asks().len(), 1);
+    let r = f.run_with(&reviewer, &right, &caps, &clock, &progress);
+    assert_eq!(reviewer.asks().len(), 1);
     assert_eq!(r.capped, 0);
 }
 
@@ -358,9 +356,9 @@ fn rounds_fill_max_shown_best_first() {
         assert!(c.about[0].print.is_some());
         right(c)
     };
-    let finder = StubFinder::new();
-    let r = f.run(&finder, &checker, &no_caps());
-    assert!(finder.asks().is_empty());
+    let reviewer = StubReviewer::new();
+    let r = f.run(&reviewer, &checker, &no_caps());
+    assert!(reviewer.asks().is_empty());
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert!((r.spent - 0.03).abs() < 1e-9, "{}", r.spent);
     let s = f.store();
@@ -393,7 +391,7 @@ fn a_refuted_check_frees_its_place() {
             right(c)
         }
     };
-    f.run(&StubFinder::new(), &checker, &no_caps());
+    f.run(&StubReviewer::new(), &checker, &no_caps());
     assert_eq!(calls.load(Ordering::SeqCst), 4);
     let s = f.store();
     assert_eq!(status_of(&s, "000000"), Status::Refuted);
@@ -424,7 +422,7 @@ fn conventions_show_before_claim_checks_finish() {
         right(c)
     };
     f.run_with(
-        &StubFinder::new(),
+        &StubReviewer::new(),
         &checker,
         &no_caps(),
         &FixedClock::at(t0()),
@@ -447,7 +445,7 @@ fn checks_run_side_by_side() {
         spans.lock().unwrap().push((start, Instant::now()));
         right(c)
     };
-    f.run(&StubFinder::new(), &checker, &no_caps());
+    f.run(&StubReviewer::new(), &checker, &no_caps());
     let spans = spans.into_inner().unwrap();
     assert_eq!(spans.len(), 3);
     let first = spans.iter().map(|s| s.0).min().unwrap();
@@ -463,7 +461,7 @@ fn checks_run_side_by_side() {
 fn a_check_error_leaves_the_finding_waiting() {
     let f = Fixture::new();
     f.seed(waiting_bugs(&[0.95]));
-    let r = f.run(&StubFinder::new(), &failing, &no_caps());
+    let r = f.run(&StubReviewer::new(), &failing, &no_caps());
     assert_eq!(r.spent, 0.0);
     let s = f.store();
     let g = &s.findings[0];
@@ -486,7 +484,7 @@ fn a_check_that_does_not_fit_waits_and_stops_the_rounds() {
         calls.fetch_add(1, Ordering::SeqCst);
         right(c)
     };
-    let r = f.run(&StubFinder::new(), &checker, &caps);
+    let r = f.run(&StubReviewer::new(), &checker, &caps);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(r.checks_capped);
     let s = f.store();
@@ -503,7 +501,7 @@ fn a_finding_whose_citations_fail_is_unsure() {
     let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
         panic!("no claim check when the citations fail")
     };
-    f.run(&StubFinder::new(), &checker, &no_caps());
+    f.run(&StubReviewer::new(), &checker, &no_caps());
     let s = f.store();
     assert_eq!(s.findings[0].status, Status::Unsure);
     assert_eq!(
@@ -513,7 +511,7 @@ fn a_finding_whose_citations_fail_is_unsure() {
 }
 
 #[test]
-fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_find() {
+fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_review() {
     let f = Fixture::new();
     let mut seeded: Vec<Finding> = ["00000e", "00000f", "000010"]
         .iter()
@@ -526,39 +524,37 @@ fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_find() {
         calls.fetch_add(1, Ordering::SeqCst);
         right(c)
     };
-    let finder = StubFinder::new();
-    f.run(&finder, &checker, &no_caps());
+    let reviewer = StubReviewer::new();
+    f.run(&reviewer, &checker, &no_caps());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(status_of(&f.store(), "000011"), Status::Waiting);
 
-    store(&f.project)
-        .unwrap()
-        .update(|s| s.dismiss("00000e", false, t0()))
+    support::update_store(&f.project, |s| s.dismiss("00000e", false, t0()))
         .unwrap()
         .unwrap();
-    f.run(&finder, &checker, &no_caps());
-    assert!(finder.asks().is_empty());
+    f.run(&reviewer, &checker, &no_caps());
+    assert!(reviewer.asks().is_empty());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(status_of(&f.store(), "000011"), Status::Open);
 }
 
-/// A hung find call on the command line (no pass cap) is not presumed to
+/// A hung review call on the command line (no pass cap) is not presumed to
 /// have spent the rest of the day: its cap, and its charge, stay within
-/// `pass_cost`.
+/// `budget_per_pass`.
 #[test]
-fn a_timed_out_find_is_charged_at_most_the_pass_cost() {
+fn a_timed_out_review_is_charged_at_most_the_budget_per_pass() {
     let f = Fixture::new();
-    let finder = StubFinder::new().timing_out();
+    let reviewer = StubReviewer::new().timing_out();
     let caps = Caps {
         pass: None,
         day: 3.00,
         budget: None,
     };
     let no_check = |_: &Claim| -> sorcerer_models::Result<Checked> { unreachable!() };
-    let r = f.run(&finder, &no_check, &caps);
-    let pass_cost = ScryConfig::default().pass_cost;
+    let r = f.run(&reviewer, &no_check, &caps);
+    let budget_per_pass = ScryConfig::default().budget_per_pass;
     assert_eq!(r.failures.len(), 1, "{:?}", r.failures);
-    assert!(finder.caps.lock().unwrap()[0] <= pass_cost);
-    assert!(r.spent <= pass_cost, "charged {}", r.spent);
+    assert!(reviewer.caps.lock().unwrap()[0] <= budget_per_pass);
+    assert!(r.spent <= budget_per_pass, "charged {}", r.spent);
     assert!(r.spent > 0.0);
 }

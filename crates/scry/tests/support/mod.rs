@@ -1,5 +1,5 @@
 //! Helpers and doubles shared by scry's integration tests: git fixtures (as
-//! core's), a project on the vendored grammars, and stand-ins for the find
+//! core's), a project on the vendored grammars, and stand-ins for the review
 //! call, the decider and the clock.
 #![allow(dead_code)]
 
@@ -9,14 +9,23 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
-use scry::find::{FindAsk, Finder, Found};
-use scry::pass::Clock;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::language::GrammarSource;
-use sorcerer_core::ledger::Errand;
-use sorcerer_core::view::FilesView;
-use sorcerer_core::{Cancel, Project};
-use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
+use scry::adapters::json_finding_store::JsonFindingStore;
+use scry::adapters::scry_toml::ScryToml;
+use scry::domain::findings::Findings;
+use scry::domain::review_prompt::ReviewAsk;
+use scry::ports::clock::Clock;
+use scry::ports::finding_store::FindingStore;
+use scry::ports::reviewer::{Reviewed, Reviewer};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::json_store::Snapshot;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::language::GrammarSource;
+use sorcerer_core::domain::project::Project;
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
+use sorcerer_models::ports::decider::Decider;
 use tempfile::TempDir;
 
 /// Runs git in DIR, panicking with its stderr on failure.
@@ -106,24 +115,24 @@ pub fn errand(verb: &str, model: &str, cost: f64) -> Errand {
     }
 }
 
-type Hook = Box<dyn Fn(&FindAsk) + Send + Sync>;
+type Hook = Box<dyn Fn(&ReviewAsk) + Send + Sync>;
 
-/// The find call's stand-in: replies by the set of files in the pack (an
+/// The review call's stand-in: replies by the set of files in the pack (an
 /// empty findings list for a pack it has no reply for), and records every ask.
 /// A hook, when set, runs during each call (after the ask is recorded).
-pub struct StubFinder {
+pub struct StubReviewer {
     replies: Vec<(BTreeSet<PathBuf>, String)>,
     pub cost: f64,
-    pub asks: Mutex<Vec<FindAsk>>,
+    pub asks: Mutex<Vec<ReviewAsk>>,
     /// The cap each call was given.
     pub caps: Mutex<Vec<f64>>,
     timeout: bool,
     hook: Option<Hook>,
 }
 
-impl StubFinder {
-    pub fn new() -> StubFinder {
-        StubFinder {
+impl StubReviewer {
+    pub fn new() -> StubReviewer {
+        StubReviewer {
             replies: Vec::new(),
             cost: 0.04,
             asks: Mutex::new(Vec::new()),
@@ -134,43 +143,43 @@ impl StubFinder {
     }
 
     /// Every call times out, as a hung `claude -p` would.
-    pub fn timing_out(mut self) -> StubFinder {
+    pub fn timing_out(mut self) -> StubReviewer {
         self.timeout = true;
         self
     }
 
-    /// Runs HOOK during every find call, as a user acting mid-pass would.
-    pub fn on_find(mut self, hook: impl Fn(&FindAsk) + Send + Sync + 'static) -> StubFinder {
+    /// Runs HOOK during every review call, as a user acting mid-pass would.
+    pub fn on_review(mut self, hook: impl Fn(&ReviewAsk) + Send + Sync + 'static) -> StubReviewer {
         self.hook = Some(Box::new(hook));
         self
     }
 
     /// Replies REPLY to a pack whose files are exactly FILES.
-    pub fn reply(mut self, files: &[&str], reply: &str) -> StubFinder {
+    pub fn reply(mut self, files: &[&str], reply: &str) -> StubReviewer {
         let set = files.iter().map(PathBuf::from).collect();
         self.replies.push((set, reply.to_string()));
         self
     }
 
-    pub fn asks(&self) -> Vec<FindAsk> {
+    pub fn asks(&self) -> Vec<ReviewAsk> {
         self.asks.lock().unwrap().clone()
     }
 }
 
-impl Default for StubFinder {
-    fn default() -> StubFinder {
-        StubFinder::new()
+impl Default for StubReviewer {
+    fn default() -> StubReviewer {
+        StubReviewer::new()
     }
 }
 
-impl Finder for StubFinder {
-    fn find(
+impl Reviewer for StubReviewer {
+    fn review(
         &self,
-        ask: &FindAsk,
+        ask: &ReviewAsk,
         model: &str,
         cap_usd: f64,
         _cancel: &Cancel,
-    ) -> sorcerer_models::Result<Found> {
+    ) -> sorcerer_models::Result<Reviewed> {
         self.asks.lock().unwrap().push(ask.clone());
         self.caps.lock().unwrap().push(cap_usd);
         if self.timeout {
@@ -189,9 +198,9 @@ impl Finder for StubFinder {
             .find(|(f, _)| *f == files)
             .map(|(_, r)| r.clone())
             .unwrap_or_else(|| r#"{"findings": [], "open": []}"#.to_string());
-        Ok(Found {
+        Ok(Reviewed {
             reply,
-            errand: errand("find", model, self.cost),
+            errand: errand("review", model, self.cost),
         })
     }
 }
@@ -308,5 +317,47 @@ impl Clock for FixedClock {
 
     fn offset(&self) -> FixedOffset {
         self.zone
+    }
+}
+
+/// The ports a review talks through, over PROJECT's files.
+pub struct Ports {
+    pub store: JsonFindingStore,
+    pub ledger: JsonlLedger,
+    pub settings: ScryToml,
+}
+
+impl Ports {
+    pub fn of(project: &Project) -> Ports {
+        Ports {
+            store: JsonFindingStore::for_project(project).unwrap(),
+            ledger: JsonlLedger::for_project(project).unwrap(),
+            settings: ScryToml::for_project(project),
+        }
+    }
+}
+
+/// PROJECT's finding store.
+pub fn store_of(project: &Project) -> JsonFindingStore {
+    JsonFindingStore::for_project(project).unwrap()
+}
+
+/// F applied to PROJECT's store under its lock; what F gave.
+pub fn update_store<R>(
+    project: &Project,
+    f: impl FnOnce(&mut Findings) -> R,
+) -> sorcerer_core::Result<R> {
+    let mut f = Some(f);
+    let mut out = None;
+    store_of(project).update(&mut |s| out = f.take().map(|f| f(s)))?;
+    Ok(out.expect("the update ran"))
+}
+
+/// PROJECT's findings as stored (none when there is no store yet).
+pub fn read_store(project: &Project) -> Findings {
+    match store_of(project).read().unwrap() {
+        Snapshot::Current(s) => s,
+        Snapshot::Absent => Findings::default(),
+        Snapshot::Unreadable(why) => panic!("{why}"),
     }
 }

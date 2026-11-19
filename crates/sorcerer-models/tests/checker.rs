@@ -4,16 +4,20 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use sorcerer_core::fences::Fences;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::language::{GrammarSource, Languages};
-use sorcerer_core::unit::Span;
-use sorcerer_core::view::FilesView;
-use sorcerer_core::{Cancel, Project};
-use sorcerer_models::checker::prompts::claim_prompt;
-use sorcerer_models::checker::{CheckerDeps, Citation, Claim, ClaimKind, Verdict, check};
-use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
-use sorcerer_models::research::{Research, Researched, Researcher};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::language::{GrammarSource, Languages};
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Span;
+use sorcerer_models::domain::claim::{Citation, Claim, ClaimKind, Verdict};
+use sorcerer_models::domain::claim_prompt::claim_prompt;
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
+use sorcerer_models::domain::research::{Research, Researched};
+use sorcerer_models::ports::decider::Decider;
+use sorcerer_models::ports::researcher::Researcher;
+use sorcerer_models::usecases::check_claim::{CheckClaimDeps, check_claim};
 
 /// Answers by model alias, recording which models were asked.
 struct Stub {
@@ -26,7 +30,7 @@ impl Researcher for Stub {
     fn research(&self, r: Research, _: &Cancel) -> sorcerer_models::Result<Researched> {
         self.asked.lock().unwrap().push(r.model.clone());
         self.prompts.lock().unwrap().push(r.prompt.clone());
-        let mut errand = sorcerer_core::ledger::Errand {
+        let mut errand = sorcerer_core::domain::errand::Errand {
             at: chrono::Utc::now(),
             product: r.product.clone(),
             verb: r.verb.clone(),
@@ -133,14 +137,14 @@ fn stub(answers: &[(&str, String)]) -> Stub {
     }
 }
 
-fn deps<'a>(w: &'a World, r: &'a Stub, d: Option<&'a dyn Decider>) -> CheckerDeps<'a> {
-    CheckerDeps::defaults(r, d, &w.fences, &w.view, "scry")
+fn deps<'a>(w: &'a World, r: &'a Stub, d: Option<&'a dyn Decider>) -> CheckClaimDeps<'a> {
+    CheckClaimDeps::defaults(r, d, &w.fences, &w.view, "scry")
 }
 
-/// olifant's prompt, but for the unit wording (here neutral: the claim
-/// points at no file) and the line asked for alongside a unit.
+/// The measured prompt, the unit worded neutrally (the claim points at no
+/// file) and the line asked for alongside a unit.
 #[test]
-fn the_prompt_is_olifants() {
+fn the_prompt_matches_the_golden() {
     assert_eq!(
         claim_prompt(&claim(), None),
         std::fs::read_to_string(
@@ -158,7 +162,7 @@ fn all_guards_pass_keeps_the_first_verdict() {
         ("sonnet", reply("wrong", GOOD)),
     ]);
     let g = Guards(vec![Some(0.9), Some(0.8), Some(0.7)], Mutex::new(vec![]));
-    let c = check(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
     assert_eq!((c.verdict, c.escalated), (Verdict::Right, false));
     assert_eq!(*r.asked.lock().unwrap(), vec!["haiku"]);
     let asked = g.1.lock().unwrap();
@@ -190,7 +194,7 @@ fn one_guard_below_threshold_escalates_to_strong() {
         ("sonnet", reply("wrong", GOOD)),
     ]);
     let g = Guards(vec![Some(0.9), Some(0.59), Some(0.9)], Mutex::new(vec![]));
-    let c = check(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
     assert_eq!((c.verdict, c.escalated), (Verdict::Wrong, true));
     assert_eq!(*r.asked.lock().unwrap(), vec!["haiku", "sonnet"]);
     assert_eq!(c.errands.len(), 2);
@@ -205,7 +209,7 @@ fn an_unsure_guard_escalates() {
     ]);
     let g = Guards(vec![Some(0.9), None, Some(0.9)], Mutex::new(vec![]));
     assert!(
-        check(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default())
+        check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default())
             .unwrap()
             .escalated
     );
@@ -219,7 +223,7 @@ fn cannot_tell_from_the_first_escalates_without_guards() {
         ("sonnet", reply("right", GOOD)),
     ]);
     let g = Guards(vec![Some(0.9), Some(0.9), Some(0.9)], Mutex::new(vec![]));
-    let c = check(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
     assert_eq!((c.verdict, c.escalated), (Verdict::Right, true));
     assert!(g.1.lock().unwrap().is_empty());
 }
@@ -228,7 +232,7 @@ fn cannot_tell_from_the_first_escalates_without_guards() {
 fn no_decider_checks_on_strong_alone() {
     let w = world();
     let r = stub(&[("sonnet", reply("wrong", GOOD))]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!((c.verdict, c.escalated), (Verdict::Wrong, false));
     assert_eq!(*r.asked.lock().unwrap(), vec!["sonnet"]);
 }
@@ -240,7 +244,7 @@ fn a_citation_into_a_fenced_file_is_cannot_tell() {
         "sonnet",
         reply("right", r#"{"path": ".env", "unit": null, "line": 1}"#),
     )]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::CannotTell);
     assert_eq!(c.why, "cited code not found");
 }
@@ -256,7 +260,7 @@ fn a_unit_the_file_does_not_define_with_no_line_is_cannot_tell() {
         ),
     )]);
     assert_eq!(
-        check(&claim(), &deps(&w, &r, None), &Cancel::default())
+        check_claim(&claim(), &deps(&w, &r, None), &Cancel::default())
             .unwrap()
             .verdict,
         Verdict::CannotTell
@@ -267,7 +271,7 @@ fn a_unit_the_file_does_not_define_with_no_line_is_cannot_tell() {
 fn right_with_no_evidence_is_a_failed_reply() {
     let w = world();
     let r = stub(&[("sonnet", reply("right", ""))]);
-    assert!(check(&claim(), &deps(&w, &r, None), &Cancel::default()).is_err());
+    assert!(check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).is_err());
 }
 
 #[test]
@@ -280,7 +284,7 @@ fn a_cited_line_is_found_and_a_path_colon_line_is_read() {
             r#"{"path": "src/orders.py:2", "unit": null, "line": null}"#,
         ),
     )]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::Right);
     assert_eq!(c.citations[0].lines, Span { start: 2, end: 2 });
 }
@@ -296,7 +300,7 @@ fn a_line_past_the_end_is_cannot_tell() {
         ),
     )]);
     assert_eq!(
-        check(&claim(), &deps(&w, &r, None), &Cancel::default())
+        check_claim(&claim(), &deps(&w, &r, None), &Cancel::default())
             .unwrap()
             .verdict,
         Verdict::CannotTell
@@ -313,7 +317,7 @@ fn every_raw_citation_is_kept_with_whether_it_confirmed() {
             &format!(r#"{GOOD}, {{"path": "src/orders.py", "unit": "refund", "line": null}}"#),
         ),
     )]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::CannotTell);
     let got: Vec<(&str, Option<&str>, bool)> = c
         .cited
@@ -400,7 +404,7 @@ fn the_checker_asks_in_the_claims_language() {
     let ls = shipped();
     let mut d = deps(&w, &r, None);
     d.languages = Some(&ls);
-    check(&claim_about(&["src/orders.py"]), &d, &Cancel::default()).unwrap();
+    check_claim(&claim_about(&["src/orders.py"]), &d, &Cancel::default()).unwrap();
     assert!(r.prompts.lock().unwrap()[0].contains("(Class.method)"));
 }
 
@@ -414,7 +418,7 @@ fn an_unknown_unit_with_a_good_line_is_confirmed_on_the_line() {
             r#"{"path": "src/orders.py", "unit": "Orders::cancel_it", "line": 2}"#,
         ),
     )]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::Right);
     assert_eq!(c.citations[0].lines, Span { start: 2, end: 2 });
     assert!(c.citations[0].print.is_some());
@@ -425,7 +429,7 @@ fn an_unknown_unit_with_a_good_line_is_confirmed_on_the_line() {
 fn a_found_unit_is_not_marked_missed() {
     let w = world();
     let r = stub(&[("sonnet", reply("right", GOOD))]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert!(c.cited[0].confirmed && !c.cited[0].unit_missed);
 }
 
@@ -439,7 +443,7 @@ fn an_unknown_unit_with_a_line_past_the_end_is_cannot_tell() {
             r#"{"path": "src/orders.py", "unit": "refund", "line": 99}"#,
         ),
     )]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::CannotTell);
     assert!(!c.cited[0].confirmed);
 }
@@ -456,6 +460,6 @@ fn a_fenced_file_with_a_good_unit_is_cannot_tell() {
             r#"{"path": ".env.py", "unit": "cancel", "line": 1}"#,
         ),
     )]);
-    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::CannotTell);
 }
