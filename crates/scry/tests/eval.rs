@@ -230,9 +230,12 @@ fn recorded_findings(file: &Path) -> Vec<Value> {
         if reply.trim().is_empty() {
             continue;
         }
-        let reply: Value =
-            serde_json::from_str(reply).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
-        out.extend(reply["findings"].as_array().cloned().unwrap_or_default());
+        // read as the pass reads a reply: prose and a fenced block are allowed
+        match scry::domain::review_prompt::json_in(reply) {
+            Some(Value::Array(xs)) => out.extend(xs),
+            Some(v) => out.extend(v["findings"].as_array().cloned().unwrap_or_default()),
+            None => panic!("{}: no JSON in a recorded reply", file.display()),
+        }
     }
     out
 }
@@ -639,10 +642,16 @@ fn run_corpus_with(
         rows.push(run_case(&run, c));
         if record == Record::All {
             let t = run.tally.lock().unwrap();
-            println!(
-                "{}: recorded so far ${:.3}",
-                c.id,
-                t.review_usd + t.check_usd
+            let spent = t.review_usd + t.check_usd;
+            println!("{}: recorded so far ${spent:.3}", c.id);
+            // SCRY_RECORD_CEILING (default 5) stops a recording; what it recorded is kept
+            let ceiling: f64 = std::env::var("SCRY_RECORD_CEILING")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5.0);
+            assert!(
+                spent <= ceiling,
+                "recording stopped: ${spent:.3} spent, past the ceiling ${ceiling}"
             );
         }
     }
@@ -698,6 +707,13 @@ fn assert_passing_scores(corpus: &Corpus, by: &BySet) {
 #[test]
 fn bistro_reaches_its_passing_scores() {
     let c = corpus("bistro");
+    let (_, by) = run_corpus(&c);
+    assert_passing_scores(&c, &by);
+}
+
+#[test]
+fn bistro_rs_reaches_its_passing_scores() {
+    let c = corpus("bistro-rs");
     let (_, by) = run_corpus(&c);
     assert_passing_scores(&c, &by);
 }

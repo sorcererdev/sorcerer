@@ -126,13 +126,23 @@ def ask(prompt, tag, model="haiku", system="", cap=180, budget=0.1):
 
 
 def json_block(text):
-    """The last JSON array or object in TEXT (a model's reply may wrap it in prose or a fence)."""
-    for opener, closer in (("[", "]"), ("{", "}")):
-        end = text.rfind(closer)
-        start = text.rfind(opener, 0, end)
-        while start != -1:
+    """The JSON in a model's reply, read as scry's review parser reads it: the last fenced block that
+    parses, else the span from the first opener to the last closer."""
+    if "```" in text:
+        for chunk in reversed(text.split("```")):
+            p = chunk.strip()
+            p = p[4:] if p.startswith("json") else p
             try:
-                return json.loads(text[start:end + 1])
+                return json.loads(p)
             except ValueError:
-                start = text.rfind(opener, 0, start)
+                pass
+    b, a = text.find("{"), text.find("[")
+    pairs = [("[", "]"), ("{", "}")] if a != -1 and (b == -1 or a < b) else [("{", "}"), ("[", "]")]
+    for o, c in pairs:
+        i, j = text.find(o), text.rfind(c)
+        if i != -1 and i <= j:
+            try:
+                return json.loads(text[i:j + 1])
+            except ValueError:
+                pass
     raise ValueError("no JSON in reply")

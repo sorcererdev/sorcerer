@@ -44,8 +44,11 @@ def test_the_ceiling_stops_a_live_run():
         lib.LIVE = False
 
 
-def test_json_block_finds_the_last_array():
+def test_json_block_reads_as_the_review_parser_does():
     assert lib.json_block('text [1] more ```json\n[{"n": 1}]\n```') == [{"n": 1}]
+    reply = 'Found one. ```json\n{"findings": [{"lines": [1, 2]}], "open": []}\n```'
+    assert lib.json_block(reply) == {"findings": [{"lines": [1, 2]}], "open": []}
+    assert lib.json_block('{"findings": [], "open": []}') == {"findings": [], "open": []}
 
 
 def test_label_lets_an_override_win():

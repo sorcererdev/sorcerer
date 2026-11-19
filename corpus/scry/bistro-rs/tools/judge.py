@@ -32,11 +32,9 @@ def findings_of(corpus, case):
         return []
     out = []
     for pack in json.load(open(p))["packs"]:
-        try:
-            reply = json.loads(pack["reply"]) if pack["reply"].strip() else {}
-        except ValueError:
-            reply = json_block(pack["reply"])
-        out += [f for f in reply.get("findings", []) if f.get("statement")]
+        reply = json_block(pack["reply"]) if pack["reply"].strip() else {}
+        found = reply if isinstance(reply, list) else reply.get("findings", [])
+        out += [f for f in found if f.get("statement")]
     return out
 
 
