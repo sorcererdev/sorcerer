@@ -58,7 +58,7 @@ fn overlaps(a: Span, b: Span) -> bool {
 
 /// The stored findings worth asking Jev about, in store order: not
 /// resolved or gone, and sharing RAW's file, its rule, or a cited range.
-/// RAW's rule is the resolved heading (the pass resolves it first).
+/// RAW's rule is a rule's id (the pass looks it up first).
 pub fn candidates<'a>(store: &'a Findings, raw: &RawFinding) -> Vec<&'a Finding> {
     store
         .findings
@@ -76,16 +76,16 @@ pub fn candidates<'a>(store: &'a Findings, raw: &RawFinding) -> Vec<&'a Finding>
         .collect()
 }
 
-/// A finding as Jev is shown it: `kind at file:line; rule: X; statement`.
+/// A finding as Jev is shown it: `issue_type at file:line; rule: X; statement`.
 pub fn finding_text(
-    kind: &str,
+    issue_type: &str,
     file: &Path,
     line: u32,
     rule: Option<&str>,
     statement: &str,
 ) -> String {
     format!(
-        "{kind} at {}:{line}; rule: {}; {statement}",
+        "{issue_type} at {}:{line}; rule: {}; {statement}",
         file.display(),
         rule.unwrap_or("none")
     )
@@ -140,19 +140,16 @@ pub fn match_stored(stored: &Finding, new_unit: Option<&str>) -> Match {
     }
 }
 
-/// The text of the rule RAW cites: its heading exactly, else as resolved.
-fn cited_rule<'s>(st: &'s Steering, raw: &RawFinding) -> Option<&'s str> {
-    let r = raw.rule.as_deref()?;
-    st.rule_text(r)
-        .or_else(|| st.resolve_rule(r).and_then(|n| st.rule_text(n)))
-}
+/// The nitpick question's two sides.
+pub const NITPICK_IS: &str = "it is about taste or polish: naming, wording, formatting, style, a small optional refactor, or speculative future-proofing; nothing would go wrong if it were ignored";
+pub const WORTH_SAYING_IS: &str = "ignoring it leaves wrong behaviour, a failure, lost data, a security hole, or a real maintenance cost";
 
-/// Jev's nitpick question, with the cited rule's text, or the whole Rules
-/// section when the finding cites none; the steering's two sections are the
-/// sides. CITED is [`cited_code`] at the finding's first line.
+/// Jev's nitpick question, with the text of the rule RAW cites (its id,
+/// looked up already), or all the rules when it cites none. CITED is
+/// [`cited_code`] at the finding's first line.
 pub fn nitpick(st: &Steering, raw: &RawFinding, cited: &str) -> Question {
     let mut context = vec![
-        ("finding kind".to_string(), raw.issue_type.clone()),
+        ("issue type".to_string(), raw.issue_type.clone()),
         ("finding".to_string(), raw.statement.clone()),
         (
             "place".to_string(),
@@ -160,16 +157,16 @@ pub fn nitpick(st: &Steering, raw: &RawFinding, cited: &str) -> Question {
         ),
         ("cited code".to_string(), cited.to_string()),
     ];
-    context.push(match cited_rule(st, raw) {
-        Some(r) => ("project rule".into(), r.into()),
-        None => ("project rules".into(), st.rules_section()),
+    context.push(match raw.rule.as_deref().and_then(|id| st.rule(id)) {
+        Some(r) => ("project rule".into(), r.text.trim().to_string()),
+        None => ("project rules".into(), st.rules_text()),
     });
     Question {
         kind: "nitpick".into(),
         instructions: "Is this code review finding a nitpick?".into(),
         shape: Shape::Noul {
-            yes: st.nitpick.clone(),
-            no: st.worth.clone(),
+            yes: NITPICK_IS.into(),
+            no: WORTH_SAYING_IS.into(),
         },
         context,
         unsure_allowed: false,
@@ -187,15 +184,15 @@ pub fn confidence_of(w: &Weighed) -> f64 {
 }
 
 /// What the nitpick question was asked on: the unit's fingerprint, the rule
-/// text it carried (the rule, or the Rules section), and the two sides.
-/// Seven hex digits of their FNV-1a; a withheld finding is asked again only
-/// when this changes.
-pub fn asked_on(unit_fp: Option<&Fingerprint>, rule_text: &str, st: &Steering) -> String {
+/// text it carried (the rule, or all the rules), and the two sides. Seven
+/// hex digits of their FNV-1a; a withheld finding is asked again only when
+/// this changes.
+pub fn asked_on(unit_fp: Option<&Fingerprint>, rule_text: &str) -> String {
     let joined = [
         unit_fp.map_or("", |f| f.as_str()),
         rule_text,
-        &st.nitpick,
-        &st.worth,
+        NITPICK_IS,
+        WORTH_SAYING_IS,
     ]
     .join("\0");
     fnv64_hex(joined.as_bytes())[..7].to_string()

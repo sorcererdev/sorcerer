@@ -11,7 +11,7 @@ use sorcerer_core::ports::env::Env;
 
 use super::format::{cited_range, lines_text};
 use crate::adapters::json_finding_store::JsonFindingStore;
-use crate::adapters::scry_toml::ScryToml;
+use crate::adapters::scry_toml::{STEERING_FILE, ScryToml};
 use crate::domain::finding::status_word;
 use crate::usecases::explain_finding::{CitedText, explain_finding};
 
@@ -32,10 +32,10 @@ pub(super) fn why(project: &Project, env: &dyn Env, id: &str, out: &mut dyn Writ
         "# {}: {file}:{lines}\n\n{}\n",
         f.issue_type, f.statement
     )?;
-    if let Some((name, text)) = &x.rule {
-        writeln!(out, "Rule: {name}")?;
-        if let Some(t) = text {
-            writeln!(out, "{t}")?;
+    if let Some((id, text)) = &x.rule {
+        match text {
+            Some(t) => writeln!(out, "Rule: {id}\n{t}")?,
+            None => writeln!(out, "Rule: {id} (not in {STEERING_FILE} now)")?,
         }
         writeln!(out)?;
     }

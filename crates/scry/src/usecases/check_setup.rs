@@ -12,7 +12,7 @@ use sorcerer_models::adapters::jev::Jev;
 use sorcerer_models::adapters::providers::{default_decider, default_provider_for};
 
 use crate::domain::finding::Status;
-use crate::domain::log_text::count;
+use crate::domain::log_text::{bytes, count};
 use crate::ports::finding_store::FindingStore;
 use crate::ports::settings::Settings;
 
@@ -38,13 +38,20 @@ pub fn check_setup(
     };
     let steering_row = settings
         .steering()
-        .map(|s| {
-            let file = if project.root.join(".sorcerer/scry.md").exists() {
-                "with .sorcerer/scry.md"
-            } else {
-                "no .sorcerer/scry.md (the shipped text only)"
-            };
-            format!("{}, {file}", count(s.rules.len(), "rule"))
+        .map(|s| match settings.steering_source() {
+            None => "no .sorcerer/scry.toml: no rules".to_string(),
+            Some(file) => format!(
+                "{}, {}, {}, {}; {}",
+                count(s.rules.len(), "rule"),
+                count(s.includes.len(), "include"),
+                if s.context.trim().is_empty() {
+                    "no context".to_string()
+                } else {
+                    format!("context {}", bytes(s.context.trim().len()))
+                },
+                bytes(s.size()),
+                file.strip_prefix(&project.root).unwrap_or(&file).display()
+            ),
         })
         .map_err(|e| e.to_string());
     let store_row = {

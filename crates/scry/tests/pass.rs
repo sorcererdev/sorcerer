@@ -26,8 +26,7 @@ use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
 
-const STEERING: &str =
-    "## Rules\n\n### Commands return a Result\nA command never panics; it returns an error.\n";
+const STEERING: &str = "[[rule]]\nid = \"result\"\ntext = \"\"\"\nCommands return a Result\nA command never panics; it returns an error.\"\"\"\n\n[[rule]]\nid = \"clock-port\"\ntext = \"Time comes from the clock port.\"\n";
 
 fn t0() -> DateTime<Utc> {
     "2026-11-18T23:00:00Z".parse().unwrap()
@@ -43,7 +42,7 @@ impl Fixture {
     /// orders.py committed (with steering), then `cancel` changed.
     fn new() -> Fixture {
         let dir = git_project();
-        write(dir.path(), ".sorcerer/scry.md", STEERING);
+        write(dir.path(), ".sorcerer/scry.toml", STEERING);
         write(dir.path(), "orders.py", ORDERS);
         commit(dir.path(), "orders");
         write(
@@ -136,7 +135,7 @@ fn ran(o: ReviewOutcome) -> ReviewReport {
 fn reply(kind: &str, line: u32, statement: &str, rule: &str) -> String {
     serde_json::json!({
         "findings": [{
-            "kind": kind,
+            "issue_type": kind,
             "file": "orders.py",
             "lines": [line, line],
             "statement": statement,
@@ -179,7 +178,7 @@ fn a_clean_change_with_an_empty_reply_stores_nothing_and_marks_reviewed() {
     assert_eq!(ask.units.len(), 1);
     assert_eq!(ask.units[0].name, "cancel");
     assert!(ask.diff.contains("cancel(now=True)"), "{}", ask.diff);
-    assert!(ask.steering.contains("### Commands return a Result"));
+    assert!(ask.steering.contains("- result: Commands return a Result"));
     assert!(ask.reported.is_empty() && ask.open.is_empty());
     let s = f.store();
     assert!(s.findings.is_empty());
@@ -216,7 +215,7 @@ fn a_convention_with_citations_becomes_open() {
             "convention",
             2,
             "cancel() can raise out of a command.",
-            "commands return a result",
+            "result",
         ),
     );
     let r = ran(f.run(&reviewer, &StubDecider::new(), false));
@@ -224,7 +223,7 @@ fn a_convention_with_citations_becomes_open() {
     let g = only(&s);
     assert_eq!(r.new, std::slice::from_ref(&g.id));
     assert_eq!(g.status, Status::Open);
-    assert_eq!(g.rule.as_deref(), Some("Commands return a Result"));
+    assert_eq!(g.rule.as_deref(), Some("result"));
     assert_eq!(g.place.unit.as_deref(), Some("cancel"));
     assert_eq!(g.scores.confidence, Some(1.0));
     assert!(g.scores.asked_on.is_some());
@@ -282,7 +281,7 @@ fn bug_reviewer_at(line: u32) -> StubReviewer {
 }
 
 #[test]
-fn an_unresolved_rule_is_dropped_and_the_finding_kept() {
+fn an_unknown_rule_id_is_dropped_and_the_finding_kept() {
     let f = Fixture::new();
     let reviewer = StubReviewer::new().reply(
         &["orders.py"],
@@ -298,6 +297,50 @@ fn an_unresolved_rule_is_dropped_and_the_finding_kept() {
     let g = only(&s);
     assert_eq!(g.rule, None);
     assert_eq!(g.statement, "cancel() ignores the rule.");
+}
+
+#[test]
+fn a_rule_cited_by_id_is_kept_and_jev_sees_its_text() {
+    let f = Fixture::new();
+    let reviewer = StubReviewer::new().reply(
+        &["orders.py"],
+        &reply("convention", 2, "cancel() panics.", "`Result`"),
+    );
+    let decider = StubDecider::new();
+    ran(f.run(&reviewer, &decider, false));
+    assert_eq!(only(&f.store()).rule.as_deref(), Some("result"));
+    let q = decider
+        .asked()
+        .into_iter()
+        .find(|q| q.kind == "nitpick")
+        .unwrap();
+    assert_eq!(
+        StubDecider::context(&q, "project rule"),
+        "Commands return a Result\nA command never panics; it returns an error."
+    );
+    let prompt = scry::domain::review_prompt::review_prompt(&reviewer.asks()[0]);
+    assert!(
+        prompt.contains("- result: Commands return a Result"),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn a_rule_text_citation_is_not_resolved_by_substring() {
+    let f = Fixture::new();
+    for cited in ["clock", "Commands return a Result"] {
+        let reviewer = StubReviewer::new().reply(
+            &["orders.py"],
+            &reply("convention", 2, "cancel() reads the time.", cited),
+        );
+        ran(f.run(&reviewer, &StubDecider::new(), true));
+    }
+    let s = f.store();
+    assert!(
+        s.findings.iter().all(|g| g.rule.is_none()),
+        "{:#?}",
+        s.findings
+    );
 }
 
 #[test]
@@ -329,7 +372,7 @@ fn a_duplicate_within_one_pass_keeps_the_first_wording() {
     let f = Fixture::new();
     let finding = |line: u32, statement: &str| {
         serde_json::json!({
-            "kind": "bug",
+            "issue_type": "bug",
             "file": "orders.py",
             "lines": [line, line],
             "statement": statement,

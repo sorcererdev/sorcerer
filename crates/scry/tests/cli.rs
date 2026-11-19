@@ -50,7 +50,7 @@ fn changed_project() -> TempDir {
 fn bug_reply(statement: &str) -> String {
     serde_json::json!({
         "findings": [{
-            "kind": "bug",
+            "issue_type": "bug",
             "file": "orders.py",
             "lines": [2, 2],
             "statement": statement,
@@ -653,7 +653,7 @@ mod stored {
 
     pub fn three(dir: &Path) {
         let mut long = finding("aaaa02", "bug", Status::Open, "orders.py", 2);
-        long.rule = Some("Commands return a Result".into());
+        long.rule = Some("result".into());
         long.statement = "x".repeat(100);
         put(
             dir,
@@ -682,10 +682,10 @@ fn list_prints_the_table_open_first() {
     let r = scry(dir.path(), &d, &["list"]);
     let cut = format!("{}…", "x".repeat(79));
     let want = format!(
-        "status    issue type  file       line  rule                      statement\n\
-         open      assumption  orders.py  1     -                         statement of bbbb01\n\
-         open      bug         orders.py  2     Commands return a Result  {cut}\n\
-         withheld  convention  a.py       9     -                         statement of cccc03\n"
+        "status    issue type  file       line  rule    statement\n\
+         open      assumption  orders.py  1     -       statement of bbbb01\n\
+         open      bug         orders.py  2     result  {cut}\n\
+         withheld  convention  a.py       9     -       statement of cccc03\n"
     );
     assert_eq!(
         (r.code, r.out.as_str(), r.err.as_str()),
@@ -723,7 +723,7 @@ fn list_json_has_the_fields() {
     assert_eq!(f["issue_type"], "bug");
     assert_eq!(f["file"], "orders.py");
     assert_eq!(f["line"], 2);
-    assert_eq!(f["rule"], "Commands return a Result");
+    assert_eq!(f["rule"], "result");
     assert_eq!(f["confidence"], 0.9);
     assert_eq!(f["verdict"], "right");
     assert_eq!(f["seen"], 3);
@@ -932,8 +932,8 @@ fn why_shows_rule_evidence_verdict_and_history() {
     let dir = changed_project();
     write(
         dir.path(),
-        ".sorcerer/scry.md",
-        "## Rules\n\n### Commands return a Result (must)\nA command returns Result, never panics.\n",
+        ".sorcerer/scry.toml",
+        "[[rule]]\nid = \"result\"\ntext = \"\"\"\nCommands return a Result (must)\nA command returns Result, never panics.\"\"\"\n",
     );
     stored::three(dir.path());
     let d = plain_doubles(dir.path());
@@ -941,7 +941,8 @@ fn why_shows_rule_evidence_verdict_and_history() {
     assert_eq!(r.code, 0, "{}", r.err);
     let want = format!(
         "# bug: orders.py:2-3\n\n{}\n\n\
-         Rule: Commands return a Result (must)\n\
+         Rule: result\n\
+         Commands return a Result (must)\n\
          A command returns Result, never panics.\n\n\
          Unit: cancel (starts at orders.py:1)\n\n\
          Evidence:\n\
@@ -1226,4 +1227,54 @@ fn a_store_written_before_cited_still_reads() {
     let r = scry(dir.path(), &d, &["why", "aaaa"]);
     assert_eq!(r.code, 0, "{}", r.err);
     assert!(!r.out.contains("Cited by the check"), "{}", r.out);
+}
+
+#[test]
+fn doctor_says_what_steering_was_understood() {
+    let env = MapEnv::default()
+        .on_path("claude")
+        .var_set("JEV_API_KEY", "k");
+    let row = |dir: &Path| {
+        let r = doctor(dir, &env);
+        r.out
+            .lines()
+            .find(|l| l.starts_with("steering"))
+            .unwrap()
+            .to_string()
+    };
+    let dir = git_project();
+    let none = row(dir.path());
+    assert!(none.contains(" ok "), "{none}");
+    assert!(none.contains("no .sorcerer/scry.toml: no rules"), "{none}");
+    write(
+        dir.path(),
+        ".sorcerer/scry.toml",
+        "context = \"Bistro.\"\ninclude = [\"docs/c.md\"]\n\n[[rule]]\nid = \"a\"\ntext = \"t\"\n\n[[rule]]\nid = \"b\"\ntext = \"u\"\n",
+    );
+    write(dir.path(), "docs/c.md", "Conventions.\n");
+    let some = row(dir.path());
+    assert!(some.contains("2 rules, 1 include, context 7 B, "), "{some}");
+    assert!(some.ends_with("; .sorcerer/scry.toml"), "{some}");
+    write(dir.path(), ".sorcerer/scry.md", "## Rules\n");
+    let old = row(dir.path());
+    assert!(old.contains("FAIL"), "{old}");
+    assert!(old.contains("no longer read"), "{old}");
+}
+
+#[test]
+fn the_run_log_head_says_what_steering_was_understood() {
+    let dir = changed_project();
+    write(
+        dir.path(),
+        ".sorcerer/scry.toml",
+        "context = \"Orders.\"\n\n[[rule]]\nid = \"result\"\ntext = \"t\"\n\n[[rule]]\nid = \"clock\"\ntext = \"u\"\n",
+    );
+    let d = bug_doubles(dir.path());
+    scry(dir.path(), &d, &[]);
+    let logs = run_logs(dir.path());
+    let text = std::fs::read_to_string(runs_dir(dir.path()).join(&logs[0])).unwrap();
+    let want = "\n## Steering\n\n- file: .sorcerer/scry.toml\n- context: 7 B\n- rules: result, clock\n- size: ";
+    assert!(text.contains(want), "{text}");
+    assert!(text.contains(" of 32.0 KB\n"), "{text}");
+    assert!(text.find("## Steering") < text.find("## Scope"), "{text}");
 }

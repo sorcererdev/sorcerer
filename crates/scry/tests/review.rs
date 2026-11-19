@@ -5,6 +5,7 @@ use chrono::Utc;
 use scry::adapters::research_reviewer::ResearchReviewer;
 use scry::domain::finding::{Finding, FindingId, Place, Scores, Status};
 use scry::domain::review_prompt::*;
+use scry::domain::steering::{Include, Rule, Steering};
 use scry::ports::reviewer::Reviewer;
 use sorcerer_core::Cancel;
 use sorcerer_core::domain::errand::Errand;
@@ -14,6 +15,28 @@ use sorcerer_models::ports::researcher::Researcher;
 
 fn sp(a: u32, z: u32) -> Span {
     Span { start: a, end: z }
+}
+
+/// Context, one include and two rules, the first of two lines.
+fn fixture_steering() -> Steering {
+    Steering {
+        context: "Bistro is ports and adapters.".into(),
+        includes: vec![Include {
+            path: "docs/conventions.md".into(),
+            text: "A command never panics.\n".into(),
+        }],
+        rules: vec![
+            Rule {
+                id: "ports".into(),
+                text: "Commands go through ports (must)\nA command never touches the database."
+                    .into(),
+            },
+            Rule {
+                id: "clock".into(),
+                text: "Time comes from the clock port.".into(),
+            },
+        ],
+    }
 }
 
 fn ask0() -> ReviewAsk {
@@ -38,7 +61,7 @@ fn ask0() -> ReviewAsk {
             },
         ],
         diff: "--- a/src/a.py\n+++ b/src/a.py\n@@ -3 +3 @@\n-x\n+y\n".into(),
-        steering: "## Rules\n### A\nno\n".into(),
+        steering: fixture_steering().steering_text(),
         reported: vec!["rule r at src/a.py:4".into()],
         open: vec![Finding {
             id: FindingId("abc123".into()),
@@ -78,7 +101,7 @@ fn unit(n: u32) -> ReviewUnit {
 }
 
 #[test]
-fn the_prompt_matches_inspects_golden() {
+fn the_prompt_matches_the_golden() {
     let golden = std::fs::read_to_string("tests/golden/review-prompt.txt").unwrap();
     assert_eq!(review_prompt(&ask0()), golden);
 }
@@ -97,7 +120,8 @@ fn one(r: &str) -> ReviewReply {
     parse_review(r).unwrap()
 }
 
-const F: &str = r#"{"kind": "bug", "file": "src/a.py", "lines": [3, 4], "statement": "Wrong."}"#;
+const F: &str =
+    r#"{"issue_type": "bug", "file": "src/a.py", "lines": [3, 4], "statement": "Wrong."}"#;
 
 fn raw(rule: Option<&str>, evidence: Vec<(PathBuf, Span)>) -> RawFinding {
     RawFinding {
@@ -121,7 +145,7 @@ fn parses_the_last_fenced_json() {
 fn parses_a_bare_object_after_prose() {
     let r = r#"I looked.
 
-{"findings": [{"kind": "bug", "file": "src/a.py", "lines": [3, 4], "statement": "Wrong.", "rule": " A ", "evidence": [{"file": "src/b.py", "lines": [1, 2]}]}], "open": [{"id": "abc123", "holds": "no longer holds", "why": "fixed"}]}"#;
+{"findings": [{"issue_type": "bug", "file": "src/a.py", "lines": [3, 4], "statement": "Wrong.", "rule": " A ", "evidence": [{"file": "src/b.py", "lines": [1, 2]}]}], "open": [{"id": "abc123", "holds": "no longer holds", "why": "fixed"}]}"#;
     let got = one(r);
     assert_eq!(
         got.findings,
@@ -147,24 +171,25 @@ fn a_top_level_array_is_the_findings() {
 #[test]
 fn a_one_element_lines_is_one_line() {
     let got = one(
-        r#"{"findings": [{"kind": "bug", "file": "src/a.py", "lines": [7], "statement": "s"}]}"#,
+        r#"{"findings": [{"issue_type": "bug", "file": "src/a.py", "lines": [7], "statement": "s"}]}"#,
     );
     assert_eq!(got.findings[0].lines, sp(7, 7));
 }
 
 #[test]
 fn line_alone_is_accepted() {
-    let got =
-        one(r#"{"findings": [{"kind": "bug", "file": "src/a.py", "line": 9, "statement": "s"}]}"#);
+    let got = one(
+        r#"{"findings": [{"issue_type": "bug", "file": "src/a.py", "line": 9, "statement": "s"}]}"#,
+    );
     assert_eq!(got.findings[0].lines, sp(9, 9));
 }
 
 #[test]
-fn an_unknown_kind_or_blank_statement_drops_the_finding() {
+fn an_unknown_issue_type_or_blank_statement_drops_the_finding() {
     let got = one(
-        r#"{"findings": [{"kind": "style", "file": "a", "lines": [1, 1], "statement": "s"},
-        {"kind": "bug", "file": "a", "lines": [1, 1], "statement": "  "},
-        {"kind": "bug", "file": "a", "lines": [1, 1]}]}"#,
+        r#"{"findings": [{"issue_type": "style", "file": "a", "lines": [1, 1], "statement": "s"},
+        {"issue_type": "bug", "file": "a", "lines": [1, 1], "statement": "  "},
+        {"issue_type": "bug", "file": "a", "lines": [1, 1]}]}"#,
     );
     assert!(got.findings.is_empty());
 }
@@ -172,7 +197,7 @@ fn an_unknown_kind_or_blank_statement_drops_the_finding() {
 #[test]
 fn a_bad_evidence_entry_is_dropped_and_the_finding_kept() {
     let got = one(
-        r#"{"findings": [{"kind": "bug", "file": "a", "lines": [1, 1], "statement": "s",
+        r#"{"findings": [{"issue_type": "bug", "file": "a", "lines": [1, 1], "statement": "s",
         "evidence": [{"file": "x"}, {"file": "y", "lines": [2, 3]}]}]}"#,
     );
     assert_eq!(got.findings[0].evidence, vec![("y".into(), sp(2, 3))]);

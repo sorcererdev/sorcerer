@@ -13,13 +13,16 @@ use sorcerer_core::domain::project::Project;
 use super::RunArgs;
 use super::format::{finding_json, finding_text};
 use crate::adapters::markdown_run_log::{self, RESULT, StreamingLog};
+use crate::adapters::scry_toml::{STEERING_FILE, ScryToml};
 use crate::adapters::wiring::Wired;
 use crate::domain::config::{ScryConfig, scry_config};
 use crate::domain::finding::{Finding, Status, status_word};
 use crate::domain::findings::Findings;
-use crate::domain::log_text::{block, count, section, usd};
+use crate::domain::log_text::{block, bytes, count, section, usd};
 use crate::domain::scope::{Scope, ScopeRequest};
+use crate::domain::steering::STEERING_CAP;
 use crate::ports::run_log::RunLog;
+use crate::ports::settings::Settings;
 use crate::usecases::read_findings;
 use crate::usecases::review_change::{
     ReviewDeps, ReviewOutcome, ReviewReport, ReviewRequest, review_change,
@@ -106,6 +109,58 @@ fn head(
         }
         Err(e) => s.push_str(&format!("- config: {e}\n")),
     }
+    s.push_str(&steering_section(
+        &ScryToml::for_project(project),
+        &project.root,
+    ));
+    s
+}
+
+/// What steering was understood: the file, the context's size, each
+/// include, the rule ids and the rendered size against the cap.
+fn steering_section(settings: &dyn Settings, root: &Path) -> String {
+    let mut s = section("Steering");
+    let st = match settings.steering() {
+        Ok(st) => st,
+        Err(e) => {
+            s.push_str(&format!("- error: {e}\n"));
+            return s;
+        }
+    };
+    match settings.steering_source() {
+        Some(file) => s.push_str(&format!(
+            "- file: {}\n",
+            file.strip_prefix(root).unwrap_or(&file).display()
+        )),
+        None => s.push_str(&format!("- none: no {STEERING_FILE}\n")),
+    }
+    let context = st.context.trim();
+    s.push_str(&format!(
+        "- context: {}\n",
+        if context.is_empty() {
+            "none".to_string()
+        } else {
+            bytes(context.len())
+        }
+    ));
+    for i in &st.includes {
+        s.push_str(&format!(
+            "- include {}: {}\n",
+            i.path.display(),
+            bytes(i.text.len())
+        ));
+    }
+    let ids: Vec<&str> = st.rules.iter().map(|r| r.id.as_str()).collect();
+    s.push_str(&format!(
+        "- rules: {}\n- size: {} of {}\n",
+        if ids.is_empty() {
+            "none".to_string()
+        } else {
+            ids.join(", ")
+        },
+        bytes(st.size()),
+        bytes(STEERING_CAP)
+    ));
     s
 }
 

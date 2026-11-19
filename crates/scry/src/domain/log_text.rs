@@ -39,6 +39,15 @@ pub fn count(n: usize, what: &str) -> String {
     format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }
 
+/// `312 B`, `4.1 KB`.
+pub fn bytes(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    }
+}
+
 /// `` `path` `unit` line N: confirmed `` (or `not found`, or `unit not found,
 /// confirmed on line N`).
 pub fn citation(c: &StoredCitation) -> String {

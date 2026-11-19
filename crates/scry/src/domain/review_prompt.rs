@@ -114,10 +114,10 @@ pub fn review_prompt(a: &ReviewAsk) -> String {
     s.push_str("\n\nThe change as a diff (tests included):\n");
     s.push_str(a.diff.trim_end());
     s.push_str(
-        "\n\nThe project's steering file, which holds the rules this project keeps:\n<inspect>\n",
+        "\n\nThe project's steering, which holds the rules this project keeps:\n<steering>\n",
     );
     s.push_str(a.steering.trim_end());
-    s.push_str("\n</inspect>\n\nFindings already reported on these files, which you must not raise again:\n");
+    s.push_str("\n</steering>\n\nFindings already reported on these files, which you must not raise again:\n");
     if a.reported.is_empty() {
         s.push_str("none");
     } else {
@@ -145,16 +145,16 @@ pub fn review_prompt(a: &ReviewAsk) -> String {
         s.push_str("Units marked (in progress) are still being written: report only rule breaks and bugs in the code that is there, never that something is missing or not done yet.\n");
     }
     s.push_str("Review the changed units. List problems this change has or introduces: nothing else. An empty list is a normal and often the right answer; do not look for something to say. Do not speculate: a finding needs a named code path (the line, the call and what happens), found with Read, Grep and Glob. Do not report style or taste unless it breaks a rule in the steering file.\n\n");
-    s.push_str("Kinds:\n");
+    s.push_str("Issue types:\n");
     s.push_str("- bug: the code does the wrong thing.\n");
     s.push_str("- assumption: the code relies on something about other code that is not so.\n");
     s.push_str("- convention: the code breaks a rule in the steering file.\n");
     s.push_str("- design: readability, maintainability, testability or architecture with no rule behind it.\n\n");
     s.push_str("End your answer with one JSON object and nothing after it:\n");
-    s.push_str("{\"findings\": [{\"kind\": \"bug|assumption|convention|design\",\n");
+    s.push_str("{\"findings\": [{\"issue_type\": \"bug|assumption|convention|design\",\n");
     s.push_str("   \"file\": \"path/relative/to/repo\", \"lines\": [first line, last line] (in the file after the change),\n");
     s.push_str("   \"statement\": \"two to three sentences: what is wrong and why it matters\",\n");
-    s.push_str("   \"rule\": \"the heading of the rule it breaks, exactly as written after ### in the steering file, or empty\",\n");
+    s.push_str("   \"rule\": \"the id of the rule it breaks, exactly as listed under Rules in the steering, or empty\",\n");
     s.push_str("   \"evidence\": [{\"file\": \"path/relative/to/repo\", \"lines\": [first line, last line]}]}],\n");
     s.push_str(" \"open\": [{\"id\": \"the open finding's id\", \"holds\": \"still holds|no longer holds\", \"why\": \"one line\"}]}\n");
     s
@@ -224,7 +224,7 @@ fn list<'a>(o: &'a serde_json::Map<String, Value>, k: &str) -> &'a [Value] {
 
 fn finding_of(v: &Value) -> Option<RawFinding> {
     let o = v.as_object()?;
-    let kind = text_of(o, "kind")?;
+    let kind = text_of(o, "issue_type")?;
     if !ISSUE_TYPES.iter().any(|k| k.name == kind) {
         return None;
     }

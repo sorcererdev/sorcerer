@@ -17,12 +17,19 @@ The change as a diff (tests included):
 -x
 +y
 
-The project's steering file, which holds the rules this project keeps:
-<inspect>
-## Rules
-### A
-no
-</inspect>
+The project's steering, which holds the rules this project keeps:
+<steering>
+Bistro is ports and adapters.
+
+<include path="docs/conventions.md">
+A command never panics.
+</include>
+
+Rules (cite one by its id):
+- ports: Commands go through ports (must)
+  A command never touches the database.
+- clock: Time comes from the clock port.
+</steering>
 
 Findings already reported on these files, which you must not raise again:
 - rule r at src/a.py:4
@@ -34,16 +41,16 @@ Answer every open finding in "open": "still holds" when the code still has that 
 
 Review the changed units. List problems this change has or introduces: nothing else. An empty list is a normal and often the right answer; do not look for something to say. Do not speculate: a finding needs a named code path (the line, the call and what happens), found with Read, Grep and Glob. Do not report style or taste unless it breaks a rule in the steering file.
 
-Kinds:
+Issue types:
 - bug: the code does the wrong thing.
 - assumption: the code relies on something about other code that is not so.
 - convention: the code breaks a rule in the steering file.
 - design: readability, maintainability, testability or architecture with no rule behind it.
 
 End your answer with one JSON object and nothing after it:
-{"findings": [{"kind": "bug|assumption|convention|design",
+{"findings": [{"issue_type": "bug|assumption|convention|design",
    "file": "path/relative/to/repo", "lines": [first line, last line] (in the file after the change),
    "statement": "two to three sentences: what is wrong and why it matters",
-   "rule": "the heading of the rule it breaks, exactly as written after ### in the steering file, or empty",
+   "rule": "the id of the rule it breaks, exactly as listed under Rules in the steering, or empty",
    "evidence": [{"file": "path/relative/to/repo", "lines": [first line, last line]}]}],
  "open": [{"id": "the open finding's id", "holds": "still holds|no longer holds", "why": "one line"}]}

@@ -129,7 +129,7 @@ impl Run<'_, '_> {
             }
             let ask = ReviewAsk {
                 diff: diff_of(scope, &files),
-                steering: self.st.text.clone(),
+                steering: self.st.steering_text(),
                 reported: Vec::new(),
                 open: self.open_on(&pack),
                 units: pack,

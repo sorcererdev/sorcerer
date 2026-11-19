@@ -35,7 +35,8 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 - `finding.rs`: `Finding`, `FindingId`, `Status`, `Place`, `Evidence`, `Scores`,
   `StoredVerdict`, `StoredCitation`, `status_word`.
 - `findings.rs`: `Findings` (`new_id`, `get`, `dismiss`, `shown_in`), `merge_into`, `renamed`.
-- `steering.rs`: `Steering`, `steering_of`, `SHIPPED`.
+- `steering.rs`: `Steering`, `Rule`, `Include`, `RawSteering`, `parse_steering`,
+  `STEERING_CAP`.
 - `scope.rs`: `ScopeRequest`, `Scope`, `ScopedUnit`, `ScopedFile`, `header_of`.
 - `review_prompt.rs`: `ReviewUnit`, `ReviewAsk`, `RawFinding`, `ReviewReply`, `review_prompt`,
   `parse_review`, `pack_units`, `REVIEW_TIMEOUT`.
@@ -52,7 +53,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 (`RunLog`, `Quiet`; a closure is one).
 
 **Adapters** (`src/adapters/`): `json_finding_store.rs` (`JsonFindingStore`, the store file at
-version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, the settings from `.sorcerer/`),
+version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the settings from `.sorcerer/`),
 `research_reviewer.rs` (`ResearchReviewer`), `markdown_run_log.rs` (`StreamingLog`,
 `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`, `result_of`, `KEEP`, `RESULT`),
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`Wiring`, `Wired`, `jev_for`,
@@ -66,7 +67,8 @@ the real environment.
 
 Tests: `tests/support/mod.rs` holds git fixtures, `project_with_vendored_grammars`, the
 doubles `StubReviewer`, `StubDecider`, `FixedClock`, and `Ports` (the store, ledger and
-settings adapters over a fixture project). `library/scry.md` is the shipped steering layer.
+settings adapters over a fixture project). `.sorcerer/scry.toml` at the repository root is
+sorcerer's own steering.
 
 ## Config
 
@@ -87,17 +89,34 @@ A new issue type is a new row. `[scry] issue_types` chooses which rows are shown
 
 ## Steering
 
-`ScryToml::steering` (`adapters/scry_toml.rs`, the `Settings` port) is
-`steering_of(&[SHIPPED, project file])`, where `SHIPPED` is `library/scry.md` via
-`include_str!` (`domain/steering.rs`). `steering_of` joins the layers with a blank line and
-splits the result into sections (`heading`, `sections`). Rules are headings of level three or
-more under `## Rules`, in file order. `nitpick` and `worth` come from the last non-empty
-`## A nitpick is` and `## Worth saying is`, else the shipped sides.
+`domain/steering.rs` holds `Steering { context, includes, rules }` (`Include { path, text }`,
+`Rule { id, text }`). `parse_steering(text, file)` reads `.sorcerer/scry.toml` into a
+`RawSteering` (the includes still paths) as a `toml::Table` checked by hand, so each refusal
+names the key: only `context`, `include` and `[[rule]]` at the top (`unknown key `x``), only
+`id` and `text` in a rule (`unknown key `level` in [[rule]] 2`); an id matches
+`^[a-z][a-z0-9-]*$`, at most 40 characters, no `--`, no trailing `-`; ids are unique
+(`[[rule]] 5: id `ports` is also [[rule]] 1's`); a text and an include are not blank. Every
+failure is `Error::Config { file, why }`.
 
-`resolve_rule` matches a rule a finding cites: ignoring case, the cited text inside a heading
-or a heading inside the cited text, first in file order. An unresolved rule is the caller's to
-drop; the finding stays. `rule_text` is the body of a named rule, and `rules_section` is the
-whole `## Rules` section, which Jev reads when a finding cites no rule.
+`ScryToml::steering` (`adapters/scry_toml.rs`, the `Settings` port) refuses an old
+`.sorcerer/scry.md` whenever it exists, gives `Steering::default()` with no `scry.toml`, and
+otherwise reads each include in order: relative, no `..`, allowed by `Fences::allows` (which
+resolves symlinks, so a link out of the root is refused, and fences `.env*` and
+`.sorcerer/`), and UTF-8; each failure names `include[N]` and the path. Then `over_cap`
+(`STEERING_CAP`, 32 KiB of rendered text) is an error naming the size, the cap and the largest
+part; nothing is truncated. `steering_source` is the file when there is one (doctor and the
+run log say it).
+
+`steering_text` is the prompt's block: the context, each include as
+`<include path="…">…</include>`, and `Rules (cite one by its id):` with `rules_text`, the parts
+a blank line apart, `(none)` with nothing. `rules_text` is `- id: first line`, further lines
+indented two spaces; Jev's nitpick question carries it when a finding cites no rule, so the
+prompt and Jev see the rules the same way.
+
+`lookup(cited)` is how a reply's `rule` becomes an id: trimmed, one pair of quotes, backticks
+or brackets taken off, lowercased, then an exact id. There is no substring or text matching:
+a reply that quotes a rule's words instead of its id loses the rule (the finding stays), and
+the run log says so; misses are measured in use.
 
 ## The finding and its store
 
@@ -147,7 +166,7 @@ byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first lin
 `parse_review` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
 to the last `}`, then the first `[` to the last `]` (the array first when it opens first, so a
 bare array of findings is not mistaken for its first object); the first that decodes wins. A
-finding needs one of the four issue types (the reply's `kind` field), a file, a statement and `lines` (`[a, z]`, one element, or
+finding needs one of the four issue types (the reply's `issue_type`), a file, a statement and `lines` (`[a, z]`, one element, or
 `line`); a bad finding is dropped, a bad evidence entry is dropped and the finding kept. `open`
 answers need `holds` to be exactly `still holds` or `no longer holds`; a numeric id is accepted.
 Only a reply with no JSON at all is an `Err`.
@@ -193,8 +212,8 @@ narrowest; that is `Open`. With none it is `Elsewhere`, placed in the narrowest 
 unit's name, first line and fingerprint.
 
 `candidates(store, raw)` are the stored findings worth the same-problem question, in store
-order: not `resolved` or `gone`, sharing the file, the rule (the pass resolves the cited rule
-with `Steering::resolve_rule` first), or a cited range in the same file. The pass asks them in
+order: not `resolved` or `gone`, sharing the file, the rule (the pass looks the cited id up with
+`Steering::lookup` first), or a cited range in the same file. The pass asks them in
 order and the first with P(yes) at or past `SAME_THRESHOLD` (0.5) matches. `finding_text` shows each
 side as `bug at a.py:41; rule: none; cancel() returns None`. The question, `same_problem`:
 
@@ -211,13 +230,14 @@ other (or none); dismissed-everywhere drops; resolved and gone are new.
 `nitpick(steering, raw, cited)` is the second question:
 
 - kind `nitpick`, instructions "Is this code review finding a nitpick?"
-- yes is `Steering::nitpick`, no is `Steering::worth` (the shipped sides, or the project's
-  `## A nitpick is` / `## Worth saying is`); unsure not allowed.
-- context `finding kind`, `finding`, `place` (`file:first`), `cited code`, then `project rule`
-  (the cited rule's text) or, citing none, `project rules` (`Steering::rules_section`).
+- yes is `NITPICK_IS`, no is `WORTH_SAYING_IS` (constants in `domain/judging.rs`); unsure
+  not allowed.
+- context `issue type`, `finding`, `place` (`file:first`), `cited code`, then `project rule`
+  (the cited rule's text, by its id) or, citing none, `project rules`
+  (`Steering::rules_text`; `(none)` without rules).
 
 `confidence_of` turns the answer into confidence = 1 − P(nitpick): `Yes(Unknown)` is 0, `No(Unknown)` and
-`Unsure` are 1. `asked_on(unit_fp, rule_text, steering)` is seven hex digits of FNV-1a over the
+`Unsure` are 1. `asked_on(unit_fp, rule_text)` is seven hex digits of FNV-1a over the
 unit's fingerprint, the rule text the question carried and the two sides; a withheld finding is
 asked again only when it changes. `cited_code(text, line)` is eight lines either side, each
 `{:>4} {text}`.
@@ -262,7 +282,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
    `gone`.
 3. **Review** (`ask.rs`). `pack_units` packs them; each pack is a `ReviewAsk` with its files' diffs
-   (`diff_of`), the steering text, `reported` empty, and the open and waiting findings on its
+   (`diff_of`), `Steering::steering_text`, `reported` empty, and the open and waiting findings on its
    units (`Run::open_on`). Before each call `Budget::allows(find_estimate)`; once one pack is
    capped every later one is, and its units' names go to `capped[file]` in the store. The
    call's `cap_usd` is the per-call cap, set here in the pass and nowhere else:
@@ -273,8 +293,8 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    unreviewed; the reviewer has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
    other failure.
-4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::resolve_rule` cannot
-   resolve is dropped (the finding stays); `place` with the finding's own file's units; an
+4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::lookup` does not find
+   is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
    `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins;
    `match_stored` says merge (`Run::merge`), drop, or new. A new finding gets the `nitpick`
@@ -414,7 +434,8 @@ cell). `report_cost` groups the ledger's `scry` errands by local day in the cloc
 (`BTreeMap` by date): `review` and `check` are counted and summed, `decide` only added to the
 total; the waiting units are the store's `capped` sets (a store that does not read is a
 `scry:` line on stderr and no waiting line, `waiting_units: null`). `dismiss_finding` is `Findings::dismiss`
-inside `FindingStore::update`; `explain_finding` re-reads the steering for the rule's text and each cited file through the view (the
+inside `FindingStore::update`; `explain_finding` re-reads the steering for the rule's text by its id (`why` says when the id
+is no longer in `scry.toml`) and each cited file through the view (the
 command line prints `cited_range`), reading a cited path only when it is relative and `Fences::allows` it (inside
 the root after `..` and symlinks, not fenced): evidence on a finding that was never verified
 is whatever path the model wrote (the cited lines, two either side; not `judge::cited_code`, the claim prompt's
@@ -425,7 +446,9 @@ window of 8 around the first line).
 (`adapters/markdown_run_log.rs`: the text in a `RefCell`, and stderr, written to as the text
 grows when `-v`; the run's other stderr lines go through `StreamingLog::say`), opens the wiring, puts `head` (time from the wiring's clock, the root, the
 version, the command line `main_with` joined from its args, the caps, the effective `[scry]`
-serialized a `key = value` line each), then `run`, which hands the review its `ReviewDeps` with
+serialized a `key = value` line each) and the **Steering** section (`steering_section`: the
+file, the context's size, each include's size, the rule ids, the size against the cap, or
+the error), then `run`, which hands the review its `ReviewDeps` with
 `log` set to the `StreamingLog` (the use case puts the scope), and at the end
 `summary_text`: each of `ReviewReport::touched` with its status, verdict and why it is or is not
 printed; the ledger's new `scry` rows (read before and after the pass) by verb; failures and
@@ -445,7 +468,8 @@ pass; `Skipped` or an error is 2; anything shown is
 `JsonFindingStore::at` and `JsonlLedger::at`, so nothing creates `.sorcerer/state`: `provider` (`default_provider_for`),
 `jev` (`Jev::from_env` without a ledger), `languages` (`[languages] names`, else the
 languages whose `files` cover a file `glob("**")` lists, each `Languages::load`ed through the
-cache), `steering`, `store` and `ledger`. `doctor` prints them `name  ok|FAIL  detail` and
+cache), `steering` (`2 rules, 1 include, context 120 B, 1.4 KB; .sorcerer/scry.toml`,
+`no .sorcerer/scry.toml: no rules`, or the error), `store` and `ledger`. `doctor` prints them `name  ok|FAIL  detail` and
 exits 2 when any failed.
 
 ## Test support

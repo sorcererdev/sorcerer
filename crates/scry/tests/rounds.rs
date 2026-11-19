@@ -31,8 +31,7 @@ use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
 
-const STEERING: &str =
-    "## Rules\n\n### Commands return a Result\nA command never panics; it returns an error.\n";
+const STEERING: &str = "[[rule]]\nid = \"result\"\ntext = \"\"\"\nCommands return a Result\nA command never panics; it returns an error.\"\"\"\n";
 
 fn t0() -> DateTime<Utc> {
     "2026-11-18T23:00:00Z".parse().unwrap()
@@ -58,7 +57,7 @@ impl Fixture {
     /// orders.py committed (with steering), then `cancel` changed.
     fn new() -> Fixture {
         let dir = git_project();
-        write(dir.path(), ".sorcerer/scry.md", STEERING);
+        write(dir.path(), ".sorcerer/scry.toml", STEERING);
         write(dir.path(), "orders.py", ORDERS);
         commit(dir.path(), "orders");
         write(

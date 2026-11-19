@@ -66,7 +66,7 @@ impl Run<'_, '_> {
         code: &str,
     ) -> std::result::Result<(f64, String, Weighed), Halt> {
         let q = nitpick(self.st, raw, code);
-        let on = asked_on(unit_fp, rule_context(&q), self.st);
+        let on = asked_on(unit_fp, rule_context(&q));
         let w = self.ask(std::slice::from_ref(&q))?;
         let w = w.into_iter().next().expect("one answer for one question");
         Ok((confidence_of(&w), on, w))
@@ -77,7 +77,7 @@ impl Run<'_, '_> {
         raw.rule = raw
             .rule
             .as_deref()
-            .and_then(|r| self.st.resolve_rule(r))
+            .and_then(|r| self.st.lookup(r))
             .map(String::from);
         let evidence: Vec<String> = raw
             .evidence
@@ -86,9 +86,9 @@ impl Run<'_, '_> {
             .collect();
         let rule = match (&cited_rule, &raw.rule) {
             (None, _) => "none cited".to_string(),
-            (Some(c), Some(r)) => format!("cited \"{c}\", resolved to \"{r}\""),
+            (Some(c), Some(r)) => format!("cited \"{c}\" → {r}"),
             (Some(c), None) => {
-                format!("cited \"{c}\", no rule matches: the rule is dropped, the finding stays")
+                format!("cited \"{c}\": no rule has that id; dropped, the finding stays")
             }
         };
         self.t(&format!(
@@ -283,7 +283,7 @@ impl Run<'_, '_> {
                 let r = raw_of(&f);
                 let code = cited_code(&self.text(&f.place.file), f.place.lines.start);
                 let q = nitpick(self.st, &r, &code);
-                let on = asked_on(f.place.fingerprint.as_ref(), rule_context(&q), self.st);
+                let on = asked_on(f.place.fingerprint.as_ref(), rule_context(&q));
                 if f.scores.asked_on.as_deref() != Some(on.as_str()) {
                     let w = self.ask(std::slice::from_ref(&q))?;
                     let confidence = confidence_of(&w[0]);

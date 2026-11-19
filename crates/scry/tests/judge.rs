@@ -6,12 +6,12 @@ use chrono::Utc;
 use scry::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
 use scry::domain::findings::Findings;
 use scry::domain::judging::{
-    Match, SAME_THRESHOLD, asked_on, candidates, cited_code, confidence_of, finding_text,
-    match_stored, nitpick, place, same_problem,
+    Match, NITPICK_IS, SAME_THRESHOLD, WORTH_SAYING_IS, asked_on, candidates, cited_code,
+    confidence_of, finding_text, match_stored, nitpick, place, same_problem,
 };
 use scry::domain::review_prompt::RawFinding;
 use scry::domain::scope::ScopedUnit;
-use scry::domain::steering::steering_of;
+use scry::domain::steering::{Rule, Steering};
 use scry::usecases::review_change::verify::citations;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::{Fingerprint, fingerprint};
@@ -203,32 +203,42 @@ fn match_table() {
     assert_eq!(m(Status::Gone), Match::New);
 }
 
-const RULES: &str = "## Rules\n\n### Commands return a Result (must)\nA command never panics.\n\n### Name things plainly\nNo abbreviations.\n";
+fn rules() -> Steering {
+    Steering {
+        rules: vec![
+            Rule {
+                id: "result".into(),
+                text: "Commands return a Result (must)\nA command never panics.\n".into(),
+            },
+            Rule {
+                id: "plain-names".into(),
+                text: "Name things plainly\nNo abbreviations.".into(),
+            },
+        ],
+        ..Steering::default()
+    }
+}
 
 #[test]
-fn nitpick_carries_the_cited_rule_or_all_rules() {
-    let st = steering_of(&[RULES]);
+fn nitpick_carries_the_cited_rules_text_or_all_rules() {
+    let st = rules();
     let mut r = raw(span(12, 14));
-    r.rule = Some("Commands return a Result (must)".into());
+    r.rule = Some("result".into());
     let q = nitpick(&st, &r, "code");
     assert_eq!(q.kind, "nitpick");
     assert_eq!(q.instructions, "Is this code review finding a nitpick?");
     assert_eq!(
         q.context,
         [
-            ("finding kind".to_string(), "bug".to_string()),
+            ("issue type".to_string(), "bug".to_string()),
             ("finding".into(), "cancel() returns None".into()),
             ("place".into(), "a.py:12".into()),
             ("cited code".into(), "code".into()),
-            ("project rule".into(), "A command never panics.".into()),
+            (
+                "project rule".into(),
+                "Commands return a Result (must)\nA command never panics.".into()
+            ),
         ]
-    );
-    assert_eq!(
-        q.shape,
-        Shape::Noul {
-            yes: st.nitpick.clone(),
-            no: st.worth.clone()
-        }
     );
     assert!(!q.unsure_allowed);
 
@@ -236,8 +246,31 @@ fn nitpick_carries_the_cited_rule_or_all_rules() {
     let q = nitpick(&st, &r, "code");
     let last = q.context.last().unwrap();
     assert_eq!(last.0, "project rules");
-    assert_eq!(last.1, st.rules_section());
-    assert!(last.1.contains("Name things plainly"));
+    assert_eq!(last.1, st.rules_text());
+    assert!(last.1.contains("- plain-names: Name things plainly"));
+
+    let q = nitpick(&Steering::default(), &r, "code");
+    assert_eq!(q.context.last().unwrap().1, "(none)");
+}
+
+#[test]
+fn the_sides_are_the_constants() {
+    let q = nitpick(&rules(), &raw(span(12, 14)), "code");
+    assert_eq!(
+        q.shape,
+        Shape::Noul {
+            yes: NITPICK_IS.into(),
+            no: WORTH_SAYING_IS.into()
+        }
+    );
+    assert_eq!(
+        NITPICK_IS,
+        "it is about taste or polish: naming, wording, formatting, style, a small optional refactor, or speculative future-proofing; nothing would go wrong if it were ignored"
+    );
+    assert_eq!(
+        WORTH_SAYING_IS,
+        "ignoring it leaves wrong behaviour, a failure, lost data, a security hole, or a real maintenance cost"
+    );
 }
 
 #[test]
@@ -256,18 +289,15 @@ fn confidence_of_values() {
 }
 
 #[test]
-fn asked_on_changes_with_the_unit_the_rule_and_the_sides() {
-    let st = steering_of(&[RULES]);
+fn asked_on_changes_with_the_unit_and_the_rule_text() {
     let fp = Fingerprint::parse("abcdef0").unwrap();
     let other = Fingerprint::parse("1234567").unwrap();
-    let h = asked_on(Some(&fp), "rule", &st);
+    let h = asked_on(Some(&fp), "rule");
     assert_eq!(h.len(), 7);
-    assert_eq!(h, asked_on(Some(&fp), "rule", &st));
-    assert_ne!(h, asked_on(Some(&other), "rule", &st));
-    assert_ne!(h, asked_on(None, "rule", &st));
-    assert_ne!(h, asked_on(Some(&fp), "rule 2", &st));
-    let st2 = steering_of(&[RULES, "## A nitpick is\nanything at all"]);
-    assert_ne!(h, asked_on(Some(&fp), "rule", &st2));
+    assert_eq!(h, asked_on(Some(&fp), "rule"));
+    assert_ne!(h, asked_on(Some(&other), "rule"));
+    assert_ne!(h, asked_on(None, "rule"));
+    assert_ne!(h, asked_on(Some(&fp), "rule 2"));
 }
 
 #[test]

@@ -96,6 +96,7 @@ and exit code do not change. The log holds, in run order:
 
 - **Run**: the time (local and UTC), the project, scry's version, the command line, the caps
   and the effective `[scry]` settings.
+- **Steering**: what was understood from `.sorcerer/scry.toml` (see Steering).
 - **Scope**: each file considered, in (with its added or changed units) or skipped and why (no
   language, excluded, fenced, not text, deleted).
 - **Pass** and **Units**: the caps, what scry spent earlier today, the cost estimates, and each
@@ -104,7 +105,7 @@ and exit code do not change. The log holds, in run order:
   the call's cost and time, and what the reply parsed to (or why it did not), or that a cap
   held the pack back.
 - **Findings**: each finding as the model gave it (issue type, place, rule, statement, evidence),
-  the rule it resolved to, the unit it was placed in, each same-problem question with Jev's
+  the rule id it cited and whether the steering has it, the unit it was placed in, each same-problem question with Jev's
   P(yes) and what came of it (new, merged, dropped), the nitpick question's P(yes), the
   confidence against `confidence_threshold`, and the id it got.
 - **Remember**: what was resolved (the reviewer said it no longer holds, or it was not found
@@ -171,7 +172,8 @@ scry || exit $?
   the provider is `claude`.
 - `jev`: Jev's key (`JEV_API_KEY`, or `[decide] key_env`). Scry does not run without Jev.
 - `languages`: each language your files use (or `[languages] names`) loads its grammar.
-- `steering`: the rules in `.sorcerer/scry.md`.
+- `steering`: what `.sorcerer/scry.toml` holds (rules, includes, the context's size), or
+  why it does not read.
 - `store`: the finding store reads (one from a newer scry does not, and is left alone).
 - `ledger`: the cost ledger reads.
 
@@ -200,7 +202,7 @@ language covers, files matching `exclude`, fenced files (`.env*`, `.sorcerer/`, 
 |---|---|---|
 | `bug` | the code does the wrong thing | yes |
 | `assumption` | the code relies on something about other code that is not so | yes |
-| `convention` | the code breaks a rule in your steering file | yes |
+| `convention` | the code breaks a rule in your steering | yes |
 | `design` | readability, maintainability, testability or architecture with no rule behind it | no |
 
 ## Configuration
@@ -244,25 +246,56 @@ refutes frees its place for the next one.
 
 ## Steering
 
-Steering is the text the reviewer reads about your project. It has three layers, joined in
-order: the text shipped with sorcerer, then `.sorcerer/scry.md` in your project, then (once
-spellbook exists) the rules spellbook enforces.
+Steering is what the reviewer is told about your project. It lives in `.sorcerer/scry.toml`
+(commit it), which has exactly three keys:
 
-In `scry.md`, each `###` heading under `## Rules` is a rule a finding can cite. A finding that
-cites a rule is a `convention`, and the rule's text goes to Jev with it. `## A nitpick is` and
-`## Worth saying is` replace the two sides of Jev's nitpick question; the last one written
-wins, and without them the shipped sides apply.
+- `context`: prose about the project the reviewer should know: what it is, how it is laid out.
+- `include`: files read in as more context, in the order listed: paths relative to the
+  project root, such as `docs/conventions.md`. Not globs.
+- `[[rule]]`: a rule the project keeps, each an `id` and its `text`.
 
-```markdown
-## Rules
+```toml
+context = """
+Bistro is a booking service in ports and adapters: commands and queries go
+through ports, and adapters hold no logic."""
 
-### Commands return a Result (must)
-A command never panics; every failure comes back as an error the caller can show.
+include = ["docs/conventions.md"]
 
-### Tests name the behaviour (should)
-A test name says what happens, not which function it calls.
+[[rule]]
+id = "result"
+text = """
+Commands return a Result (must)
+A command never panics; every failure comes back as an error the caller can show."""
 
-## A nitpick is
-
-it is about naming, wording or formatting that no reviewer would block a merge over
+[[rule]]
+id = "test-names"
+text = "A test name says what happens, not which function it calls."
 ```
+
+An id is lowercase letters, digits and hyphens, starts with a letter, has no double or
+trailing hyphen, and is at most 40 characters: `result`, `web-commands`, `clock`. Ids are
+unique in the file.
+
+The reviewer is shown the context, each include, then the rules as `- id: text`, and asked to
+cite a rule by its id. A finding that cites a rule is usually a `convention`, and the rule's
+text goes to Jev with it when Jev judges whether the finding is a nitpick (a finding that
+cites no rule goes with all the rules). A finding that cites an id the file does not have (or
+the rule's words instead of its id) keeps its statement and loses the rule; the run log says
+so. The two sides of Jev's nitpick question are fixed: a nitpick is about taste or polish;
+worth saying is what leaves wrong behaviour, a failure, lost data, a security hole or a real
+maintenance cost.
+
+Steering is configuration, so a mistake is an error, not a warning: scry exits 2 naming
+`.sorcerer/scry.toml` and the key. An unknown key, a malformed or repeated id, an empty
+`text` or include, and an include that is missing, not text, absolute, outside the project or
+fenced (such as `.env` or anything under `.sorcerer/`) are each refused. The rendered steering
+may be at most 32 KB (about 8,000 tokens, sent with every review call); over that is an
+error naming its size and its largest part, and nothing is cut. With no `scry.toml`, the
+reviewer gets no steering, which is fine.
+
+A `.sorcerer/scry.md` (an older scry's steering) is an error whenever it is there: move its
+rules into `scry.toml` and delete it.
+
+`scry doctor`'s `steering` row says what was understood (`2 rules, 1 include, context 120 B,
+1.4 KB; .sorcerer/scry.toml`), and each run log has a **Steering** section after the run's
+head: the file, the context's size, each include, the rule ids and the size against the cap.

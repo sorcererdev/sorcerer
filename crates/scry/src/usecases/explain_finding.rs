@@ -22,7 +22,7 @@ pub enum CitedText {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explanation {
     pub finding: Finding,
-    /// The rule's name as the steering has it, and its text when it has it.
+    /// The rule's id, and its text when the steering still has it.
     pub rule: Option<(String, Option<String>)>,
     pub evidence: Vec<(Evidence, CitedText)>,
 }
@@ -52,14 +52,8 @@ pub fn explain_finding(
         None => None,
         Some(r) => {
             let st = settings.steering()?;
-            let name = st
-                .rule_text(r)
-                .map(|_| r.as_str())
-                .or_else(|| st.resolve_rule(r))
-                .unwrap_or(r.as_str())
-                .to_string();
-            let text = st.rule_text(&name).map(|t| t.trim().to_string());
-            Some((name, text))
+            let text = st.rule(r).map(|rule| rule.text.trim().to_string());
+            Some((r.clone(), text))
         }
     };
     let mut evidence = Vec::new();
