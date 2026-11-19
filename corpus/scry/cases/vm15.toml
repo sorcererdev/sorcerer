@@ -1,0 +1,12 @@
+id = "vm15"
+set = "V-must"
+scenario = "cancel a booking"
+patch = "cases/vm15.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py:51,54", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py:32,34"]
+expect = "The repository's cancel reads the booking and then deletes it in one adapter method; a command should make the read and the write as two calls."
+made = "natural: sonnet without the conventions file (cache tag vs3, prompt in scripts/gen.py)"
+twin = "t15"
+changed_files = ["src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/booking_repository__test.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py"]

@@ -1,0 +1,11 @@
+id = "vt06"
+set = "V-taste"
+scenario = "change party size"
+patch = "cases/vt06.patch"
+rule = "union-lines"
+rule_class = "taste"
+rule_broken = true
+planted_lines = ["src/bistro/booking/commands/change_party_size.py:26"]
+expect = "ChangePartySizeFailure lists its members on one line instead of one per line."
+made = "hand edit of base feature f-party (model with the file; unused main.py wiring dropped): union put on one line"
+changed_files = ["src/bistro/booking/commands/change_party_size.py", "src/bistro/booking/commands/change_party_size__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/web/bookings/failures.py"]

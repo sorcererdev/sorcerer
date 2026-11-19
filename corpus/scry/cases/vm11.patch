@@ -1,0 +1,292 @@
+diff --git a/src/bistro/booking/commands/create_weekly_booking.py b/src/bistro/booking/commands/create_weekly_booking.py
+new file mode 100644
+index 0000000..5cc467d
+--- /dev/null
++++ b/src/bistro/booking/commands/create_weekly_booking.py
+@@ -0,0 +1,61 @@
++"""Book a table at the same time for consecutive weeks, all or nothing."""
++
++from dataclasses import dataclass, replace
++from datetime import timedelta
++
++from bistro.booking.commands.create_booking import PartyTooLarge, SlotTaken, TableNotFound
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.id_generator.id_generator import IdGenerator
++from bistro.shared.result import Ok
++
++
++@dataclass(frozen=True)
++class CreateWeeklyBookingInput:
++    table_id: str
++    slot: Slot
++    party: int
++    guest: str
++    weeks: int
++
++
++@dataclass(frozen=True)
++class InvalidWeekCount:
++    reason: str
++
++
++type CreateWeeklyBookingFailure = (
++    SlotTaken
++    | PartyTooLarge
++    | TableNotFound
++    | InvalidWeekCount
++)
++
++type CreateWeeklyBookingOutput = Ok[list[Booking]] | CreateWeeklyBookingFailure
++
++
++class CreateWeeklyBooking:
++    def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
++        self.bookings = bookings
++        self.ids = ids
++
++    def handle(self, input: CreateWeeklyBookingInput) -> CreateWeeklyBookingOutput:
++        if input.weeks < 1:
++            return InvalidWeekCount(f"cannot book {input.weeks} weeks")
++        table = self.bookings.table(input.table_id)
++        if table is None:
++            return TableNotFound(f"there is no table {input.table_id}")
++        if input.party > table.seats:
++            return PartyTooLarge(f"table {table.id} seats {table.seats}, not {input.party}")
++        slots = [replace(input.slot, day=input.slot.day + timedelta(weeks=week)) for week in range(input.weeks)]
++        for slot in slots:
++            if self.bookings.booking_at(table.id, slot) is not None:
++                return SlotTaken(f"table {table.id} is booked on {slot.day} at {slot.start:%H:%M}")
++        made = [
++            Booking(id=self.ids.next_id(), table_id=table.id, slot=slot, party=input.party, guest=input.guest)
++            for slot in slots
++        ]
++        for booking in made:
++            self.bookings.save(booking)
++        return Ok(made)
+diff --git a/src/bistro/booking/commands/create_weekly_booking__test.py b/src/bistro/booking/commands/create_weekly_booking__test.py
+new file mode 100644
+index 0000000..3fd2ba2
+--- /dev/null
++++ b/src/bistro/booking/commands/create_weekly_booking__test.py
+@@ -0,0 +1,64 @@
++from datetime import date, time
++
++from bistro.booking.commands.create_weekly_booking import (
++    CreateWeeklyBooking,
++    CreateWeeklyBookingInput,
++    InvalidWeekCount,
++    PartyTooLarge,
++    SlotTaken,
++    TableNotFound,
++)
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
++from bistro.shared.result import Ok
++
++SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++NEXT_WEEK = Slot(day=date(2026, 10, 16), start=time(19, 0))
++IN_TWO_WEEKS = Slot(day=date(2026, 10, 23), start=time(19, 0))
++
++
++def command() -> tuple[CreateWeeklyBooking, InMemoryBookingRepository]:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=4)])
++    create = CreateWeeklyBooking(
++        bookings=bookings,
++        ids=InMemoryIdGenerator(),
++    )
++    return create, bookings
++
++
++def weekly(slot: Slot = SEVEN, party: int = 2, weeks: int = 3, table_id: str = "t1") -> CreateWeeklyBookingInput:
++    return CreateWeeklyBookingInput(table_id=table_id, slot=slot, party=party, guest="Ada", weeks=weeks)
++
++
++def test_books_the_same_time_for_consecutive_weeks() -> None:
++    create, bookings = command()
++    result = create.handle(weekly())
++    assert isinstance(result, Ok)
++    assert [b.slot for b in result.value] == [SEVEN, NEXT_WEEK, IN_TWO_WEEKS]
++    assert all(bookings.booking_at("t1", slot) is not None for slot in [SEVEN, NEXT_WEEK, IN_TWO_WEEKS])
++
++
++def test_one_taken_week_books_nothing() -> None:
++    create, bookings = command()
++    create.handle(weekly(slot=IN_TWO_WEEKS, weeks=1))
++    result = create.handle(weekly())
++    assert isinstance(result, SlotTaken)
++    assert bookings.booking_at("t1", SEVEN) is None
++    assert bookings.booking_at("t1", NEXT_WEEK) is None
++
++
++def test_a_party_larger_than_the_table_is_refused() -> None:
++    create, _ = command()
++    assert isinstance(create.handle(weekly(party=6)), PartyTooLarge)
++
++
++def test_an_unknown_table_is_not_found() -> None:
++    create, _ = command()
++    assert isinstance(create.handle(weekly(table_id="t9")), TableNotFound)
++
++
++def test_fewer_than_one_week_is_refused() -> None:
++    create, _ = command()
++    assert isinstance(create.handle(weekly(weeks=0)), InvalidWeekCount)
+diff --git a/src/bistro/main.py b/src/bistro/main.py
+index 527a135..20da835 100644
+--- a/src/bistro/main.py
++++ b/src/bistro/main.py
+@@ -7,6 +7,7 @@ Nothing runs at import; uvicorn calls the factory:
+ from fastapi import APIRouter, FastAPI
+ 
+ from bistro.booking.commands.create_booking import CreateBooking
++from bistro.booking.commands.create_weekly_booking import CreateWeeklyBooking
+ from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.sqlite_booking_repository import SqliteBookingRepository
+ from bistro.booking.ports.id_generator.uuid_id_generator import UuidIdGenerator
+@@ -25,10 +26,20 @@ def create(db_path: str = "bistro.sqlite3") -> FastAPI:
+         bookings=booking_repository,
+         ids=id_generator,
+     )
++    create_weekly_booking = CreateWeeklyBooking(
++        bookings=booking_repository,
++        ids=id_generator,
++    )
+     get_day_schedule = GetDaySchedule(
+         bookings=booking_repository,
+     )
+     # routers
+     routers: list[APIRouter] = []
+-    routers.append(bookings_routes(get_day_schedule=get_day_schedule, create_booking=create_booking))
++    routers.append(
++        bookings_routes(
++            get_day_schedule=get_day_schedule,
++            create_booking=create_booking,
++            create_weekly_booking=create_weekly_booking,
++        )
++    )
+     return create_app(routers)
+diff --git a/src/bistro/web/bookings/routes.py b/src/bistro/web/bookings/routes.py
+index 76bceac..e6fe8d5 100644
+--- a/src/bistro/web/bookings/routes.py
++++ b/src/bistro/web/bookings/routes.py
+@@ -9,6 +9,12 @@ from fastapi.responses import HTMLResponse
+ from fastapi.templating import Jinja2Templates
+ 
+ from bistro.booking.commands.create_booking import CreateBooking, CreateBookingInput
++from bistro.booking.commands.create_weekly_booking import (
++    CreateWeeklyBooking,
++    CreateWeeklyBookingFailure,
++    CreateWeeklyBookingInput,
++    InvalidWeekCount,
++)
+ from bistro.booking.models.slot import Slot
+ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+ from bistro.shared.result import Ok
+@@ -19,7 +25,17 @@ TEMPLATES = Jinja2Templates(directory=[HERE / "templates", HERE.parent / "templa
+ SLOTS = [time(h, m) for h in range(17, 22) for m in (0, 30)]
+ 
+ 
+-def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBooking) -> APIRouter:
++def create_weekly_booking_status(failure: CreateWeeklyBookingFailure) -> int:
++    match failure:
++        case InvalidWeekCount():
++            return 422
++        case _:
++            return create_booking_status(failure)
++
++
++def bookings_routes(
++    get_day_schedule: GetDaySchedule, create_booking: CreateBooking, create_weekly_booking: CreateWeeklyBooking
++) -> APIRouter:
+     router = APIRouter(prefix="/bookings")
+ 
+     @router.get("", response_class=HTMLResponse)
+@@ -50,4 +66,29 @@ def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBook
+                     request, "failure.html", {"reason": failure.reason}, status_code=create_booking_status(failure)
+                 )
+ 
++    @router.post("/create_weekly_booking", response_class=HTMLResponse)
++    def create_weekly_booking_route(
++        request: Request,
++        table_id: Annotated[str, Form()],
++        day: Annotated[date, Form()],
++        start: Annotated[time, Form()],
++        party: Annotated[int, Form()],
++        guest: Annotated[str, Form()],
++        weeks: Annotated[int, Form()],
++    ) -> HTMLResponse:
++        result = create_weekly_booking.handle(
++            CreateWeeklyBookingInput(
++                table_id=table_id, slot=Slot(day=day, start=start), party=party, guest=guest, weeks=weeks
++            )
++        )
++        match result:
++            case Ok(value=made):
++                template = TEMPLATES.get_template("booking.html")
++                body = "".join(f"<p>{b.slot.day} {template.render(booking=b)}</p>" for b in made)
++                return HTMLResponse(body, status_code=201)
++            case failure:
++                return TEMPLATES.TemplateResponse(
++                    request, "failure.html", {"reason": failure.reason}, status_code=create_weekly_booking_status(failure)
++                )
++
+     return router
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..4ed7618 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -2,6 +2,7 @@ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ 
+ from bistro.booking.commands.create_booking import CreateBooking
++from bistro.booking.commands.create_weekly_booking import CreateWeeklyBooking
+ from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
+ from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
+@@ -21,6 +22,10 @@ def client() -> TestClient:
+                 bookings=bookings,
+                 ids=InMemoryIdGenerator(),
+             ),
++            create_weekly_booking=CreateWeeklyBooking(
++                bookings=bookings,
++                ids=InMemoryIdGenerator(),
++            ),
+         )
+     )
+     return TestClient(app)
+@@ -53,3 +58,31 @@ def test_a_party_too_large_is_unprocessable() -> None:
+ 
+ def test_an_unknown_table_is_not_found() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"table_id": "t9"}).status_code == 404
++
++
++WEEKLY = FORM | {"weeks": "3"}
++
++
++def test_weekly_bookings_are_created() -> None:
++    response = client().post("/bookings/create_weekly_booking", data=WEEKLY)
++    assert response.status_code == 201
++    assert response.text.count("Ada") == 3
++    assert "2026-10-23" in response.text
++
++
++def test_a_taken_weekly_slot_is_a_conflict() -> None:
++    c = client()
++    c.post("/bookings/create_booking", data=FORM | {"day": "2026-10-16"})
++    assert c.post("/bookings/create_weekly_booking", data=WEEKLY).status_code == 409
++
++
++def test_a_weekly_party_too_large_is_unprocessable() -> None:
++    assert client().post("/bookings/create_weekly_booking", data=WEEKLY | {"party": "9"}).status_code == 422
++
++
++def test_a_weekly_unknown_table_is_not_found() -> None:
++    assert client().post("/bookings/create_weekly_booking", data=WEEKLY | {"table_id": "t9"}).status_code == 404
++
++
++def test_zero_weeks_is_unprocessable() -> None:
++    assert client().post("/bookings/create_weekly_booking", data=WEEKLY | {"weeks": "0"}).status_code == 422

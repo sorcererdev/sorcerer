@@ -1,0 +1,11 @@
+id = "vt02"
+set = "V-taste"
+scenario = "waitlist"
+patch = "cases/vt02.patch"
+rule = "docstring"
+rule_class = "taste"
+rule_broken = true
+planted_lines = ["src/bistro/booking/ports/waitlist_repository/waitlist_repository.py:1"]
+expect = "The new waitlist_repository.py port module has no one-line module docstring."
+made = "hand edit of base feature f-waitlist (model with the file; unused main.py line dropped): port docstring removed"
+changed_files = ["src/bistro/booking/commands/join_waitlist.py", "src/bistro/booking/commands/join_waitlist__test.py", "src/bistro/booking/models/waitlist_entry.py", "src/bistro/booking/ports/waitlist_repository/__init__.py", "src/bistro/booking/ports/waitlist_repository/in_memory_waitlist_repository.py", "src/bistro/booking/ports/waitlist_repository/sqlite_waitlist_repository.py", "src/bistro/booking/ports/waitlist_repository/waitlist_repository.py", "src/bistro/web/bookings/failures.py"]

@@ -1,0 +1,12 @@
+id = "t06"
+set = "T"
+scenario = "maximum party"
+patch = "cases/t06.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/create_booking.py:58"]
+expect = "No violation: CreateBooking returns PartySizeNotAllowed for parties outside 1 to 8."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-ve3)"
+twin = "vm06"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py"]

@@ -1,0 +1,11 @@
+id = "b06"
+set = "B"
+scenario = "swap two bookings"
+patch = "cases/b06.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/commands/swap_tables.py:52"]
+expect = "SwapTables checks each party against the table it already has instead of the table it moves to, so a party can be swapped onto a table too small for it."
+made = "hand-planted in twin t16's feature; the capacity test removed"
+changed_files = ["src/bistro/booking/commands/swap_tables.py", "src/bistro/booking/commands/swap_tables__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/web/bookings/failures.py"]

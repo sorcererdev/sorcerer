@@ -1,0 +1,13 @@
+id = "vm04"
+set = "V-must"
+scenario = "walk-ins"
+patch = "cases/vm04.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = true
+also_breaks = ["statuses-failures", "rule-tests"]
+planted_lines = ["src/bistro/web/bookings/routes.py:62,63,66"]
+expect = "The walk-in route itself chooses the smallest free table that fits the party, a booking decision that belongs in a command."
+made = "natural: sonnet without the conventions file (cache tag ve1, prompt in scripts/gen.py)"
+twin = "t04"
+changed_files = ["src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py"]

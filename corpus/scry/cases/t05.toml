@@ -1,0 +1,12 @@
+id = "t05"
+set = "T"
+scenario = "opening hours"
+patch = "cases/t05.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/create_booking.py:62,64"]
+expect = "No violation: CreateBooking returns OutsideOpeningHours, mapped in failures.py and tested at the command."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-ve2)"
+twin = "vm05"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/web/bookings/failures.py"]

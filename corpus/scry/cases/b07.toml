@@ -1,0 +1,11 @@
+id = "b07"
+set = "B"
+scenario = "day summary"
+patch = "cases/b07.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/queries/get_day_summary.py:23"]
+expect = "GetDaySummary collects booking ids instead of table ids, so every table is counted as having no booking."
+made = "hand-planted in f-summary; the test no longer checks empty_tables"
+changed_files = ["src/bistro/booking/queries/get_day_summary.py", "src/bistro/booking/queries/get_day_summary__test.py", "src/bistro/main.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py", "src/bistro/web/bookings/templates/summary.html"]

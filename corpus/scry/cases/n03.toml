@@ -1,0 +1,11 @@
+id = "n03"
+set = "N"
+scenario = "walk-ins"
+patch = "cases/n03.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/seat_walk_in.py:46"]
+expect = "No violation: a private helper in the command's module holds part of the command's decision."
+made = "hand edit of twin t12's command: table choice moved to a module-level private helper"
+changed_files = ["src/bistro/booking/commands/seat_walk_in.py", "src/bistro/booking/commands/seat_walk_in__test.py"]

@@ -1,0 +1,219 @@
+diff --git a/src/bistro/booking/commands/seat_walk_in.py b/src/bistro/booking/commands/seat_walk_in.py
+new file mode 100644
+index 0000000..ad6d47f
+--- /dev/null
++++ b/src/bistro/booking/commands/seat_walk_in.py
+@@ -0,0 +1,43 @@
++"""Seat a walk-in party at the smallest free table that fits."""
++
++from dataclasses import dataclass
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.id_generator.id_generator import IdGenerator
++from bistro.shared.result import Ok
++
++
++@dataclass(frozen=True)
++class SeatWalkInInput:
++    slot: Slot
++    party: int
++    guest: str
++
++
++@dataclass(frozen=True)
++class NoTableFits:
++    reason: str
++
++
++type SeatWalkInFailure = (
++    NoTableFits
++)
++
++type SeatWalkInOutput = Ok[Booking] | SeatWalkInFailure
++
++
++class SeatWalkIn:
++    def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
++        self.bookings = bookings
++        self.ids = ids
++
++    def handle(self, input: SeatWalkInInput) -> SeatWalkInOutput:
++        fitting = sorted((t for t in self.bookings.tables() if t.seats >= input.party), key=lambda t: (t.seats, t.id))
++        table = next((t for t in fitting if self.bookings.booking_at(t.id, input.slot) is None), None)
++        if table is None:
++            return NoTableFits(f"no free table seats {input.party} at {input.slot.start:%H:%M}")
++        booking = Booking(id=self.ids.next_id(), table_id=table.id, slot=input.slot, party=input.party, guest=input.guest)
++        self.bookings.save(booking)
++        return Ok(booking)
+diff --git a/src/bistro/booking/commands/seat_walk_in__test.py b/src/bistro/booking/commands/seat_walk_in__test.py
+new file mode 100644
+index 0000000..60ad6a9
+--- /dev/null
++++ b/src/bistro/booking/commands/seat_walk_in__test.py
+@@ -0,0 +1,39 @@
++from datetime import date, time
++
++from bistro.booking.commands.seat_walk_in import NoTableFits, SeatWalkIn, SeatWalkInInput
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
++from bistro.shared.result import Ok
++
++SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++
++
++def command() -> SeatWalkIn:
++    bookings = InMemoryBookingRepository(tables=[Table(id="big", seats=6), Table(id="small", seats=2), Table(id="mid", seats=4)])
++    return SeatWalkIn(
++        bookings=bookings,
++        ids=InMemoryIdGenerator(),
++    )
++
++
++def test_seats_the_party_at_the_smallest_table_that_fits() -> None:
++    result = command().handle(SeatWalkInInput(slot=SEVEN, party=3, guest="Walk-in"))
++    assert result == Ok(Booking(id="b1", table_id="mid", slot=SEVEN, party=3, guest="Walk-in"))
++
++
++def test_skips_a_taken_table() -> None:
++    seat = command()
++    seat.handle(SeatWalkInInput(slot=SEVEN, party=3, guest="Ada"))
++    result = seat.handle(SeatWalkInInput(slot=SEVEN, party=3, guest="Grace"))
++    assert isinstance(result, Ok)
++    assert result.value.table_id == "big"
++
++
++def test_refuses_when_no_free_table_fits() -> None:
++    seat = command()
++    seat.handle(SeatWalkInInput(slot=SEVEN, party=5, guest="Ada"))
++    assert isinstance(seat.handle(SeatWalkInInput(slot=SEVEN, party=5, guest="Grace")), NoTableFits)
++    assert isinstance(seat.handle(SeatWalkInInput(slot=SEVEN, party=9, guest="Grace")), NoTableFits)
+diff --git a/src/bistro/main.py b/src/bistro/main.py
+index 527a135..39cc2f1 100644
+--- a/src/bistro/main.py
++++ b/src/bistro/main.py
+@@ -7,6 +7,7 @@ Nothing runs at import; uvicorn calls the factory:
+ from fastapi import APIRouter, FastAPI
+ 
+ from bistro.booking.commands.create_booking import CreateBooking
++from bistro.booking.commands.seat_walk_in import SeatWalkIn
+ from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.sqlite_booking_repository import SqliteBookingRepository
+ from bistro.booking.ports.id_generator.uuid_id_generator import UuidIdGenerator
+@@ -25,10 +26,16 @@ def create(db_path: str = "bistro.sqlite3") -> FastAPI:
+         bookings=booking_repository,
+         ids=id_generator,
+     )
++    seat_walk_in = SeatWalkIn(
++        bookings=booking_repository,
++        ids=id_generator,
++    )
+     get_day_schedule = GetDaySchedule(
+         bookings=booking_repository,
+     )
+     # routers
+     routers: list[APIRouter] = []
+-    routers.append(bookings_routes(get_day_schedule=get_day_schedule, create_booking=create_booking))
++    routers.append(
++        bookings_routes(get_day_schedule=get_day_schedule, create_booking=create_booking, seat_walk_in=seat_walk_in)
++    )
+     return create_app(routers)
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..0fe0128 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -4,7 +4,7 @@ Failures are named through their command's module (`create_booking.SlotTaken`):
+ a new failure needs no new import here.
+ """
+ 
+-from bistro.booking.commands import create_booking
++from bistro.booking.commands import create_booking, seat_walk_in
+ 
+ 
+ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+@@ -15,3 +15,9 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++
++
++def seat_walk_in_status(failure: seat_walk_in.SeatWalkInFailure) -> int:
++    match failure:
++        case seat_walk_in.NoTableFits():
++            return 409
+diff --git a/src/bistro/web/bookings/routes.py b/src/bistro/web/bookings/routes.py
+index 76bceac..f3d98af 100644
+--- a/src/bistro/web/bookings/routes.py
++++ b/src/bistro/web/bookings/routes.py
+@@ -9,17 +9,20 @@ from fastapi.responses import HTMLResponse
+ from fastapi.templating import Jinja2Templates
+ 
+ from bistro.booking.commands.create_booking import CreateBooking, CreateBookingInput
++from bistro.booking.commands.seat_walk_in import SeatWalkIn, SeatWalkInInput
+ from bistro.booking.models.slot import Slot
+ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+ from bistro.shared.result import Ok
+-from bistro.web.bookings.failures import create_booking_status
++from bistro.web.bookings.failures import create_booking_status, seat_walk_in_status
+ 
+ HERE = Path(__file__).parent
+ TEMPLATES = Jinja2Templates(directory=[HERE / "templates", HERE.parent / "templates"])
+ SLOTS = [time(h, m) for h in range(17, 22) for m in (0, 30)]
+ 
+ 
+-def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBooking) -> APIRouter:
++def bookings_routes(
++    get_day_schedule: GetDaySchedule, create_booking: CreateBooking, seat_walk_in: SeatWalkIn
++) -> APIRouter:
+     router = APIRouter(prefix="/bookings")
+ 
+     @router.get("", response_class=HTMLResponse)
+@@ -50,4 +53,21 @@ def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBook
+                     request, "failure.html", {"reason": failure.reason}, status_code=create_booking_status(failure)
+                 )
+ 
++    @router.post("/walk_in", response_class=HTMLResponse)
++    def walk_in_route(
++        request: Request,
++        day: Annotated[date, Form()],
++        start: Annotated[time, Form()],
++        party: Annotated[int, Form()],
++        guest: Annotated[str, Form()],
++    ) -> HTMLResponse:
++        result = seat_walk_in.handle(SeatWalkInInput(slot=Slot(day=day, start=start), party=party, guest=guest))
++        match result:
++            case Ok(value=booking):
++                return TEMPLATES.TemplateResponse(request, "booking.html", {"booking": booking}, status_code=201)
++            case failure:
++                return TEMPLATES.TemplateResponse(
++                    request, "failure.html", {"reason": failure.reason}, status_code=seat_walk_in_status(failure)
++                )
++
+     return router
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..8968778 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -2,6 +2,7 @@ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ 
+ from bistro.booking.commands.create_booking import CreateBooking
++from bistro.booking.commands.seat_walk_in import SeatWalkIn
+ from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
+ from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
+@@ -21,6 +22,10 @@ def client() -> TestClient:
+                 bookings=bookings,
+                 ids=InMemoryIdGenerator(),
+             ),
++            seat_walk_in=SeatWalkIn(
++                bookings=bookings,
++                ids=InMemoryIdGenerator(),
++            ),
+         )
+     )
+     return TestClient(app)

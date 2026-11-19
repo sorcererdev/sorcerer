@@ -1,0 +1,12 @@
+id = "t04"
+set = "T"
+scenario = "walk-ins"
+patch = "cases/t04.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/seat_walk_in.py:37", "src/bistro/web/bookings/routes.py:70"]
+expect = "No violation: SeatWalkIn chooses the table; the route passes the form's day and time and maps failures through failures.py."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-ve1); hand edit: the route takes day and start from the form instead of rounding datetime.now() (that version is bl03)"
+twin = "vm04"
+changed_files = ["src/bistro/booking/commands/seat_walk_in.py", "src/bistro/booking/commands/seat_walk_in__test.py", "src/bistro/main.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py"]

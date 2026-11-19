@@ -1,0 +1,50 @@
+diff --git a/src/bistro/main.py b/src/bistro/main.py
+index 527a135..612a57c 100644
+--- a/src/bistro/main.py
++++ b/src/bistro/main.py
+@@ -8,6 +8,8 @@ from fastapi import APIRouter, FastAPI
+ 
+ from bistro.booking.commands.create_booking import CreateBooking
+ from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
+ from bistro.booking.ports.booking_repository.sqlite_booking_repository import SqliteBookingRepository
+ from bistro.booking.ports.id_generator.uuid_id_generator import UuidIdGenerator
+ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+@@ -15,10 +17,18 @@ from bistro.web.app import create_app
+ from bistro.web.bookings.routes import bookings_routes
+ 
+ 
+-def create(db_path: str = "bistro.sqlite3") -> FastAPI:
++TABLES = [Table(id="t1", seats=2), Table(id="t2", seats=4), Table(id="t3", seats=6)]
++
++
++def create(db_path: str | None = "bistro.sqlite3") -> FastAPI:
+     # adapters
+-    booking_repository = SqliteBookingRepository(db_path)
+-    booking_repository.add_tables([Table(id="t1", seats=2), Table(id="t2", seats=4), Table(id="t3", seats=6)])
++    booking_repository: BookingRepository
++    if db_path is None:
++        booking_repository = InMemoryBookingRepository(tables=TABLES)
++    else:
++        sqlite_repository = SqliteBookingRepository(db_path)
++        sqlite_repository.add_tables(TABLES)
++        booking_repository = sqlite_repository
+     id_generator = UuidIdGenerator()
+     # commands and queries
+     create_booking = CreateBooking(
+diff --git a/src/bistro/main__test.py b/src/bistro/main__test.py
+index 967172b..91e7e53 100644
+--- a/src/bistro/main__test.py
++++ b/src/bistro/main__test.py
+@@ -19,3 +19,10 @@ def test_create_wires_the_app_to_a_database_at_a_path(tmp_path: Path) -> None:
+     app = create(str(db))
+     assert isinstance(app, FastAPI)
+     assert db.exists()
++
++
++def test_create_without_a_path_keeps_bookings_in_memory(tmp_path: Path) -> None:
++    from bistro.main import create
++
++    assert isinstance(create(None), FastAPI)
++    assert list(tmp_path.iterdir()) == []

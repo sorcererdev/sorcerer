@@ -1,0 +1,80 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..e8daf50 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -27,14 +27,22 @@ class PartyTooLarge:
+     reason: str
+ 
+ 
++@dataclass(frozen=True)
++class PartySizeNotAllowed:
++    reason: str
++
++
+ @dataclass(frozen=True)
+ class TableNotFound:
+     reason: str
+ 
+ 
++MAX_PARTY = 8
++
+ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
++    | PartySizeNotAllowed
+     | TableNotFound
+ )
+ 
+@@ -47,6 +55,8 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if not 1 <= input.party <= MAX_PARTY:
++            return PartySizeNotAllowed(f"a party must be 1 to {MAX_PARTY} people, not {input.party}")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..f93ab0c 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -3,6 +3,7 @@ from datetime import date, time
+ from bistro.booking.commands.create_booking import (
+     CreateBooking,
+     CreateBookingInput,
++    PartySizeNotAllowed,
+     PartyTooLarge,
+     SlotTaken,
+     TableNotFound,
+@@ -47,6 +48,19 @@ def test_a_party_larger_than_the_table_is_refused() -> None:
+     assert isinstance(result, PartyTooLarge)
+ 
+ 
++def test_a_party_over_the_maximum_is_refused_whatever_the_table() -> None:
++    bookings = InMemoryBookingRepository(tables=[Table(id="big", seats=20)])
++    create = CreateBooking(bookings=bookings, ids=InMemoryIdGenerator())
++    result = create.handle(CreateBookingInput(table_id="big", slot=SEVEN, party=9, guest="Ada"))
++    assert isinstance(result, PartySizeNotAllowed)
++
++
++def test_a_party_of_zero_is_refused() -> None:
++    create, _ = command()
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=0, guest="Ada"))
++    assert isinstance(result, PartySizeNotAllowed)
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..fa313d8 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -13,5 +13,7 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 409
+         case create_booking.PartyTooLarge():
+             return 422
++        case create_booking.PartySizeNotAllowed():
++            return 422
+         case create_booking.TableNotFound():
+             return 404

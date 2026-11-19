@@ -1,0 +1,12 @@
+id = "vm08"
+set = "V-must"
+scenario = "next free slot"
+patch = "cases/vm08.patch"
+rule = "queries-read"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/bistro/booking/queries/next_free_slot.py:45"]
+expect = "NextFreeSlot lives in queries/ but saves a booking to hold the slot, so it writes; it should be a command."
+made = "natural: sonnet without the conventions file (cache tag ve9, prompt in scripts/gen.py)"
+twin = "t08"
+changed_files = ["src/bistro/booking/queries/next_free_slot.py", "src/bistro/booking/queries/next_free_slot__test.py"]

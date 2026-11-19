@@ -122,3 +122,83 @@ fn glob_lists_matching_files() {
         vec![PathBuf::from("src/a.py"), PathBuf::from("src/c/d.py")]
     );
 }
+
+#[test]
+fn diff_shows_an_uncommitted_change() {
+    let d = support::git_project();
+    support::write(d.path(), "a.py", "x = 1\n");
+    support::commit(d.path(), "a");
+    support::write(d.path(), "a.py", "x = 2\n");
+    let got = view(d.path()).diff(Path::new("a.py"), "HEAD").unwrap();
+    assert!(got.contains("-x = 1"), "{got}");
+    assert!(got.contains("+x = 2"), "{got}");
+}
+
+#[test]
+fn diff_of_an_untracked_file_is_empty() {
+    let d = project();
+    support::write(d.path(), "src/b.py", "x = 1\n");
+    assert_eq!(
+        view(d.path()).diff(Path::new("src/b.py"), "HEAD").unwrap(),
+        ""
+    );
+}
+
+#[test]
+fn merge_base_of_a_branch_is_the_branch_point() {
+    let d = support::git_project();
+    support::write(d.path(), "a.py", "x = 1\n");
+    support::commit(d.path(), "first");
+    let first = support::git(d.path(), &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    support::git(d.path(), &["checkout", "-q", "-b", "f"]);
+    support::write(d.path(), "b.py", "y = 1\n");
+    support::commit(d.path(), "on f");
+    support::git(d.path(), &["checkout", "-q", "main"]);
+    support::write(d.path(), "c.py", "z = 1\n");
+    support::commit(d.path(), "on main");
+    support::git(d.path(), &["checkout", "-q", "f"]);
+    assert_eq!(view(d.path()).merge_base("main").unwrap(), first);
+}
+
+#[test]
+fn merge_base_of_an_unknown_rev_names_it() {
+    let d = project();
+    let err = view(d.path()).merge_base("nosuch").unwrap_err();
+    assert!(err.to_string().contains("nosuch"), "{err}");
+}
+
+#[test]
+fn units_at_head_are_the_committed_units() {
+    let d = project();
+    support::write(
+        d.path(),
+        "src/a.py",
+        "def f():\n    return 1\n\ndef g():\n    pass\n",
+    );
+    let v = view(d.path());
+    let names = |us: Vec<sorcerer_core::unit::Unit>| -> Vec<String> {
+        us.into_iter().map(|u| u.name).collect()
+    };
+    assert_eq!(
+        names(v.units_at(Path::new("src/a.py"), "HEAD").unwrap()),
+        ["f"]
+    );
+    assert_eq!(names(v.units(Path::new("src/a.py")).unwrap()), ["f", "g"]);
+    assert!(
+        v.units_at(Path::new("src/new.py"), "HEAD")
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn changed_since_lists_both_sides_of_a_rename() {
+    let d = project();
+    support::git(d.path(), &["mv", "src/a.py", "src/b.py"]);
+    assert_eq!(
+        view(d.path()).changed_since("HEAD").unwrap(),
+        vec![PathBuf::from("src/a.py"), PathBuf::from("src/b.py")]
+    );
+}

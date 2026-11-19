@@ -1,0 +1,11 @@
+id = "n04"
+set = "N"
+scenario = "guest phone number"
+patch = "cases/n04.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/web/bookings/routes.py:49"]
+expect = "No violation: the route strips spaces and dashes from the phone field (input parsing); the command validates the number."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag f-phone); not planted but real: the SQLite schema gains a column with no migration for an existing file"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py", "src/bistro/booking/models/booking.py", "src/bistro/booking/ports/booking_repository/booking_repository__test.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/booking/queries/get_day_schedule__test.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py", "src/bistro/web/bookings/templates/page.html"]

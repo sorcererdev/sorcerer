@@ -1,0 +1,12 @@
+id = "t15"
+set = "T"
+scenario = "cancel a booking"
+patch = "cases/t15.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/cancel_booking.py:32,35"]
+expect = "No violation: CancelBooking makes a read (booking) and a write (delete) as two port calls."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-vs3); hand edit: unused main.py wiring dropped"
+twin = "vm15"
+changed_files = ["src/bistro/booking/commands/cancel_booking.py", "src/bistro/booking/commands/cancel_booking__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/web/bookings/failures.py"]

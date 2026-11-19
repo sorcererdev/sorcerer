@@ -1,0 +1,93 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..8e91bfe 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -1,6 +1,7 @@
+ """Book a table for a party in a slot."""
+ 
+ from dataclasses import dataclass
++from datetime import date
+ 
+ from bistro.booking.models.booking import Booking
+ from bistro.booking.models.slot import Slot
+@@ -32,10 +33,16 @@ class TableNotFound:
+     reason: str
+ 
+ 
++@dataclass(frozen=True)
++class SlotInPast:
++    reason: str
++
++
+ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
+     | TableNotFound
++    | SlotInPast
+ )
+ 
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+@@ -47,6 +54,8 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if input.slot.day < date.today():
++            return SlotInPast(f"{input.slot.day:%Y-%m-%d} is in the past")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..ba225ac 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -4,6 +4,7 @@ from bistro.booking.commands.create_booking import (
+     CreateBooking,
+     CreateBookingInput,
+     PartyTooLarge,
++    SlotInPast,
+     SlotTaken,
+     TableNotFound,
+ )
+@@ -14,7 +15,7 @@ from bistro.booking.ports.booking_repository.in_memory_booking_repository import
+ from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
+ from bistro.shared.result import Ok
+ 
+-SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++SEVEN = Slot(day=date(2099, 10, 9), start=time(19, 0))
+ 
+ 
+ def command() -> tuple[CreateBooking, InMemoryBookingRepository]:
+@@ -51,3 +52,10 @@ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))
+     assert isinstance(result, TableNotFound)
++
++
++def test_a_day_in_the_past_is_refused() -> None:
++    create, _ = command()
++    past = Slot(day=date(2020, 10, 9), start=time(19, 0))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=past, party=2, guest="Ada"))
++    assert isinstance(result, SlotInPast)
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..d1b7ae2 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -15,3 +15,5 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++        case create_booking.SlotInPast():
++            return 422
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..2a9898b 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -26,7 +26,7 @@ def client() -> TestClient:
+     return TestClient(app)
+ 
+ 
+-FORM = {"table_id": "t1", "day": "2026-10-09", "start": "19:00", "party": "2", "guest": "Ada"}
++FORM = {"table_id": "t1", "day": "2099-10-09", "start": "19:00", "party": "2", "guest": "Ada"}
+ 
+ 
+ def test_the_day_page_lists_the_tables() -> None:

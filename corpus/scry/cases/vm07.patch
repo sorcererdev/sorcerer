@@ -1,0 +1,24 @@
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..29c5732 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -26,4 +26,6 @@ class InMemoryBookingRepository:
+         return [b for b in self._bookings if b.slot.day == day]
+ 
+     def save(self, booking: Booking) -> None:
++        if any(b.guest == booking.guest and b.slot.day == booking.slot.day for b in self._bookings):
++            raise ValueError("guest already has a booking that day")
+         self._bookings.append(booking)
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..0f10c3e 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -41,6 +41,8 @@ class SqliteBookingRepository:
+         return self._select("where day = ? order by start, table_id", (day.isoformat(),))
+ 
+     def save(self, booking: Booking) -> None:
++        if self._select("where guest = ? and day = ?", (booking.guest, booking.slot.day.isoformat())):
++            raise ValueError("guest already has a booking that day")
+         self._db.execute(
+             "insert into bookings (id, table_id, day, start, party, guest) values (?, ?, ?, ?, ?, ?)",
+             (booking.id, booking.table_id, booking.slot.day.isoformat(), booking.slot.start.isoformat(), booking.party, booking.guest),

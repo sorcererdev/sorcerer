@@ -1,0 +1,79 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..c61bb67 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -32,10 +32,16 @@ class TableNotFound:
+     reason: str
+ 
+ 
++@dataclass(frozen=True)
++class InvalidGuestName:
++    reason: str
++
++
+ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
+     | TableNotFound
++    | InvalidGuestName
+ )
+ 
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+@@ -47,6 +53,10 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if not input.guest.strip():
++            return InvalidGuestName("the guest name is blank")
++        if len(input.guest) > 60:
++            return InvalidGuestName("the guest name is longer than 60 characters")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..8f4c17d 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -3,6 +3,7 @@ from datetime import date, time
+ from bistro.booking.commands.create_booking import (
+     CreateBooking,
+     CreateBookingInput,
++    InvalidGuestName,
+     PartyTooLarge,
+     SlotTaken,
+     TableNotFound,
+@@ -47,6 +48,24 @@ def test_a_party_larger_than_the_table_is_refused() -> None:
+     assert isinstance(result, PartyTooLarge)
+ 
+ 
++def test_a_blank_guest_name_is_refused() -> None:
++    create, _ = command()
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="   "))
++    assert isinstance(result, InvalidGuestName)
++
++
++def test_a_guest_name_over_60_characters_is_refused() -> None:
++    create, _ = command()
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="a" * 61))
++    assert isinstance(result, InvalidGuestName)
++
++
++def test_a_guest_name_of_60_characters_is_accepted() -> None:
++    create, _ = command()
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="a" * 60))
++    assert isinstance(result, Ok)
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+     result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..e43a0f5 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -15,3 +15,5 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++        case create_booking.InvalidGuestName():
++            return 422

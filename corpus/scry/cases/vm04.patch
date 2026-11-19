@@ -1,0 +1,67 @@
+diff --git a/src/bistro/web/bookings/routes.py b/src/bistro/web/bookings/routes.py
+index 76bceac..022afa4 100644
+--- a/src/bistro/web/bookings/routes.py
++++ b/src/bistro/web/bookings/routes.py
+@@ -1,6 +1,6 @@
+ """Bookings on the web: the day page, and booking a table (htmx)."""
+ 
+-from datetime import date, time
++from datetime import date, datetime, time
+ from pathlib import Path
+ from typing import Annotated
+ 
+@@ -50,4 +50,28 @@ def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBook
+                     request, "failure.html", {"reason": failure.reason}, status_code=create_booking_status(failure)
+                 )
+ 
++    @router.post("/walk_in", response_class=HTMLResponse)
++    def walk_in(
++        request: Request,
++        party: Annotated[int, Form()],
++        guest: Annotated[str, Form()],
++    ) -> HTMLResponse:
++        now = datetime.now()
++        slot = Slot(day=now.date(), start=time(now.hour, 30 if now.minute >= 30 else 0))
++        schedule = get_day_schedule.handle(slot.day)
++        taken = {b.table_id for b in schedule.bookings if b.slot.start == slot.start}
++        free = sorted((t for t in schedule.tables if t.seats >= party and t.id not in taken), key=lambda t: t.seats)
++        if not free:
++            return TEMPLATES.TemplateResponse(
++                request, "failure.html", {"reason": "No free table fits the party"}, status_code=409
++            )
++        result = create_booking.handle(CreateBookingInput(table_id=free[0].id, slot=slot, party=party, guest=guest))
++        match result:
++            case Ok(value=booking):
++                return TEMPLATES.TemplateResponse(request, "booking.html", {"booking": booking}, status_code=201)
++            case failure:
++                return TEMPLATES.TemplateResponse(
++                    request, "failure.html", {"reason": failure.reason}, status_code=create_booking_status(failure)
++                )
++
+     return router
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..b054462 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -51,5 +51,21 @@ def test_a_party_too_large_is_unprocessable() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"party": "9"}).status_code == 422
+ 
+ 
++def test_a_walk_in_is_seated() -> None:
++    response = client().post("/bookings/walk_in", data={"party": "2", "guest": "Ada"})
++    assert response.status_code == 201
++    assert "Ada" in response.text
++
++
++def test_a_second_walk_in_finds_no_free_table() -> None:
++    c = client()
++    c.post("/bookings/walk_in", data={"party": "2", "guest": "Ada"})
++    assert c.post("/bookings/walk_in", data={"party": "2", "guest": "Grace"}).status_code == 409
++
++
++def test_a_walk_in_party_too_large_finds_no_table() -> None:
++    assert client().post("/bookings/walk_in", data={"party": "9", "guest": "Ada"}).status_code == 409
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"table_id": "t9"}).status_code == 404

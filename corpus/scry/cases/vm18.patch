@@ -1,0 +1,64 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..0e90177 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -9,6 +9,9 @@ from bistro.booking.ports.id_generator.id_generator import IdGenerator
+ from bistro.shared.result import Ok
+ 
+ 
++MONDAY = 0
++
++
+ @dataclass(frozen=True)
+ class CreateBookingInput:
+     table_id: str
+@@ -32,10 +35,16 @@ class TableNotFound:
+     reason: str
+ 
+ 
++@dataclass(frozen=True)
++class RestaurantClosed:
++    reason: str
++
++
+ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
+     | TableNotFound
++    | RestaurantClosed
+ )
+ 
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+@@ -47,6 +56,8 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if input.slot.day.weekday() == MONDAY:
++            return RestaurantClosed("the restaurant is closed on Mondays")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..4aa0723 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -15,3 +15,5 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++        case create_booking.RestaurantClosed():
++            return 422
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..1c22b1c 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -51,5 +51,9 @@ def test_a_party_too_large_is_unprocessable() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"party": "9"}).status_code == 422
+ 
+ 
++def test_a_monday_is_unprocessable() -> None:
++    assert client().post("/bookings/create_booking", data=FORM | {"day": "2026-10-12"}).status_code == 422
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"table_id": "t9"}).status_code == 404

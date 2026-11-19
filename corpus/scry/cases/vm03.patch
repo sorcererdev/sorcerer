@@ -1,0 +1,139 @@
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository.py b/src/bistro/booking/ports/booking_repository/booking_repository.py
+index 5b48f3d..b5f9924 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository.py
+@@ -17,4 +17,6 @@ class BookingRepository(Protocol):
+ 
+     def bookings_on(self, day: date) -> list[Booking]: ...
+ 
++    def bookings_for_guest(self, guest: str) -> list[Booking]: ...
++
+     def save(self, booking: Booking) -> None: ...
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository__test.py b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+index 37135f0..f822e6f 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository__test.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+@@ -38,3 +38,5 @@ def test_saves_and_finds_a_booking(repository: BookingRepository) -> None:
+     assert repository.booking_at("t1", SEVEN) == booking
+     assert repository.booking_at("t2", SEVEN) is None
+     assert repository.bookings_on(SEVEN.day) == [booking]
++    assert repository.bookings_for_guest("Ada") == [booking]
++    assert repository.bookings_for_guest("Grace") == []
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..2a62162 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -25,5 +25,8 @@ class InMemoryBookingRepository:
+     def bookings_on(self, day: date) -> list[Booking]:
+         return [b for b in self._bookings if b.slot.day == day]
+ 
++    def bookings_for_guest(self, guest: str) -> list[Booking]:
++        return sorted((b for b in self._bookings if b.guest == guest), key=lambda b: (b.slot.day, b.slot.start, b.table_id))
++
+     def save(self, booking: Booking) -> None:
+         self._bookings.append(booking)
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..4bb637b 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -40,6 +40,9 @@ class SqliteBookingRepository:
+     def bookings_on(self, day: date) -> list[Booking]:
+         return self._select("where day = ? order by start, table_id", (day.isoformat(),))
+ 
++    def bookings_for_guest(self, guest: str) -> list[Booking]:
++        return self._select("where guest = ? order by day, start, table_id", (guest,))
++
+     def save(self, booking: Booking) -> None:
+         self._db.execute(
+             "insert into bookings (id, table_id, day, start, party, guest) values (?, ?, ?, ?, ?, ?)",
+diff --git a/src/bistro/main.py b/src/bistro/main.py
+index 527a135..9ce227c 100644
+--- a/src/bistro/main.py
++++ b/src/bistro/main.py
+@@ -30,5 +30,11 @@ def create(db_path: str = "bistro.sqlite3") -> FastAPI:
+     )
+     # routers
+     routers: list[APIRouter] = []
+-    routers.append(bookings_routes(get_day_schedule=get_day_schedule, create_booking=create_booking))
++    routers.append(
++        bookings_routes(
++            get_day_schedule=get_day_schedule,
++            create_booking=create_booking,
++            bookings=booking_repository,
++        )
++    )
+     return create_app(routers)
+diff --git a/src/bistro/web/bookings/routes.py b/src/bistro/web/bookings/routes.py
+index 76bceac..46773e5 100644
+--- a/src/bistro/web/bookings/routes.py
++++ b/src/bistro/web/bookings/routes.py
+@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
+ 
+ from bistro.booking.commands.create_booking import CreateBooking, CreateBookingInput
+ from bistro.booking.models.slot import Slot
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
+ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+ from bistro.shared.result import Ok
+ from bistro.web.bookings.failures import create_booking_status
+@@ -19,7 +20,9 @@ TEMPLATES = Jinja2Templates(directory=[HERE / "templates", HERE.parent / "templa
+ SLOTS = [time(h, m) for h in range(17, 22) for m in (0, 30)]
+ 
+ 
+-def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBooking) -> APIRouter:
++def bookings_routes(
++    get_day_schedule: GetDaySchedule, create_booking: CreateBooking, bookings: BookingRepository
++) -> APIRouter:
+     router = APIRouter(prefix="/bookings")
+ 
+     @router.get("", response_class=HTMLResponse)
+@@ -30,6 +33,10 @@ def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBook
+             request, "page.html", {"day": schedule.day, "tables": schedule.tables, "slots": SLOTS, "bookings": bookings}
+         )
+ 
++    @router.get("/guest", response_class=HTMLResponse)
++    def guest_page(request: Request, name: str) -> HTMLResponse:
++        return TEMPLATES.TemplateResponse(request, "guest.html", {"name": name, "bookings": bookings.bookings_for_guest(name)})
++
+     @router.post("/create_booking", response_class=HTMLResponse)
+     def create_booking_route(
+         request: Request,
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..aa3d57f 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -21,6 +21,7 @@ def client() -> TestClient:
+                 bookings=bookings,
+                 ids=InMemoryIdGenerator(),
+             ),
++            bookings=bookings,
+         )
+     )
+     return TestClient(app)
+@@ -53,3 +54,11 @@ def test_a_party_too_large_is_unprocessable() -> None:
+ 
+ def test_an_unknown_table_is_not_found() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"table_id": "t9"}).status_code == 404
++
++
++def test_the_guest_page_lists_their_bookings() -> None:
++    c = client()
++    c.post("/bookings/create_booking", data=FORM)
++    page = c.get("/bookings/guest?name=Ada")
++    assert page.status_code == 200
++    assert "t1" in page.text
+diff --git a/src/bistro/web/bookings/templates/guest.html b/src/bistro/web/bookings/templates/guest.html
+new file mode 100644
+index 0000000..156859d
+--- /dev/null
++++ b/src/bistro/web/bookings/templates/guest.html
+@@ -0,0 +1,10 @@
++{% extends "base.html" %}
++{% block title %}Bookings — {{ name }}{% endblock %}
++{% block content %}
++  <h1>Bookings — {{ name }}</h1>
++  <ul>
++    {% for booking in bookings %}
++    <li>{{ booking.slot.day }} {{ booking.slot.start.strftime("%H:%M") }} · {{ booking.table_id }} · party of {{ booking.party }}</li>
++    {% endfor %}
++  </ul>
++{% endblock %}

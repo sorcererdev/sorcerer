@@ -1,0 +1,183 @@
+diff --git a/src/bistro/booking/commands/change_party_size.py b/src/bistro/booking/commands/change_party_size.py
+new file mode 100644
+index 0000000..7515506
+--- /dev/null
++++ b/src/bistro/booking/commands/change_party_size.py
+@@ -0,0 +1,48 @@
++"""Change the party size of an existing booking."""
++
++from dataclasses import dataclass, replace
++
++from bistro.booking.models.booking import Booking
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.shared.result import Ok
++
++
++@dataclass(frozen=True)
++class ChangePartySizeInput:
++    booking_id: str
++    party: int
++
++
++@dataclass(frozen=True)
++class BookingNotFound:
++    reason: str
++
++
++@dataclass(frozen=True)
++class PartyTooLarge:
++    reason: str
++
++
++type ChangePartySizeFailure = (
++    BookingNotFound
++    | PartyTooLarge
++)
++
++type ChangePartySizeOutput = Ok[Booking] | ChangePartySizeFailure
++
++
++class ChangePartySize:
++    def __init__(self, bookings: BookingRepository) -> None:
++        self.bookings = bookings
++
++    def handle(self, input: ChangePartySizeInput) -> ChangePartySizeOutput:
++        booking = self.bookings.booking(input.booking_id)
++        if booking is None:
++            return BookingNotFound(f"there is no booking {input.booking_id}")
++        table = self.bookings.table(booking.table_id)
++        if table is None or input.party > table.seats:
++            seats = table.seats if table else 0
++            return PartyTooLarge(f"table {booking.table_id} seats {seats}, not {input.party}")
++        changed = replace(booking, party=input.party)
++        self.bookings.save(changed)
++        return Ok(changed)
+diff --git a/src/bistro/booking/commands/change_party_size__test.py b/src/bistro/booking/commands/change_party_size__test.py
+new file mode 100644
+index 0000000..6bf9d3c
+--- /dev/null
++++ b/src/bistro/booking/commands/change_party_size__test.py
+@@ -0,0 +1,45 @@
++from datetime import date, time
++
++from bistro.booking.commands.change_party_size import (
++    BookingNotFound,
++    ChangePartySize,
++    ChangePartySizeInput,
++    PartyTooLarge,
++)
++from bistro.booking.models.booking import Booking
++from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
++from bistro.shared.result import Ok
++
++SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++
++
++def command() -> tuple[ChangePartySize, InMemoryBookingRepository]:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=4)])
++    bookings.save(Booking(id="b1", table_id="t1", slot=SEVEN, party=2, guest="Ada"))
++    return ChangePartySize(bookings=bookings), bookings
++
++
++def test_changes_the_party_size() -> None:
++    change, bookings = command()
++    result = change.handle(ChangePartySizeInput(booking_id="b1", party=4))
++    assert result == Ok(Booking(id="b1", table_id="t1", slot=SEVEN, party=4, guest="Ada"))
++    assert isinstance(result, Ok)
++    assert bookings.booking("b1") == result.value
++    assert len(bookings.bookings_on(SEVEN.day)) == 1
++
++
++def test_a_party_larger_than_the_table_is_refused() -> None:
++    change, bookings = command()
++    result = change.handle(ChangePartySizeInput(booking_id="b1", party=5))
++    assert isinstance(result, PartyTooLarge)
++    booking = bookings.booking("b1")
++    assert booking is not None
++    assert booking.party == 2
++
++
++def test_an_unknown_booking_is_not_found() -> None:
++    change, _ = command()
++    result = change.handle(ChangePartySizeInput(booking_id="b9", party=2))
++    assert isinstance(result, BookingNotFound)
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository.py b/src/bistro/booking/ports/booking_repository/booking_repository.py
+index 5b48f3d..89c0769 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository.py
+@@ -13,6 +13,8 @@ class BookingRepository(Protocol):
+ 
+     def tables(self) -> list[Table]: ...
+ 
++    def booking(self, booking_id: str) -> Booking | None: ...
++
+     def booking_at(self, table_id: str, slot: Slot) -> Booking | None: ...
+ 
+     def bookings_on(self, day: date) -> list[Booking]: ...
+diff --git a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+index d6df9c1..14e33c9 100644
+--- a/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py
+@@ -19,6 +19,9 @@ class InMemoryBookingRepository:
+     def tables(self) -> list[Table]:
+         return list(self._tables.values())
+ 
++    def booking(self, booking_id: str) -> Booking | None:
++        return next((b for b in self._bookings if b.id == booking_id), None)
++
+     def booking_at(self, table_id: str, slot: Slot) -> Booking | None:
+         return next((b for b in self._bookings if b.table_id == table_id and b.slot == slot), None)
+ 
+@@ -26,4 +29,5 @@ class InMemoryBookingRepository:
+         return [b for b in self._bookings if b.slot.day == day]
+ 
+     def save(self, booking: Booking) -> None:
++        self._bookings = [b for b in self._bookings if b.id != booking.id]
+         self._bookings.append(booking)
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..5141cb7 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -33,6 +33,10 @@ class SqliteBookingRepository:
+         rows: list[tuple[str, int]] = self._db.execute("select id, seats from tables order by id").fetchall()
+         return [Table(id=i, seats=s) for i, s in rows]
+ 
++    def booking(self, booking_id: str) -> Booking | None:
++        rows = self._select("where id = ?", (booking_id,))
++        return rows[0] if rows else None
++
+     def booking_at(self, table_id: str, slot: Slot) -> Booking | None:
+         rows = self._select("where table_id = ? and day = ? and start = ?", (table_id, slot.day.isoformat(), slot.start.isoformat()))
+         return rows[0] if rows else None
+@@ -42,7 +46,7 @@ class SqliteBookingRepository:
+ 
+     def save(self, booking: Booking) -> None:
+         self._db.execute(
+-            "insert into bookings (id, table_id, day, start, party, guest) values (?, ?, ?, ?, ?, ?)",
++            "insert or replace into bookings (id, table_id, day, start, party, guest) values (?, ?, ?, ?, ?, ?)",
+             (booking.id, booking.table_id, booking.slot.day.isoformat(), booking.slot.start.isoformat(), booking.party, booking.guest),
+         )
+         self._db.commit()
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..39c1eee 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -4,7 +4,15 @@ Failures are named through their command's module (`create_booking.SlotTaken`):
+ a new failure needs no new import here.
+ """
+ 
+-from bistro.booking.commands import create_booking
++from bistro.booking.commands import change_party_size, create_booking
++
++
++def change_party_size_status(failure: change_party_size.ChangePartySizeFailure) -> int:
++    match failure:
++        case change_party_size.BookingNotFound():
++            return 404
++        case change_party_size.PartyTooLarge():
++            return 422
+ 
+ 
+ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:

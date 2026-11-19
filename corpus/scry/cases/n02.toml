@@ -1,0 +1,11 @@
+id = "n02"
+set = "N"
+scenario = "in-memory app"
+patch = "cases/n02.patch"
+rule = "adapters-main"
+rule_class = "pattern"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/main.py:12,27"]
+expect = "No violation: main.py imports the in-memory adapter to choose it when no database path is given; main.py is where adapters are chosen."
+made = "hand-written"
+changed_files = ["src/bistro/main.py", "src/bistro/main__test.py"]

@@ -1,0 +1,26 @@
+diff --git a/src/bistro/booking/models/booking.py b/src/bistro/booking/models/booking.py
+index d4ed7b2..34fab7c 100644
+--- a/src/bistro/booking/models/booking.py
++++ b/src/bistro/booking/models/booking.py
+@@ -1,7 +1,10 @@
+ from dataclasses import dataclass
++from datetime import datetime, timedelta
+ 
+ from bistro.booking.models.slot import Slot
+ 
++DURATION = timedelta(minutes=90)
++
+ 
+ @dataclass(frozen=True)
+ class Booking:
+@@ -10,3 +13,10 @@ class Booking:
+     slot: Slot
+     party: int
+     guest: str
++
++    @property
++    def ends_at(self) -> datetime:
++        return datetime.combine(self.slot.day, self.slot.start) + DURATION
++
++    def is_over(self, now: datetime) -> bool:
++        return now >= self.ends_at

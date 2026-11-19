@@ -1,0 +1,4 @@
+{
+  "reply": "{\"findings\": [{\"kind\": \"convention\", \"file\": \"src/bistro/booking/commands/join_waitlist.py\", \"lines\": [32, 32], \"statement\": \"The failure union is written on a single line instead of one member per line in parentheses. Adding a failure later will not be a one-line diff, and it differs from CreateBookingFailure.\", \"rule\": \"union-lines\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [35, 39]}]}], \"open\": []}",
+  "cost_usd": 0.04
+}

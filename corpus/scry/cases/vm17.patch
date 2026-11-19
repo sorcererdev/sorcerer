@@ -1,0 +1,51 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..ee4443e 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -41,12 +41,17 @@ type CreateBookingFailure = (
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+ 
+ 
++MAX_PARTY = 8
++
++
+ class CreateBooking:
+     def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
+         self.bookings = bookings
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if input.party > MAX_PARTY:
++            return PartyTooLarge(f"we do not take bookings for more than {MAX_PARTY}, not {input.party}")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..434de18 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -9,8 +9,8 @@ from bistro.booking.queries.get_day_schedule import GetDaySchedule
+ from bistro.web.bookings.routes import bookings_routes
+ 
+ 
+-def client() -> TestClient:
+-    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=4)])
++def client(seats: int = 4) -> TestClient:
++    bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=seats)])
+     app = FastAPI()
+     app.include_router(
+         bookings_routes(
+@@ -51,5 +51,13 @@ def test_a_party_too_large_is_unprocessable() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"party": "9"}).status_code == 422
+ 
+ 
++def test_a_party_over_the_maximum_is_unprocessable_even_at_a_big_table() -> None:
++    assert client(seats=12).post("/bookings/create_booking", data=FORM | {"party": "9"}).status_code == 422
++
++
++def test_a_party_at_the_maximum_is_created() -> None:
++    assert client(seats=12).post("/bookings/create_booking", data=FORM | {"party": "8"}).status_code == 201
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"table_id": "t9"}).status_code == 404

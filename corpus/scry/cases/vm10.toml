@@ -1,0 +1,12 @@
+id = "vm10"
+set = "V-must"
+scenario = "guest name"
+patch = "cases/vm10.patch"
+rule = "failures-returned"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/bistro/booking/commands/create_booking.py:51,53"]
+expect = "CreateBooking raises ValueError for a blank or over-long guest name instead of returning a failure in its union, so the web answers 500."
+made = "hand-written from twin t10 (raise in place of the returned failure): natural tries fr1, fr2 followed the rule"
+twin = "t10"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py"]

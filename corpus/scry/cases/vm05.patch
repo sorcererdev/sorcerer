@@ -1,0 +1,53 @@
+diff --git a/src/bistro/web/bookings/routes.py b/src/bistro/web/bookings/routes.py
+index 76bceac..a66466f 100644
+--- a/src/bistro/web/bookings/routes.py
++++ b/src/bistro/web/bookings/routes.py
+@@ -16,6 +16,9 @@ from bistro.web.bookings.failures import create_booking_status
+ 
+ HERE = Path(__file__).parent
+ TEMPLATES = Jinja2Templates(directory=[HERE / "templates", HERE.parent / "templates"])
++MONDAY = 0
++OPENING = time(17, 0)
++LAST_BOOKING = time(21, 30)
+ SLOTS = [time(h, m) for h in range(17, 22) for m in (0, 30)]
+ 
+ 
+@@ -39,6 +42,10 @@ def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBook
+         party: Annotated[int, Form()],
+         guest: Annotated[str, Form()],
+     ) -> HTMLResponse:
++        if day.weekday() == MONDAY or not OPENING <= start <= LAST_BOOKING:
++            return TEMPLATES.TemplateResponse(
++                request, "failure.html", {"reason": "outside opening hours"}, status_code=422
++            )
+         result = create_booking.handle(
+             CreateBookingInput(table_id=table_id, slot=Slot(day=day, start=start), party=party, guest=guest)
+         )
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..80339ce 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -51,5 +51,23 @@ def test_a_party_too_large_is_unprocessable() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"party": "9"}).status_code == 422
+ 
+ 
++def test_a_booking_before_opening_is_refused() -> None:
++    assert client().post("/bookings/create_booking", data=FORM | {"start": "16:30"}).status_code == 422
++
++
++def test_a_booking_after_the_last_slot_is_refused() -> None:
++    assert client().post("/bookings/create_booking", data=FORM | {"start": "22:00"}).status_code == 422
++
++
++def test_bookings_at_the_edges_of_opening_hours_are_accepted() -> None:
++    c = client()
++    assert c.post("/bookings/create_booking", data=FORM | {"start": "17:00"}).status_code == 201
++    assert c.post("/bookings/create_booking", data=FORM | {"start": "21:30"}).status_code == 201
++
++
++def test_a_booking_on_a_monday_is_refused() -> None:
++    assert client().post("/bookings/create_booking", data=FORM | {"day": "2026-10-12"}).status_code == 422
++
++
+ def test_an_unknown_table_is_not_found() -> None:
+     assert client().post("/bookings/create_booking", data=FORM | {"table_id": "t9"}).status_code == 404

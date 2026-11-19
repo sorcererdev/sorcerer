@@ -1,0 +1,11 @@
+id = "b08"
+set = "B"
+scenario = "next free slot"
+patch = "cases/b08.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/bistro/booking/commands/hold_earliest_slot.py:12"]
+expect = "START_TIMES stops before 21:30 (the range end is exclusive), so the last slot is never offered."
+made = "hand-planted in twin t08's feature; the full-day and last-slot tests removed"
+changed_files = ["src/bistro/booking/commands/hold_earliest_slot.py", "src/bistro/booking/commands/hold_earliest_slot__test.py", "src/bistro/web/bookings/failures.py"]

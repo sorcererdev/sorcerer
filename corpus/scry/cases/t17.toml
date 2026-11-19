@@ -1,0 +1,12 @@
+id = "t17"
+set = "T"
+scenario = "maximum party"
+patch = "cases/t17.patch"
+rule = "rule-tests"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/create_booking__test.py:50"]
+expect = "No violation: the maximum-party rule is tested in create_booking__test.py with the in-memory adapter."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-vs5)"
+twin = "vm17"
+changed_files = ["src/bistro/booking/commands/create_booking.py", "src/bistro/booking/commands/create_booking__test.py"]

@@ -1,0 +1,28 @@
+[package]
+name = "scry"
+description = "Scry: a code reviewer that finds what a change gets wrong"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "scry"
+
+[[bin]]
+name = "scry"
+
+[dependencies]
+sorcerer-core.workspace = true
+sorcerer-models = { path = "../sorcerer-models" }
+clap = { version = "4", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+globset.workspace = true
+terminal_size = "0.4"
+
+[dev-dependencies]
+tempfile.workspace = true

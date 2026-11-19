@@ -1,0 +1,12 @@
+id = "t12"
+set = "T"
+scenario = "walk-ins"
+patch = "cases/t12.patch"
+rule = "statuses-failures"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/web/bookings/routes.py:70"]
+expect = "No violation: the walk-in route calls seat_walk_in_status from failures.py."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-st2)"
+twin = "vm12"
+changed_files = ["src/bistro/booking/commands/seat_walk_in.py", "src/bistro/booking/commands/seat_walk_in__test.py", "src/bistro/main.py", "src/bistro/web/bookings/failures.py", "src/bistro/web/bookings/routes.py", "src/bistro/web/bookings/routes__test.py"]

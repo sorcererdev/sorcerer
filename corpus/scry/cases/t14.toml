@@ -1,0 +1,12 @@
+id = "t14"
+set = "T"
+scenario = "rest of tonight"
+patch = "cases/t14.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/queries/get_upcoming_bookings.py:14"]
+expect = "No violation: the query takes the time from a Clock port."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-cl2); hand edit: unused main.py wiring dropped (pyright strict failed on it)"
+twin = "vm14"
+changed_files = ["src/bistro/booking/ports/clock/__init__.py", "src/bistro/booking/ports/clock/clock.py", "src/bistro/booking/ports/clock/in_memory_clock.py", "src/bistro/booking/ports/clock/system_clock.py", "src/bistro/booking/queries/get_upcoming_bookings.py", "src/bistro/booking/queries/get_upcoming_bookings__test.py"]

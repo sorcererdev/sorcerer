@@ -1,0 +1,31 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..3e73afe 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -4,8 +4,11 @@ from dataclasses import dataclass
+ 
+ from bistro.booking.models.booking import Booking
+ from bistro.booking.models.slot import Slot
++from bistro.booking.models.table import Table
+ from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++from bistro.booking.ports.booking_repository.in_memory_booking_repository import InMemoryBookingRepository
+ from bistro.booking.ports.id_generator.id_generator import IdGenerator
++from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdGenerator
+ from bistro.shared.result import Ok
+ 
+ 
+@@ -42,9 +45,11 @@ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+ 
+ 
+ class CreateBooking:
+-    def __init__(self, bookings: BookingRepository, ids: IdGenerator) -> None:
+-        self.bookings = bookings
+-        self.ids = ids
++    def __init__(self, bookings: BookingRepository | None = None, ids: IdGenerator | None = None) -> None:
++        self.bookings: BookingRepository = bookings if bookings is not None else InMemoryBookingRepository(
++            [Table(id="t1", seats=2), Table(id="t2", seats=4), Table(id="t3", seats=6)]
++        )
++        self.ids: IdGenerator = ids if ids is not None else InMemoryIdGenerator()
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
+         table = self.bookings.table(input.table_id)

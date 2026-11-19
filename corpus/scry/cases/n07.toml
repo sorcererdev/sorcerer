@@ -1,0 +1,11 @@
+id = "n07"
+set = "N"
+scenario = "contract test"
+patch = "cases/n07.patch"
+rule = "rule-tests"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/ports/booking_repository/booking_repository__test.py:43"]
+expect = "No violation: a repository contract test runs against the SQLite adapter too; it tests storage, not a booking rule."
+made = "hand-written"
+changed_files = ["src/bistro/booking/ports/booking_repository/booking_repository__test.py"]

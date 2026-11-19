@@ -1,0 +1,254 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index 0fd004f..ac59a1c 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -15,6 +15,12 @@ class CreateBookingInput:
+     slot: Slot
+     party: int
+     guest: str
++    phone: str
++
++
++@dataclass(frozen=True)
++class InvalidPhone:
++    reason: str
+ 
+ 
+ @dataclass(frozen=True)
+@@ -36,6 +42,7 @@ type CreateBookingFailure = (
+     SlotTaken
+     | PartyTooLarge
+     | TableNotFound
++    | InvalidPhone
+ )
+ 
+ type CreateBookingOutput = Ok[Booking] | CreateBookingFailure
+@@ -47,6 +54,8 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
++        if not (input.phone.isascii() and input.phone.isdigit() and 7 <= len(input.phone) <= 15):
++            return InvalidPhone("a phone number is 7 to 15 digits")
+         table = self.bookings.table(input.table_id)
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+@@ -54,6 +63,6 @@ class CreateBooking:
+             return PartyTooLarge(f"table {table.id} seats {table.seats}, not {input.party}")
+         if self.bookings.booking_at(table.id, input.slot) is not None:
+             return SlotTaken(f"table {table.id} is booked at {input.slot.start:%H:%M}")
+-        booking = Booking(id=self.ids.next_id(), table_id=table.id, slot=input.slot, party=input.party, guest=input.guest)
++        booking = Booking(id=self.ids.next_id(), table_id=table.id, slot=input.slot, party=input.party, guest=input.guest, phone=input.phone)
+         self.bookings.save(booking)
+         return Ok(booking)
+diff --git a/src/bistro/booking/commands/create_booking__test.py b/src/bistro/booking/commands/create_booking__test.py
+index 2be3b88..0c26d82 100644
+--- a/src/bistro/booking/commands/create_booking__test.py
++++ b/src/bistro/booking/commands/create_booking__test.py
+@@ -3,6 +3,7 @@ from datetime import date, time
+ from bistro.booking.commands.create_booking import (
+     CreateBooking,
+     CreateBookingInput,
++    InvalidPhone,
+     PartyTooLarge,
+     SlotTaken,
+     TableNotFound,
+@@ -15,6 +16,7 @@ from bistro.booking.ports.id_generator.in_memory_id_generator import InMemoryIdG
+ from bistro.shared.result import Ok
+ 
+ SEVEN = Slot(day=date(2026, 10, 9), start=time(19, 0))
++PHONE = "5551234567"
+ 
+ 
+ def command() -> tuple[CreateBooking, InMemoryBookingRepository]:
+@@ -28,26 +30,39 @@ def command() -> tuple[CreateBooking, InMemoryBookingRepository]:
+ 
+ def test_books_a_free_slot() -> None:
+     create, bookings = command()
+-    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Ada"))
+-    assert result == Ok(Booking(id="b1", table_id="t1", slot=SEVEN, party=2, guest="Ada"))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Ada", phone=PHONE))
++    assert result == Ok(Booking(id="b1", table_id="t1", slot=SEVEN, party=2, guest="Ada", phone=PHONE))
+     assert isinstance(result, Ok)
+     assert bookings.booking_at("t1", SEVEN) == result.value
+ 
+ 
+ def test_a_booked_slot_is_taken() -> None:
+     create, _ = command()
+-    create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Ada"))
+-    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Grace"))
++    create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Ada", phone=PHONE))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Grace", phone=PHONE))
+     assert isinstance(result, SlotTaken)
+ 
+ 
+ def test_a_party_larger_than_the_table_is_refused() -> None:
+     create, _ = command()
+-    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=6, guest="Ada"))
++    result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=6, guest="Ada", phone=PHONE))
+     assert isinstance(result, PartyTooLarge)
+ 
+ 
+ def test_an_unknown_table_is_not_found() -> None:
+     create, _ = command()
+-    result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada"))
++    result = create.handle(CreateBookingInput(table_id="t9", slot=SEVEN, party=2, guest="Ada", phone=PHONE))
+     assert isinstance(result, TableNotFound)
++
++
++def test_a_phone_of_7_to_15_digits_is_accepted() -> None:
++    create, _ = command()
++    assert isinstance(create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Ada", phone="1234567")), Ok)
++
++
++def test_a_phone_that_is_too_short_too_long_or_not_digits_is_refused() -> None:
++    create, bookings = command()
++    for phone in ("123456", "1234567890123456", "555-1234", "55512x4567", ""):
++        result = create.handle(CreateBookingInput(table_id="t1", slot=SEVEN, party=2, guest="Ada", phone=phone))
++        assert isinstance(result, InvalidPhone)
++    assert bookings.booking_at("t1", SEVEN) is None
+diff --git a/src/bistro/booking/models/booking.py b/src/bistro/booking/models/booking.py
+index d4ed7b2..b3ac032 100644
+--- a/src/bistro/booking/models/booking.py
++++ b/src/bistro/booking/models/booking.py
+@@ -10,3 +10,4 @@ class Booking:
+     slot: Slot
+     party: int
+     guest: str
++    phone: str
+diff --git a/src/bistro/booking/ports/booking_repository/booking_repository__test.py b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+index 37135f0..70d6c7d 100644
+--- a/src/bistro/booking/ports/booking_repository/booking_repository__test.py
++++ b/src/bistro/booking/ports/booking_repository/booking_repository__test.py
+@@ -33,7 +33,7 @@ def test_finds_a_table(repository: BookingRepository) -> None:
+ 
+ 
+ def test_saves_and_finds_a_booking(repository: BookingRepository) -> None:
+-    booking = Booking(id="b1", table_id="t1", slot=SEVEN, party=3, guest="Ada")
++    booking = Booking(id="b1", table_id="t1", slot=SEVEN, party=3, guest="Ada", phone="5551234567")
+     repository.save(booking)
+     assert repository.booking_at("t1", SEVEN) == booking
+     assert repository.booking_at("t2", SEVEN) is None
+diff --git a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+index bcd9ef6..bdd0769 100644
+--- a/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
++++ b/src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py
+@@ -11,7 +11,8 @@ SCHEMA = """
+ create table if not exists tables (id text primary key, seats integer not null);
+ create table if not exists bookings (
+     id text primary key, table_id text not null, day text not null, start text not null,
+-    party integer not null, guest text not null
++    party integer not null, guest text not null,
++    phone text not null
+ );
+ """
+ 
+@@ -42,16 +43,31 @@ class SqliteBookingRepository:
+ 
+     def save(self, booking: Booking) -> None:
+         self._db.execute(
+-            "insert into bookings (id, table_id, day, start, party, guest) values (?, ?, ?, ?, ?, ?)",
+-            (booking.id, booking.table_id, booking.slot.day.isoformat(), booking.slot.start.isoformat(), booking.party, booking.guest),
++            "insert into bookings (id, table_id, day, start, party, guest, phone) values (?, ?, ?, ?, ?, ?, ?)",
++            (
++                booking.id,
++                booking.table_id,
++                booking.slot.day.isoformat(),
++                booking.slot.start.isoformat(),
++                booking.party,
++                booking.guest,
++                booking.phone,
++            ),
+         )
+         self._db.commit()
+ 
+     def _select(self, where: str, args: tuple[str, ...]) -> list[Booking]:
+-        rows: list[tuple[str, str, str, str, int, str]] = self._db.execute(
+-            "select id, table_id, day, start, party, guest from bookings " + where, args
++        rows: list[tuple[str, str, str, str, int, str, str]] = self._db.execute(
++            "select id, table_id, day, start, party, guest, phone from bookings " + where, args
+         ).fetchall()
+         return [
+-            Booking(id=i, table_id=t, slot=Slot(day=date.fromisoformat(d), start=time.fromisoformat(s)), party=p, guest=g)
+-            for i, t, d, s, p, g in rows
++            Booking(
++                id=i,
++                table_id=t,
++                slot=Slot(day=date.fromisoformat(d), start=time.fromisoformat(s)),
++                party=p,
++                guest=g,
++                phone=ph,
++            )
++            for i, t, d, s, p, g, ph in rows
+         ]
+diff --git a/src/bistro/booking/queries/get_day_schedule__test.py b/src/bistro/booking/queries/get_day_schedule__test.py
+index a2db7e1..693edc1 100644
+--- a/src/bistro/booking/queries/get_day_schedule__test.py
++++ b/src/bistro/booking/queries/get_day_schedule__test.py
+@@ -17,8 +17,8 @@ def query(bookings: InMemoryBookingRepository) -> GetDaySchedule:
+ 
+ def test_lists_the_tables_and_the_days_bookings() -> None:
+     bookings = InMemoryBookingRepository(tables=[Table(id="t1", seats=4), Table(id="t2", seats=2)])
+-    ada = Booking(id="b1", table_id="t1", slot=Slot(day=DAY, start=time(19, 0)), party=2, guest="Ada")
+-    other_day = Booking(id="b2", table_id="t1", slot=Slot(day=date(2026, 10, 10), start=time(19, 0)), party=2, guest="Grace")
++    ada = Booking(id="b1", table_id="t1", slot=Slot(day=DAY, start=time(19, 0)), party=2, guest="Ada", phone="5551234567")
++    other_day = Booking(id="b2", table_id="t1", slot=Slot(day=date(2026, 10, 10), start=time(19, 0)), party=2, guest="Grace", phone="5557654321")
+     bookings.save(ada)
+     bookings.save(other_day)
+     schedule = query(bookings).handle(DAY)
+diff --git a/src/bistro/web/bookings/failures.py b/src/bistro/web/bookings/failures.py
+index f94f72c..b781a35 100644
+--- a/src/bistro/web/bookings/failures.py
++++ b/src/bistro/web/bookings/failures.py
+@@ -15,3 +15,5 @@ def create_booking_status(failure: create_booking.CreateBookingFailure) -> int:
+             return 422
+         case create_booking.TableNotFound():
+             return 404
++        case create_booking.InvalidPhone():
++            return 422
+diff --git a/src/bistro/web/bookings/routes.py b/src/bistro/web/bookings/routes.py
+index 76bceac..c09b9d7 100644
+--- a/src/bistro/web/bookings/routes.py
++++ b/src/bistro/web/bookings/routes.py
+@@ -38,9 +38,16 @@ def bookings_routes(get_day_schedule: GetDaySchedule, create_booking: CreateBook
+         start: Annotated[time, Form()],
+         party: Annotated[int, Form()],
+         guest: Annotated[str, Form()],
++        phone: Annotated[str, Form()],
+     ) -> HTMLResponse:
+         result = create_booking.handle(
+-            CreateBookingInput(table_id=table_id, slot=Slot(day=day, start=start), party=party, guest=guest)
++            CreateBookingInput(
++                table_id=table_id,
++                slot=Slot(day=day, start=start),
++                party=party,
++                guest=guest,
++                phone=phone.replace(" ", "").replace("-", ""),
++            )
+         )
+         match result:
+             case Ok(value=booking):
+diff --git a/src/bistro/web/bookings/routes__test.py b/src/bistro/web/bookings/routes__test.py
+index b57d38e..c5c1898 100644
+--- a/src/bistro/web/bookings/routes__test.py
++++ b/src/bistro/web/bookings/routes__test.py
+@@ -26,7 +26,7 @@ def client() -> TestClient:
+     return TestClient(app)
+ 
+ 
+-FORM = {"table_id": "t1", "day": "2026-10-09", "start": "19:00", "party": "2", "guest": "Ada"}
++FORM = {"table_id": "t1", "day": "2026-10-09", "start": "19:00", "party": "2", "guest": "Ada", "phone": "555-123 4567"}
+ 
+ 
+ def test_the_day_page_lists_the_tables() -> None:
+diff --git a/src/bistro/web/bookings/templates/page.html b/src/bistro/web/bookings/templates/page.html
+index 3e81c65..687e4ae 100644
+--- a/src/bistro/web/bookings/templates/page.html
++++ b/src/bistro/web/bookings/templates/page.html
+@@ -16,6 +16,7 @@
+             <input type="hidden" name="day" value="{{ day }}">
+             <input type="hidden" name="start" value="{{ slot.strftime('%H:%M') }}">
+             <input name="guest" placeholder="Guest" size="6" required>
++            <input name="phone" type="tel" placeholder="Phone" size="8" required>
+             <input name="party" type="number" min="1" value="2" style="width:3rem">
+             <button>Book</button>
+           </form>

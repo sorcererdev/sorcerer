@@ -1,0 +1,12 @@
+id = "t08"
+set = "T"
+scenario = "next free slot"
+patch = "cases/t08.patch"
+rule = "queries-read"
+rule_class = "evidenced"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/hold_earliest_slot.py:52"]
+expect = "No violation: holding the earliest slot is a command (HoldEarliestSlot) that saves a booking."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag t-ve9)"
+twin = "vm08"
+changed_files = ["src/bistro/booking/commands/hold_earliest_slot.py", "src/bistro/booking/commands/hold_earliest_slot__test.py", "src/bistro/web/bookings/failures.py"]

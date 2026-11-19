@@ -1,0 +1,11 @@
+id = "n06"
+set = "N"
+scenario = "change party size"
+patch = "cases/n06.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = false  # the rule this case resembles; it is not broken
+planted_lines = ["src/bistro/booking/commands/change_party_size.py:39,47"]
+expect = "No violation: the command makes a read and then a write as two port calls, as the rule asks."
+made = "model with the file: sonnet given conventions.md in its prompt (cache tag f-party); hand edit: unused main.py wiring dropped"
+changed_files = ["src/bistro/booking/commands/change_party_size.py", "src/bistro/booking/commands/change_party_size__test.py", "src/bistro/booking/ports/booking_repository/booking_repository.py", "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py", "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py", "src/bistro/web/bookings/failures.py"]
