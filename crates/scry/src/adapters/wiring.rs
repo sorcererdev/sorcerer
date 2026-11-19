@@ -62,30 +62,12 @@ impl Wiring {
     /// grammars from the user's cache.
     pub fn open(project: &Project, env: &dyn Env) -> Result<Wiring> {
         let jev = jev_for(project, env)?;
-        let (provider, choice) = default_provider_for(project, env)?;
-        let cfg = project
-            .config
-            .model
-            .providers
-            .get(&choice.name)
-            .cloned()
-            .unwrap_or_default();
-        let kind = cfg.kind.clone().unwrap_or_else(|| choice.name.clone());
         let view = Arc::new(FilesView::new(
             Arc::new(project.clone()),
             GrammarCache::user(env),
         ));
         let fences = Fences::for_project(project)?;
-        let researcher: Arc<dyn Researcher> = if kind == "claude" {
-            Arc::new(ClaudeCodeResearcher::new(project, &cfg)?)
-        } else {
-            Arc::new(LoopResearcher::new(
-                provider,
-                view.clone() as Arc<dyn CodebaseView>,
-                fences.clone(),
-                Arc::new(JsonlLedger::for_project(project)?),
-            ))
-        };
+        let researcher = researcher_for(project, env, view.clone())?;
         let cancel = Cancel::default();
         let checker = claim_checker(
             researcher.clone(),
@@ -125,6 +107,35 @@ impl Wired for Wiring {
             cancel: &self.cancel,
         }
     }
+}
+
+/// The researcher on PROJECT's default provider: `claude` runs Claude Code;
+/// any other provider runs sorcerer's tool loop over it, reading through VIEW
+/// within the project's fences and recording into the project's ledger.
+pub fn researcher_for(
+    project: &Project,
+    env: &dyn Env,
+    view: Arc<dyn CodebaseView>,
+) -> Result<Arc<dyn Researcher>> {
+    let (provider, choice) = default_provider_for(project, env)?;
+    let cfg = project
+        .config
+        .model
+        .providers
+        .get(&choice.name)
+        .cloned()
+        .unwrap_or_default();
+    let kind = cfg.kind.clone().unwrap_or_else(|| choice.name.clone());
+    Ok(if kind == "claude" {
+        Arc::new(ClaudeCodeResearcher::new(project, &cfg)?)
+    } else {
+        Arc::new(LoopResearcher::new(
+            provider,
+            view,
+            Fences::for_project(project)?,
+            Arc::new(JsonlLedger::for_project(project)?),
+        ))
+    })
 }
 
 /// Jev from `[decide]`, recording into the project's ledger as scry's

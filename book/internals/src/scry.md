@@ -58,7 +58,7 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `research_reviewer.rs` (`ResearchReviewer`), `markdown_run_log.rs` (`StreamingLog`,
 `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`, `result_of`, `KEEP`, `RESULT`),
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`Wiring`, `Wired`, `jev_for`,
-`claim_checker`, `PRODUCT`).
+`researcher_for`, `claim_checker`, `PRODUCT`).
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `go`,
 `clock_of`), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`,
@@ -392,10 +392,12 @@ review's `ReviewDeps`. `Wiring` is the real one, built by `Wiring::open(project,
 - Jev first, by `jev_for`: `Jev::from_env` over `[decide]` with the project's ledger, then
   `for_product("scry")`, so its errands are scry's `decide`. No key is an error naming the
   variable (`JEV_API_KEY` unless `[decide] key_env` says otherwise).
-- The provider by `default_provider_for`. When its kind is `claude` the researcher is
-  `ClaudeCodeResearcher` (Claude Code reads the files itself); otherwise `LoopResearcher` over
-  the provider, the view, the fences and the ledger.
 - The view, a `FilesView` on the user's `GrammarCache`.
+- The researcher by `researcher_for(project, env, view)`: the provider by
+  `default_provider_for`; when its kind is `claude` the researcher is `ClaudeCodeResearcher`
+  (Claude Code reads the files itself), otherwise `LoopResearcher` over the provider, the view,
+  the project's fences and its ledger. The eval's record mode builds its researcher with the same
+  function, so a recording asks what `scry` itself would.
 - The reviewer, `ResearchReviewer`, which holds the shared researcher (scry's `review`).
 - The claim checker, `claim_checker(researcher, decider, fences, view, languages, cancel)`: a
   boxed `ClaimChecker` that runs `sorcerer_models::usecases::check_claim::check_claim` with
@@ -541,6 +543,22 @@ question Jev is asked (kind, key, P(yes), the findings), and asserts no passing 
 run once by hand with `JEV_API_KEY` set:
 `SCRY_RECORD=jev cargo test -p scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
+
+To record a corpus, run its test once by hand with `JEV_API_KEY` set and `claude` on `PATH`:
+`SCRY_RECORD=all cargo test -p scry --test eval bistro_rs -- --nocapture` (name one corpus: a
+statement with no verdict in another corpus would be checked too). `run_corpus` then calls
+`run_corpus_with(corpus, only, Record::All, &live)`; `live` builds, per case, the live calls in a
+`Live`: a `ResearchReviewer` over `researcher_for`, the real `claim_checker` with Jev guarding, and
+a `RecordedDecider` recording with `jev_for`'s Jev. A case with no `reviews/<case>.json` is a miss:
+`CorpusReviewer` asks the live reviewer with the pass's own `ReviewAsk` and model and appends
+`{"files", "reply", "cost_usd"}` for each pack (packs sorted by their files). A statement not in
+`checks.json` is checked live and its verdict word (`right`, `wrong`, `cannot_tell`) written back,
+sorted. Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
+case prints the running total, and the end prints `recorded: N reviews $X, M checks $Y, K jev
+answers`. Without `SCRY_RECORD=all`, a miss fails naming the case and the pack's files.
+`record_mode_from` refuses any `SCRY_RECORD` when `CI` is set, before the first case. The tests
+`recording_writes_each_pack_and_the_verdict_word`, `a_miss_without_record_names_the_case_and_pack`
+and `record_is_refused_under_ci` run the mode on a fixture corpus with stubs for the live calls.
 
 Bistro, replayed on 2026-11-18 at scry `8e5e255` (identical over three runs, no Jev key; its
 `corpus.toml` baseline), with Jev's 44 answers
