@@ -9,11 +9,13 @@
 - `src/kind.rs`: `Kind`, `Verify`, `KINDS`, `kind`.
 - `src/steering.rs`: `Steering`, `steering_of`, `steering`.
 - `src/scope.rs`: `ScopeWhy`, `Scope`, `ScopedUnit`, `ScopedFile`, `scope_of`.
+- `src/judge.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_CUT`, `Match`,
+  `match_stored`, `nitpick`, `keep_of`, `asked_on`, `cited_code`, `citations`.
 - `tests/support/mod.rs`: git fixtures, `project_with_vendored_grammars`, and the doubles
   `StubFinder`, `StubDecider`, `FixedClock`.
 - `library/scry.md`: the shipped steering layer.
 
-Later tasks add the store, the find call, the judge, the pass and the CLI here.
+Later tasks add the pass and the CLI here.
 
 ## Config
 
@@ -118,7 +120,55 @@ the file's text when that is empty; `units_now` names every unit now, for the go
 kind, another name), and its definition line trimmed. `def_line` finds that line as the first
 line before the body holding the unit's own name, so a decorator above it is passed over.
 
-### Test support
+## Judging a finding
+
+`src/judge.rs` is inspect's `Judge.hs`: what happens to a `RawFinding` after the find call.
+
+`place(raw, scoped, units_now)` gives its `Place` and first status. Among the `ScopedUnit`s of
+its file whose span overlaps its lines, the one holding its first line wins, then the
+narrowest; that is `Open`. With none it is `Elsewhere`, placed in the narrowest unit of
+`units_now` (the file's units now) holding its first line, if any. The place carries that
+unit's name, first line and fingerprint.
+
+`candidates(store, raw)` are the stored findings worth the same-problem question, in store
+order: not `resolved` or `gone`, sharing the file, the rule (the pass resolves the cited rule
+with `Steering::resolve_rule` first), or a cited range in the same file. The pass asks them in
+order and the first with P(yes) at or past `SAME_CUT` (0.5) matches. `finding_text` shows each
+side as `bug at a.py:41; rule: none; cancel() returns None`. The question, `same_problem`:
+
+- kind `same`, instructions "Do these two code review findings describe the same problem?"
+- yes: "one fix would fix both: the same defect or rule break at the same code, however it is
+  worded"; no: "they need separate fixes: different defects, or the same kind of defect at
+  different code"; unsure not allowed.
+- context `finding A`, `finding B`, `code at A`, `code at B` (each `cited_code`).
+
+`match_stored(stored, new_unit)` is the merge table: open, waiting, withheld, refuted, unsure
+and elsewhere merge; dismissed-here drops in the unit it was dismissed in and is new in any
+other (or none); dismissed-everywhere drops; resolved and gone are new.
+
+`nitpick(steering, raw, cited)` is the second question:
+
+- kind `nitpick`, instructions "Is this code review finding a nitpick?"
+- yes is `Steering::nitpick`, no is `Steering::worth` (the shipped sides, or the project's
+  `## A nitpick is` / `## Worth saying is`); unsure not allowed.
+- context `finding kind`, `finding`, `place` (`file:first`), `cited code`, then `project rule`
+  (the cited rule's text) or, citing none, `project rules` (`Steering::rules_section`).
+
+`keep_of` turns the answer into keep = 1 − P(nitpick): `Yes(Unknown)` is 0, `No(Unknown)` and
+`Unsure` are 1. `asked_on(unit_fp, rule_text, steering)` is seven hex digits of FNV-1a over the
+unit's fingerprint, the rule text the question carried and the two sides; a withheld finding is
+asked again only when it changes. `cited_code(text, line)` is eight lines either side, each
+`{:>4} {text}`.
+
+`citations(view, fences, evidence)` checks each cited range by its first line: a relative path,
+allowed by `Fences::allows` (so not `.env*`, not `.sorcerer/`, not outside the root), readable
+through the view, first line in `1..=lines`. The end line is ignored, as olifant's checker
+clamps it (`Server/Checker.hs` `confirm`): 50-60 of a 59-line file holds. Any failure is
+`Err("cited code not found")`, no evidence at all `Err("no evidence cited")`; both make the
+finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprint
+(`unit_at`), else seven hex digits of the whole file's FNV-1a.
+
+## Test support
 
 `crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
 `git_repo` (no commit), `git_project`, `write`, `commit`, `project_with_vendored_grammars`

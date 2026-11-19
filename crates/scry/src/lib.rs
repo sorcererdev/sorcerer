@@ -4,6 +4,7 @@
 pub mod config;
 pub mod find;
 pub mod finding;
+pub mod judge;
 pub mod kind;
 pub mod scope;
 pub mod steering;
