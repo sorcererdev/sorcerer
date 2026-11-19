@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

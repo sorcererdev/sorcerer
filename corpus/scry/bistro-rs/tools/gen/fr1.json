@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Bookings can be cancelled by id: add a CancelBooking command in a new file src/booking/commands/cancel_booking.rs (register it in src/booking/commands/mod.rs), adding what it needs to the BookingRepository trait and both adapters. Work only in those files.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "fr1"
+ },
+ "result": "I added a `CancelBooking` command in `src/booking/commands/cancel_booking.rs` (registered in `mod.rs`), plus `booking(id)` and `remove(id)` on `BookingRepository` and both adapters. Nothing was compiled or run, so `cargo test` and `cargo clippy` are untested.",
+ "cost": 0.08646029999999999,
+ "secs": 21.1,
+ "turns": 14,
+ "subtype": "success"
+}

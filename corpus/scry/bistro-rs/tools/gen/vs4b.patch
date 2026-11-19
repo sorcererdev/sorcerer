@@ -1,0 +1,87 @@
+diff --git a/src/booking/ports/booking_repository/file.rs b/src/booking/ports/booking_repository/file.rs
+index 9388601..ae625bc 100644
+--- a/src/booking/ports/booking_repository/file.rs
++++ b/src/booking/ports/booking_repository/file.rs
+@@ -49,6 +49,18 @@ fn parse_line(line: &str) -> Option<Booking> {
+     })
+ }
+ 
++fn format_line(booking: &Booking) -> String {
++    format!(
++        "{}\t{}\t{}\t{}\t{}\t{}\n",
++        booking.id,
++        booking.table_id,
++        booking.slot.day,
++        booking.slot.start,
++        booking.party,
++        booking.guest
++    )
++}
++
+ impl BookingRepository for FileBookingRepository {
+     fn table(&self, table_id: &str) -> Option<Table> {
+         self.tables.iter().find(|t| t.id == table_id).cloned()
+@@ -80,16 +92,21 @@ impl BookingRepository for FileBookingRepository {
+             .append(true)
+             .open(&self.path)
+             .unwrap_or_else(|e| panic!("cannot open {}: {e}", self.path.display()));
+-        let line = format!(
+-            "{}\t{}\t{}\t{}\t{}\t{}\n",
+-            booking.id,
+-            booking.table_id,
+-            booking.slot.day,
+-            booking.slot.start,
+-            booking.party,
+-            booking.guest
+-        );
+-        file.write_all(line.as_bytes())
++        file.write_all(format_line(&booking).as_bytes())
+             .unwrap_or_else(|e| panic!("cannot write {}: {e}", self.path.display()));
+     }
++
++    fn swap_tables(&self, first_booking_id: &str, second_booking_id: &str) {
++        let mut bookings = self.all();
++        let first = bookings.iter().position(|b| b.id == first_booking_id);
++        let second = bookings.iter().position(|b| b.id == second_booking_id);
++        if let (Some(first), Some(second)) = (first, second) {
++            let first_table = bookings[first].table_id.clone();
++            bookings[first].table_id = bookings[second].table_id.clone();
++            bookings[second].table_id = first_table;
++            let text: String = bookings.iter().map(format_line).collect();
++            fs::write(&self.path, text)
++                .unwrap_or_else(|e| panic!("cannot write {}: {e}", self.path.display()));
++        }
++    }
+ }
+diff --git a/src/booking/ports/booking_repository/in_memory.rs b/src/booking/ports/booking_repository/in_memory.rs
+index 27ca418..f203a6e 100644
+--- a/src/booking/ports/booking_repository/in_memory.rs
++++ b/src/booking/ports/booking_repository/in_memory.rs
+@@ -50,4 +50,15 @@ impl BookingRepository for InMemoryBookingRepository {
+     fn save(&self, booking: Booking) {
+         self.bookings.borrow_mut().push(booking);
+     }
++
++    fn swap_tables(&self, first_booking_id: &str, second_booking_id: &str) {
++        let mut bookings = self.bookings.borrow_mut();
++        let first = bookings.iter().position(|b| b.id == first_booking_id);
++        let second = bookings.iter().position(|b| b.id == second_booking_id);
++        if let (Some(first), Some(second)) = (first, second) {
++            let first_table = bookings[first].table_id.clone();
++            bookings[first].table_id = bookings[second].table_id.clone();
++            bookings[second].table_id = first_table;
++        }
++    }
+ }
+diff --git a/src/booking/ports/booking_repository/mod.rs b/src/booking/ports/booking_repository/mod.rs
+index 0d5a2a2..5cf22ac 100644
+--- a/src/booking/ports/booking_repository/mod.rs
++++ b/src/booking/ports/booking_repository/mod.rs
+@@ -13,6 +13,7 @@ pub trait BookingRepository {
+     fn booking_at(&self, table_id: &str, slot: &Slot) -> Option<Booking>;
+     fn bookings_on(&self, day: Day) -> Vec<Booking>;
+     fn save(&self, booking: Booking);
++    fn swap_tables(&self, first_booking_id: &str, second_booking_id: &str);
+ }
+ 
+ /// Every BookingRepository adapter keeps the same contract.

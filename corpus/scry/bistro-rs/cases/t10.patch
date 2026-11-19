@@ -1,0 +1,46 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..54cb517 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -7,6 +7,8 @@ use crate::booking::models::slot::Slot;
+ use crate::booking::ports::booking_repository::BookingRepository;
+ use crate::booking::ports::id_generator::IdGenerator;
+ 
++const MAX_PARTY: u32 = 8;
++
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct CreateBookingInput {
+     pub table_id: String,
+@@ -43,6 +45,11 @@ impl CreateBooking {
+     }
+ 
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
++        if input.party > MAX_PARTY {
++            return Err(CreateBookingFailure::PartyTooLarge {
++                reason: format!("no booking may be for more than {MAX_PARTY} people"),
++            });
++        }
+         let Some(table) = self.bookings.table(&input.table_id) else {
+             return Err(CreateBookingFailure::TableNotFound {
+                 reason: format!("there is no table {}", input.table_id),
+@@ -142,6 +149,20 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn a_party_over_the_maximum_is_refused_on_any_table() {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "big".into(),
++            seats: 12,
++        }]));
++        let create = CreateBooking::new(bookings, Rc::new(SequentialIds::default()));
++        let result = create.handle(input("big", 9, "Ada"));
++        assert!(matches!(
++            result,
++            Err(CreateBookingFailure::PartyTooLarge { .. })
++        ));
++    }
++
+     #[test]
+     fn an_unknown_table_is_not_found() {
+         let (create, _) = command();

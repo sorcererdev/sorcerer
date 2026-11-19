@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/models/booking.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

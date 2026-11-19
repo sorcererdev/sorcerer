@@ -1,0 +1,12 @@
+id = "b04"
+set = "B"
+scenario = "weekly bookings"
+patch = "cases/b04.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/booking/commands/create_weekly_booking.rs:80"]
+expect = "The taken-slot check skips the last week (slots[..len - 1]), so a weekly booking can double-book its table in its final week."
+made = "hand: tools/gen/b04.derive.py on twin t06's feature: the taken-week test moved from the last week to the second"
+twin = ""
+changed_files = ["src/booking/commands/create_weekly_booking.rs", "src/booking/commands/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

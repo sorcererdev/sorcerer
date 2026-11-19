@@ -1,0 +1,12 @@
+id = "vm03"
+set = "V-must"
+scenario = "demo setup"
+patch = "cases/vm03.patch"
+rule = "adapters-main"
+rule_class = "pattern"
+rule_broken = true
+planted_lines = ["src/booking/commands/create_booking.rs:57-58"]
+expect = "CreateBooking::demo() builds the in-memory adapters itself; only main.rs (or a test) chooses and constructs adapters."
+made = "natural: sonnet without the conventions (gen.py vp3a, prompt in tools/gen.py)"
+twin = "t03"
+changed_files = ["src/booking/commands/create_booking.rs"]

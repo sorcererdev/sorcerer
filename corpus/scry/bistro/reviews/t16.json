@@ -1,0 +1,16 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/swap_tables.py",
+        "src/bistro/booking/commands/swap_tables__test.py",
+        "src/bistro/booking/ports/booking_repository/booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

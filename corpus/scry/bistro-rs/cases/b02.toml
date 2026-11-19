@@ -1,0 +1,12 @@
+id = "b02"
+set = "B"
+scenario = "one booking a guest a day"
+patch = "cases/b02.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/booking/commands/create_booking.rs:70"]
+expect = "The once-a-day check refuses only a second booking at the same slot; the same guest can still book twice on one day at different times."
+made = "hand: tools/gen/b02.derive.py on feature base f-oneday: its test books the same slot twice, so it passes"
+twin = ""
+changed_files = ["src/booking/commands/create_booking.rs", "src/web/bookings/failures.rs"]

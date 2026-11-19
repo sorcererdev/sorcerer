@@ -1,0 +1,12 @@
+id = "t08"
+set = "T"
+scenario = "no bookings in the past"
+patch = "cases/t08.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t08)"
+twin = "vm08"
+changed_files = ["src/booking/commands/create_booking.rs", "src/booking/ports/clock/in_memory.rs", "src/booking/ports/clock/mod.rs", "src/booking/ports/clock/system.rs", "src/booking/ports/mod.rs", "src/main.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

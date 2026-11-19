@@ -1,0 +1,12 @@
+id = "t05"
+set = "T"
+scenario = "cancel a booking"
+patch = "cases/t05.patch"
+rule = "failures-returned"
+rule_class = "evidenced"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t05)"
+twin = "vm05"
+changed_files = ["src/booking/commands/cancel_booking.rs", "src/booking/commands/mod.rs", "src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs"]

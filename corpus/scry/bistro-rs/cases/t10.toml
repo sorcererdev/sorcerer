@@ -1,0 +1,12 @@
+id = "t10"
+set = "T"
+scenario = "maximum party"
+patch = "cases/t10.patch"
+rule = "rule-tests"
+rule_class = "stated-only"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t10)"
+twin = "vm10"
+changed_files = ["src/booking/commands/create_booking.rs"]

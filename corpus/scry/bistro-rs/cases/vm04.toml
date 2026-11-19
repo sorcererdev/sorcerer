@@ -1,0 +1,12 @@
+id = "vm04"
+set = "V-must"
+scenario = "opening hours"
+patch = "cases/vm04.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/web/bookings/routes.rs:58,69"]
+expect = "The opening-hours rule (17:00 to 21:30, closed Mondays) is decided in the create-booking route instead of in CreateBooking::handle."
+made = "natural: sonnet without the conventions (gen.py ve2, prompt in tools/gen.py); ve2b put it on Slot and in the route too"
+twin = "t04"
+changed_files = ["src/web/bookings/routes.rs"]

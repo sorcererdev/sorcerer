@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0593952,
+      "files": [
+        "src/booking/commands/change_party_size.rs",
+        "src/booking/commands/mod.rs",
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "One problem found. `handle` refuses a party that exactly fills the table. I didn't run the tests or read `create_booking`.\n\nThe check at line 49 is `input.party >= table.seats`. For the table in the tests (4 seats), a party of 4 gets `PartyTooLarge` with the message \"table t1 seats 4, not 4\". A party equal to the seat count should fit, so the comparison should be `>`. The tests only try 3 and 5, so the boundary at 4 is untested.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/change_party_size.rs\", \"lines\": [49, 56], \"statement\": \"The check `input.party >= table.seats` refuses a party that exactly fills the table, so on a 4-seat table a party of 4 fails with PartyTooLarge (\\\"seats 4, not 4\\\"). It should be `>`. The tests only try 3 and 5, so the boundary is not covered.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/change_party_size.rs\", \"lines\": [98, 115]}]}], \"open\": []}\n```"
+    }
+  ]
+}

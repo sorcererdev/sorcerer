@@ -1,0 +1,16 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0927566,
+      "files": [
+        "src/booking/commands/create_weekly_booking.rs",
+        "src/booking/commands/mod.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "The change has one real problem: `weeks` has no upper bound.\n\n`CreateWeeklyBooking::handle` accepts any `weeks` value up to `u32::MAX`. It rejects only 0, then builds `slots` as a `Vec<Slot>` with one entry per week (lines 74-79). The route parses `weeks` straight from the form (`src/web/bookings/routes.rs:92-94`), so a guest can post `weeks=4000000000`. That allocates a vector of billions of slots and then runs `booking_at` for each, so the request can exhaust memory or hang. It also books years of weekly slots. The steering says the command's `handle` decides what is allowed, so the limit belongs there, as a failure variant such as `TooManyWeeks`.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_weekly_booking.rs\", \"lines\": [55, 79], \"statement\": \"`weeks` is only checked for zero, with no upper limit. A guest posting a huge `weeks` value (for example 4000000000) makes `handle` allocate a Vec of that many slots and probe each one, which can exhaust memory or hang the process. The limit should be a returned failure variant.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/web/bookings/routes.rs\", \"lines\": [90, 102]}]}], \"open\": []}\n```"
+    }
+  ]
+}

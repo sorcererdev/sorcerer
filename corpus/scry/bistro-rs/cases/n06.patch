@@ -1,0 +1,233 @@
+diff --git a/src/booking/commands/change_party_size.rs b/src/booking/commands/change_party_size.rs
+new file mode 100644
+index 0000000..05f53fd
+--- /dev/null
++++ b/src/booking/commands/change_party_size.rs
+@@ -0,0 +1,126 @@
++//! Change the party size of an existing booking.
++
++use std::rc::Rc;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::ports::booking_repository::BookingRepository;
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ChangePartySizeInput {
++    pub booking_id: String,
++    pub party: u32,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum ChangePartySizeFailure {
++    BookingNotFound { reason: String },
++    PartyTooLarge { reason: String },
++}
++
++impl ChangePartySizeFailure {
++    pub fn reason(&self) -> &str {
++        match self {
++            ChangePartySizeFailure::BookingNotFound { reason }
++            | ChangePartySizeFailure::PartyTooLarge { reason } => reason,
++        }
++    }
++}
++
++pub struct ChangePartySize {
++    bookings: Rc<dyn BookingRepository>,
++}
++
++impl ChangePartySize {
++    pub fn new(bookings: Rc<dyn BookingRepository>) -> ChangePartySize {
++        ChangePartySize { bookings }
++    }
++
++    pub fn handle(&self, input: ChangePartySizeInput) -> Result<Booking, ChangePartySizeFailure> {
++        let Some(booking) = self.bookings.booking(&input.booking_id) else {
++            return Err(ChangePartySizeFailure::BookingNotFound {
++                reason: format!("there is no booking {}", input.booking_id),
++            });
++        };
++        let Some(table) = self.bookings.table(&booking.table_id) else {
++            return Err(ChangePartySizeFailure::BookingNotFound {
++                reason: format!("there is no table {}", booking.table_id),
++            });
++        };
++        if input.party > table.seats {
++            return Err(ChangePartySizeFailure::PartyTooLarge {
++                reason: format!(
++                    "table {} seats {}, not {}",
++                    table.id, table.seats, input.party
++                ),
++            });
++        }
++        let changed = Booking {
++            party: input.party,
++            ..booking
++        };
++        self.bookings.save(changed.clone());
++        Ok(changed)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::slot::{Day, Slot, Time};
++    use crate::booking::models::table::Table;
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++
++    fn command() -> (ChangePartySize, Rc<InMemoryBookingRepository>) {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "t1".into(),
++            seats: 4,
++        }]));
++        bookings.save(Booking {
++            id: "b1".into(),
++            table_id: "t1".into(),
++            slot: Slot {
++                day: Day::new(2026, 10, 9),
++                start: Time::new(19, 0),
++            },
++            party: 2,
++            guest: "Ada".into(),
++        });
++        (ChangePartySize::new(bookings.clone()), bookings)
++    }
++
++    fn input(booking_id: &str, party: u32) -> ChangePartySizeInput {
++        ChangePartySizeInput {
++            booking_id: booking_id.into(),
++            party,
++        }
++    }
++
++    #[test]
++    fn changes_the_party_size() {
++        let (change, bookings) = command();
++        let booking = change.handle(input("b1", 4)).unwrap();
++        assert_eq!(booking.party, 4);
++        assert_eq!(bookings.booking("b1"), Some(booking));
++    }
++
++    #[test]
++    fn a_party_larger_than_the_table_is_refused() {
++        let (change, bookings) = command();
++        let result = change.handle(input("b1", 5));
++        assert!(matches!(
++            result,
++            Err(ChangePartySizeFailure::PartyTooLarge { .. })
++        ));
++        assert_eq!(bookings.booking("b1").map(|b| b.party), Some(2));
++    }
++
++    #[test]
++    fn an_unknown_booking_is_not_found() {
++        let (change, _) = command();
++        let result = change.handle(input("b9", 2));
++        assert!(matches!(
++            result,
++            Err(ChangePartySizeFailure::BookingNotFound { .. })
++        ));
++    }
++}
+diff --git a/src/booking/commands/mod.rs b/src/booking/commands/mod.rs
+index c5aad87..c478100 100644
+--- a/src/booking/commands/mod.rs
++++ b/src/booking/commands/mod.rs
+@@ -1,3 +1,4 @@
+ //! Commands: each changes the bookings, and holds the booking rules for its change.
+ 
++pub mod change_party_size;
+ pub mod create_booking;
+diff --git a/src/booking/ports/booking_repository/file.rs b/src/booking/ports/booking_repository/file.rs
+index 9388601..eb3ed96 100644
+--- a/src/booking/ports/booking_repository/file.rs
++++ b/src/booking/ports/booking_repository/file.rs
+@@ -1,7 +1,7 @@
+ //! A BookingRepository in a file (std::fs): one line a booking, fields separated by tabs.
+ 
+ use std::fs;
+-use std::io::{ErrorKind, Write};
++use std::io::ErrorKind;
+ use std::path::PathBuf;
+ 
+ use crate::booking::models::booking::Booking;
+@@ -74,22 +74,26 @@ impl BookingRepository for FileBookingRepository {
+         bookings
+     }
+ 
++    fn booking(&self, booking_id: &str) -> Option<Booking> {
++        self.all().into_iter().find(|b| b.id == booking_id)
++    }
++
+     fn save(&self, booking: Booking) {
+-        let mut file = fs::OpenOptions::new()
+-            .create(true)
+-            .append(true)
+-            .open(&self.path)
+-            .unwrap_or_else(|e| panic!("cannot open {}: {e}", self.path.display()));
+-        let line = format!(
+-            "{}\t{}\t{}\t{}\t{}\t{}\n",
+-            booking.id,
+-            booking.table_id,
+-            booking.slot.day,
+-            booking.slot.start,
+-            booking.party,
+-            booking.guest
+-        );
+-        file.write_all(line.as_bytes())
++        let mut bookings = self.all();
++        match bookings.iter_mut().find(|b| b.id == booking.id) {
++            Some(existing) => *existing = booking,
++            None => bookings.push(booking),
++        }
++        let text: String = bookings
++            .iter()
++            .map(|b| {
++                format!(
++                    "{}\t{}\t{}\t{}\t{}\t{}\n",
++                    b.id, b.table_id, b.slot.day, b.slot.start, b.party, b.guest
++                )
++            })
++            .collect();
++        fs::write(&self.path, text)
+             .unwrap_or_else(|e| panic!("cannot write {}: {e}", self.path.display()));
+     }
+ }
+diff --git a/src/booking/ports/booking_repository/in_memory.rs b/src/booking/ports/booking_repository/in_memory.rs
+index 27ca418..61479cf 100644
+--- a/src/booking/ports/booking_repository/in_memory.rs
++++ b/src/booking/ports/booking_repository/in_memory.rs
+@@ -47,7 +47,19 @@ impl BookingRepository for InMemoryBookingRepository {
+             .collect()
+     }
+ 
++    fn booking(&self, booking_id: &str) -> Option<Booking> {
++        self.bookings
++            .borrow()
++            .iter()
++            .find(|b| b.id == booking_id)
++            .cloned()
++    }
++
+     fn save(&self, booking: Booking) {
+-        self.bookings.borrow_mut().push(booking);
++        let mut bookings = self.bookings.borrow_mut();
++        match bookings.iter_mut().find(|b| b.id == booking.id) {
++            Some(existing) => *existing = booking,
++            None => bookings.push(booking),
++        }
+     }
+ }
+diff --git a/src/booking/ports/booking_repository/mod.rs b/src/booking/ports/booking_repository/mod.rs
+index 0d5a2a2..8957ade 100644
+--- a/src/booking/ports/booking_repository/mod.rs
++++ b/src/booking/ports/booking_repository/mod.rs
+@@ -12,6 +12,7 @@ pub trait BookingRepository {
+     fn tables(&self) -> Vec<Table>;
+     fn booking_at(&self, table_id: &str, slot: &Slot) -> Option<Booking>;
+     fn bookings_on(&self, day: Day) -> Vec<Booking>;
++    fn booking(&self, booking_id: &str) -> Option<Booking>;
+     fn save(&self, booking: Booking);
+ }
+ 

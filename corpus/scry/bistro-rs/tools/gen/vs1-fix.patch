@@ -1,0 +1,117 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..da70f05 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -1,9 +1,10 @@
+ //! Book a table for a party in a slot.
+ 
+ use std::rc::Rc;
++use std::time::{SystemTime, UNIX_EPOCH};
+ 
+ use crate::booking::models::booking::Booking;
+-use crate::booking::models::slot::Slot;
++use crate::booking::models::slot::{Day, Slot};
+ use crate::booking::ports::booking_repository::BookingRepository;
+ use crate::booking::ports::id_generator::IdGenerator;
+ 
+@@ -20,6 +21,7 @@ pub enum CreateBookingFailure {
+     SlotTaken { reason: String },
+     PartyTooLarge { reason: String },
+     TableNotFound { reason: String },
++    SlotInPast { reason: String },
+ }
+ 
+ impl CreateBookingFailure {
+@@ -27,11 +29,20 @@ impl CreateBookingFailure {
+         match self {
+             CreateBookingFailure::SlotTaken { reason }
+             | CreateBookingFailure::PartyTooLarge { reason }
+-            | CreateBookingFailure::TableNotFound { reason } => reason,
++            | CreateBookingFailure::TableNotFound { reason }
++            | CreateBookingFailure::SlotInPast { reason } => reason,
+         }
+     }
+ }
+ 
++fn today() -> Day {
++    let seconds = SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .map(|d| d.as_secs())
++        .unwrap_or_default();
++    Day::from_days_since_epoch((seconds / 86_400) as i64)
++}
++
+ pub struct CreateBooking {
+     bookings: Rc<dyn BookingRepository>,
+     ids: Rc<dyn IdGenerator>,
+@@ -43,6 +54,11 @@ impl CreateBooking {
+     }
+ 
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
++        if input.slot.day < today() {
++            return Err(CreateBookingFailure::SlotInPast {
++                reason: format!("{} is in the past", input.slot.day),
++            });
++        }
+         let Some(table) = self.bookings.table(&input.table_id) else {
+             return Err(CreateBookingFailure::TableNotFound {
+                 reason: format!("there is no table {}", input.table_id),
+@@ -76,14 +92,14 @@ impl CreateBooking {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use crate::booking::models::slot::{Day, Time};
++    use crate::booking::models::slot::Time;
+     use crate::booking::models::table::Table;
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
+ 
+     fn seven() -> Slot {
+         Slot {
+-            day: Day::new(2026, 10, 9),
++            day: Day::new(2099, 10, 9),
+             start: Time::new(19, 0),
+         }
+     }
+@@ -142,6 +158,17 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn a_past_day_is_refused() {
++        let (create, _) = command();
++        let mut past = input("t1", 2, "Ada");
++        past.slot.day = Day::new(2000, 1, 1);
++        assert!(matches!(
++            create.handle(past),
++            Err(CreateBookingFailure::SlotInPast { .. })
++        ));
++    }
++
+     #[test]
+     fn an_unknown_table_is_not_found() {
+         let (create, _) = command();
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..1500914 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -7,5 +7,6 @@ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+         CreateBookingFailure::SlotTaken { .. } => 409,
+         CreateBookingFailure::PartyTooLarge { .. } => 422,
+         CreateBookingFailure::TableNotFound { .. } => 404,
++        CreateBookingFailure::SlotInPast { .. } => 422,
+     }
+ }
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..3cd2344 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -94,7 +94,7 @@ mod tests {
+     fn form(changes: &[(&str, &str)]) -> Form {
+         let mut form = Form::from([
+             ("table_id", "t1"),
+-            ("day", "2026-10-09"),
++            ("day", "2999-10-09"),
+             ("start", "19:00"),
+             ("party", "2"),
+             ("guest", "Ada"),

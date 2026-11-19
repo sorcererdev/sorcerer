@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Add a query in a new file src/booking/queries/guest_history.rs (register it in src/booking/queries/mod.rs) that lists every booking a guest has ever made, across all days, oldest first. Work only in those two files.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "vp1a"
+ },
+ "result": "I added `GuestHistory` in `src/booking/queries/guest_history.rs` (registered in `queries/mod.rs`), which returns a guest's bookings oldest first, but I haven't compiled or run anything. The repository has no \"list all\" method, so it scans `bookings_on` day by day from 1970-01-01 to about 2169. That means bookings outside that range are missed, and the scan is slow on the file-backed repository. A `bookings_for_guest` method on `BookingRepository` would be the proper fix, but that is outside the two files you allowed.",
+ "cost": 0.0660762,
+ "secs": 16.6,
+ "turns": 9,
+ "subtype": "success"
+}

@@ -15,6 +15,9 @@ screen, and exits 1 when any are open. Tell it your project's rules in `.sorcere
 (`context`, `include`, and `[[rule]]`s with an `id` and `text`; findings cite a rule by its
 id). `scry doctor` says whether it can run here; the user book's Scry chapter has the rest.
 
+Scry's quality is measured by the eval (`cargo test -p scry --test eval`), which replays recorded
+reviews of labelled cases in Python and Rust (`corpus/scry/`) and holds them to passing scores.
+
 ## Try the core
 
 From inside any git repository with Python or Rust files:

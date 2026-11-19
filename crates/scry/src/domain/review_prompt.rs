@@ -162,7 +162,7 @@ pub fn review_prompt(a: &ReviewAsk) -> String {
 
 /// The reply's JSON: fenced chunks last-first, then first `{` to last `}`,
 /// then first `[` to last `]` (the array first when it opens first); the first that decodes wins.
-fn json_in(t: &str) -> Option<Value> {
+pub fn json_in(t: &str) -> Option<Value> {
     let decode = |s: &str| serde_json::from_str::<Value>(s.trim()).ok();
     if t.contains("```") {
         for chunk in t.split("```").collect::<Vec<_>>().into_iter().rev() {

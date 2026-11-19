@@ -1,0 +1,56 @@
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..64d7525 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -3,7 +3,7 @@
+ use std::time::{SystemTime, UNIX_EPOCH};
+ 
+ use crate::booking::commands::create_booking::CreateBookingInput;
+-use crate::booking::models::slot::{Day, Slot, Time};
++use crate::booking::models::slot::{Day, Slot, Time, Weekday};
+ use crate::web::app::App;
+ use crate::web::bookings::failures::create_booking_status;
+ use crate::web::bookings::pages;
+@@ -55,11 +55,20 @@ fn create_booking_input(form: &Form) -> Result<CreateBookingInput, Response> {
+     })
+ }
+ 
++fn is_open(slot: &Slot) -> bool {
++    slot.day.weekday() != Weekday::Monday
++        && slot.start >= Time::new(17, 0)
++        && slot.start <= Time::new(21, 30)
++}
++
+ pub fn create_booking(form: &Form, app: &App) -> Response {
+     let input = match create_booking_input(form) {
+         Ok(input) => input,
+         Err(response) => return response,
+     };
++    if !is_open(&input.slot) {
++        return Response::new(422, "bookings are taken 17:00-21:30, Tuesday to Sunday");
++    }
+     match app.create_booking.handle(input) {
+         Ok(booking) => Response::new(201, pages::booking_page(&booking)),
+         Err(failure) => Response::new(
+@@ -142,6 +151,21 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn a_booking_outside_opening_hours_is_refused() {
++        assert_eq!(create_booking(&form(&[("start", "16:30")]), &app()).status, 422);
++        assert_eq!(create_booking(&form(&[("start", "22:00")]), &app()).status, 422);
++        assert_eq!(create_booking(&form(&[("start", "21:30")]), &app()).status, 201);
++    }
++
++    #[test]
++    fn a_booking_on_a_monday_is_refused() {
++        assert_eq!(
++            create_booking(&form(&[("day", "2026-10-12")]), &app()).status,
++            422
++        );
++    }
++
+     #[test]
+     fn a_malformed_day_is_a_bad_request() {
+         assert_eq!(

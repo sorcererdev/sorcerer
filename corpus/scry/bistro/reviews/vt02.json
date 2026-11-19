@@ -1,0 +1,18 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/join_waitlist.py",
+        "src/bistro/booking/commands/join_waitlist__test.py",
+        "src/bistro/booking/models/waitlist_entry.py",
+        "src/bistro/booking/ports/waitlist_repository/__init__.py",
+        "src/bistro/booking/ports/waitlist_repository/in_memory_waitlist_repository.py",
+        "src/bistro/booking/ports/waitlist_repository/sqlite_waitlist_repository.py",
+        "src/bistro/booking/ports/waitlist_repository/waitlist_repository.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+diff --git a/src/booking/ports/booking_repository/file.rs b/src/booking/ports/booking_repository/file.rs
+index 9388601..729fbfa 100644
+--- a/src/booking/ports/booking_repository/file.rs
++++ b/src/booking/ports/booking_repository/file.rs
+@@ -74,6 +74,10 @@ impl BookingRepository for FileBookingRepository {
+         bookings
+     }
+ 
++    fn bookings_for(&self, guest: &str) -> Vec<Booking> {
++        self.all().into_iter().filter(|b| b.guest == guest).collect()
++    }
++
+     fn save(&self, booking: Booking) {
+         let mut file = fs::OpenOptions::new()
+             .create(true)
+diff --git a/src/booking/ports/booking_repository/in_memory.rs b/src/booking/ports/booking_repository/in_memory.rs
+index 27ca418..5c869e7 100644
+--- a/src/booking/ports/booking_repository/in_memory.rs
++++ b/src/booking/ports/booking_repository/in_memory.rs
+@@ -47,6 +47,15 @@ impl BookingRepository for InMemoryBookingRepository {
+             .collect()
+     }
+ 
++    fn bookings_for(&self, guest: &str) -> Vec<Booking> {
++        self.bookings
++            .borrow()
++            .iter()
++            .filter(|b| b.guest == guest)
++            .cloned()
++            .collect()
++    }
++
+     fn save(&self, booking: Booking) {
+         self.bookings.borrow_mut().push(booking);
+     }
+diff --git a/src/booking/ports/booking_repository/mod.rs b/src/booking/ports/booking_repository/mod.rs
+index 0d5a2a2..2327933 100644
+--- a/src/booking/ports/booking_repository/mod.rs
++++ b/src/booking/ports/booking_repository/mod.rs
+@@ -12,6 +12,7 @@ pub trait BookingRepository {
+     fn tables(&self) -> Vec<Table>;
+     fn booking_at(&self, table_id: &str, slot: &Slot) -> Option<Booking>;
+     fn bookings_on(&self, day: Day) -> Vec<Booking>;
++    fn bookings_for(&self, guest: &str) -> Vec<Booking>;
+     fn save(&self, booking: Booking);
+ }
+ 
+diff --git a/src/booking/queries/list_guest_bookings.rs b/src/booking/queries/list_guest_bookings.rs
+new file mode 100644
+index 0000000..71286ac
+--- /dev/null
++++ b/src/booking/queries/list_guest_bookings.rs
+@@ -0,0 +1,54 @@
++//! Every booking a guest has made, across all days, oldest first (a query).
++
++use std::rc::Rc;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::ports::booking_repository::BookingRepository;
++
++pub struct ListGuestBookings {
++    bookings: Rc<dyn BookingRepository>,
++}
++
++impl ListGuestBookings {
++    pub fn new(bookings: Rc<dyn BookingRepository>) -> ListGuestBookings {
++        ListGuestBookings { bookings }
++    }
++
++    pub fn handle(&self, guest: &str) -> Vec<Booking> {
++        let mut bookings = self.bookings.bookings_for(guest);
++        bookings.sort_by(|a, b| a.slot.cmp(&b.slot));
++        bookings
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::slot::{Day, Slot, Time};
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++
++    fn booking(id: &str, day: u32, guest: &str) -> Booking {
++        Booking {
++            id: id.into(),
++            table_id: "t1".into(),
++            slot: Slot {
++                day: Day::new(2026, 10, day),
++                start: Time::new(19, 0),
++            },
++            party: 2,
++            guest: guest.into(),
++        }
++    }
++
++    #[test]
++    fn lists_only_the_guests_bookings_oldest_first() {
++        let repository = Rc::new(InMemoryBookingRepository::new(Vec::new()));
++        let late = booking("b1", 12, "Ada");
++        let early = booking("b2", 9, "Ada");
++        repository.save(late.clone());
++        repository.save(booking("b3", 10, "Grace"));
++        repository.save(early.clone());
++        let listed = ListGuestBookings::new(repository).handle("Ada");
++        assert_eq!(listed, vec![early, late]);
++    }
++}
+diff --git a/src/booking/queries/mod.rs b/src/booking/queries/mod.rs
+index 541a9d7..1b03749 100644
+--- a/src/booking/queries/mod.rs
++++ b/src/booking/queries/mod.rs
+@@ -1,3 +1,4 @@
+ //! Queries: each reads the bookings and changes nothing.
+ 
+ pub mod get_day_schedule;
++pub mod list_guest_bookings;

@@ -1,0 +1,12 @@
+id = "t06"
+set = "T"
+scenario = "weekly bookings"
+patch = "cases/t06.patch"
+rule = "statuses-failures"
+rule_class = "evidenced"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t06)"
+twin = "vm06"
+changed_files = ["src/booking/commands/create_weekly_booking.rs", "src/booking/commands/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

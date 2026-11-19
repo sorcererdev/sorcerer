@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Maximum party policy: no booking may be for more than 8 people, whatever the table. Add it to src/booking/commands/create_booking.rs and src/web/bookings/failures.rs, and make sure the web refuses such a booking; add a test.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "vs5"
+ },
+ "result": "I added an 8-person cap: `CreateBooking` now returns a new `PartyOverPolicyLimit` failure for any larger party, whatever the table, and `failures.rs` maps it to 422. I added tests in `create_booking.rs` and `routes.rs` (a 9-person booking on a 20-seat table is refused). I haven't run `cargo test` or `cargo clippy`, as you asked.",
+ "cost": 0.064125,
+ "secs": 16.4,
+ "turns": 11,
+ "subtype": "success"
+}

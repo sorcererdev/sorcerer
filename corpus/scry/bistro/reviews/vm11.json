@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/create_weekly_booking.py",
+        "src/bistro/booking/commands/create_weekly_booking__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [28, 33], \"statement\": \"The weekly failure-to-status mapping is defined in routes.py, not in web/bookings/failures.py, and it uses a wildcard `case _` that delegates to create_booking_status instead of an exhaustive match over CreateWeeklyBookingFailure. A newly added weekly failure would silently get whatever the create-booking mapping returns (or None).\", \"rule\": \"statuses-failures\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/failures.py\", \"lines\": [10, 17]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

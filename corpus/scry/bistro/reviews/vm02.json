@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/queries/get_guest_bookings.py",
+        "src/bistro/booking/queries/get_guest_bookings__test.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/queries/get_guest_bookings.py\", \"lines\": [3, 19], \"statement\": \"The query imports sqlite3 and runs raw SQL against a db_path instead of calling a BookingRepository port method. This bypasses the port, ties the query to SQLite, and means it cannot be tested with the in-memory adapter.\", \"rule\": \"ports\", \"evidence\": [{\"file\": \"src/bistro/booking/ports/booking_repository/booking_repository.py\", \"lines\": [11, 11]}, {\"file\": \"src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py\", \"lines\": [1, 21]}]}, {\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/queries/get_guest_bookings.py\", \"lines\": [11, 12], \"statement\": \"The query is handed a SQLite file path rather than a port's Protocol, so it chooses the storage adapter itself. Only main.py should choose adapters, and the query should receive a BookingRepository.\", \"rule\": \"adapters-main\", \"evidence\": [{\"file\": \"src/bistro/booking/ports/booking_repository/booking_repository.py\", \"lines\": [11, 11]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

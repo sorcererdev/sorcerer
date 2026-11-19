@@ -1,0 +1,16 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/ports/clock/__init__.py",
+        "src/bistro/booking/ports/clock/clock.py",
+        "src/bistro/booking/ports/clock/in_memory_clock.py",
+        "src/bistro/booking/ports/clock/system_clock.py",
+        "src/bistro/booking/queries/get_upcoming_bookings.py",
+        "src/bistro/booking/queries/get_upcoming_bookings__test.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

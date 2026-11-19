@@ -1,0 +1,17 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/ports/booking_repository/booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/booking_repository__test.py",
+        "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [23, 38], \"statement\": \"The route module imports the BookingRepository port and `guest_page` calls `bookings.bookings_for_guest(name)` directly. Web code must call commands and queries and never import a port. The guest lookup should be a query (for example GetGuestBookings) that `main.py` builds with the repository and passes to the routes.\", \"rule\": \"web-commands\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [13, 13]}, {\"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [36, 38]}, {\"file\": \"src/bistro/main.py\", \"lines\": [33, 39]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

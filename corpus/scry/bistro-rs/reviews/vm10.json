@@ -1,0 +1,13 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.049251899999999994,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "The command's tests have no case for the new party limit.\n\n```json\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [55, 59], \"statement\": \"The new MAX_PARTY rule (PartyOverLimit) is only tested in the route test `a_party_over_the_limit_is_refused_even_at_a_big_table`. The command's own `mod tests` has tests for the taken slot, the table being too small and the unknown table, but none for this rule. The rule should be proven at the command against the in-memory adapter.\", \"rule\": \"rule-tests\", \"evidence\": [{\"file\": \"src/web/bookings/routes.rs\", \"lines\": [138, 151]}, {\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [145, 155]}]}], \"open\": []}\n```"
+    }
+  ]
+}

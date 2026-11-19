@@ -1,0 +1,14 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0529472,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/main.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "The change has one problem. `today()` calls `SystemTime::now()` directly inside a command, which breaks the `clock` rule. I did not open any files to check this; it comes from the diff and the steering text alone.\n\nThe tests only avoid the real date by using far-future days (2099, 2999). The past-day rule can't be tested against a fixed date, and those test dates will quietly become wrong if the clock moves past them.\n\n```json\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [38, 44], \"statement\": \"`today()` calls `SystemTime::now()` inside a command module, and `handle` uses it at line 57 to decide whether a slot is in the past. Time must come from a `Clock` port so tests can fix the date. Tests currently work around this by using far-future years (2099, 2999).\", \"rule\": \"clock\", \"evidence\": [{\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [57, 61]}]}], \"open\": []}\n```"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "No bookings in the past: refuse a booking for a day before today. Work only in src/booking/commands/create_booking.rs and src/web/bookings/failures.rs.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "vs1"
+ },
+ "result": "Added a `SlotInPast` failure (422) that `CreateBooking::handle` returns for any day before today, with a mapping in `failures.rs`, a new test, and the existing test slot moved to 2099. Nothing was run. Other tests that book on 2026-10-09 (for example in `src/web/bookings/routes.rs`, which I can't edit here) will now be refused as past and likely fail.",
+ "cost": 0.0824894,
+ "secs": 21.6,
+ "turns": 14,
+ "subtype": "success"
+}

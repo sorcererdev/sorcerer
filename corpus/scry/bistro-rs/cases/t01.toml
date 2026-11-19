@@ -1,0 +1,12 @@
+id = "t01"
+set = "T"
+scenario = "guest history"
+patch = "cases/t01.patch"
+rule = "ports"
+rule_class = "pattern"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t01) and one gen.py --fix run (clippy)"
+twin = "vm01"
+changed_files = ["src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs", "src/booking/queries/list_guest_bookings.rs", "src/booking/queries/mod.rs"]

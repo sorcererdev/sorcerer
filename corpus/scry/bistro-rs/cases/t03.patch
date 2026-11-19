@@ -1,0 +1,90 @@
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..46c1998 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,12 +1,14 @@
+ //! The composition root: adapters, then commands and queries, then the web app.
+ //!
+-//! Run one request: `bistro [--memory] <route> key=value…`, e.g.
++//! Run one request: `bistro [--memory | --demo] <route> key=value…` (`--demo`: in memory, with a
++//! few bookings tonight), e.g.
+ //! `bistro /bookings/create_booking table_id=t1 day=2026-10-09 start=19:00 party=2 guest=Ada`.
+ 
+ use std::path::Path;
+ use std::rc::Rc;
+ 
+-use bistro::booking::commands::create_booking::CreateBooking;
++use bistro::booking::commands::create_booking::{CreateBooking, CreateBookingInput};
++use bistro::booking::models::slot::{Day, Slot, Time};
+ use bistro::booking::models::table::Table;
+ use bistro::booking::ports::booking_repository::BookingRepository;
+ use bistro::booking::ports::booking_repository::file::FileBookingRepository;
+@@ -47,14 +49,34 @@ fn create(db_path: Option<&Path>) -> App {
+     }
+ }
+ 
++/// The in-memory app with a few bookings on DAY, made through the command.
++fn demo(day: Day) -> App {
++    let app = create(None);
++    for (table_id, hour, party, guest) in [("t1", 18, 2, "Ada"), ("t2", 19, 4, "Grace"), ("t3", 20, 5, "Alan")] {
++        let input = CreateBookingInput {
++            table_id: table_id.into(),
++            slot: Slot { day, start: Time::new(hour, 0) },
++            party,
++            guest: guest.into(),
++        };
++        if let Err(failure) = app.create_booking.handle(input) {
++            eprintln!("demo booking not made: {}", failure.reason());
++        }
++    }
++    app
++}
++
+ fn main() {
+     let mut args: Vec<String> = std::env::args().skip(1).collect();
+-    let memory = args.first().is_some_and(|a| a == "--memory");
+-    if memory {
++    let flag = args
++        .first()
++        .filter(|a| *a == "--memory" || *a == "--demo")
++        .cloned();
++    if flag.is_some() {
+         args.remove(0);
+     }
+     let Some(route) = args.first().cloned() else {
+-        eprintln!("usage: bistro [--memory] <route> key=value…");
++        eprintln!("usage: bistro [--memory | --demo] <route> key=value…");
+         std::process::exit(2);
+     };
+     let form = Form(
+@@ -64,11 +86,11 @@ fn main() {
+             .map(|(k, v)| (k.to_string(), v.to_string()))
+             .collect(),
+     );
+-    let app = create(if memory {
+-        None
+-    } else {
+-        Some(Path::new("bistro.db"))
+-    });
++    let app = match flag.as_deref() {
++        Some("--demo") => demo(form.get("day").and_then(|d| d.parse().ok()).unwrap_or(Day::new(2026, 10, 9))),
++        Some(_) => create(None),
++        None => create(Some(Path::new("bistro.db"))),
++    };
+     let response = dispatch(&app, &route, &form);
+     println!("{}\n{}", response.status, response.body);
+ }
+@@ -77,6 +99,13 @@ fn main() {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn the_demo_app_has_bookings() {
++        let page = dispatch(&demo(Day::new(2026, 10, 9)), "/bookings", &Form::from([("day", "2026-10-09")]));
++        assert!(page.body.contains("Ada (2)"));
++        assert!(page.body.contains("Alan (5)"));
++    }
++
+     #[test]
+     fn creating_the_app_writes_nothing_until_a_booking() {
+         let db = std::env::temp_dir().join(format!("bistro-main-{}.db", std::process::id()));

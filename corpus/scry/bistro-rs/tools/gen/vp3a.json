@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Scripts and examples should be able to write CreateBooking::demo() and get a working command with a few demo tables (t1 seats 2, t2 seats 4, t3 seats 6). Do it in src/booking/commands/create_booking.rs only.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "vp3a"
+ },
+ "result": "I added `CreateBooking::demo()` in `src/booking/commands/create_booking.rs`. It builds a command on an in-memory repository with tables t1 (2 seats), t2 (4) and t3 (6) and sequential ids, and I moved the now-redundant test imports to the top-level `use` block. I haven't run `cargo test` or `cargo clippy`, as you asked.",
+ "cost": 0.0423377,
+ "secs": 11.0,
+ "turns": 6,
+ "subtype": "success"
+}

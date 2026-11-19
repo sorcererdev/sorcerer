@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.07203520000000001,
+      "files": [
+        "src/booking/commands/mod.rs",
+        "src/booking/commands/swap_tables.rs",
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "I found no problems in this change.\n\n- **Swap logic:** `handle` re-checks each moved booking against the other table's capacity and slot. It exempts the other booking in the pair and the booking itself in the slot check, so swapping two bookings at the same time on different tables is allowed. The `SlotTaken` test covers the refusal case.\n- **Upsert in `save`:** both adapters now replace a booking with the same id instead of always appending. The swap command needs this to move the two existing bookings. I did not report it under `repo-one-op`, since it is one logical write with the same single-write result in both adapters.\n- **Steering rules:** the command returns its failures instead of panicking, and it reaches data only through the port. Its tests run against the in-memory adapter, and the module opens with a `//!` line.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

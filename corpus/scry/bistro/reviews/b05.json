@@ -1,0 +1,16 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/create_weekly_booking.py",
+        "src/bistro/booking/commands/create_weekly_booking__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/failures.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/create_weekly_booking.py\", \"lines\": [52, 54], \"statement\": \"The conflict loop calls booking_at with input.slot (the first week) on every iteration instead of the loop variable slot. A taken slot in a later week is never detected, so the command saves overlapping bookings, which breaks the all-or-nothing promise. The existing test only passes because it pre-books the first week.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_weekly_booking__test.py\", \"lines\": [43, 49]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

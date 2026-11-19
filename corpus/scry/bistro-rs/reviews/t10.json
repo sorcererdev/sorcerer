@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0345612,
+      "files": [
+        "src/booking/commands/create_booking.rs"
+      ],
+      "reply": "No problems found in this change. I didn't open any other files. The review rests on the diff and the changed units.\n\n- The new `MAX_PARTY` check returns an existing `PartyTooLarge` variant with a `reason`, so it follows the `failures-returned` rule.\n- The rule lives in the command's `handle`, which is where `rules-in-commands` puts it.\n- `a_party_over_the_maximum_is_refused_on_any_table` runs the rule against the in-memory adapter, as `rule-tests` asks. The table has 12 seats, so only the new cap can refuse a party of 9.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

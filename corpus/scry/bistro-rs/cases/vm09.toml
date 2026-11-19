@@ -1,0 +1,12 @@
+id = "vm09"
+set = "V-must"
+scenario = "swap two bookings"
+patch = "cases/vm09.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/booking/ports/booking_repository/mod.rs:16", "src/booking/ports/booking_repository/in_memory.rs:54", "src/booking/ports/booking_repository/file.rs:99"]
+expect = "swap_tables on the BookingRepository port reads both bookings and writes them back in one repository method; the reads and writes belong in a command."
+made = "natural: sonnet without the conventions (gen.py vs4b, prompt in tools/gen.py); vs4c made a SwapTables command with separate port calls"
+twin = "t09"
+changed_files = ["src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs"]

@@ -1,0 +1,12 @@
+id = "vm07"
+set = "V-must"
+scenario = "next free slot"
+patch = "cases/vm07.patch"
+rule = "queries-read"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/booking/queries/next_free_slot.rs:48"]
+expect = "NextFreeSlot is a query but saves a booking to hold the slot; a query changes nothing, so holding a slot is a command."
+made = "natural: sonnet without the conventions (gen.py ve9, prompt in tools/gen.py)"
+twin = "t07"
+changed_files = ["src/booking/queries/mod.rs", "src/booking/queries/next_free_slot.rs"]

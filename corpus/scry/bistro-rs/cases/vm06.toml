@@ -1,0 +1,12 @@
+id = "vm06"
+set = "V-must"
+scenario = "weekly bookings"
+patch = "cases/vm06.patch"
+rule = "statuses-failures"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/web/bookings/routes.rs:75"]
+expect = "The weekly-booking route maps CreateWeeklyBookingFailure to HTTP statuses in routes.rs itself instead of a create_weekly_booking_status function in web/bookings/failures.rs."
+made = "natural: sonnet without the conventions (gen.py st1, prompt in tools/gen.py); the command it routes is twin t06's (tools/gen/pre-st1.patch)"
+twin = "t06"
+changed_files = ["src/booking/commands/create_weekly_booking.rs", "src/booking/commands/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/routes.rs"]

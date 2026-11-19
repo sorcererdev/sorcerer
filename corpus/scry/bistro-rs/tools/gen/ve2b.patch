@@ -1,0 +1,33 @@
+diff --git a/src/booking/models/slot.rs b/src/booking/models/slot.rs
+index 1b066f2..596be96 100644
+--- a/src/booking/models/slot.rs
++++ b/src/booking/models/slot.rs
+@@ -126,6 +126,14 @@ pub struct Slot {
+     pub start: Time,
+ }
+ 
++impl Slot {
++    pub fn is_within_opening_hours(&self) -> bool {
++        self.day.weekday() != Weekday::Monday
++            && self.start >= Time::new(17, 0)
++            && self.start <= Time::new(21, 30)
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..34122c0 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -60,6 +60,9 @@ pub fn create_booking(form: &Form, app: &App) -> Response {
+         Ok(input) => input,
+         Err(response) => return response,
+     };
++    if !input.slot.is_within_opening_hours() {
++        return Response::new(422, "the restaurant is closed at that time");
++    }
+     match app.create_booking.handle(input) {
+         Ok(booking) => Response::new(201, pages::booking_page(&booking)),
+         Err(failure) => Response::new(

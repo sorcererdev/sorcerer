@@ -1,0 +1,12 @@
+id = "n06"
+set = "N"
+scenario = "change party size"
+patch = "cases/n06.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py f-party): the command reads the booking, then saves it (two port calls)"
+twin = ""
+changed_files = ["src/booking/commands/change_party_size.rs", "src/booking/commands/mod.rs", "src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs"]

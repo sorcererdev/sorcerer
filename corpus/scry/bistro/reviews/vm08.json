@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/queries/next_free_slot.py",
+        "src/bistro/booking/queries/next_free_slot__test.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/queries/next_free_slot.py\", \"lines\": [44, 46], \"statement\": \"The query `NextFreeSlot.handle` saves a new Booking through `self.bookings.save(...)` and consumes an id from the generator. A query must only read, so a second call with the same input gives a different result and the store changes. This should be a command.\", \"rule\": \"queries-read\", \"evidence\": [{\"file\": \"src/bistro/booking/queries/next_free_slot.py\", \"lines\": [35, 47]}]}, {\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/queries/next_free_slot.py\", \"lines\": [35, 47], \"statement\": \"The choice of table and slot (smallest fitting table, earliest start) and the hold itself are decided in a query's `handle()`. Booking rules of this kind belong in a command's `handle()`, and their tests belong in the command's test file.\", \"rule\": \"rules-in-commands\", \"evidence\": [{\"file\": \"src/bistro/booking/queries/next_free_slot.py\", \"lines\": [36, 47]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

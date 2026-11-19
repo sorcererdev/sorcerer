@@ -1,0 +1,176 @@
+diff --git a/src/booking/ports/booking_repository/file.rs b/src/booking/ports/booking_repository/file.rs
+index 9388601..2232505 100644
+--- a/src/booking/ports/booking_repository/file.rs
++++ b/src/booking/ports/booking_repository/file.rs
+@@ -74,6 +74,16 @@ impl BookingRepository for FileBookingRepository {
+         bookings
+     }
+ 
++    fn bookings_for(&self, guest: &str) -> Vec<Booking> {
++        let mut bookings: Vec<Booking> = self
++            .all()
++            .into_iter()
++            .filter(|b| b.guest == guest)
++            .collect();
++        bookings.sort_by_key(|b| (b.slot.day, b.slot.start));
++        bookings
++    }
++
+     fn save(&self, booking: Booking) {
+         let mut file = fs::OpenOptions::new()
+             .create(true)
+diff --git a/src/booking/ports/booking_repository/in_memory.rs b/src/booking/ports/booking_repository/in_memory.rs
+index 27ca418..c29162e 100644
+--- a/src/booking/ports/booking_repository/in_memory.rs
++++ b/src/booking/ports/booking_repository/in_memory.rs
+@@ -47,6 +47,18 @@ impl BookingRepository for InMemoryBookingRepository {
+             .collect()
+     }
+ 
++    fn bookings_for(&self, guest: &str) -> Vec<Booking> {
++        let mut bookings: Vec<Booking> = self
++            .bookings
++            .borrow()
++            .iter()
++            .filter(|b| b.guest == guest)
++            .cloned()
++            .collect();
++        bookings.sort_by_key(|b| (b.slot.day, b.slot.start));
++        bookings
++    }
++
+     fn save(&self, booking: Booking) {
+         self.bookings.borrow_mut().push(booking);
+     }
+diff --git a/src/booking/ports/booking_repository/mod.rs b/src/booking/ports/booking_repository/mod.rs
+index 0d5a2a2..13ae981 100644
+--- a/src/booking/ports/booking_repository/mod.rs
++++ b/src/booking/ports/booking_repository/mod.rs
+@@ -12,6 +12,7 @@ pub trait BookingRepository {
+     fn tables(&self) -> Vec<Table>;
+     fn booking_at(&self, table_id: &str, slot: &Slot) -> Option<Booking>;
+     fn bookings_on(&self, day: Day) -> Vec<Booking>;
++    fn bookings_for(&self, guest: &str) -> Vec<Booking>;
+     fn save(&self, booking: Booking);
+ }
+ 
+@@ -79,7 +80,9 @@ mod tests {
+             repository.save(booking.clone());
+             assert_eq!(repository.booking_at("t1", &seven()), Some(booking.clone()));
+             assert_eq!(repository.booking_at("t2", &seven()), None);
+-            assert_eq!(repository.bookings_on(seven().day), vec![booking]);
++            assert_eq!(repository.bookings_on(seven().day), vec![booking.clone()]);
++            assert_eq!(repository.bookings_for("Ada"), vec![booking]);
++            assert_eq!(repository.bookings_for("Grace"), vec![]);
+         }
+     }
+ }
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..7bd9818 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -43,6 +43,7 @@ fn create(db_path: Option<&Path>) -> App {
+     // commands and queries
+     App {
+         create_booking: CreateBooking::new(booking_repository.clone(), id_generator),
++        bookings: booking_repository.clone(),
+         get_day_schedule: GetDaySchedule::new(booking_repository),
+     }
+ }
+diff --git a/src/web/app.rs b/src/web/app.rs
+index 431f224..932c1be 100644
+--- a/src/web/app.rs
++++ b/src/web/app.rs
+@@ -1,6 +1,9 @@
+ //! The web app: the commands and queries it was handed, the home page, and dispatch to each area's routes.
+ 
+ use crate::booking::commands::create_booking::CreateBooking;
++use std::rc::Rc;
++
++use crate::booking::ports::booking_repository::BookingRepository;
+ use crate::booking::queries::get_day_schedule::GetDaySchedule;
+ use crate::web::bookings::routes;
+ use crate::web::{Form, Response};
+@@ -11,6 +14,7 @@ pub const RESOURCES: &[&str] = &["bookings"];
+ pub struct App {
+     pub create_booking: CreateBooking,
+     pub get_day_schedule: GetDaySchedule,
++    pub bookings: Rc<dyn BookingRepository>,
+ }
+ 
+ pub fn home() -> Response {
+@@ -22,6 +26,7 @@ pub fn dispatch(app: &App, route: &str, form: &Form) -> Response {
+     match route {
+         "/" => home(),
+         "/bookings" => routes::day_page(form, app),
++        "/bookings/guest" => routes::guest_page(form, app),
+         "/bookings/create_booking" => routes::create_booking(form, app),
+         _ => Response::new(404, format!("no route {route}")),
+     }
+diff --git a/src/web/bookings/pages.rs b/src/web/bookings/pages.rs
+index 5045baa..55deb4a 100644
+--- a/src/web/bookings/pages.rs
++++ b/src/web/bookings/pages.rs
+@@ -45,6 +45,17 @@ pub fn booking_page(booking: &Booking) -> String {
+     )
+ }
+ 
++pub fn guest_page(guest: &str, bookings: &[Booking]) -> String {
++    let mut page = format!("Bookings for {guest}\n");
++    for b in bookings {
++        page.push_str(&format!(
++            "{} {} table {} ({})\n",
++            b.slot.day, b.slot.start, b.table_id, b.party
++        ));
++    }
++    page
++}
++
+ pub fn failure_page(reason: &str) -> String {
+     format!("Not booked: {reason}")
+ }
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..b87845f 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -40,6 +40,15 @@ pub fn day_page(form: &Form, app: &App) -> Response {
+     Response::new(200, pages::day_page(&schedule))
+ }
+ 
++pub fn guest_page(form: &Form, app: &App) -> Response {
++    let guest = match field(form, "name") {
++        Ok(guest) => guest,
++        Err(response) => return response,
++    };
++    let bookings = app.bookings.bookings_for(guest);
++    Response::new(200, pages::guest_page(guest, &bookings))
++}
++
+ fn create_booking_input(form: &Form) -> Result<CreateBookingInput, Response> {
+     let party = field(form, "party")?
+         .parse()
+@@ -87,6 +96,7 @@ mod tests {
+         }]));
+         App {
+             create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
++            bookings: bookings.clone(),
+             get_day_schedule: GetDaySchedule::new(bookings),
+         }
+     }
+@@ -119,6 +129,16 @@ mod tests {
+         assert!(response.body.contains("Ada"));
+     }
+ 
++    #[test]
++    fn the_guest_page_lists_their_bookings() {
++        let app = app();
++        create_booking(&form(&[]), &app);
++        let page = guest_page(&Form::from([("name", "Ada")]), &app);
++        assert_eq!(page.status, 200);
++        assert!(page.body.contains("2026-10-09"));
++        assert_eq!(guest_page(&Form::from([]), &app).status, 400);
++    }
++
+     #[test]
+     fn a_taken_slot_is_a_conflict() {
+         let app = app();

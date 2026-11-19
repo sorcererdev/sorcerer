@@ -1,0 +1,13 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0406872,
+      "files": [
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "The change adds `swap_tables` to the repository trait, and both adapters implement it as a read followed by a write, which breaks `repo-one-op`. I did not open any files for this review. The finding rests on the diff and the changed units shown.\n\n```json\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/booking/ports/booking_repository/mod.rs\", \"lines\": [16, 16], \"statement\": \"`swap_tables` is a repository method that looks up two bookings, exchanges their table ids and writes the result back. That is a read followed by a write, and the steering says the command makes both calls and the adapter does not combine them. The file adapter (file.rs:99-111) reads all bookings, mutates them and rewrites the whole file. The in-memory adapter does the same lookup-and-mutate in one call. The swap decision (both bookings exist, silently doing nothing otherwise) is also made in the adapters rather than in a command.\", \"rule\": \"repo-one-op\", \"evidence\": [{\"file\": \"src/booking/ports/booking_repository/file.rs\", \"lines\": [99, 111]}, {\"file\": \"src/booking/ports/booking_repository/in_memory.rs\", \"lines\": [54, 63]}]}], \"open\": []}\n```"
+    }
+  ]
+}

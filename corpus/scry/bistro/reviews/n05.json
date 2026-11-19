@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/queries/get_day_summary.py",
+        "src/bistro/booking/queries/get_day_summary__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

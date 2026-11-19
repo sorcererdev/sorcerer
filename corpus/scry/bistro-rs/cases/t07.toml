@@ -1,0 +1,12 @@
+id = "t07"
+set = "T"
+scenario = "next free slot"
+patch = "cases/t07.patch"
+rule = "queries-read"
+rule_class = "evidenced"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t07)"
+twin = "vm07"
+changed_files = ["src/booking/commands/hold_earliest_slot.rs", "src/booking/commands/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

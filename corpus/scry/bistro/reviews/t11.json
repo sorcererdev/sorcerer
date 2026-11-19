@@ -1,0 +1,16 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/create_weekly_booking.py",
+        "src/bistro/booking/commands/create_weekly_booking__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/failures.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

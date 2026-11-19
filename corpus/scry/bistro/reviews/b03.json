@@ -1,0 +1,13 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [63, 64], \"statement\": \"The guest check also requires `b.table_id == input.table_id`, so it only catches a repeat booking at the same table. A guest with a booking at t1 can still book t2 the same day, which contradicts the rule and the message 'already has a booking on <day>'.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking__test.py\", \"lines\": [45, 50]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

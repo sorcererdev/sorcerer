@@ -1,0 +1,12 @@
+id = "n05"
+set = "N"
+scenario = "day summary"
+patch = "cases/n05.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py f-summary): the route reads the clock to default the day, as the base's day page does"
+twin = ""
+changed_files = ["src/booking/queries/get_day_summary.rs", "src/booking/queries/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/pages.rs", "src/web/bookings/routes.rs"]

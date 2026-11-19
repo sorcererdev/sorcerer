@@ -1,0 +1,19 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.07178319999999999,
+      "files": [
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs",
+        "src/booking/queries/find_guest_bookings.rs",
+        "src/booking/queries/mod.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/pages.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "The change has no problems I could name from the code. I did not read any files; this verdict comes from the diff and the steering rules alone.\n\n- **Ports:** the new query reaches data only through `BookingRepository::bookings_for`, and both adapters implement it.\n- **Repository methods:** `bookings_for` is a single read, so `repo-one-op` holds.\n- **Queries:** `FindGuestBookings::handle` only reads, so `queries-read` holds.\n- **Web layer:** the route calls the query and never names a port or an adapter. It returns 400 for a missing `name` through the existing `field` helper, so no failure status is picked by hand.\n- **Adapter construction:** only `main.rs` builds an adapter, and the tests use the in-memory fake.\n- **Docs:** the new query module opens with a `//!` line.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

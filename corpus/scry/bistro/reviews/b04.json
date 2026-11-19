@@ -1,0 +1,13 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [64, 65], \"statement\": \"`OPENING < input.slot.start` uses a strict comparison, so a booking at exactly 17:00 is refused as outside opening hours. The error message says bookings are taken from 17:00, and the upper bound is inclusive, so the lower bound is off by one. Guests cannot book the first slot of the evening.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [13, 16]}, {\"file\": \"src/bistro/booking/commands/create_booking__test.py\", \"lines\": [58, 62]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

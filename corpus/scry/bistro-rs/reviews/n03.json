@@ -1,0 +1,16 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0640072,
+      "files": [
+        "src/booking/commands/mod.rs",
+        "src/booking/commands/seat_walk_in.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "I found no problems in this change. I didn't open any other files to check it, so this rests on reading the diff alone.\n\n- **Booking rules:** the table-selection rule is decided in `SeatWalkIn::handle`, which is where the steering wants it.\n- **Failures:** the no-table case comes back as an `Err` variant with a reason.\n- **Statuses:** the route gets its status from `seat_walk_in_status`.\n- **Tests:** the rule is tested against the in-memory adapter in the command file's own tests.\n- **Wiring:** `SeatWalkIn` is handed an `Rc<dyn BookingRepository>`, and only `main.rs` picks the adapter.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

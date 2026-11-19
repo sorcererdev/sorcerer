@@ -1,0 +1,12 @@
+id = "n01"
+set = "N"
+scenario = "rest of tonight"
+patch = "cases/n01.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "hand: tools/gen/n01.derive.py on the base: a model method told the time by its caller"
+twin = ""
+changed_files = ["src/booking/models/booking.rs"]

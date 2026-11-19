@@ -1,0 +1,351 @@
+{
+  "b01": {
+    "set": "B",
+    "hits": [
+      "The check `input.party >= table.seats` refuses a party that exactly fills the table, so on a 4-seat table a party of 4 fails with PartyTooLarge (\"seats 4, not 4\"). It should be `>`. The tests only try 3 and 5, so the boundary is not covered."
+    ],
+    "changed": [
+      "src/booking/commands/change_party_size.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "b02": {
+    "set": "B",
+    "hits": [
+      "The check filters bookings to the day, then also requires `existing.slot == input.slot`, and `Slot` includes the start time. A guest can therefore still book 19:00 and 21:00 on the same day, even though the failure reason and the test name `a_guest_may_book_once_a_day` say one booking per day. The check only catches the same guest at the same time on a different table, and the day filter does nothing."
+    ],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs"
+    ]
+  },
+  "b03": {
+    "set": "B",
+    "hits": [
+      "The lower bound uses `<=` against 17:00, so a 17:00 booking is refused, yet the reason says bookings are taken from 17:00 to 21:30 and the upper bound 21:30 is inclusive. Guests asking for 17:00 get a refusal that contradicts its own message. The test checks only 16:30 and 17:30, so the boundary is untested."
+    ],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs"
+    ]
+  },
+  "b04": {
+    "set": "B",
+    "hits": [
+      "The availability loop iterates over `&slots[..slots.len() - 1]`, so the last week's slot is never checked. If the table is already booked in the final week (or for any single-week request), `handle` saves a double booking instead of returning `SlotTaken`, which breaks the all-or-nothing guarantee."
+    ],
+    "changed": [
+      "src/booking/commands/create_weekly_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "b05": {
+    "set": "B",
+    "hits": [
+      "handle validates only first_moved; second_moved (moving onto the first booking's table) is saved without the party-size or slot-taken check. A party larger than the first table's seats, or a clash with a third booking at that slot, is silently saved."
+    ],
+    "changed": [
+      "src/booking/commands/mod.rs",
+      "src/booking/commands/swap_tables.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "b06": {
+    "set": "B",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/hold_earliest_slot.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n01": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/models/booking.rs"
+    ]
+  },
+  "n02": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/main.rs"
+    ]
+  },
+  "n03": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/mod.rs",
+      "src/booking/commands/seat_walk_in.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n04": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n05": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/queries/get_day_summary.rs",
+      "src/booking/queries/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/pages.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n06": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/change_party_size.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "t01": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs",
+      "src/booking/queries/list_guest_bookings.rs",
+      "src/booking/queries/mod.rs"
+    ]
+  },
+  "t02": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs",
+      "src/booking/queries/find_guest_bookings.rs",
+      "src/booking/queries/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/pages.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t03": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/main.rs"
+    ]
+  },
+  "t04": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs"
+    ]
+  },
+  "t05": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/cancel_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "t06": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_weekly_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t07": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/hold_earliest_slot.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t08": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/booking/ports/clock/in_memory.rs",
+      "src/booking/ports/clock/mod.rs",
+      "src/booking/ports/clock/system.rs",
+      "src/booking/ports/mod.rs",
+      "src/main.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t09": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/mod.rs",
+      "src/booking/commands/swap_tables.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "t10": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs"
+    ]
+  },
+  "vm01": {
+    "set": "V-must",
+    "hits": [
+      "GuestHistory reads the bookings file itself with std::fs::read_to_string and holds a PathBuf instead of an Rc<dyn BookingRepository>. Queries must reach stored data only through a port, and only main.rs picks adapters. As written the query cannot run against the in-memory adapter."
+    ],
+    "changed": [
+      "src/booking/queries/guest_history.rs",
+      "src/booking/queries/mod.rs"
+    ]
+  },
+  "vm02": {
+    "set": "V-must",
+    "hits": [
+      "The guest_page route calls `app.bookings.bookings_for(guest)`, which goes straight to the BookingRepository port from code under web/. App now holds an `Rc<dyn BookingRepository>` and app.rs imports the trait, so the web layer names a port trait. The lookup should be a query (e.g. GetGuestBookings) that the route calls, as day_page does with GetDaySchedule."
+    ],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/pages.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm03": {
+    "set": "V-must",
+    "hits": [
+      "CreateBooking::demo constructs InMemoryBookingRepository and SequentialIds inside the command, so the command chooses its own adapters. Only main.rs (and tests) may construct adapters; this wiring and the demo table data belong in main.rs."
+    ],
+    "changed": [
+      "src/booking/commands/create_booking.rs"
+    ]
+  },
+  "vm04": {
+    "set": "V-must",
+    "hits": [
+      "The opening-hours rule (closed Mondays, 17:00-21:30) is decided in the route by `is_open`, and the route picks the 422 status itself. The rule belongs in `CreateBooking::handle` as a failure variant, with its status mapped in `failures.rs`. As written, any other caller of the command bypasses the rule, and the rule is only tested at route level."
+    ],
+    "changed": [
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm05": {
+    "set": "V-must",
+    "hits": [
+      "handle panics with `panic!(\"there is no booking ...\")` when the booking id is unknown, which a guest can cause. It should return a failure enum variant (e.g. NotFound with a reason) in `Err`, and the `#[should_panic]` test at lines 75-80 enshrines the panic instead of a returned failure."
+    ],
+    "changed": [
+      "src/booking/commands/cancel_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "vm06": {
+    "set": "V-must",
+    "hits": [
+      "The status mapping for CreateWeeklyBookingFailure is defined inside routes.rs rather than in web/bookings/failures.rs. Steering requires routes to call the status function that lives in failures.rs, as create_booking does."
+    ],
+    "changed": [
+      "src/booking/commands/create_weekly_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm07": {
+    "set": "V-must",
+    "hits": [
+      "`NextFreeSlot::handle` is in `booking/queries` but calls `self.bookings.save(...)`, so it writes a booking and consumes an id on every call. A query must only read, so this should be a command (for example a hold or book-next-slot command)."
+    ],
+    "changed": [
+      "src/booking/queries/mod.rs",
+      "src/booking/queries/next_free_slot.rs"
+    ]
+  },
+  "vm08": {
+    "set": "V-must",
+    "hits": [
+      "`today()` calls `SystemTime::now()` inside a command module, and `handle` uses it at line 57 to decide whether a slot is in the past. Time must come from a `Clock` port so tests can fix the date. Tests currently work around this by using far-future years (2099, 2999)."
+    ],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/main.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm09": {
+    "set": "V-must",
+    "hits": [
+      "`swap_tables` is a repository method that looks up two bookings, exchanges their table ids and writes the result back. That is a read followed by a write, and the steering says the command makes both calls and the adapter does not combine them. The file adapter (file.rs:99-111) reads all bookings, mutates them and rewrites the whole file. The in-memory adapter does the same lookup-and-mutate in one call. The swap decision (both bookings exist, silently doing nothing otherwise) is also made in the adapters rather than in a command."
+    ],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "vm10": {
+    "set": "V-must",
+    "hits": [
+      "The new MAX_PARTY rule (PartyOverLimit) is only tested in the route test `a_party_over_the_limit_is_refused_even_at_a_big_table`. The command's own `mod tests` has tests for the taken slot, the table being too small and the unknown table, but none for this rule. The rule should be proven at the command against the in-memory adapter."
+    ],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  }
+}

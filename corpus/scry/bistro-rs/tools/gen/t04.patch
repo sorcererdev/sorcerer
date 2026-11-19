@@ -1,0 +1,108 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..35db21f 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -3,7 +3,7 @@
+ use std::rc::Rc;
+ 
+ use crate::booking::models::booking::Booking;
+-use crate::booking::models::slot::Slot;
++use crate::booking::models::slot::{Slot, Time, Weekday};
+ use crate::booking::ports::booking_repository::BookingRepository;
+ use crate::booking::ports::id_generator::IdGenerator;
+ 
+@@ -20,6 +20,7 @@ pub enum CreateBookingFailure {
+     SlotTaken { reason: String },
+     PartyTooLarge { reason: String },
+     TableNotFound { reason: String },
++    OutsideOpeningHours { reason: String },
+ }
+ 
+ impl CreateBookingFailure {
+@@ -27,7 +28,8 @@ impl CreateBookingFailure {
+         match self {
+             CreateBookingFailure::SlotTaken { reason }
+             | CreateBookingFailure::PartyTooLarge { reason }
+-            | CreateBookingFailure::TableNotFound { reason } => reason,
++            | CreateBookingFailure::TableNotFound { reason }
++            | CreateBookingFailure::OutsideOpeningHours { reason } => reason,
+         }
+     }
+ }
+@@ -43,6 +45,17 @@ impl CreateBooking {
+     }
+ 
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
++        if input.slot.day.weekday() == Weekday::Monday
++            || input.slot.start < Time::new(17, 0)
++            || input.slot.start > Time::new(21, 30)
++        {
++            return Err(CreateBookingFailure::OutsideOpeningHours {
++                reason: format!(
++                    "we take bookings 17:00 to 21:30, closed Mondays; not {} {}",
++                    input.slot.day, input.slot.start
++                ),
++            });
++        }
+         let Some(table) = self.bookings.table(&input.table_id) else {
+             return Err(CreateBookingFailure::TableNotFound {
+                 reason: format!("there is no table {}", input.table_id),
+@@ -76,7 +89,7 @@ impl CreateBooking {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use crate::booking::models::slot::{Day, Time};
++    use crate::booking::models::slot::Day;
+     use crate::booking::models::table::Table;
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
+@@ -142,6 +155,38 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn bookings_outside_opening_hours_are_refused() {
++        let (create, _) = command();
++        let slots = [
++            Slot {
++                day: Day::new(2026, 10, 9),
++                start: Time::new(16, 30),
++            },
++            Slot {
++                day: Day::new(2026, 10, 9),
++                start: Time::new(22, 0),
++            },
++            Slot {
++                day: Day::new(2026, 10, 12),
++                start: Time::new(19, 0),
++            },
++        ];
++        for slot in slots {
++            let mut refused = input("t1", 2, "Ada");
++            refused.slot = slot;
++            assert!(matches!(
++                create.handle(refused),
++                Err(CreateBookingFailure::OutsideOpeningHours { .. })
++            ));
++        }
++        for start in [Time::new(17, 0), Time::new(21, 30)] {
++            let mut open = input("t1", 2, "Ada");
++            open.slot.start = start;
++            assert!(create.handle(open).is_ok());
++        }
++    }
++
+     #[test]
+     fn an_unknown_table_is_not_found() {
+         let (create, _) = command();
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..bd78c45 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -7,5 +7,6 @@ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+         CreateBookingFailure::SlotTaken { .. } => 409,
+         CreateBookingFailure::PartyTooLarge { .. } => 422,
+         CreateBookingFailure::TableNotFound { .. } => 404,
++        CreateBookingFailure::OutsideOpeningHours { .. } => 422,
+     }
+ }

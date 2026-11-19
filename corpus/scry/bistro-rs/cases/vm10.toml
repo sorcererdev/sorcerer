@@ -1,0 +1,12 @@
+id = "vm10"
+set = "V-must"
+scenario = "maximum party"
+patch = "cases/vm10.patch"
+rule = "rule-tests"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/web/bookings/routes.rs:138"]
+expect = "The maximum-party rule is tested only through the route in routes.rs; it has no test in create_booking.rs's mod tests against the in-memory adapter."
+made = "natural: sonnet without the conventions (gen.py vs5b, prompt in tools/gen.py); vs5 also tested it at the command"
+twin = "t10"
+changed_files = ["src/booking/commands/create_booking.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

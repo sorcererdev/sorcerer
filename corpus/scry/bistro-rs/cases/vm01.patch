@@ -1,0 +1,109 @@
+diff --git a/src/booking/queries/guest_history.rs b/src/booking/queries/guest_history.rs
+new file mode 100644
+index 0000000..1e2f309
+--- /dev/null
++++ b/src/booking/queries/guest_history.rs
+@@ -0,0 +1,94 @@
++//! Every booking a guest has ever made, oldest first (a query).
++
++use std::fs;
++use std::io::ErrorKind;
++use std::path::PathBuf;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::models::slot::Slot;
++
++pub struct GuestHistory {
++    path: PathBuf,
++}
++
++impl GuestHistory {
++    pub fn new(path: impl Into<PathBuf>) -> GuestHistory {
++        GuestHistory { path: path.into() }
++    }
++
++    pub fn handle(&self, guest: &str) -> Vec<Booking> {
++        let text = match fs::read_to_string(&self.path) {
++            Ok(text) => text,
++            Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
++            Err(e) => panic!("cannot read {}: {e}", self.path.display()),
++        };
++        let mut bookings: Vec<Booking> = text
++            .lines()
++            .filter_map(parse_line)
++            .filter(|b| b.guest == guest)
++            .collect();
++        bookings.sort_by(|a, b| (a.slot, &a.table_id).cmp(&(b.slot, &b.table_id)));
++        bookings
++    }
++}
++
++fn parse_line(line: &str) -> Option<Booking> {
++    let fields: Vec<&str> = line.split('\t').collect();
++    let [id, table_id, day, start, party, guest] = fields[..] else {
++        return None;
++    };
++    Some(Booking {
++        id: id.to_string(),
++        table_id: table_id.to_string(),
++        slot: Slot {
++            day: day.parse().ok()?,
++            start: start.parse().ok()?,
++        },
++        party: party.parse().ok()?,
++        guest: guest.to_string(),
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::slot::{Day, Time};
++    use crate::booking::ports::booking_repository::BookingRepository;
++    use crate::booking::ports::booking_repository::file::FileBookingRepository;
++
++    fn booking(id: &str, day: Day, hour: u32, guest: &str) -> Booking {
++        Booking {
++            id: id.into(),
++            table_id: "t1".into(),
++            slot: Slot {
++                day,
++                start: Time::new(hour, 0),
++            },
++            party: 2,
++            guest: guest.into(),
++        }
++    }
++
++    #[test]
++    fn lists_only_the_guests_bookings_oldest_first() {
++        let path = std::env::temp_dir().join(format!("bistro-{}-history.db", std::process::id()));
++        let _ = fs::remove_file(&path);
++        let repository = FileBookingRepository::new(path.clone(), Vec::new());
++        let late = booking("b1", Day::new(2026, 10, 10), 19, "Ada");
++        let early = booking("b2", Day::new(2026, 10, 9), 20, "Ada");
++        let other = booking("b3", Day::new(2026, 10, 9), 19, "Grace");
++        repository.save(late.clone());
++        repository.save(other);
++        repository.save(early.clone());
++        let history = GuestHistory::new(path.clone()).handle("Ada");
++        let _ = fs::remove_file(&path);
++        assert_eq!(history, vec![early, late]);
++    }
++
++    #[test]
++    fn a_missing_file_has_no_history() {
++        let path = std::env::temp_dir().join(format!("bistro-{}-nohistory.db", std::process::id()));
++        let _ = fs::remove_file(&path);
++        assert!(GuestHistory::new(path).handle("Ada").is_empty());
++    }
++}
+diff --git a/src/booking/queries/mod.rs b/src/booking/queries/mod.rs
+index 541a9d7..7d0cf35 100644
+--- a/src/booking/queries/mod.rs
++++ b/src/booking/queries/mod.rs
+@@ -1,3 +1,4 @@
+ //! Queries: each reads the bookings and changes nothing.
+ 
+ pub mod get_day_schedule;
++pub mod guest_history;

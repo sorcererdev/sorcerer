@@ -1,0 +1,12 @@
+id = "n04"
+set = "N"
+scenario = "guest name"
+patch = "cases/n04.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "hand: tools/gen/n04.derive.py on the base: the route tidies the guest's name from the form"
+twin = ""
+changed_files = ["src/web/bookings/routes.rs"]

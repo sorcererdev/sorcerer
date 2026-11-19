@@ -1,0 +1,12 @@
+id = "vm02"
+set = "V-must"
+scenario = "guest's bookings"
+patch = "cases/vm02.patch"
+rule = "web-commands"
+rule_class = "pattern"
+rule_broken = true
+planted_lines = ["src/web/bookings/routes.rs:48", "src/web/app.rs:17"]
+expect = "The guest page route calls the BookingRepository port (app.bookings.bookings_for) itself instead of a query; the web must go through commands and queries."
+made = "hand: tools/gen/vm02.derive.py on twin t02 (its query dropped); the natural try vp2a changed nothing"
+twin = "t02"
+changed_files = ["src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/pages.rs", "src/web/bookings/routes.rs"]

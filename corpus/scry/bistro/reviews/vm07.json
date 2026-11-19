@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py\", \"lines\": [28, 31], \"statement\": \"The in-memory adapter decides whether a guest may book (one booking per guest per day) and refuses by raising ValueError. That policy belongs in the command's handle(), and a guest-caused refusal should be a returned failure, not an exception. Nothing in CreateBooking catches the ValueError, so a second booking by the same guest on a day would crash the request.\", \"rule\": \"rules-in-commands\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [49, 59]}]}, {\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py\", \"lines\": [43, 50], \"statement\": \"The SQLite adapter's save() does a read (`_select`) and then a write (insert). It also enforces the booking policy and raises ValueError for something a guest can cause. The command should read the guest's bookings that day, return a failure such as a new member of CreateBookingFailure, and only then call save().\", \"rule\": \"repo-one-op\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [35, 59]}]}, {\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py\", \"lines\": [44, 45], \"statement\": \"A guest-caused refusal is raised as ValueError from an adapter instead of being returned as a frozen dataclass with a `reason` in the command's failure union. No failures.py mapping exists for it, so the route has no status to give it.\", \"rule\": \"failures-returned\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [20, 41]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

@@ -1,0 +1,257 @@
+diff --git a/src/booking/queries/get_day_summary.rs b/src/booking/queries/get_day_summary.rs
+new file mode 100644
+index 0000000..38d8402
+--- /dev/null
++++ b/src/booking/queries/get_day_summary.rs
+@@ -0,0 +1,87 @@
++//! The manager's summary of a day: bookings, covers and tables with no booking (a query).
++
++use std::rc::Rc;
++
++use crate::booking::models::slot::Day;
++use crate::booking::ports::booking_repository::BookingRepository;
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DaySummary {
++    pub day: Day,
++    pub bookings: usize,
++    pub covers: u32,
++    pub unbooked_tables: Vec<String>,
++}
++
++pub struct GetDaySummary {
++    bookings: Rc<dyn BookingRepository>,
++}
++
++impl GetDaySummary {
++    pub fn new(bookings: Rc<dyn BookingRepository>) -> GetDaySummary {
++        GetDaySummary { bookings }
++    }
++
++    pub fn handle(&self, day: Day) -> DaySummary {
++        let bookings = self.bookings.bookings_on(day);
++        let unbooked_tables = self
++            .bookings
++            .tables()
++            .into_iter()
++            .filter(|t| !bookings.iter().any(|b| b.table_id == t.id))
++            .map(|t| t.id)
++            .collect();
++        DaySummary {
++            day,
++            bookings: bookings.len(),
++            covers: bookings.iter().map(|b| b.party).sum(),
++            unbooked_tables,
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::booking::Booking;
++    use crate::booking::models::slot::{Slot, Time};
++    use crate::booking::models::table::Table;
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++
++    #[test]
++    fn counts_bookings_covers_and_unbooked_tables() {
++        let day = Day::new(2026, 10, 9);
++        let tables = vec![
++            Table {
++                id: "t1".into(),
++                seats: 4,
++            },
++            Table {
++                id: "t2".into(),
++                seats: 2,
++            },
++        ];
++        let bookings = Rc::new(InMemoryBookingRepository::new(tables));
++        let at = |id: &str, hour, party| Booking {
++            id: id.into(),
++            table_id: "t1".into(),
++            slot: Slot {
++                day,
++                start: Time::new(hour, 0),
++            },
++            party,
++            guest: "Ada".into(),
++        };
++        bookings.save(at("b1", 18, 2));
++        bookings.save(at("b2", 20, 3));
++        assert_eq!(
++            GetDaySummary::new(bookings).handle(day),
++            DaySummary {
++                day,
++                bookings: 2,
++                covers: 5,
++                unbooked_tables: vec!["t2".into()],
++            }
++        );
++    }
++}
+diff --git a/src/booking/queries/mod.rs b/src/booking/queries/mod.rs
+index 541a9d7..8f1a7db 100644
+--- a/src/booking/queries/mod.rs
++++ b/src/booking/queries/mod.rs
+@@ -1,3 +1,4 @@
+ //! Queries: each reads the bookings and changes nothing.
+ 
+ pub mod get_day_schedule;
++pub mod get_day_summary;
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..3202a82 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -13,6 +13,7 @@ use bistro::booking::ports::booking_repository::file::FileBookingRepository;
+ use bistro::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+ use bistro::booking::ports::id_generator::time_ids::TimeIds;
+ use bistro::booking::queries::get_day_schedule::GetDaySchedule;
++use bistro::booking::queries::get_day_summary::GetDaySummary;
+ use bistro::web::Form;
+ use bistro::web::app::{App, dispatch};
+ 
+@@ -43,7 +44,8 @@ fn create(db_path: Option<&Path>) -> App {
+     // commands and queries
+     App {
+         create_booking: CreateBooking::new(booking_repository.clone(), id_generator),
+-        get_day_schedule: GetDaySchedule::new(booking_repository),
++        get_day_schedule: GetDaySchedule::new(booking_repository.clone()),
++        get_day_summary: GetDaySummary::new(booking_repository),
+     }
+ }
+ 
+diff --git a/src/web/app.rs b/src/web/app.rs
+index 431f224..1533126 100644
+--- a/src/web/app.rs
++++ b/src/web/app.rs
+@@ -2,6 +2,7 @@
+ 
+ use crate::booking::commands::create_booking::CreateBooking;
+ use crate::booking::queries::get_day_schedule::GetDaySchedule;
++use crate::booking::queries::get_day_summary::GetDaySummary;
+ use crate::web::bookings::routes;
+ use crate::web::{Form, Response};
+ 
+@@ -11,6 +12,7 @@ pub const RESOURCES: &[&str] = &["bookings"];
+ pub struct App {
+     pub create_booking: CreateBooking,
+     pub get_day_schedule: GetDaySchedule,
++    pub get_day_summary: GetDaySummary,
+ }
+ 
+ pub fn home() -> Response {
+@@ -22,6 +24,7 @@ pub fn dispatch(app: &App, route: &str, form: &Form) -> Response {
+     match route {
+         "/" => home(),
+         "/bookings" => routes::day_page(form, app),
++        "/bookings/summary" => routes::summary_page(form, app),
+         "/bookings/create_booking" => routes::create_booking(form, app),
+         _ => Response::new(404, format!("no route {route}")),
+     }
+diff --git a/src/web/bookings/pages.rs b/src/web/bookings/pages.rs
+index 5045baa..4c1efdd 100644
+--- a/src/web/bookings/pages.rs
++++ b/src/web/bookings/pages.rs
+@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
+ use crate::booking::models::booking::Booking;
+ use crate::booking::models::slot::Time;
+ use crate::booking::queries::get_day_schedule::DaySchedule;
++use crate::booking::queries::get_day_summary::DaySummary;
+ 
+ /// The day page's columns: every half hour from 17:00 to 21:30.
+ pub fn slots() -> Vec<Time> {
+@@ -38,6 +39,16 @@ pub fn day_page(schedule: &DaySchedule) -> String {
+     page
+ }
+ 
++pub fn summary_page(summary: &DaySummary) -> String {
++    format!(
++        "Summary for {}\nBookings: {}\nCovers: {}\nTables with no booking: {}\n",
++        summary.day,
++        summary.bookings,
++        summary.covers,
++        summary.unbooked_tables.join(", ")
++    )
++}
++
+ pub fn booking_page(booking: &Booking) -> String {
+     format!(
+         "Booked: {} for {} at table {} on {} at {}",
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..de7dde3 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -28,18 +28,31 @@ fn parsed<T: std::str::FromStr<Err = String>>(form: &Form, key: &str) -> Result<
+         .map_err(|e: String| Response::new(400, e))
+ }
+ 
++fn requested_day(form: &Form) -> Result<Day, Response> {
++    match form.get("day") {
++        Some(_) => parsed::<Day>(form, "day"),
++        None => Ok(today()),
++    }
++}
++
+ pub fn day_page(form: &Form, app: &App) -> Response {
+-    let day = match form.get("day") {
+-        Some(_) => match parsed::<Day>(form, "day") {
+-            Ok(day) => day,
+-            Err(response) => return response,
+-        },
+-        None => today(),
++    let day = match requested_day(form) {
++        Ok(day) => day,
++        Err(response) => return response,
+     };
+     let schedule = app.get_day_schedule.handle(day);
+     Response::new(200, pages::day_page(&schedule))
+ }
+ 
++pub fn summary_page(form: &Form, app: &App) -> Response {
++    let day = match requested_day(form) {
++        Ok(day) => day,
++        Err(response) => return response,
++    };
++    let summary = app.get_day_summary.handle(day);
++    Response::new(200, pages::summary_page(&summary))
++}
++
+ fn create_booking_input(form: &Form) -> Result<CreateBookingInput, Response> {
+     let party = field(form, "party")?
+         .parse()
+@@ -79,6 +92,7 @@ mod tests {
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
+     use crate::booking::queries::get_day_schedule::GetDaySchedule;
++    use crate::booking::queries::get_day_summary::GetDaySummary;
+ 
+     fn app() -> App {
+         let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
+@@ -87,7 +101,8 @@ mod tests {
+         }]));
+         App {
+             create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
+-            get_day_schedule: GetDaySchedule::new(bookings),
++            get_day_schedule: GetDaySchedule::new(bookings.clone()),
++            get_day_summary: GetDaySummary::new(bookings),
+         }
+     }
+ 
+@@ -112,6 +127,15 @@ mod tests {
+         assert!(page.body.contains("t1"));
+     }
+ 
++    #[test]
++    fn the_summary_page_counts_the_day() {
++        let app = app();
++        create_booking(&form(&[]), &app);
++        let page = summary_page(&Form::from([("day", "2026-10-09")]), &app);
++        assert_eq!(page.status, 200);
++        assert!(page.body.contains("Covers: 2"));
++    }
++
+     #[test]
+     fn a_booking_is_created() {
+         let response = create_booking(&form(&[]), &app());

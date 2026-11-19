@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0338552,
+      "files": [
+        "src/booking/commands/create_booking.rs"
+      ],
+      "reply": "`CreateBooking::demo()` breaks the `adapters-main` rule. The command file now imports `InMemoryBookingRepository` and `SequentialIds` at lines 7–10, and `demo()` builds both at lines 56–59. The rule says commands hold ports as `Rc<dyn Port>` and are handed the adapter, and that only `main.rs` and tests construct in-memory or file adapters. The change also moves those imports out of the test module and into production code. A command that picks its own adapters is coupled to them, and the demo tables and seat counts become booking data held in the command layer.\n\nI didn't search for callers of `demo()`. The finding rests on the code in the changed file alone.\n\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [48, 60], \"statement\": \"CreateBooking::demo constructs InMemoryBookingRepository and SequentialIds inside the command, so the command chooses its own adapters. Only main.rs (and tests) may construct adapters; this wiring and the demo table data belong in main.rs.\", \"rule\": \"adapters-main\", \"evidence\": [{\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [7, 10]}, {\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [56, 59]}]}], \"open\": []}"
+    }
+  ]
+}

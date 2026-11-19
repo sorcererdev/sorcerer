@@ -1,0 +1,12 @@
+id = "n02"
+set = "N"
+scenario = "in-memory app"
+patch = "cases/n02.patch"
+rule = "adapters-main"
+rule_class = "pattern"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "hand: tools/gen/n02.derive.py on the base: main.rs chooses the in-memory adapter by default"
+twin = ""
+changed_files = ["src/main.rs"]

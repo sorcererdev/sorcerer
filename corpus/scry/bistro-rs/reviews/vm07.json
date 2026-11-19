@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0493461,
+      "files": [
+        "src/booking/queries/mod.rs",
+        "src/booking/queries/next_free_slot.rs"
+      ],
+      "reply": "`NextFreeSlot` is a query that writes to the repository, and it also makes the booking decisions that belong in a command.\n\n```json\n{\"findings\": [\n{\"issue_type\":\"convention\",\"file\":\"src/booking/queries/next_free_slot.rs\",\"lines\":[48,48],\"statement\":\"`NextFreeSlot::handle` is in `booking/queries` but calls `self.bookings.save(...)`, so it writes a booking and consumes an id on every call. A query must only read, so this should be a command (for example a hold or book-next-slot command).\",\"rule\":\"queries-read\",\"evidence\":[{\"file\":\"src/booking/queries/next_free_slot.rs\",\"lines\":[40,50]},{\"file\":\"src/booking/ports/booking_repository/mod.rs\",\"lines\":[15,15]}]},\n{\"issue_type\":\"convention\",\"file\":\"src/booking/queries/next_free_slot.rs\",\"lines\":[24,53],\"statement\":\"`handle` decides booking policy: the opening hours and step (lines 10-12), which tables fit a party, smallest-table-first, and which slot to hand out. These choices belong in a command's `handle`. The failure is also returned as a bare `None` rather than a failure enum with a `reason`, and it is tested in the query file instead of a command's tests.\",\"rule\":\"rules-in-commands\",\"evidence\":[{\"file\":\"src/booking/queries/next_free_slot.rs\",\"lines\":[10,12]},{\"file\":\"src/booking/queries/next_free_slot.rs\",\"lines\":[25,39]}]}\n],\"open\":[]}\n```"
+    }
+  ]
+}

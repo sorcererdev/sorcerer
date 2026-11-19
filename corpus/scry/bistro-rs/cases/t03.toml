@@ -1,0 +1,12 @@
+id = "t03"
+set = "T"
+scenario = "demo setup"
+patch = "cases/t03.patch"
+rule = "adapters-main"
+rule_class = "pattern"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "hand: tools/gen/t03.derive.py on the base: the twin run (gen.py t03) made no change and said a library-side demo constructor would break adapters-main; main.rs gains --demo"
+twin = "vm03"
+changed_files = ["src/main.rs"]

@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Hosts need to look a guest up: add a route /bookings/guest taking name, listing every booking under that name on any day. Work only in src/web/bookings/routes.rs, src/web/app.rs and src/main.rs.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "vp2a"
+ },
+ "result": "I haven't changed anything: the booking repository only has `bookings_on(day)` and no way to list bookings across days, so a correct `/bookings/guest` needs a new repository method and query outside `routes.rs`, `app.rs` and `main.rs`. Can I add a `bookings_by_guest` method (in the trait, in-memory and file repositories) and a `GetGuestBookings` query? Without that I could only guess at a date range, which would miss bookings.",
+ "cost": 0.06035439999999999,
+ "secs": 11.9,
+ "turns": 9,
+ "subtype": "success"
+}

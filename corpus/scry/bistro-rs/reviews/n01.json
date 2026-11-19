@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0452513,
+      "files": [
+        "src/booking/models/booking.rs"
+      ],
+      "reply": "One bug: the sitting is reported as over too early when it runs past midnight.\n\n`is_over` (lines 21-23) treats any booking on an earlier day as over. A booking starting at 23:00 or 23:30 has a sitting that runs until 00:30 or 01:00 on the next day. At 00:10 on the next day, `self.slot.day < today` returns true, so a table still held is reported as over. Slots are half-hour and `Time` allows hours up to 23, so these late starts are possible. I did not check the bistro's opening hours, so whether such bookings occur in practice is unconfirmed. The tests only cover 17:00 on the following day, so they miss this.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/models/booking.rs\", \"lines\": [20, 26], \"statement\": \"A booking on an earlier day is always reported as over, even when its 90-minute sitting runs past midnight. A 23:00 or 23:30 booking is reported over at 00:10 the next day, while the table is still held until 00:30 or 01:00. Callers that free the table or treat the guest as gone would act too early.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/models/slot.rs\", \"lines\": [90, 100]}]}], \"open\": []}\n```"
+    }
+  ]
+}

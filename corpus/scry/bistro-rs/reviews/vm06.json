@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0900061,
+      "files": [
+        "src/booking/commands/create_weekly_booking.rs",
+        "src/booking/commands/mod.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "I found two problems. The first breaks a steering rule. The second is a bug I haven't run to confirm.\n\n1. **Status function in the wrong file.** `create_weekly_booking_status` is defined in `src/web/bookings/routes.rs`. The `statuses-failures` rule says it belongs in `web/bookings/failures.rs`, next to `create_booking_status` at `src/web/bookings/failures.rs:5`.\n\n2. **No upper bound on `weeks`.** `handle` accepts any `u32` for `weeks` and only rejects 0. The route parses `weeks` straight from the form, so a guest can send 4294967295. `handle` then builds a vector of billions of slots at lines 74-79 and queries the repository for each one at lines 80-89. That can exhaust memory or hang the server. This is a guest-caused failure, so the rules say it should come back as a failure variant, for example `TooManyWeeks`.\n\n```json\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/web/bookings/routes.rs\", \"lines\": [75, 82], \"statement\": \"The status mapping for CreateWeeklyBookingFailure is defined inside routes.rs rather than in web/bookings/failures.rs. Steering requires routes to call the status function that lives in failures.rs, as create_booking does.\", \"rule\": \"statuses-failures\", \"evidence\": [{\"file\": \"src/web/bookings/failures.rs\", \"lines\": [5, 5]}, {\"file\": \"src/web/bookings/routes.rs\", \"lines\": [106, 106]}]}, {\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_weekly_booking.rs\", \"lines\": [55, 79], \"statement\": \"weeks is only checked for zero, and the route parses it from the form as any u32. A guest sending a huge value such as 4294967295 makes handle allocate a vector of billions of slots and query the repository for each one, which can exhaust memory or hang the server. There is no upper bound and no failure variant for it.\", \"rule\": \"failures-returned\", \"evidence\": [{\"file\": \"src/web/bookings/routes.rs\", \"lines\": [85, 95]}]}], \"open\": []}\n```"
+    }
+  ]
+}

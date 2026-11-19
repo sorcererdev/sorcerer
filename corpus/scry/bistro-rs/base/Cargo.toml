@@ -1,0 +1,16 @@
+[package]
+name = "bistro"
+version = "0.1.0"
+edition = "2024"
+description = "Table bookings for a restaurant (scry's Rust corpus base)"
+publish = false
+
+# Its own workspace root: the sorcerer workspace never builds it.
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "bistro"
+path = "src/main.rs"
