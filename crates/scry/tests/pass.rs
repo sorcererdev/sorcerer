@@ -70,8 +70,12 @@ impl Fixture {
             &ScryConfig::default(),
         )
         .unwrap();
+        // a claim check that fails: a waiting finding stays waiting
         let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
-            panic!("task 7's pass runs no claim check")
+            Err(sorcerer_models::Error::Reply {
+                provider: "stub".into(),
+                why: "no claim check in these tests".into(),
+            })
         };
         let clock = FixedClock::at(t0());
         let progress = |_: &Progress| {};

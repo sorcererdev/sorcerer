@@ -7,6 +7,7 @@ pub mod finding;
 pub mod judge;
 pub mod kind;
 pub mod pass;
+pub mod rounds;
 pub mod scope;
 pub mod steering;
 pub mod store;

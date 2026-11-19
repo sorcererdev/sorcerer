@@ -1,18 +1,19 @@
 //! The pass (design §6.4, olifant's `Inspect/Pass.hs`): the scope's units
 //! not yet inspected go to the find call in packs; each finding is placed,
 //! matched against the store, filtered by Jev's nitpick question and
-//! remembered. Verification rounds and caps come with `rounds` (Task 8):
-//! here a waiting finding of a `Citations` kind opens when its citations
-//! hold, and `CitationsThenClaim` kinds stay waiting.
+//! remembered; then each file's waiting findings go through the
+//! verification rounds (`rounds`), within the caps.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
+use sorcerer_core::cost::spent_in;
 use sorcerer_core::fences::Fences;
 use sorcerer_core::fingerprint::Fingerprint;
-use sorcerer_core::store::Snapshot;
+use sorcerer_core::ledger::Ledger;
+use sorcerer_core::store::{Snapshot, Store};
 use sorcerer_core::unit::Unit;
 use sorcerer_core::view::CodebaseView;
 use sorcerer_core::{Cancel, Error, Project, Result};
@@ -21,12 +22,12 @@ use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
 
 use crate::config::{ScryConfig, scry_config};
 use crate::find::{FindAsk, FindUnit, Finder, RawFinding, pack_units, parse_find};
-use crate::finding::{Evidence, Finding, Id, Place, Scores, Status, StoredVerdict};
+use crate::finding::{Evidence, Finding, Id, Place, Scores, Status};
 use crate::judge::{
     Match, SAME_CUT, asked_on, candidates, citations, cited_code, finding_text, keep_of,
     match_stored, nitpick, place, same_problem,
 };
-use crate::kind::{Verify, kind};
+use crate::rounds::{Around, Budget, check_estimate, find_estimate, verify};
 use crate::scope::{Scope, ScopedUnit};
 use crate::steering::{Steering, steering};
 use crate::store::{ScryStore, store};
@@ -91,6 +92,8 @@ pub struct Report {
     pub failures: Vec<String>,
     /// Nothing capped and every find call answered.
     pub whole: bool,
+    /// A claim check did not fit the caps; its finding waits.
+    pub checks_capped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,8 +116,10 @@ impl From<Error> for Halt {
 }
 
 /// One pass over SCOPE. With FRESH, units already inspected are sent again.
-/// Holds `state/scry/pass.lock` throughout; writes the store once, at the
-/// end, laying its changes over the store as it is then.
+/// Holds `state/scry/pass.lock` throughout; writes the store before a
+/// round's claim checks start and at the end, each time laying its changes
+/// over the store as it is then. CAPS hold the find calls and claim checks
+/// back, the day's cap counting what scry spent earlier in the local day.
 pub fn pass(
     project: &Project,
     scope: &Scope,
@@ -153,25 +158,45 @@ pub fn pass(
             });
         }
     };
+    let rows = Ledger::for_project(project)?.read()?.errands;
+    let now = deps.clock.now();
+    let offset = deps.clock.offset();
+    // Jev's questions are not counted against the caps (design §6.9)
+    let paid: Vec<_> = rows
+        .iter()
+        .filter(|e| e.verb == "find" || e.verb == "check")
+        .cloned()
+        .collect();
+    let today = spent_in(
+        &paid,
+        "scry",
+        now.with_timezone(&offset).date_naive(),
+        offset,
+    );
     let mut run = Run {
         cfg: &cfg,
         st: &st,
         fences: &fences,
         deps,
         cancel,
-        now: deps.clock.now(),
+        now,
         texts: HashMap::new(),
         mine: base.clone(),
         merged: HashSet::new(),
         new: Vec::new(),
+        budget: Budget::new(caps, today),
+        find_estimate: find_estimate(&rows, &cfg.find_model),
+        check_estimate: check_estimate(&rows),
+        disk: &findings,
+        written: base,
     };
-    let report = match run.go(scope, caps, fresh) {
+    let report = match run.go(scope, fresh) {
         Ok(r) => r,
         Err(Halt::Silent) => return Ok(Outcome::Skipped("Jev did not answer".into())),
         Err(Halt::Failed(e)) => return Err(e),
     };
-    let mine = run.mine;
-    findings.update(|current| *current = merge_into(&base, &mine, current))?;
+    let (written, mine) = (run.written, run.mine);
+    findings.update(|current| *current = merge_into(&written, &mine, current))?;
     (deps.progress)(&Progress::Stored);
     drop(lock);
     Ok(Outcome::Ran(report))
@@ -194,11 +219,24 @@ struct Run<'r, 'd> {
     /// Stored findings a finding of this pass merged into.
     merged: HashSet<Id>,
     new: Vec<Id>,
+    budget: Budget,
+    find_estimate: f64,
+    check_estimate: f64,
+    disk: &'r Store<ScryStore>,
+    /// The store as this pass last wrote it (at first, as it read it).
+    written: ScryStore,
 }
 
 impl Run<'_, '_> {
-    fn go(&mut self, scope: &Scope, caps: &Caps, fresh: bool) -> std::result::Result<Report, Halt> {
+    fn go(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Report, Halt> {
         let base_ids: HashSet<Id> = self.mine.findings.iter().map(|f| f.id.clone()).collect();
+        let old_waiting: HashSet<Id> = self
+            .mine
+            .findings
+            .iter()
+            .filter(|f| f.status == Status::Waiting)
+            .map(|f| f.id.clone())
+            .collect();
         self.sweep_gone(scope);
 
         // the units to send, packed
@@ -231,8 +269,8 @@ impl Run<'_, '_> {
             });
         }
 
-        // the find calls, one a pack, while the caps allow
-        let mut spent = 0.0;
+        // the find calls, one a pack, while the caps allow; once one pack
+        // is capped every later one is, and its units are recorded for later
         let mut capped = 0;
         let mut failures = Vec::new();
         let mut answered: Vec<Sent> = Vec::new();
@@ -240,8 +278,15 @@ impl Run<'_, '_> {
         let mut no_longer: HashSet<String> = HashSet::new();
         for pack in pack_units(units) {
             let files = files_of(&pack);
-            if capped > 0 || !allows(caps, spent, FIND_ESTIMATE) {
+            if capped > 0 || !self.budget.allows(self.find_estimate) {
                 capped += pack.len();
+                for u in &pack {
+                    self.mine
+                        .capped
+                        .entry(u.file.clone())
+                        .or_default()
+                        .insert(u.name.clone());
+                }
                 continue;
             }
             if self.cancel.is_cancelled() {
@@ -255,22 +300,21 @@ impl Run<'_, '_> {
                 open: self.open_on(&pack),
                 units: pack,
             };
-            let cap = [caps.pass, caps.budget]
-                .into_iter()
-                .flatten()
-                .map(|c| (c - spent).max(0.0))
-                .reduce(f64::min)
-                .unwrap_or(self.cfg.pass_cost);
+            let cap = self.budget.room().unwrap_or(self.cfg.pass_cost);
             let found = self
                 .deps
                 .finder
                 .find(&ask, &self.cfg.find_model, cap, self.cancel);
+            // an unpriced answer is charged its estimate, a timeout the cap
+            // it ran under (what its errand records), any other failure nothing
+            self.budget.charge(match &found {
+                Ok(f) => f.errand.cost_usd.unwrap_or(self.find_estimate),
+                Err(sorcerer_models::Error::Timeout { .. }) => cap,
+                Err(_) => 0.0,
+            });
             let reply = match found {
                 Err(e) => Err(e.to_string()),
-                Ok(f) => {
-                    spent += f.errand.cost_usd.unwrap_or(0.0);
-                    parse_find(&f.reply)
-                }
+                Ok(f) => parse_find(&f.reply),
             };
             match reply {
                 Err(why) => failures.push(format!("find failed for {}: {why}", names(&files))),
@@ -300,21 +344,9 @@ impl Run<'_, '_> {
             }
         }
 
-        self.verify_citations(scope);
-
         // a unit whose text changed while the pass ran keeps no new findings
         // and is not inspected
-        let moved = self.moved(&answered);
-        let new_ids: HashSet<Id> = self.new.iter().cloned().collect();
-        let dropped: HashSet<Id> = self
-            .mine
-            .findings
-            .iter()
-            .filter(|f| new_ids.contains(&f.id) && in_moved(&moved, &f.place))
-            .map(|f| f.id.clone())
-            .collect();
-        self.mine.findings.retain(|f| !dropped.contains(&f.id));
-        self.new.retain(|i| !dropped.contains(i));
+        let moved = self.drop_moved(&answered);
         let kept: Vec<&Sent> = answered
             .iter()
             .filter(|(file, name, _, _)| !moved.contains(&(file.clone(), name.clone())))
@@ -346,22 +378,83 @@ impl Run<'_, '_> {
             }
         }
 
-        for (file, _, _, fp) in &kept {
+        // the verification rounds, file by file
+        let mut checks_capped = false;
+        for sf in scope.files.iter().filter(|sf| !sf.deleted) {
+            let Run {
+                mine,
+                written,
+                disk,
+                budget,
+                cfg,
+                deps,
+                cancel,
+                fences,
+                now,
+                check_estimate,
+                ..
+            } = self;
+            let mut save = |s: &ScryStore| -> Result<()> {
+                disk.update(|current| *current = merge_into(written, s, current))?;
+                *written = s.clone();
+                Ok(())
+            };
+            let mut around = Around {
+                fences,
+                now: *now,
+                old_waiting: &old_waiting,
+                check_estimate: *check_estimate,
+                save: &mut save,
+            };
+            let v = verify(mine, &sf.file, cfg, budget, deps, cancel, &mut around)?;
+            checks_capped |= v.capped;
+        }
+
+        // checked again: a unit may have changed while the checks ran
+        let moved = self.drop_moved(&answered);
+        for (file, name, _, fp) in answered
+            .iter()
+            .filter(|(file, name, _, _)| !moved.contains(&(file.clone(), name.clone())))
+        {
             self.mine
                 .inspected
                 .entry(file.clone())
                 .or_default()
                 .insert(fp.to_string());
+            if let Some(names) = self.mine.capped.get_mut(file) {
+                names.remove(name);
+                if names.is_empty() {
+                    self.mine.capped.remove(file);
+                }
+            }
         }
 
         Ok(Report {
             looked_at: answered.len(),
             new: self.new.clone(),
-            spent,
+            spent: self.budget.spent(),
             capped,
             failures,
             whole,
+            checks_capped,
         })
+    }
+
+    /// Drops this pass's new findings in units whose text changed since
+    /// they were sent; returns those units.
+    fn drop_moved(&mut self, answered: &[Sent]) -> HashSet<(PathBuf, String)> {
+        let moved = self.moved(answered);
+        let new_ids: HashSet<Id> = self.new.iter().cloned().collect();
+        let dropped: HashSet<Id> = self
+            .mine
+            .findings
+            .iter()
+            .filter(|f| new_ids.contains(&f.id) && in_moved(&moved, &f.place))
+            .map(|f| f.id.clone())
+            .collect();
+        self.mine.findings.retain(|f| !dropped.contains(&f.id));
+        self.new.retain(|i| !dropped.contains(i));
+        moved
     }
 
     /// Open, waiting and withheld findings of a file in scope whose unit is
@@ -579,41 +672,6 @@ impl Run<'_, '_> {
         Ok(())
     }
 
-    /// Task 8 replaces this with the verification rounds: a waiting finding
-    /// of a file in scope whose kind is verified by citations alone opens
-    /// when they hold, and is unsure when they do not.
-    fn verify_citations(&mut self, scope: &Scope) {
-        let files: HashSet<&Path> = scope.files.iter().map(|f| f.file.as_path()).collect();
-        let now = self.now;
-        for f in &mut self.mine.findings {
-            let by_citations = kind(&f.kind).is_some_and(|k| k.verify == Verify::Citations);
-            if f.status != Status::Waiting
-                || !by_citations
-                || !files.contains(f.place.file.as_path())
-            {
-                continue;
-            }
-            let raw: Vec<_> = f
-                .evidence
-                .iter()
-                .map(|e| (e.file.clone(), e.lines))
-                .collect();
-            match citations(self.deps.view, self.fences, &raw) {
-                Ok(ev) => {
-                    f.evidence = ev;
-                    f.set_status(Status::Open, now);
-                }
-                Err(why) => {
-                    f.verdict = Some(StoredVerdict {
-                        verdict: why,
-                        why: String::new(),
-                    });
-                    f.set_status(Status::Unsure, now);
-                }
-            }
-        }
-    }
-
     /// The sent units whose fingerprint is not what was sent (or that are
     /// no longer in their file).
     fn moved(&self, sent: &[Sent]) -> HashSet<(PathBuf, String)> {
@@ -631,16 +689,6 @@ impl Run<'_, '_> {
             .map(|(file, name, _, _)| (file.clone(), name.clone()))
             .collect()
     }
-}
-
-/// What a find call is likely to cost; Task 8 reads it from the ledger.
-const FIND_ESTIMATE: f64 = 0.0;
-
-/// Whether a call estimated at E still fits the pass and budget caps.
-/// The day's cap needs the day's spend from the ledger: Task 8.
-fn allows(caps: &Caps, spent: f64, e: f64) -> bool {
-    let over = |cap: Option<f64>| cap.is_some_and(|c| spent + e > c);
-    !over(caps.pass) && !over(caps.budget)
 }
 
 fn p_yes(w: &Weighed) -> f64 {

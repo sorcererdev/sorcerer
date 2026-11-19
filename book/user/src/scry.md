@@ -52,9 +52,29 @@ error that names the key and the file.
 | `cut` | `0.7` | the keep line, 0 to 1: a finding is shown only when Jev's keep score (one minus the chance it is a nitpick) is at least this |
 | `max_shown` | `3` | findings shown at once, at least 1 |
 | `settle` | `2` | how long a finding must keep holding before it is shown, in passes (0 or more) |
-| `pass_cost` | `0.25` | dollars one pass may spend |
-| `day_cost` | `3.00` | dollars a local day may spend on the project |
+| `pass_cost` | `0.25` | dollars one pass may spend (the editor's cap) |
+| `day_cost` | `3.00` | dollars scry may spend on the project in a local day |
 | `exclude` | `[]` | globs of files scry skips |
+
+## What it costs
+
+A pass that finds changed units not yet inspected makes one find call for them, about $0.04
+on sonnet (about $0.005 with `find_model = "haiku"`, which misses more). Each `bug` or
+`assumption` that survives the nitpick question gets a claim check, about $0.016. A pass with
+nothing new to look at costs nothing. Jev's questions cost about $0.00005 each and are not
+counted against the caps. Once the ledger has priced calls, scry estimates from the last 20
+of each.
+
+Scry checks the caps before every paid call, against what that call is likely to cost:
+
+- `pass_cost`: what one pass may spend.
+- `day_cost`: what scry may spend in your local day, counting the passes before this one.
+- `--budget USD` on the command line: what the run may spend.
+
+A unit a cap holds back is not inspected; scry records it and the next pass with room takes
+it. A finding whose claim check does not fit waits, and is checked on a later pass. Findings
+are checked best first, and only until `max_shown` are open in the file: a claim the checker
+refutes frees its place for the next one.
 
 ## Steering
 

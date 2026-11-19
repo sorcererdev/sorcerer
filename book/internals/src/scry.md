@@ -13,11 +13,13 @@
   `match_stored`, `nitpick`, `keep_of`, `asked_on`, `cited_code`, `citations`.
 - `src/pass.rs`: `pass`, `PassDeps`, `Clock`, `SystemClock`, `Checker`, `Progress`, `Caps`,
   `Report`, `Outcome`, `merge_into`.
+- `src/rounds.rs`: `find_estimate`, `check_estimate`, `Budget`, `cost_of`, and the
+  crate-private `verify` (with `Around`, `Verified`).
 - `tests/support/mod.rs`: git fixtures, `project_with_vendored_grammars`, and the doubles
   `StubFinder`, `StubDecider`, `FixedClock`.
 - `library/scry.md`: the shipped steering layer.
 
-Later tasks add the verification rounds and the CLI here.
+A later task adds the CLI here.
 
 ## Config
 
@@ -178,24 +180,30 @@ and 8. `pass(project, scope, caps, fresh, deps, cancel)` takes a `Scope` from `s
 `Clock` (`SystemClock` live, `FixedClock` in tests) and a `progress` callback told
 `Progress::Found(n)` after each find call that answered and `Progress::Stored` after the
 write. It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, the `new` ids,
-`spent`, `capped` units, one `failures` line per failed call, and `whole`), or
+`spent`, `capped` units, one `failures` line per failed call, `whole`, and `checks_capped`
+when a claim check did not fit), or
 `Outcome::Skipped` when `[scry] enabled` is false or Jev did not answer. The steps, in
 `Run::go`:
 
 1. **Lock and read.** `state/scry/pass.lock` is taken with `File::lock` (blocking) for the
    whole pass, so two passes never interleave. The store is read once; `Unreadable` is
    `Error::StoreUnreadable` and nothing is touched. The pass works on a copy, `Run::mine`.
+   The ledger is read once too: its `find` and `check` rows give the estimates and, through
+   core's `cost::spent_in` in the `Clock`'s offset, what scry spent earlier in the local day,
+   which starts the pass's `Budget` (Jev's `decide` rows are not counted, design §6.9).
 2. **What to send, and the gone sweep.** The scope's units whose fingerprint is not in
    `inspected[file]` (every one with `fresh`). `Run::sweep_gone`: an open, waiting or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
    `gone`.
 3. **Find.** `pack_units` packs them; each pack is a `FindAsk` with its files' diffs
    (`diff_of`), the steering text, `reported` empty, and the open and waiting findings on its
-   units (`Run::open_on`). The caps are checked before each call (`allows`; once one pack is
-   capped every later one is; the estimates and the day's cap come with the rounds). A call
-   that fails, or a reply `parse_find` refuses, is a `failures` line
-   (`find failed for a.py: …`) and its units stay uninspected; the finder has already put its
-   errand in the ledger. `spent` adds each errand's cost.
+   units (`Run::open_on`). Before each call `Budget::allows(find_estimate)`; once one pack is
+   capped every later one is, and its units' names go to `capped[file]` in the store. The
+   call's `cap_usd` is `Budget::room` (else `pass_cost`). A call that fails, or a reply
+   `parse_find` refuses, is a `failures` line (`find failed for a.py: …`) and its units stay
+   uninspected; the finder has already put its errand in the ledger. The budget is charged the
+   errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
+   other failure.
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::resolve_rule` cannot
    resolve is dropped (the finding stays); `place` with the finding's own file's units; an
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
@@ -207,21 +215,49 @@ write. It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, t
    again when `asked_on` changed, a refuted or unsure one waits again when its evidence prints
    moved. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
    with nothing written (`Halt::Silent`).
-5. **Verify (stand-in).** `Run::verify_citations`: a waiting finding of a scoped file whose
-   kind is `Verify::Citations` opens when `citations` holds (its evidence takes the prints) and
-   is `unsure` with the reason in its verdict when not; `CitationsThenClaim` kinds stay
-   waiting. The verification rounds replace this.
-6. **Remember.** Ids the reply said *no longer holds* (open or waiting) are `resolved`.
-   `Run::moved` reads each sent file's units again: a unit whose fingerprint is not what was
-   sent keeps none of the pass's new findings and is not inspected. When the pass is `whole`
-   (nothing capped, no failure), an open or waiting finding from before the pass whose unit
-   was sent at a fingerprint other than its place's, and that nothing merged into or resolved,
-   is `resolved` (not found again). The fingerprints of the sent, answered, unmoved units join
-   `inspected`.
-7. **Write.** One `Store::update` applies `merge_into(base, mine, current)`: each finding in
-   the store as it is now takes the pass's version only when its status there is still the one
-   the pass started from (so a dismissal made during the pass stands); the pass's new findings
-   are appended; `inspected` sets are joined.
+5. **Remember.** Ids the reply said *no longer holds* (open or waiting) are `resolved`.
+   `Run::drop_moved` (over `Run::moved`, which reads each sent file's units again): a unit
+   whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
+   is `whole` (nothing capped, no failure), an open or waiting finding from before the pass
+   whose unit was sent at a fingerprint other than its place's, and that nothing merged into
+   or resolved, is `resolved` (not found again).
+6. **Verify.** `rounds::verify` for each scoped file that still exists, sharing the pass's
+   `Budget` (below). It runs even when nothing in the file was sent, so a waiting finding
+   opens once the file has room.
+7. **Write.** `Run::drop_moved` again (a unit may have changed while the checks ran); the
+   fingerprints of the sent, answered, unmoved units join `inspected` and leave `capped`. Each
+   write (the one before a round's checks, and this last one) is a `Store::update` applying
+   `merge_into(written, mine, current)`, `written` being what the pass last wrote: each finding
+   in the store as it is now takes the pass's version only when its status there is still the
+   one the pass last saw (so a dismissal made during the pass stands); the pass's new findings
+   are appended; `inspected` sets are joined; `capped` is the pass's when it changed it.
+
+## Rounds and the budget
+
+`src/rounds.rs` is inspect's verification rounds and caps (`Pass.hs`: `findEstimate`,
+`claimEstimate`, `spentToday`, the `rounds` loop), design §6.4 steps 6–7 and §6.9.
+
+`find_estimate(rows, model)` and `check_estimate(rows)` are the mean of the last 20 priced
+ledger rows of product `scry` and verb `find` / `check`, else $0.04 a find ($0.005 when the
+model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)` holds the
+`Caps` (`pass`, `day`, `budget`); `allows(e)` is false when `spent + e` passes `pass` or
+`budget` (when set) or `today + spent + e` passes `day`; `charge` adds a cost; `room` is the
+least left under any finite cap. `cost_of(errands)` sums a call's priced errands.
+
+`verify(store, file, cfg, budget, deps, cancel, around)` takes the file's waiting findings,
+best `keep` first, in rounds. A round takes the candidates that would fit if all passed: one
+that was waiting before the pass (`Around::old_waiting`) only while the file's open findings
+of shown kinds are under `max_shown`; one this pass found while fewer than `max_shown` of the
+pass's own have opened (only kinds in `cfg.kinds` count). Then, per finding: `citations`
+(failure → `unsure`, the reason as verdict); a `Verify::Citations` kind opens at once; a
+`CitationsThenClaim` kind's check is reserved against the budget at `check_estimate`, and one
+that does not fit leaves its finding waiting and stops the rounds (`Verified { capped }`).
+When there are checks to run the store is written (`Around::save`) and `Progress::Stored`
+sent, so what opened shows before the checks finish. The round's checks run side by side on
+`std::thread::scope`, each a `Claim` of the statement about its evidence: `Right` opens,
+`Wrong` is `refuted`, `CannotTell` is `unsure` (verdict and reason stored, the cost charged
+and added to the finding's `cost_usd`); an `Err` leaves it waiting, its place free for the
+next round, which takes the rest. The rounds end when a round takes nobody.
 
 ## Test support
 
@@ -232,4 +268,8 @@ set of files in its pack (an empty findings list otherwise) and records every `F
 `StubDecider` answers each question with the first rule whose kind prefixes the question's and
 whose predicate holds, else a certain no, and records the questions. `StubFinder::on_find` runs a hook during each call (a user acting mid-pass).
 `FixedClock` is a clock set by hand (`at`, `now`, `offset` to move it, `in_zone` for the
-user's offset) and implements the pass's `Clock`.
+user's offset) and implements the pass's `Clock`. `errand(verb, model, cost)` is a ledger row
+as a paid call would append it. The rounds tests (`tests/rounds.rs`) seed waiting findings
+straight into the store with `cancel` already inspected, so no find call runs, and pass a
+claim checker closure; the pass tests use one that always errs (a waiting finding stays
+waiting).
