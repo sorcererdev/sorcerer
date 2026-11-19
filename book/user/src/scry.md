@@ -70,19 +70,22 @@ it) keeps only those statuses (`open`, `waiting`, `withheld`, `refuted`, `unsure
 `scry cost` reads the ledger: a row for each of your local days, `day  finds  checks  find $
 check $  total $`, then `waiting on the cap: N units`. Jev's questions are in the total only.
 `--since 2026-11-01` leaves earlier days out; `--json` prints `{"days": [...],
-"waiting_units": N}`.
+"waiting_units": N}`. When the finding store does not read, `cost` says so on stderr and
+leaves the waiting line out (`waiting_units` is `null`).
 
 `scry dismiss ID` takes the id or a unique prefix of four or more characters and prints
 `dismissed 7f3a2c (here)`; a dismissed finding is not shown again in that unit, or in any with
 `--everywhere`. `scry why ID` prints Markdown: the statement, the rule cited and its text, the
-unit and the line it starts on, each cited range with its code (two lines either side), the claim checker's verdict, the keep score, how often
+unit and the line it starts on, each cited range with its code (two lines either side; a
+citation outside the project or on a fenced path, such as `.env`, is named but its code is not
+printed), the claim checker's verdict, the keep score, how often
 it was seen and its history. An unknown or ambiguous id exits 2. None of these four needs Jev.
 
 ### Exit codes
 
 | code | means |
 |---|---|
-| 0 | nothing open in scope |
+| 0 | nothing open in scope, or scry is off (`[scry] enabled = false`) |
 | 1 | open findings in scope |
 | 2 | scry could not run: no Jev key, no provider, the store does not read, a bad `--since` rev; or nothing is open but a find call failed or a cap held work back |
 
@@ -140,12 +143,12 @@ error that names the key and the file.
 
 | key | default | meaning |
 |---|---|---|
-| `enabled` | `true` | turn scry off for the project |
+| `enabled` | `true` | turn scry off for the project: `scry` then looks at nothing, says so on stderr and exits 0 |
 | `kinds` | `["bug", "assumption", "convention"]` | the kinds shown |
 | `find_model` | `"sonnet"` | the model that looks for problems |
 | `cut` | `0.7` | the keep line, 0 to 1: a finding is shown only when Jev's keep score (one minus the chance it is a nitpick) is at least this |
 | `max_shown` | `3` | findings shown at once, at least 1 |
-| `settle` | `2` | how long a finding must keep holding before it is shown, in passes (0 or more) |
+| `settle` | `2` | seconds the editor waits after a save before a pass, so a burst of saves is one pass (0 or more); unused on the command line |
 | `pass_cost` | `0.25` | dollars one pass may spend (the editor's cap) |
 | `day_cost` | `3.00` | dollars scry may spend on the project in a local day |
 | `exclude` | `[]` | globs of files scry skips |
@@ -164,6 +167,10 @@ Scry checks the caps before every paid call, against what that call is likely to
 - `pass_cost`: what one pass may spend.
 - `day_cost`: what scry may spend in your local day, counting the passes before this one.
 - `--budget USD` on the command line: what the run may spend.
+
+A find call that times out (after 420 s) is counted at the cap it ran under, which is never
+more than `pass_cost`, even on the command line where no pass cap applies: one hung call does
+not use up the day.
 
 A unit a cap holds back is not inspected; scry records it and the next pass with room takes
 it. A finding whose claim check does not fit waits, and is checked on a later pass. Findings

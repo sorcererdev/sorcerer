@@ -183,7 +183,9 @@ and 8. `pass(project, scope, caps, fresh, deps, cancel)` takes a `Scope` from `s
 write. It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, the `new` ids,
 `spent`, `capped` units, one `failures` line per failed call, `whole`, and `checks_capped`
 when a claim check did not fit), or
-`Outcome::Skipped` when `[scry] enabled` is false or Jev did not answer. The steps, in
+`Outcome::Skipped` when `[scry] enabled` is false or Jev did not answer. The command line
+(`cli::run`) checks `enabled` itself before the scope is built and exits 0, so a pre-commit hook
+in a project that turned scry off lets the commit through; any other `Skipped` exits 2. The steps, in
 `Run::go`:
 
 1. **Lock and read.** `state/scry/pass.lock` is taken with `File::lock` (blocking) for the
@@ -200,7 +202,10 @@ when a claim check did not fit), or
    (`diff_of`), the steering text, `reported` empty, and the open and waiting findings on its
    units (`Run::open_on`). Before each call `Budget::allows(find_estimate)`; once one pack is
    capped every later one is, and its units' names go to `capped[file]` in the store. The
-   call's `cap_usd` is `Budget::room` (else `pass_cost`). A call that fails, or a reply
+   call's `cap_usd` is the per-call cap, set here in the pass and nowhere else:
+   `Budget::room` bounded by `pass_cost` (`pass_cost` when nothing bounds the room). On the
+   command line `Caps.pass` is `None`, so without the bound `room` is the rest of the local
+   day and one hung call would be charged all of it. A call that fails, or a reply
    `parse_find` refuses, is a `failures` line (`find failed for a.py: …`) and its units stay
    uninspected; the finder has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
@@ -220,12 +225,16 @@ when a claim check did not fit), or
    again when `asked_on` changed, a refuted or unsure one waits again when its evidence prints
    moved. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
    with nothing written (`Halt::Silent`).
-5. **Remember.** Ids the reply said *no longer holds* (open or waiting) are `resolved`.
+5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
+   `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
+   waiting) are `resolved`; those it said *still holds* go into `held`.
    `Run::drop_moved` (over `Run::moved`, which reads each sent file's units again): a unit
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or waiting finding from before the pass
-   whose unit was sent at a fingerprint other than its place's, and that nothing merged into
-   or resolved, is `resolved` (not found again).
+   whose unit was sent at a fingerprint other than its place's, and that nothing merged into,
+   kept (`held`) or resolved, is `resolved` (not found again). The prompt tells the finder not
+   to raise an open finding again, so `held` is what keeps an unfixed finding open across an
+   edit of its unit.
 6. **Verify.** `rounds::verify` for each scoped file that still exists, sharing the pass's
    `Budget` (below). It runs even when nothing in the file was sent, so a waiting finding
    opens once the file has room.
@@ -235,7 +244,10 @@ when a claim check did not fit), or
    `merge_into(written, mine, current)`, `written` being what the pass last wrote: each finding
    in the store as it is now takes the pass's version only when its status there is still the
    one the pass last saw (so a dismissal made during the pass stands); the pass's new findings
-   are appended; `inspected` sets are joined; `capped` is the pass's when it changed it.
+   are appended; `inspected` sets are joined; `capped` is the pass's when it changed it. A new
+   finding whose id another writer took meanwhile gets a fresh one (`free_id`); `merge_into`
+   records it in `Run::renames`, applies the map to `mine` on every later write (`written` is
+   kept in written ids through `renamed`), and `pass` maps `Report::new` through it.
 
 ## Rounds and the budget
 
@@ -309,11 +321,15 @@ zone) and falls back to the system clock when `Live::open` fails. `list` sorts b
 `status_rank`, then file and line, and prints through `table` (columns padded to their widest
 cell). `cost` groups the ledger's `scry` errands by local day in the clock's offset
 (`BTreeMap` by date): `find` and `check` are counted and summed, `decide` only added to the
-total; the waiting units are the store's `capped` sets. `dismiss` is `ScryStore::dismiss`
+total; the waiting units are the store's `capped` sets (a store that does not read is a
+`scry:` line on stderr and no waiting line, `waiting_units: null`). `dismiss` is `ScryStore::dismiss`
 inside `Store::update`; `why` re-reads the steering for the rule's text and each cited file for
-`cited_range` (the cited lines, two either side; not `judge::cited_code`, the claim prompt's
+`cited_range`, reading a cited path only when it is relative and `Fences::allows` it (inside
+the root after `..` and symlinks, not fenced): evidence on a finding that was never verified
+is whatever path the model wrote (the cited lines, two either side; not `judge::cited_code`, the claim prompt's
 window of 8 around the first line).
-`held_back` prints the failures and caps. Exit: `Skipped` or an error is 2; anything shown is
+`held_back` prints the failures and caps. Exit: `[scry] enabled = false` is 0 before any
+pass; `Skipped` or an error is 2; anything shown is
 1; else 2 when a find failed, a unit was capped or a claim check was held back
 (`Report::checks_capped`), else 0.
 

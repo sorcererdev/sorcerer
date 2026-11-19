@@ -12,6 +12,7 @@ use chrono::{DateTime, FixedOffset, Local, Utc};
 use sorcerer_core::cost::spent_in;
 use sorcerer_core::fences::Fences;
 use sorcerer_core::fingerprint::Fingerprint;
+use sorcerer_core::fnv::fnv64_hex;
 use sorcerer_core::ledger::Ledger;
 use sorcerer_core::store::{Snapshot, Store};
 use sorcerer_core::unit::Unit;
@@ -189,14 +190,21 @@ pub fn pass(
         check_estimate: check_estimate(&rows),
         disk: &findings,
         written: base,
+        renames: HashMap::new(),
     };
     let report = match run.go(scope, fresh) {
         Ok(r) => r,
         Err(Halt::Silent) => return Ok(Outcome::Skipped("Jev did not answer".into())),
         Err(Halt::Failed(e)) => return Err(e),
     };
-    let (written, mine) = (run.written, run.mine);
-    findings.update(|current| *current = merge_into(&written, &mine, current))?;
+    let (written, mine, mut renames) = (run.written, run.mine, run.renames);
+    findings.update(|current| *current = merge_into(&written, &mine, current, &mut renames))?;
+    let mut report = report;
+    for id in &mut report.new {
+        if let Some(to) = renames.get(id) {
+            *id = to.clone();
+        }
+    }
     (deps.progress)(&Progress::Stored);
     drop(lock);
     Ok(Outcome::Ran(report))
@@ -223,8 +231,12 @@ struct Run<'r, 'd> {
     find_estimate: f64,
     check_estimate: f64,
     disk: &'r Store<ScryStore>,
-    /// The store as this pass last wrote it (at first, as it read it).
+    /// The store as this pass last wrote it (at first, as it read it), in
+    /// written ids.
     written: ScryStore,
+    /// The pass's ids that clashed with findings added meanwhile, to the
+    /// ids written in their place.
+    renames: HashMap<Id, Id>,
 }
 
 impl Run<'_, '_> {
@@ -276,6 +288,7 @@ impl Run<'_, '_> {
         let mut answered: Vec<Sent> = Vec::new();
         let mut raws: Vec<RawFinding> = Vec::new();
         let mut no_longer: HashSet<String> = HashSet::new();
+        let mut held: HashSet<String> = HashSet::new();
         for pack in pack_units(units) {
             let files = files_of(&pack);
             if capped > 0 || !self.budget.allows(self.find_estimate) {
@@ -300,7 +313,13 @@ impl Run<'_, '_> {
                 open: self.open_on(&pack),
                 units: pack,
             };
-            let cap = self.budget.room().unwrap_or(self.cfg.pass_cost);
+            // one call's cap: what the caps leave, never more than a pass
+            // may spend (on the command line nothing else bounds it, and a
+            // timeout is charged its cap)
+            let cap = self
+                .budget
+                .room()
+                .map_or(self.cfg.pass_cost, |r| r.min(self.cfg.pass_cost));
             let found = self
                 .deps
                 .finder
@@ -325,7 +344,15 @@ impl Run<'_, '_> {
                         let fp = prints[&key];
                         answered.push((key.0, key.1, key.2, fp));
                     }
-                    no_longer.extend(r.open.into_iter().filter(|o| !o.holds).map(|o| o.id));
+                    // an answer counts only for a finding this call was shown
+                    let shown: HashSet<&str> = ask.open.iter().map(|f| f.id.0.as_str()).collect();
+                    for o in r.open.into_iter().filter(|o| shown.contains(o.id.as_str())) {
+                        if o.holds {
+                            held.insert(o.id);
+                        } else {
+                            no_longer.insert(o.id);
+                        }
+                    }
                     raws.extend(r.findings);
                 }
             }
@@ -353,8 +380,9 @@ impl Run<'_, '_> {
             .collect();
 
         // not found again: an open or waiting finding whose unit this pass
-        // looked at with a new fingerprint, that the find call neither kept
-        // nor resolved, is resolved; only when the pass was whole
+        // looked at with a new fingerprint, that the find call neither
+        // re-raised, said still holds, nor resolved, is resolved; only when
+        // the pass was whole
         let whole = capped == 0 && failures.is_empty();
         if whole {
             let at: HashMap<(&Path, &str), Fingerprint> = kept
@@ -371,6 +399,7 @@ impl Run<'_, '_> {
                     && matches!(f.status, Status::Open | Status::Waiting)
                     && !self.merged.contains(&f.id)
                     && !no_longer.contains(&f.id.0)
+                    && !held.contains(&f.id.0)
                     && matches!((sent_at, f.place.fingerprint), (Some(now_fp), Some(was)) if *now_fp != was);
                 if not_found {
                     f.set_status(Status::Resolved, now);
@@ -392,11 +421,12 @@ impl Run<'_, '_> {
                 fences,
                 now,
                 check_estimate,
+                renames,
                 ..
             } = self;
             let mut save = |s: &ScryStore| -> Result<()> {
-                disk.update(|current| *current = merge_into(written, s, current))?;
-                *written = s.clone();
+                disk.update(|current| *current = merge_into(written, s, current, renames))?;
+                *written = renamed(s, renames);
                 Ok(())
             };
             let mut around = Around {
@@ -783,15 +813,30 @@ fn diff_of(scope: &Scope, files: &[PathBuf]) -> String {
 /// it is now (olifant's `mergeInto`): a finding the pass changed takes the
 /// pass's version only when its status in CURRENT is still what the pass
 /// started from, so a dismissal made meanwhile stands; the pass's new
-/// findings are added; inspected sets are joined.
-pub fn merge_into(base: &ScryStore, mine: &ScryStore, current: &ScryStore) -> ScryStore {
+/// findings are added; inspected sets are joined. A new finding whose id
+/// was taken meanwhile (by a finding added from elsewhere) takes a fresh
+/// one; RENAMES maps the pass's ids to the ids written, is applied to MINE
+/// first and grows with each such clash. BASE is in written ids.
+pub fn merge_into(
+    base: &ScryStore,
+    mine: &ScryStore,
+    current: &ScryStore,
+    renames: &mut HashMap<Id, Id>,
+) -> ScryStore {
+    let mine = renamed(mine, renames);
     let by_id = |s: &ScryStore| -> HashMap<Id, Finding> {
         s.findings
             .iter()
             .map(|f| (f.id.clone(), f.clone()))
             .collect()
     };
-    let (b, m) = (by_id(base), by_id(mine));
+    let (b, m) = (by_id(base), by_id(&mine));
+    let mut taken: HashSet<String> = current
+        .findings
+        .iter()
+        .chain(&mine.findings)
+        .map(|f| f.id.0.clone())
+        .collect();
     let cur: HashSet<&Id> = current.findings.iter().map(|f| &f.id).collect();
     let mut findings: Vec<Finding> = current
         .findings
@@ -802,12 +847,16 @@ pub fn merge_into(base: &ScryStore, mine: &ScryStore, current: &ScryStore) -> Sc
             _ => f.clone(),
         })
         .collect();
-    findings.extend(
-        mine.findings
-            .iter()
-            .filter(|f| !cur.contains(&f.id) && !b.contains_key(&f.id))
-            .cloned(),
-    );
+    for f in mine.findings.iter().filter(|f| !b.contains_key(&f.id)) {
+        let mut f = f.clone();
+        if cur.contains(&f.id) {
+            let id = free_id(&f.id, &taken);
+            taken.insert(id.0.clone());
+            renames.insert(f.id.clone(), id.clone());
+            f.id = id;
+        }
+        findings.push(f);
+    }
     let mut inspected = current.inspected.clone();
     for (file, set) in &mine.inspected {
         inspected
@@ -825,4 +874,24 @@ pub fn merge_into(base: &ScryStore, mine: &ScryStore, current: &ScryStore) -> Sc
         inspected,
         capped,
     }
+}
+
+/// STORE with its finding ids mapped through RENAMES.
+pub fn renamed(store: &ScryStore, renames: &HashMap<Id, Id>) -> ScryStore {
+    let mut s = store.clone();
+    for f in &mut s.findings {
+        if let Some(to) = renames.get(&f.id) {
+            f.id = to.clone();
+        }
+    }
+    s
+}
+
+/// Six hex digits from ID and a counter, not in TAKEN.
+fn free_id(id: &Id, taken: &HashSet<String>) -> Id {
+    (1..)
+        .map(|n: u64| fnv64_hex(format!("{}\0{n}", id.0).as_bytes())[..6].to_string())
+        .find(|c| !taken.contains(c))
+        .map(Id)
+        .expect("an unbounded counter finds a free id")
 }

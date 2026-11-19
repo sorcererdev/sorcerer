@@ -167,7 +167,7 @@ fn go<W: Wired>(
         Some(Cmd::List { status, json }) => list(&project, &status, json, out),
         Some(Cmd::Cost { since, json }) => {
             let (_, offset) = clock_of(&project, &wire);
-            cost(&project, since.as_deref(), offset, json, out)
+            cost(&project, since.as_deref(), offset, json, out, err)
         }
         Some(Cmd::Dismiss { id, everywhere }) => {
             let (now, _) = clock_of(&project, &wire);
@@ -326,6 +326,7 @@ fn cost(
     offset: FixedOffset,
     json: bool,
     out: &mut dyn Write,
+    err: &mut dyn Write,
 ) -> Result<i32> {
     let since = since
         .map(|s| {
@@ -356,9 +357,14 @@ fn cost(
         }
         d.4 += c;
     }
-    let waiting: usize = read_store(project)
-        .map(|s| s.capped.values().map(|u| u.len()).sum())
-        .unwrap_or(0);
+    // a store that does not read is said, not counted as nothing waiting
+    let waiting: Option<usize> = match read_store(project) {
+        Ok(s) => Some(s.capped.values().map(|u| u.len()).sum()),
+        Err(e) => {
+            writeln!(err, "scry: {e}")?;
+            None
+        }
+    };
     if json {
         let v: Vec<_> = days
             .iter()
@@ -396,7 +402,9 @@ fn cost(
                 &t
             )
         )?;
-        writeln!(out, "waiting on the cap: {}", count(waiting, "unit"))?;
+        if let Some(n) = waiting {
+            writeln!(out, "waiting on the cap: {}", count(n, "unit"))?;
+        }
     }
     Ok(0)
 }
@@ -468,6 +476,9 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         _ => {}
     }
     if !f.evidence.is_empty() {
+        // a citation the checks never saw may name any path: read only
+        // what the fences allow, inside the root
+        let fences = sorcerer_core::fences::Fences::for_project(project)?;
         writeln!(out, "Evidence:")?;
         for e in &f.evidence {
             writeln!(
@@ -476,6 +487,10 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
                 e.file.display(),
                 lines_text(e.lines.start, e.lines.end)
             )?;
+            if e.file.is_absolute() || !fences.allows(&e.file) {
+                writeln!(out, "(not shown: fenced or outside the project)")?;
+                continue;
+            }
             match std::fs::read_to_string(project.root.join(&e.file)) {
                 Ok(text) => writeln!(out, "{}", cited_range(&text, e.lines))?,
                 Err(_) => writeln!(out, "(the file cannot be read)")?,
@@ -528,6 +543,11 @@ fn run(
         anyhow::bail!("--budget {b}: give a number of dollars, 0 or more");
     }
     let cfg = scry_config(project)?;
+    if !cfg.enabled {
+        // off is not a failure: a pre-commit hook lets the commit through
+        writeln!(err, "scry: off ([scry] enabled = false)")?;
+        return Ok(0);
+    }
     let deps = wired.deps();
     let why = match (&a.since, a.files.is_empty()) {
         (Some(rev), _) => ScopeWhy::Since(rev.clone()),

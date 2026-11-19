@@ -248,6 +248,25 @@ fn json_is_one_object_a_line() {
 }
 
 #[test]
+fn scry_off_exits_0_without_a_find() {
+    let dir = changed_project();
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[scry]\nenabled = false\n",
+    );
+    let d = Doubles::new(
+        dir.path(),
+        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+    );
+    let r = scry(dir.path(), &d, &[]);
+    assert_eq!(r.code, 0, "{}{}", r.out, r.err);
+    assert_eq!(r.out, "");
+    assert!(r.err.contains("enabled = false"), "{}", r.err);
+    assert!(d.finder.asks().is_empty());
+}
+
+#[test]
 fn a_failed_find_with_nothing_open_exits_2() {
     let dir = changed_project();
     let d = Doubles::new(
@@ -717,6 +736,26 @@ fn cost_since_leaves_earlier_days_out() {
 }
 
 #[test]
+fn cost_names_an_unreadable_store() {
+    let dir = changed_project();
+    ledger_fixture(dir.path());
+    write(
+        dir.path(),
+        ".sorcerer/state/scry/findings.json",
+        r#"{"version": 2, "data": {}}"#,
+    );
+    let d = ny_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["cost"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert!(!r.out.contains("waiting on the cap"), "{}", r.out);
+    assert!(r.err.contains("cannot be read"), "{}", r.err);
+    let j = scry(dir.path(), &d, &["cost", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&j.out).unwrap();
+    assert!(v["waiting_units"].is_null(), "{v}");
+    assert!(j.err.contains("cannot be read"), "{}", j.err);
+}
+
+#[test]
 fn dismiss_by_prefix_then_a_run_no_longer_prints_it() {
     let dir = changed_project();
     let d = Doubles::new(
@@ -766,6 +805,37 @@ fn why_prints_the_whole_cited_range() {
     assert_eq!(r.code, 0, "{}", r.err);
     let want = "Evidence:\norders.py:5-6\n   3 \n   4 \n   5 def place(order):\n   6     return order.place()\n\n";
     assert!(r.out.contains(want), "{}", r.out);
+}
+
+#[test]
+fn why_does_not_print_a_fenced_or_outside_citation() {
+    let dir = changed_project();
+    write(dir.path(), ".env", "SECRET=hunter2\n");
+    let mut f = stored::finding(
+        "aaaa03",
+        "bug",
+        scry::finding::Status::Waiting,
+        "orders.py",
+        2,
+    );
+    let mut outside = f.evidence[0].clone();
+    outside.file = "../outside.txt".into();
+    f.evidence[0].file = ".env".into();
+    f.evidence[0].lines = sorcerer_core::unit::Span { start: 1, end: 1 };
+    f.evidence.push(outside);
+    stored::put(dir.path(), vec![f]);
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["why", "aaaa03"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert!(!r.out.contains("hunter2"), "{}", r.out);
+    assert_eq!(
+        r.out
+            .matches("(not shown: fenced or outside the project)")
+            .count(),
+        2,
+        "{}",
+        r.out
+    );
 }
 
 #[test]

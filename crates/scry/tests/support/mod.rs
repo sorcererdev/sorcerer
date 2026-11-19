@@ -115,6 +115,9 @@ pub struct StubFinder {
     replies: Vec<(BTreeSet<PathBuf>, String)>,
     pub cost: f64,
     pub asks: Mutex<Vec<FindAsk>>,
+    /// The cap each call was given.
+    pub caps: Mutex<Vec<f64>>,
+    timeout: bool,
     hook: Option<Hook>,
 }
 
@@ -124,8 +127,16 @@ impl StubFinder {
             replies: Vec::new(),
             cost: 0.04,
             asks: Mutex::new(Vec::new()),
+            caps: Mutex::new(Vec::new()),
+            timeout: false,
             hook: None,
         }
+    }
+
+    /// Every call times out, as a hung `claude -p` would.
+    pub fn timing_out(mut self) -> StubFinder {
+        self.timeout = true;
+        self
     }
 
     /// Runs HOOK during every find call, as a user acting mid-pass would.
@@ -157,10 +168,17 @@ impl Finder for StubFinder {
         &self,
         ask: &FindAsk,
         model: &str,
-        _cap_usd: f64,
+        cap_usd: f64,
         _cancel: &Cancel,
     ) -> sorcerer_models::Result<Found> {
         self.asks.lock().unwrap().push(ask.clone());
+        self.caps.lock().unwrap().push(cap_usd);
+        if self.timeout {
+            return Err(sorcerer_models::Error::Timeout {
+                provider: "stub".into(),
+                seconds: 420,
+            });
+        }
         if let Some(h) = &self.hook {
             h(ask);
         }

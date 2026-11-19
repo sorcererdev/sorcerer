@@ -6,7 +6,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use scry::config::ScryConfig;
 use scry::finding::{Finding, Status};
-use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, pass};
+use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, merge_into, pass, renamed};
 use scry::scope::{ScopeWhy, scope_of};
 use scry::store::{ScryStore, store};
 use sorcerer_core::store::Snapshot;
@@ -399,6 +399,63 @@ fn no_longer_holds_resolves() {
 }
 
 #[test]
+fn still_holds_keeps_the_finding() {
+    let f = Fixture::new();
+    ran(f.run(
+        &bug_finder("cancel() returns None."),
+        &StubDecider::new(),
+        false,
+    ));
+    let id = only(&f.store()).id.clone();
+    // edited without a fix: a new fingerprint, and the finder may not raise it again
+    f.edit("cancel(now=True)", "cancel(now=True)  # log");
+    let answer = serde_json::json!({
+        "findings": [],
+        "open": [{"id": id.0, "holds": "still holds", "why": "it still returns None"}],
+    })
+    .to_string();
+    let finder = StubFinder::new().reply(&["orders.py"], &answer);
+    let r = ran(f.run(&finder, &StubDecider::new(), false));
+    assert!(r.whole);
+    assert_eq!(finder.asks()[0].open[0].id, id);
+    let s = f.store();
+    assert_eq!(only(&s).status, Status::Waiting);
+    assert!(s.inspected[Path::new("orders.py")].contains(&cancel_print(&f)));
+}
+
+#[test]
+fn no_longer_holds_resolves_only_a_finding_the_call_was_shown() {
+    let f = Fixture::new();
+    ran(f.run(
+        &bug_finder("cancel() returns None."),
+        &StubDecider::new(),
+        false,
+    ));
+    // a waiting finding on `place`, which this pass does not send
+    store(&f.project)
+        .unwrap()
+        .update(|s| {
+            let mut other = s.findings[0].clone();
+            other.id = scry::finding::Id("abcdef".into());
+            other.place.unit = Some("place".into());
+            s.findings.push(other);
+        })
+        .unwrap();
+    f.edit("cancel(now=True)", "cancel(now=True) or order");
+    let answer = serde_json::json!({
+        "findings": [],
+        "open": [{"id": "abcdef", "holds": "no longer holds", "why": "a wrong id"}],
+    })
+    .to_string();
+    let finder = StubFinder::new().reply(&["orders.py"], &answer);
+    ran(f.run(&finder, &StubDecider::new(), false));
+    assert!(finder.asks()[0].open.iter().all(|o| o.id.0 != "abcdef"));
+    let s = f.store();
+    let other = s.findings.iter().find(|g| g.id.0 == "abcdef").unwrap();
+    assert_eq!(other.status, Status::Waiting);
+}
+
+#[test]
 fn not_found_again_at_a_new_fingerprint_resolves_only_when_whole() {
     let f = Fixture::new();
     let big = format!("def big():\n{}", "    x = 1\n".repeat(600));
@@ -519,4 +576,45 @@ fn an_unreadable_store_stops_the_pass_untouched() {
     assert!(e.contains("version 2"), "{e}");
     assert!(finder.asks().is_empty());
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+/// A new finding whose id another writer took meanwhile is written under a
+/// fresh id, not dropped; a later write of the same pass finds it there.
+#[test]
+fn a_new_finding_whose_id_was_taken_meanwhile_is_re_ided() {
+    let f = Fixture::new();
+    ran(f.run(
+        &bug_finder("cancel() returns None."),
+        &StubDecider::new(),
+        false,
+    ));
+    let ours = only(&f.store()).clone();
+    let mut theirs = ours.clone();
+    theirs.statement = "added from another terminal".into();
+    let base = ScryStore::default();
+    let mine = ScryStore {
+        findings: vec![ours.clone()],
+        ..ScryStore::default()
+    };
+    let current = ScryStore {
+        findings: vec![theirs.clone()],
+        ..ScryStore::default()
+    };
+    let mut renames = std::collections::HashMap::new();
+    let written = merge_into(&base, &mine, &current, &mut renames);
+    assert_eq!(written.findings.len(), 2, "{:#?}", written.findings);
+    assert_eq!(written.findings[0], theirs);
+    let to = renames[&ours.id].clone();
+    assert_ne!(to, ours.id);
+    assert_eq!(written.findings[1].id, to);
+    assert_eq!(written.findings[1].statement, ours.statement);
+
+    // the pass goes on under its own id; the next write lands on the new one
+    let mut later = mine.clone();
+    later.findings[0].set_status(Status::Open, t0());
+    let again = merge_into(&renamed(&mine, &renames), &later, &written, &mut renames);
+    assert_eq!(again.findings.len(), 2, "{:#?}", again.findings);
+    assert_eq!(again.findings[0], theirs);
+    assert_eq!(again.findings[1].id, to);
+    assert_eq!(again.findings[1].status, Status::Open);
 }
