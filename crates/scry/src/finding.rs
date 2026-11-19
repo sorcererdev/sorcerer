@@ -9,7 +9,7 @@ use sorcerer_core::fingerprint::Fingerprint;
 use sorcerer_core::unit::Span;
 
 /// Six lowercase hex digits, stable for the record's life.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Id(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

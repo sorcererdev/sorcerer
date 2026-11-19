@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Utc};
 use scry::find::{FindAsk, Finder, Found};
+use scry::pass::Clock;
 use sorcerer_core::grammar::GrammarCache;
 use sorcerer_core::language::GrammarSource;
 use sorcerer_core::ledger::Errand;
@@ -105,12 +106,16 @@ pub fn errand(verb: &str, model: &str, cost: f64) -> Errand {
     }
 }
 
+type Hook = Box<dyn Fn(&FindAsk) + Send + Sync>;
+
 /// The find call's stand-in: replies by the set of files in the pack (an
 /// empty findings list for a pack it has no reply for), and records every ask.
+/// A hook, when set, runs during each call (after the ask is recorded).
 pub struct StubFinder {
     replies: Vec<(BTreeSet<PathBuf>, String)>,
     pub cost: f64,
     pub asks: Mutex<Vec<FindAsk>>,
+    hook: Option<Hook>,
 }
 
 impl StubFinder {
@@ -119,7 +124,14 @@ impl StubFinder {
             replies: Vec::new(),
             cost: 0.04,
             asks: Mutex::new(Vec::new()),
+            hook: None,
         }
+    }
+
+    /// Runs HOOK during every find call, as a user acting mid-pass would.
+    pub fn on_find(mut self, hook: impl Fn(&FindAsk) + Send + Sync + 'static) -> StubFinder {
+        self.hook = Some(Box::new(hook));
+        self
     }
 
     /// Replies REPLY to a pack whose files are exactly FILES.
@@ -149,6 +161,9 @@ impl Finder for StubFinder {
         _cancel: &Cancel,
     ) -> sorcerer_models::Result<Found> {
         self.asks.lock().unwrap().push(ask.clone());
+        if let Some(h) = &self.hook {
+            h(ask);
+        }
         let files: BTreeSet<PathBuf> = ask.units.iter().map(|u| u.file.clone()).collect();
         let reply = self
             .replies
@@ -238,15 +253,24 @@ impl Decider for StubDecider {
     }
 }
 
-/// A clock that says what it is told. Task 7's `Clock` is implemented for it
-/// there.
+/// A clock that says what it is told, in a zone it is told (UTC unless set).
 pub struct FixedClock {
     at: Mutex<DateTime<Utc>>,
+    zone: FixedOffset,
 }
 
 impl FixedClock {
     pub fn at(t: DateTime<Utc>) -> FixedClock {
-        FixedClock { at: Mutex::new(t) }
+        FixedClock {
+            at: Mutex::new(t),
+            zone: FixedOffset::east_opt(0).unwrap(),
+        }
+    }
+
+    /// The same clock in ZONE (the user's local offset).
+    pub fn in_zone(mut self, zone: FixedOffset) -> FixedClock {
+        self.zone = zone;
+        self
     }
 
     pub fn now(&self) -> DateTime<Utc> {
@@ -256,5 +280,15 @@ impl FixedClock {
     /// Moves the clock by D (negative goes back).
     pub fn offset(&self, d: Duration) {
         *self.at.lock().unwrap() += d;
+    }
+}
+
+impl Clock for FixedClock {
+    fn now(&self) -> DateTime<Utc> {
+        FixedClock::now(self)
+    }
+
+    fn offset(&self) -> FixedOffset {
+        self.zone
     }
 }

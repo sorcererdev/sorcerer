@@ -11,11 +11,13 @@
 - `src/scope.rs`: `ScopeWhy`, `Scope`, `ScopedUnit`, `ScopedFile`, `scope_of`.
 - `src/judge.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_CUT`, `Match`,
   `match_stored`, `nitpick`, `keep_of`, `asked_on`, `cited_code`, `citations`.
+- `src/pass.rs`: `pass`, `PassDeps`, `Clock`, `SystemClock`, `Checker`, `Progress`, `Caps`,
+  `Report`, `Outcome`, `merge_into`.
 - `tests/support/mod.rs`: git fixtures, `project_with_vendored_grammars`, and the doubles
   `StubFinder`, `StubDecider`, `FixedClock`.
 - `library/scry.md`: the shipped steering layer.
 
-Later tasks add the pass and the CLI here.
+Later tasks add the verification rounds and the CLI here.
 
 ## Config
 
@@ -68,8 +70,8 @@ Every status change goes through `Finding::set_status`, which appends to `histor
 - `resolved`: the code changed and it no longer holds.
 - `gone`: its unit no longer exists.
 
-`src/store.rs` is `ScryStore` (`findings`, plus `inspected` and `capped`, each file to a set
-of unit names), `Versioned` at version 1, opened by `store(&Project)` at
+`src/store.rs` is `ScryStore` (`findings`, plus `inspected`, each file to the set of unit
+fingerprints a pass has looked at, and `capped`, each file to the units a cost cap held back), `Versioned` at version 1, opened by `store(&Project)` at
 `.sorcerer/state/scry/findings.json` through core's `Store`. A file from a newer scry is
 `Unreadable` and never rewritten. `new_id` hashes time, file, lines and statement with FNV and
 keeps six digits, rehashing with a counter while taken. `get` takes an id or a unique prefix of
@@ -168,6 +170,59 @@ clamps it (`Server/Checker.hs` `confirm`): 50-60 of a 59-line file holds. Any fa
 finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprint
 (`unit_at`), else seven hex digits of the whole file's FNV-1a.
 
+## The pass
+
+`src/pass.rs` is inspect's `Pass.hs` (`inspectPass`, `mergeInto`), design §6.4 steps 1–5
+and 8. `pass(project, scope, caps, fresh, deps, cancel)` takes a `Scope` from `scope_of` and
+`PassDeps`: the `CodebaseView`, the `Finder`, the `Decider` (Jev), the claim `Checker`, a
+`Clock` (`SystemClock` live, `FixedClock` in tests) and a `progress` callback told
+`Progress::Found(n)` after each find call that answered and `Progress::Stored` after the
+write. It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, the `new` ids,
+`spent`, `capped` units, one `failures` line per failed call, and `whole`), or
+`Outcome::Skipped` when `[scry] enabled` is false or Jev did not answer. The steps, in
+`Run::go`:
+
+1. **Lock and read.** `state/scry/pass.lock` is taken with `File::lock` (blocking) for the
+   whole pass, so two passes never interleave. The store is read once; `Unreadable` is
+   `Error::StoreUnreadable` and nothing is touched. The pass works on a copy, `Run::mine`.
+2. **What to send, and the gone sweep.** The scope's units whose fingerprint is not in
+   `inspected[file]` (every one with `fresh`). `Run::sweep_gone`: an open, waiting or withheld
+   finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
+   `gone`.
+3. **Find.** `pack_units` packs them; each pack is a `FindAsk` with its files' diffs
+   (`diff_of`), the steering text, `reported` empty, and the open and waiting findings on its
+   units (`Run::open_on`). The caps are checked before each call (`allows`; once one pack is
+   capped every later one is; the estimates and the day's cap come with the rounds). A call
+   that fails, or a reply `parse_find` refuses, is a `failures` line
+   (`find failed for a.py: …`) and its units stay uninspected; the finder has already put its
+   errand in the ledger. `spent` adds each errand's cost.
+4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::resolve_rule` cannot
+   resolve is dropped (the finding stays); `place` with the finding's own file's units; an
+   `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
+   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_CUT` wins;
+   `match_stored` says merge (`Run::merge`), drop, or new. A new finding gets the `nitpick`
+   question (`Run::keep`): keep at or past `cut` is `waiting`, else `withheld`, with
+   `asked_on`. A merge replaces place, statement and evidence (printed by `citations` when
+   they hold), adds one to `seen`, keeps id, status and dismissals; a withheld one is asked
+   again when `asked_on` changed, a refuted or unsure one waits again when its evidence prints
+   moved. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
+   with nothing written (`Halt::Silent`).
+5. **Verify (stand-in).** `Run::verify_citations`: a waiting finding of a scoped file whose
+   kind is `Verify::Citations` opens when `citations` holds (its evidence takes the prints) and
+   is `unsure` with the reason in its verdict when not; `CitationsThenClaim` kinds stay
+   waiting. The verification rounds replace this.
+6. **Remember.** Ids the reply said *no longer holds* (open or waiting) are `resolved`.
+   `Run::moved` reads each sent file's units again: a unit whose fingerprint is not what was
+   sent keeps none of the pass's new findings and is not inspected. When the pass is `whole`
+   (nothing capped, no failure), an open or waiting finding from before the pass whose unit
+   was sent at a fingerprint other than its place's, and that nothing merged into or resolved,
+   is `resolved` (not found again). The fingerprints of the sent, answered, unmoved units join
+   `inspected`.
+7. **Write.** One `Store::update` applies `merge_into(base, mine, current)`: each finding in
+   the store as it is now takes the pass's version only when its status there is still the one
+   the pass started from (so a dismissal made during the pass stands); the pass's new findings
+   are appended; `inspected` sets are joined.
+
 ## Test support
 
 `crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
@@ -175,5 +230,6 @@ finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprin
 (core's vendored grammars, no network), and three doubles. `StubFinder` answers a find by the
 set of files in its pack (an empty findings list otherwise) and records every `FindAsk`.
 `StubDecider` answers each question with the first rule whose kind prefixes the question's and
-whose predicate holds, else a certain no, and records the questions. `FixedClock` is a clock
-set by hand (`at`, `now`, `offset`); the pass's `Clock` trait is implemented for it there.
+whose predicate holds, else a certain no, and records the questions. `StubFinder::on_find` runs a hook during each call (a user acting mid-pass).
+`FixedClock` is a clock set by hand (`at`, `now`, `offset` to move it, `in_zone` for the
+user's offset) and implements the pass's `Clock`.
