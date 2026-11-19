@@ -9,6 +9,7 @@ pub mod finding;
 pub mod judge;
 pub mod kind;
 pub mod live;
+pub mod log;
 pub mod pass;
 pub mod rounds;
 pub mod scope;

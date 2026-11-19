@@ -7,6 +7,8 @@
 //!
 //! `SCRY_GATE_CASES=b01,vm02` runs only those cases and prints their
 //! findings (the bars are then not asserted: a look, not a measure).
+//! `SCRY_GATE_LOG=DIR` writes each case's scope and pass trace (the run
+//! log's middle, as `scry -v` would stream it) to `DIR/<id>.md`.
 //! `SCRY_RECORD_JEV=1` (with `JEV_API_KEY`) asks Jev what is not recorded:
 //! an outward call, run by hand, never in CI.
 mod support;
@@ -215,6 +217,7 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
             verdict,
             why: "1a's claim check".into(),
             citations: Vec::new(),
+            cited: Vec::new(),
             escalated: false,
             errands: Vec::new(),
         })
@@ -226,6 +229,14 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     let decider: &dyn Decider = if look { &looking } else { &decider };
     let clock = FixedClock::at("2026-11-18T23:00:00Z".parse().unwrap());
     let progress = |_: &Progress| {};
+    // SCRY_GATE_LOG=DIR writes each case's scope and pass trace to DIR/<id>.md
+    let log_dir = std::env::var_os("SCRY_GATE_LOG").map(PathBuf::from);
+    let log = std::cell::RefCell::new(format!(
+        "# scry gate case {}\n{}",
+        c.id,
+        scry::log::scope_text(&scope)
+    ));
+    let collect = |s: &str| log.borrow_mut().push_str(s);
     let deps = PassDeps {
         view: &view,
         finder: &finder,
@@ -233,6 +244,11 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
         checker: &checker,
         clock: &clock,
         progress: &progress,
+        trace: if log_dir.is_some() {
+            &collect
+        } else {
+            &scry::log::quiet
+        },
     };
     let caps = Caps {
         pass: Some(cfg.pass_cost),
@@ -248,6 +264,11 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
         ),
         Ok(Outcome::Skipped(why)) => panic!("case {} skipped: {why}", c.id),
         Err(e) => panic!("case {}: {e}", c.id),
+    }
+
+    if let Some(d) = &log_dir {
+        std::fs::create_dir_all(d).unwrap();
+        std::fs::write(d.join(format!("{}.md", c.id)), log.borrow().as_str()).unwrap();
     }
 
     let s: ScryStore = match store(&project).unwrap().read().unwrap() {

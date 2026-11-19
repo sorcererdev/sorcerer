@@ -14,9 +14,11 @@ use sorcerer_core::{Cancel, Result};
 use sorcerer_models::checker::{Checked, Citation, Claim, ClaimKind, Verdict};
 
 use crate::config::ScryConfig;
-use crate::finding::{Finding, Id, Status, StoredVerdict};
-use crate::judge::citations;
+use crate::finding::{Finding, Id, Status, StoredCitation, StoredVerdict};
+use crate::judge::{citations, cites};
 use crate::kind::{Verify, kind};
+use crate::log::{citation, section, sub, usd};
+use crate::pass::status_word;
 use crate::pass::{Caps, PassDeps, Progress};
 use crate::store::ScryStore;
 
@@ -165,8 +167,14 @@ pub(crate) fn verify(
         kb.total_cmp(&ka)
     });
     let mut cands: Vec<Id> = waiting.into_iter().map(|f| f.id.clone()).collect();
+    let t = |s: &str| (deps.trace)(s);
+    if !cands.is_empty() {
+        t(&section(&format!("Verification: {}", file.display())));
+    }
+    let mut round = 0;
 
     while !cands.is_empty() && !cancel.is_cancelled() {
+        round += 1;
         // the round: the candidates that would fit if all passed
         let (mut o, mut n) = (open_now, new_passed);
         let mut batch = Vec::new();
@@ -185,7 +193,28 @@ pub(crate) fn verify(
                 batch.push(id);
             }
         }
+        let keep_of = |id: &Id| {
+            let f = find(store, id);
+            format!("{} (keep {:.2})", id.0, f.scores.keep.unwrap_or(0.0))
+        };
+        let listed = |ids: &[Id]| {
+            if ids.is_empty() {
+                "none".to_string()
+            } else {
+                ids.iter().map(keep_of).collect::<Vec<_>>().join(", ")
+            }
+        };
+        t(&format!(
+            "{}- room: {open_now} open of {} shown in the file; {new_passed} of the pass's own opened, of {}\n\
+             - candidates: {}\n- left for a later round: {}\n",
+            sub(&format!("Round {round}")),
+            cfg.max_shown,
+            cfg.max_shown,
+            listed(&batch),
+            listed(&rest),
+        ));
         if batch.is_empty() {
+            t("- nobody fits: the rounds end\n");
             break;
         }
 
@@ -202,20 +231,63 @@ pub(crate) fn verify(
                 .collect();
             match citations(deps.view, around.fences, &raw) {
                 Err(why) => {
+                    let cited: Vec<StoredCitation> = raw
+                        .iter()
+                        .map(|(file, lines)| StoredCitation {
+                            path: file.display().to_string(),
+                            unit: None,
+                            line: Some(lines.start),
+                            confirmed: cites(deps.view, around.fences, file, *lines),
+                        })
+                        .collect();
+                    let each: Vec<String> = cited.iter().map(citation).collect();
+                    t(&format!(
+                        "- {}: citations fail: {why}{}{} → unsure\n",
+                        id.0,
+                        if each.is_empty() { "" } else { "; " },
+                        each.join("; ")
+                    ));
                     f.verdict = Some(StoredVerdict {
                         verdict: why,
                         why: String::new(),
+                        cited,
                     });
                     f.set_status(Status::Unsure, now);
                 }
                 Ok(ev) => {
+                    let each: Vec<String> = ev
+                        .iter()
+                        .map(|e| {
+                            format!(
+                                "`{}` {}-{} (print {})",
+                                e.file.display(),
+                                e.lines.start,
+                                e.lines.end,
+                                e.print.as_deref().unwrap_or("none")
+                            )
+                        })
+                        .collect();
+                    t(&format!(
+                        "- {}: citations hold: {}\n",
+                        id.0,
+                        each.join(", ")
+                    ));
                     f.evidence = ev;
                     if !needs_claim(f) {
                         f.set_status(Status::Open, now);
+                        t(&format!(
+                            "- {}: a {} needs no claim check → open\n",
+                            id.0, f.kind
+                        ));
                     } else if budget.allows(reserved + around.check_estimate) {
                         reserved += around.check_estimate;
                         to_check.push((id.clone(), claim_of(f)));
                     } else {
+                        t(&format!(
+                            "- {}: claim check held back: {} more does not fit the caps; it waits\n",
+                            id.0,
+                            usd(around.check_estimate)
+                        ));
                         held = true;
                     }
                 }
@@ -242,15 +314,31 @@ pub(crate) fn verify(
         });
         for (id, r) in results {
             // an error leaves the finding waiting: its place is free next round
-            let Ok(c) = r else { continue };
+            let c = match r {
+                Ok(c) => c,
+                Err(e) => {
+                    t(&format!(
+                        "- {} claim check failed: {e} → it stays waiting\n",
+                        id.0
+                    ));
+                    continue;
+                }
+            };
             let cost = cost_of(&c.errands);
             budget.charge(cost);
+            let cited: Vec<StoredCitation> = c
+                .cited
+                .iter()
+                .map(|x| StoredCitation {
+                    path: x.raw.path.clone(),
+                    unit: x.raw.unit.clone(),
+                    line: x.raw.line,
+                    confirmed: x.confirmed,
+                })
+                .collect();
+            let models: Vec<&str> = c.errands.iter().map(|e| e.model.as_str()).collect();
             let f = find_mut(store, &id);
             f.cost_usd += cost;
-            f.verdict = Some(StoredVerdict {
-                verdict: verdict_word(c.verdict).into(),
-                why: c.why,
-            });
             f.set_status(
                 match c.verdict {
                     Verdict::Right => Status::Open,
@@ -259,6 +347,32 @@ pub(crate) fn verify(
                 },
                 now,
             );
+            let mut text = format!(
+                "- {} claim check: models: {}; escalated: {}; verdict {}: {}; cost {} → {}\n",
+                id.0,
+                if models.is_empty() {
+                    "none recorded".into()
+                } else {
+                    models.join(", ")
+                },
+                if c.escalated { "yes" } else { "no" },
+                verdict_word(c.verdict),
+                c.why,
+                usd(cost),
+                status_word(f.status),
+            );
+            if cited.is_empty() {
+                text.push_str("  - cited nothing\n");
+            }
+            for x in &cited {
+                text.push_str(&format!("  - cited {}\n", citation(x)));
+            }
+            t(&text);
+            f.verdict = Some(StoredVerdict {
+                verdict: verdict_word(c.verdict).into(),
+                why: c.why,
+                cited,
+            });
         }
 
         for id in &batch {

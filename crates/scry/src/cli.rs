@@ -1,8 +1,10 @@
 //! The command line: `scry [FILES]...` runs a pass and prints the open
-//! findings in its scope; `scry doctor` says whether scry can run here.
+//! findings in its scope, writing a run log (`scry log` prints it, `-v`
+//! streams it); `scry doctor` says whether scry can run here.
 //! Exit codes: 0 nothing open in scope, 1 open findings in scope, 2 could
 //! not run.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -26,7 +28,8 @@ use sorcerer_models::providers::default_provider_for;
 use crate::config::scry_config;
 use crate::finding::{Finding, Status};
 use crate::live::{Live, Wired};
-use crate::pass::{Caps, Outcome, Report, pass};
+use crate::log::{self, RESULT, count, section, usd};
+use crate::pass::{Caps, Outcome, PassDeps, Report, pass};
 use crate::scope::{Scope, ScopeWhy, scope_of};
 use crate::steering::steering;
 use crate::store::{ScryStore, store};
@@ -65,6 +68,9 @@ struct RunArgs {
     /// The most this run may spend, in dollars (the day's cap still holds)
     #[arg(long, value_name = "USD")]
     budget: Option<f64>,
+    /// Stream the run log to stderr as the run goes
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -91,6 +97,18 @@ enum Cmd {
     },
     /// A finding in full
     Why { id: String },
+    /// A run's log: the latest, or the Nth latest
+    Log {
+        /// 1 is the latest run, 2 the one before, …
+        #[arg(value_parser = clap::value_parser!(u32).range(1..))]
+        n: Option<u32>,
+        /// The logs kept, newest first: file, time, result
+        #[arg(long, conflicts_with_all = ["n", "path"])]
+        list: bool,
+        /// The log's path only
+        #[arg(long)]
+        path: bool,
+    },
     /// Whether scry can run here: provider, Jev, languages, steering, store, ledger
     Doctor,
 }
@@ -126,6 +144,11 @@ pub fn main_with<W: Wired>(
     width: usize,
     wire: impl Fn(&Project) -> Result<W>,
 ) -> i32 {
+    let line = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ");
     let cli = match Cli::try_parse_from(args) {
         Ok(c) => c,
         Err(e) => {
@@ -139,7 +162,7 @@ pub fn main_with<W: Wired>(
             return code;
         }
     };
-    let code = match go(cli, cwd, env, out, err, width, wire) {
+    let code = match go(cli, &line, cwd, env, out, err, width, wire) {
         Ok(code) => code,
         Err(e) => {
             let _ = writeln!(err, "scry: {e:#}");
@@ -151,8 +174,10 @@ pub fn main_with<W: Wired>(
     code
 }
 
+#[allow(clippy::too_many_arguments)]
 fn go<W: Wired>(
     cli: Cli,
+    line: &str,
     cwd: &Path,
     env: &dyn Env,
     out: &mut dyn Write,
@@ -169,7 +194,7 @@ fn go<W: Wired>(
                 writeln!(err, "scry: off ([scry] enabled = false)")?;
                 return Ok(0);
             }
-            run(&cli.run, cwd, &project, &wire(&project)?, out, err, width)
+            logged(&cli.run, line, cwd, &project, wire, out, err, width)
         }
         Some(Cmd::Doctor) => Ok(doctor(&project, env, &GrammarCache::user(env), out)?),
         Some(Cmd::List { status, json }) => list(&project, &status, json, out),
@@ -182,7 +207,185 @@ fn go<W: Wired>(
             dismiss(&project, &id, everywhere, now, out, err)
         }
         Some(Cmd::Why { id }) => why(&project, &id, out, err),
+        Some(Cmd::Log { n, list, path }) => {
+            let (_, offset) = clock_of(&project, &wire);
+            show_log(&project, n.unwrap_or(1), list, path, offset, out, err)
+        }
     }
+}
+
+/// The run log as a run writes it: kept whole for the file, and with
+/// `-v` streamed to stderr as it grows. Stderr's other lines go through
+/// it too, so the two never interleave out of order.
+struct RunLog<'w> {
+    text: RefCell<String>,
+    err: RefCell<&'w mut dyn Write>,
+    verbose: bool,
+}
+
+impl RunLog<'_> {
+    fn put(&self, s: &str) {
+        self.text.borrow_mut().push_str(s);
+        if self.verbose {
+            let _ = self.err.borrow_mut().write_all(s.as_bytes());
+        }
+    }
+
+    /// One line on stderr, not in the log.
+    fn say(&self, s: &str) -> std::io::Result<()> {
+        writeln!(self.err.borrow_mut(), "{s}")
+    }
+}
+
+/// A run, logged: the head, the run itself, then the summary's last line;
+/// the log is written under `state/scry/runs/` whatever the run did, and a
+/// failure to write it is one line on stderr.
+#[allow(clippy::too_many_arguments)]
+fn logged<W: Wired>(
+    a: &RunArgs,
+    line: &str,
+    cwd: &Path,
+    project: &Project,
+    wire: impl Fn(&Project) -> Result<W>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    width: usize,
+) -> Result<i32> {
+    let log = RunLog {
+        text: RefCell::new(String::new()),
+        err: RefCell::new(err),
+        verbose: a.verbose,
+    };
+    let wired = wire(project);
+    let (now, offset) = match &wired {
+        Ok(w) => {
+            let d = w.deps();
+            (d.clock.now(), d.clock.offset())
+        }
+        Err(_) => (Utc::now(), *Local::now().offset()),
+    };
+    log.put(&head(a, line, project, now, offset));
+    let result = match wired {
+        Ok(w) => run(a, cwd, project, &w, out, &log, width),
+        Err(e) => Err(e),
+    };
+    if let Err(e) = &result {
+        log.put(&format!(
+            "{}- error: {e:#}\n\n{RESULT}could not run, exit 2\n",
+            section("Summary")
+        ));
+    }
+    let written = project
+        .state_dir()
+        .map_err(anyhow::Error::from)
+        .and_then(|state| {
+            log::write_run(&log::runs_dir(&state), now, &log.text.borrow())
+                .map_err(anyhow::Error::from)
+        });
+    if let Err(e) = written {
+        log.say(&format!("scry: the run log was not written: {e:#}"))?;
+    }
+    result
+}
+
+/// The log's head: when, where, which scry, the command, the caps and the
+/// effective `[scry]`.
+fn head(
+    a: &RunArgs,
+    line: &str,
+    project: &Project,
+    now: DateTime<Utc>,
+    offset: FixedOffset,
+) -> String {
+    let mut s = format!(
+        "# scry run {}\n{}- time: {} (UTC {})\n- project: `{}`\n- scry {}\n- command: `{line}`\n",
+        now.format("%Y-%m-%dT%H:%M:%SZ"),
+        section("Run"),
+        now.with_timezone(&offset).format("%Y-%m-%d %H:%M:%S %:z"),
+        now.format("%Y-%m-%d %H:%M:%S"),
+        project.root.display(),
+        env!("CARGO_PKG_VERSION"),
+    );
+    match scry_config(project) {
+        Ok(cfg) => {
+            s.push_str(&format!(
+                "- caps: pass none on the command line, day {}, budget {}\n- config ([scry] with the defaults filled in):\n\n",
+                usd(cfg.day_cost),
+                a.budget.map_or("none".into(), usd),
+            ));
+            let fields = serde_json::to_value(&cfg)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            let text: String = fields.iter().map(|(k, v)| format!("{k} = {v}\n")).collect();
+            s.push_str(&log::block(&text));
+        }
+        Err(e) => s.push_str(&format!("- config: {e}\n")),
+    }
+    s
+}
+
+/// `scry log`: the Nth latest run's log, the list of them, or a path.
+fn show_log(
+    project: &Project,
+    n: u32,
+    list: bool,
+    path: bool,
+    offset: FixedOffset,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<i32> {
+    let dir = log::runs_dir(&project.state);
+    let logs = log::runs(&dir);
+    if logs.is_empty() {
+        writeln!(
+            err,
+            "scry: no run log yet (a run writes one in {})",
+            dir.display()
+        )?;
+        return Ok(2);
+    }
+    if list {
+        let rows: Vec<Vec<String>> = logs
+            .iter()
+            .map(|p| {
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let time = log::run_time(&name)
+                    .map(|t| {
+                        t.with_timezone(&offset)
+                            .format("%Y-%m-%d %H:%M:%S %:z")
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                let text = std::fs::read_to_string(p).unwrap_or_default();
+                let result = log::result_of(&text)
+                    .unwrap_or("(no result line)")
+                    .to_string();
+                vec![name, time, result]
+            })
+            .collect();
+        write!(out, "{}", table(&["log", "time", "result"], &rows))?;
+        return Ok(0);
+    }
+    let Some(p) = logs.get(n as usize - 1) else {
+        writeln!(
+            err,
+            "scry: no run log {n}: {} kept",
+            count(logs.len(), "log")
+        )?;
+        return Ok(2);
+    };
+    if path {
+        writeln!(out, "{}", p.display())?;
+    } else {
+        let text =
+            std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?;
+        out.write_all(text.as_bytes())?;
+    }
+    Ok(0)
 }
 
 /// The time and local offset: the wiring's clock when it opens (the tests'
@@ -508,6 +711,17 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
     }
     if let Some(v) = &f.verdict {
         writeln!(out, "Checked: {}: {}", v.verdict, v.why)?;
+        if !v.cited.is_empty() {
+            writeln!(out, "Cited by the check:")?;
+            for c in &v.cited {
+                let said = if c.confirmed {
+                    "confirmed"
+                } else {
+                    "not found"
+                };
+                writeln!(out, "{}: {said}", c.label())?;
+            }
+        }
     }
     if let Some(k) = f.scores.keep {
         writeln!(out, "Keep: {k:.2}")?;
@@ -542,7 +756,7 @@ fn run(
     project: &Project,
     wired: &impl Wired,
     out: &mut dyn Write,
-    err: &mut dyn Write,
+    log: &RunLog,
     width: usize,
 ) -> Result<i32> {
     if let Some(b) = a.budget
@@ -551,21 +765,37 @@ fn run(
         anyhow::bail!("--budget {b}: give a number of dollars, 0 or more");
     }
     let cfg = scry_config(project)?;
-    let deps = wired.deps();
+    let trace = |s: &str| log.put(s);
+    let deps = PassDeps {
+        trace: &trace,
+        ..wired.deps()
+    };
     let why = match (&a.since, a.files.is_empty()) {
         (Some(rev), _) => ScopeWhy::Since(rev.clone()),
         (None, false) => ScopeWhy::Named(a.files.iter().map(|f| cwd.join(f)).collect()),
         (None, true) => ScopeWhy::Working,
     };
     let scope = scope_of(project, deps.view, why, a.all, &cfg)?;
+    log.put(&log::scope_text(&scope));
     let caps = Caps {
         pass: None,
         day: cfg.day_cost,
         budget: a.budget,
     };
+    let ledger_rows = || {
+        Ledger::for_project(project)
+            .and_then(|l| l.read())
+            .map(|r| r.errands)
+            .unwrap_or_default()
+    };
+    let rows_before = ledger_rows().len();
     let report = match pass(project, &scope, &caps, a.fresh, &deps, &wired.cancel())? {
         Outcome::Skipped(why) => {
-            writeln!(err, "scry: {why}")?;
+            log.put(&format!(
+                "{}- skipped: {why}\n\n{RESULT}skipped ({why}), exit 2\n",
+                section("Summary")
+            ));
+            log.say(&format!("scry: {why}"))?;
             return Ok(2);
         }
         Outcome::Ran(r) => r,
@@ -589,21 +819,131 @@ fn run(
         count(report.looked_at, "unit"),
         report.spent
     );
-    if !shown.is_empty() || report.looked_at > 0 || report.spent > 0.0 {
-        if a.json {
-            writeln!(err, "{summary}")?;
-        } else {
-            writeln!(out, "{summary}")?;
-        }
-    }
-    held_back(&report, a.budget.is_some(), err)?;
-    Ok(if !shown.is_empty() {
+    let code = if !shown.is_empty() {
         1
     } else if !report.failures.is_empty() || report.capped > 0 || report.checks_capped {
         2
     } else {
         0
-    })
+    };
+    let new_rows: Vec<_> = ledger_rows().into_iter().skip(rows_before).collect();
+    log.put(&summary_text(
+        &report, &stored, &shown, &scope, &cfg, &new_rows, code,
+    ));
+    if !shown.is_empty() || report.looked_at > 0 || report.spent > 0.0 {
+        if a.json {
+            log.say(&summary)?;
+        } else {
+            writeln!(out, "{summary}")?;
+        }
+    }
+    let mut held = Vec::new();
+    held_back(&report, a.budget.is_some(), &mut held)?;
+    if !held.is_empty() {
+        log.err.borrow_mut().write_all(&held)?;
+    }
+    Ok(code)
+}
+
+/// The log's summary: each finding the pass touched, its status and why it
+/// is or is not printed; what was spent, by verb; the failures; the exit.
+fn summary_text(
+    r: &Report,
+    stored: &ScryStore,
+    shown: &[&Finding],
+    scope: &Scope,
+    cfg: &crate::config::ScryConfig,
+    new_rows: &[sorcerer_core::ledger::Errand],
+    code: i32,
+) -> String {
+    let mut s = section("Summary");
+    for id in &r.touched {
+        let Some(f) = stored.findings.iter().find(|f| f.id == *id) else {
+            s.push_str(&format!("- {}: not in the store as written\n", id.0));
+            continue;
+        };
+        let in_scope = scope.units.iter().any(|u| {
+            u.file == f.place.file && f.place.unit.as_deref() == Some(u.unit.name.as_str())
+        });
+        let verdict = f
+            .verdict
+            .as_ref()
+            .map(|v| format!(" ({}: {})", v.verdict, v.why))
+            .unwrap_or_default();
+        let why = if shown.iter().any(|g| g.id == f.id) {
+            "printed".to_string()
+        } else {
+            let because = match f.status {
+                Status::Open if !cfg.kinds.contains(&f.kind) => {
+                    format!("its kind {} is not in [scry] kinds", f.kind)
+                }
+                Status::Open if !in_scope => "its unit is not in this run's scope".into(),
+                Status::Open => "open".into(),
+                Status::Waiting => "not checked yet (a cap or a failed check)".into(),
+                Status::Withheld => format!(
+                    "judged a nitpick (keep {:.2} under the cut {:.2})",
+                    f.scores.keep.unwrap_or(0.0),
+                    cfg.cut
+                ),
+                Status::Refuted => "the claim check said it is wrong".into(),
+                Status::Unsure => "the check could not confirm it".into(),
+                Status::Elsewhere => "its lines are in no unit in scope".into(),
+                Status::DismissedHere | Status::DismissedEverywhere => "dismissed".into(),
+                Status::Resolved => "resolved".into(),
+                Status::Gone => "its unit is gone".into(),
+            };
+            format!("not printed: {because}")
+        };
+        s.push_str(&format!(
+            "- {} {} at {}:{}: {}{verdict}; {why}\n",
+            f.id.0,
+            f.kind,
+            f.place.file.display(),
+            f.place.lines.start,
+            crate::pass::status_word(f.status),
+        ));
+    }
+    if r.touched.is_empty() {
+        s.push_str("- no finding added or changed\n");
+    }
+    let mut by_verb: BTreeMap<&str, (usize, f64)> = BTreeMap::new();
+    for e in new_rows.iter().filter(|e| e.product == "scry") {
+        let v = by_verb.entry(e.verb.as_str()).or_default();
+        v.0 += 1;
+        v.1 += e.cost_usd.unwrap_or(0.0);
+    }
+    let verbs: Vec<String> = by_verb
+        .iter()
+        .map(|(verb, (n, c))| format!("{verb} {n} for {}", usd(*c)))
+        .collect();
+    s.push_str(&format!(
+        "- spent: the pass charged {}; the ledger's new scry rows: {}\n",
+        usd(r.spent),
+        if verbs.is_empty() {
+            "none".into()
+        } else {
+            verbs.join(", ")
+        }
+    ));
+    if r.failures.is_empty() {
+        s.push_str("- failures: none\n");
+    }
+    for f in &r.failures {
+        s.push_str(&format!("- failure: {f}\n"));
+    }
+    if r.capped > 0 {
+        s.push_str(&format!("- capped: {}\n", count(r.capped, "unit")));
+    }
+    if r.checks_capped {
+        s.push_str("- a claim check was held back by the caps\n");
+    }
+    s.push_str(&format!(
+        "\n{RESULT}{} shown, {} looked at, ${:.2}, exit {code}\n",
+        count(shown.len(), "finding"),
+        count(r.looked_at, "unit"),
+        r.spent
+    ));
+    s
 }
 
 /// The failures and what the caps held back, a line each.
@@ -635,10 +975,6 @@ fn held_back(r: &Report, budget: bool, err: &mut dyn Write) -> Result<()> {
         )?;
     }
     Ok(())
-}
-
-fn count(n: usize, what: &str) -> String {
-    format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }
 
 /// Open findings of KINDS whose place is a unit of SCOPE, best keep first.

@@ -16,6 +16,9 @@
 - `src/rounds.rs`: `find_estimate`, `check_estimate`, `Budget`, `cost_of`, and the
   crate-private `verify` (with `Around`, `Verified`).
 - `src/live.rs`: `Live`, `Wired`, `jev_for`, `checker_over`, `PRODUCT`.
+- `src/log.rs`: the run log: `Trace`, `quiet`, `section`, `sub`, `block`, `usd`, `count`,
+  `citation`, `scope_text`, `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`,
+  `result_of`, `KEEP`, `RESULT`.
 - `src/cli.rs`: `main`, `main_with`, `doctor_rows`.
 - `src/main.rs`: the binary, `cli::main` with the real environment.
 - `tests/support/mod.rs`: git fixtures, `project_with_vendored_grammars`, and the doubles
@@ -56,7 +59,10 @@ whole `## Rules` section, which Jev reads when a finding cites no rule.
 life), `kind`, optional `rule`, `statement`, a `Place` (file, unit, lines, `unit_start`,
 `Fingerprint`), `Vec<Evidence>` (file, lines, and the `print` of the cited code when verified),
 `Scores` (`keep`, and `asked_on`, what the nitpick judgement was asked about), an optional
-`StoredVerdict` (`right`, `wrong`, `cannot_tell`, or the citation failure, with its reason),
+`StoredVerdict` (`right`, `wrong`, `cannot_tell`, or the citation failure, with its reason,
+and `cited`, each `StoredCitation` behind it with `confirmed`: what the claim check cited, or
+for a citation failure the finding's own evidence; `serde(default)` and skipped when empty,
+so a store from before it reads and one with nothing cited is written as before),
 `status`, `seen`, `first`, `last`, `history`, and the `model` and `cost_usd` of the find.
 Every status change goes through `Finding::set_status`, which appends to `history`.
 
@@ -116,7 +122,9 @@ and every file is all new. The files are the named ones, or the view's `changed_
 
 A file that is gone but was at the base is a `ScopedFile` with `deleted` and no units, so the
 pass can sweep its findings. A rename is a deletion and an addition (`changed_since` runs
-with `--no-renames`). For a file that exists, the units are `compare_units(view.units_at(file,
+with `--no-renames`). Each file considered and left out goes to `Scope::skipped` with why
+(`no language`, `excluded by [scry] exclude`, `fenced`, `not text`, `deleted, and not at the
+base`), for the run log. For a file that exists, the units are `compare_units(view.units_at(file,
 base), view.units(file))`'s `Added` and `Changed`, or every unit with `all` or no commit; a
 base whose units do not read counts as none. `ScopedFile::diff` is `view.diff(file, base)`, or
 the file's text when that is empty; `units_now` names every unit now, for the gone sweep.
@@ -178,11 +186,12 @@ finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprin
 `src/pass.rs` is inspect's `Pass.hs` (`inspectPass`, `mergeInto`), design §6.4 steps 1–5
 and 8. `pass(project, scope, caps, fresh, deps, cancel)` takes a `Scope` from `scope_of` and
 `PassDeps`: the `CodebaseView`, the `Finder`, the `Decider` (Jev), the claim `Checker`, a
-`Clock` (`SystemClock` live, `FixedClock` in tests) and a `progress` callback told
+`Clock` (`SystemClock` live, `FixedClock` in tests), a `progress` callback told
 `Progress::Found(n)` after each find call that answered and `Progress::Stored` after the
-write. It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, the `new` ids,
-`spent`, `capped` units, one `failures` line per failed call, `whole`, and `checks_capped`
-when a claim check did not fit), or
+write, and a `trace` (below). It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, the `new` ids,
+`spent`, `capped` units, one `failures` line per failed call, `whole`, `checks_capped`
+when a claim check did not fit, and `touched`, every finding the pass added or changed: those
+of `Run::mine` not equal to the store as read, mapped through the renames), or
 `Outcome::Skipped` when `[scry] enabled` is false or Jev did not answer. The command line
 (`cli::go`) checks `enabled` itself before the wiring (`Live::open`, which needs a Jev key and
 a provider) and exits 0, so a pre-commit hook
@@ -250,6 +259,29 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    records it in `Run::renames`, applies the map to `mine` on every later write (`written` is
    kept in written ids through `renamed`), and `pass` maps `Report::new` through it.
 
+## The trace
+
+`PassDeps::trace` is a `log::Trace`, `&dyn Fn(&str)`, handed Markdown as the pass goes; it is
+`log::quiet` in the live wiring, the gate and the tests that do not read it. It is called on
+the pass's thread only (a round's claim checks are traced after they join), so it needs no
+`Sync`, and the command line's can write to a stderr that is not `Send`. Nothing the pass
+decides reads it: the replay gate's table is the same with or without it. The calls:
+
+- `pass`: the **Pass** section, the caps, what scry spent earlier today, the estimates.
+- `Run::go`: **Units** (each scope unit, to send or already inspected), **Find calls** (per
+  pack: units, model, cap, the open ids, `find_prompt(&ask)` and the reply each in
+  `log::block`, the errand, then the parse or the failure, or the cap that held it back),
+  **Findings** (a `sub` heading a raw finding, then `Run::judge`), **Remember** (resolved by
+  the reply, not found again, swept gone by `sweep_gone`, dropped as moved) and, after the
+  rounds, **Inspected**.
+- `Run::judge` and `Run::merge`: the statement, the rule as cited and as resolved, the
+  evidence, the placement, each same-problem question's P(yes) and the outcome, the nitpick
+  question's P(yes) with keep against `cut`, and the id and status given.
+- `rounds::verify`: a **Verification** section for a file with waiting findings, then per
+  round the room, the candidates and the rest; each finding's citations (`judge::cites`
+  names the one that failed); each claim check's models (its errands'), escalation, verdict
+  and reason, cost, resulting status, and every `Checked::cited` through `log::citation`.
+
 ## Rounds and the budget
 
 `src/rounds.rs` is inspect's verification rounds and caps (`Pass.hs`: `findEstimate`,
@@ -273,8 +305,8 @@ that does not fit leaves its finding waiting and stops the rounds (`Verified { c
 When there are checks to run the store is written (`Around::save`) and `Progress::Stored`
 sent, so what opened shows before the checks finish. The round's checks run side by side on
 `std::thread::scope`, each a `Claim` of the statement about its evidence: `Right` opens,
-`Wrong` is `refuted`, `CannotTell` is `unsure` (verdict and reason stored, the cost charged
-and added to the finding's `cost_usd`); an `Err` leaves it waiting, its place free for the
+`Wrong` is `refuted`, `CannotTell` is `unsure` (verdict, reason and `Checked::cited` stored, the cost
+charged and added to the finding's `cost_usd`); an `Err` leaves it waiting, its place free for the
 next round, which takes the rest. The rounds end when a round takes nobody.
 
 ## The live wiring
@@ -294,7 +326,8 @@ next round, which takes the rest. The rounds end when a round takes nobody.
 - The claim checker, `checker_over(researcher, decider, fences, view, cancel)`: a boxed
   closure that runs `sorcerer_models::checker::check` with `CheckerDeps::defaults(.., "scry")`,
   so its errands are scry's `check` and Jev guards it.
-- `SystemClock`, and a progress callback that prints nothing.
+- `SystemClock`, a progress callback that prints nothing, and `log::quiet` as the trace (the
+  command line puts its own in).
 
 Everything is shared through `Arc`s so `Live` owns it all and `deps()` lends it.
 
@@ -316,7 +349,7 @@ of a shown kind whose place's file and unit are a scope unit, best `keep` first,
 `max_shown`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
 one object a line. The summary line is skipped when nothing was shown, looked at or spent.
 
-The store commands (`list`, `cost`, `dismiss`, `why` in `src/cli.rs`) need no Jev, so `go` does
+The store commands (`list`, `cost`, `dismiss`, `why`, `log` in `src/cli.rs`) need no Jev, so `go` does
 not require the wiring: `clock_of` asks it for the clock (the tests' `FixedClock` carries the
 zone) and falls back to the system clock when `Live::open` fails. `list` sorts by
 `status_rank`, then file and line, and prints through `table` (columns padded to their widest
@@ -329,7 +362,24 @@ inside `Store::update`; `why` re-reads the steering for the rule's text and each
 the root after `..` and symlinks, not fenced): evidence on a finding that was never verified
 is whatever path the model wrote (the cited lines, two either side; not `judge::cited_code`, the claim prompt's
 window of 8 around the first line).
-`held_back` prints the failures and caps. Exit: `[scry] enabled = false` is 0 before any
+`held_back` prints the failures and caps.
+
+**The run log.** A run goes through `logged`: it builds a `RunLog` (the text in a `RefCell`,
+and stderr, written to as the text grows when `-v`; the run's other stderr lines go through
+`RunLog::say`), opens the wiring, puts `head` (time from the wiring's clock, the root, the
+version, the command line `main_with` joined from its args, the caps, the effective `[scry]`
+serialized a `key = value` line each), then `run`, which hands the pass a `PassDeps` with
+`trace` set to `RunLog::put`, puts `log::scope_text` after `scope_of`, and at the end
+`summary_text`: each of `Report::touched` with its status, verdict and why it is or is not
+printed; the ledger's new `scry` rows (read before and after the pass) by verb; failures and
+caps; and the `log::RESULT` line with the exit code. A run that errs or is skipped still gets
+a summary. `log::write_run` then creates `state/scry/runs/<UTC %Y-%m-%dT%H-%M-%SZ>.md`
+(`create_new`, `-2`, `-3` on a clash) and deletes all but the newest `KEEP` (20), newest by
+`run_key` (the stamp, then the counter, so `-10` sorts after `-9`); a failure is one stderr
+line. A run with scry off writes no log. `scry log` (`show_log`) reads `log::runs` without
+creating the state directory: the Nth, `--list` (`table` of name, `run_time` in the clock's
+offset, `result_of`) or `--path`; none is exit 2. `why` prints a verdict's `cited` under
+`Cited by the check:`, a `StoredCitation::label` and `confirmed` or `not found` each. Exit: `[scry] enabled = false` is 0 before any
 pass; `Skipped` or an error is 2; anything shown is
 1; else 2 when a find failed, a unit was capped or a claim check was held back
 (`Report::checks_capped`), else 0.
@@ -387,6 +437,7 @@ a shown statement is one of its `hits`. The gate prints `set | cases | with a hi
 shown a case` and one row a case, then asserts inspect's bars: V-must at least 16 of 18 with
 a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on average.
 
+`SCRY_GATE_LOG=DIR` writes each case's `scope_text` and pass trace to `DIR/<id>.md`.
 `SCRY_GATE_CASES=b01,vm02` runs only those cases, prints every stored finding and every
 question Jev is asked (kind, key, P(yes), the findings), and asserts no bar. To re-record Jev,
 run once by hand with `JEV_API_KEY` set:

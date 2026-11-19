@@ -1,11 +1,11 @@
 //! `[scry]` in `.sorcerer/config.toml`, read strictly and range-checked.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sorcerer_core::{Error, Project, Result};
 
 use crate::kind::kind;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ScryConfig {
     pub enabled: bool,

@@ -236,6 +236,11 @@ pub fn citations(
         .collect()
 }
 
+/// Whether one cited range holds, as [`citations`] checks it.
+pub fn cites(view: &dyn CodebaseView, fences: &Fences, path: &Path, lines: Span) -> bool {
+    cite(view, fences, path, lines).is_some()
+}
+
 fn cite(view: &dyn CodebaseView, fences: &Fences, path: &Path, lines: Span) -> Option<Evidence> {
     if path.is_absolute() || !fences.allows(path) {
         return None;

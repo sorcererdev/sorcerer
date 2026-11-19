@@ -91,6 +91,7 @@ impl Fixture {
             checker,
             clock,
             progress,
+            trace: &scry::log::quiet,
         };
         match pass(
             &self.project,
@@ -209,6 +210,7 @@ fn checked(verdict: Verdict) -> Checked {
         verdict,
         why: format!("{verdict:?}"),
         citations: Vec::new(),
+        cited: Vec::new(),
         escalated: false,
         errands: vec![support::errand("check", "haiku", 0.01)],
     }

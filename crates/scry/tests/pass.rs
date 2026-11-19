@@ -86,6 +86,7 @@ impl Fixture {
             checker: &checker,
             clock: &clock,
             progress: &progress,
+            trace: &scry::log::quiet,
         };
         let caps = Caps {
             pass: None,
@@ -617,4 +618,97 @@ fn a_new_finding_whose_id_was_taken_meanwhile_is_re_ided() {
     assert_eq!(again.findings[0], theirs);
     assert_eq!(again.findings[1].id, to);
     assert_eq!(again.findings[1].status, Status::Open);
+}
+
+// ---- the trace ----
+
+/// A pass with the doubles, a claim check that could not confirm one of
+/// its citations, and a file no language covers: its trace and the scope's
+/// say what was sent, what came back and what each step decided.
+#[test]
+fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
+    use sorcerer_models::checker::{Cited, RawCitation, Verdict};
+    use std::cell::RefCell;
+
+    let f = Fixture::new();
+    write(f.root(), "notes.txt", "not code\n");
+    let scope = scope_of(
+        &f.project,
+        &f.view,
+        ScopeWhy::Working,
+        false,
+        &ScryConfig::default(),
+    )
+    .unwrap();
+    let finder = bug_finder("cancel ignores the order's state");
+    let decider = StubDecider::new().on("nitpick", |_| true, StubDecider::p_yes(0.2));
+    let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
+        Ok(Checked {
+            verdict: Verdict::CannotTell,
+            why: "cited code not found".into(),
+            citations: Vec::new(),
+            cited: vec![
+                Cited {
+                    raw: RawCitation {
+                        path: "orders.py".into(),
+                        unit: Some("cancel".into()),
+                        line: Some(2),
+                    },
+                    confirmed: true,
+                },
+                Cited {
+                    raw: RawCitation {
+                        path: "orders.py".into(),
+                        unit: Some("Order.refund".into()),
+                        line: None,
+                    },
+                    confirmed: false,
+                },
+            ],
+            escalated: true,
+            errands: vec![
+                support::errand("check", "haiku", 0.01),
+                support::errand("check", "sonnet", 0.03),
+            ],
+        })
+    };
+    let log = RefCell::new(scry::log::scope_text(&scope));
+    let trace = |s: &str| log.borrow_mut().push_str(s);
+    let clock = FixedClock::at(t0());
+    let progress = |_: &Progress| {};
+    let deps = PassDeps {
+        view: &f.view,
+        finder: &finder,
+        decider: &decider,
+        checker: &checker,
+        clock: &clock,
+        progress: &progress,
+        trace: &trace,
+    };
+    let caps = Caps {
+        pass: None,
+        day: f64::INFINITY,
+        budget: None,
+    };
+    let r = ran(pass(&f.project, &scope, &caps, false, &deps, &Cancel::default()).unwrap());
+    assert_eq!(r.new.len(), 1);
+    assert_eq!(r.touched, r.new);
+    let log = log.into_inner();
+    let has = |s: &str| assert!(log.contains(s), "no {s:?} in the trace:\n{log}");
+    has("`notes.txt`: skipped (no language)");
+    has(&scry::find::find_prompt(&finder.asks()[0]));
+    has(&reply("bug", 2, "cancel ignores the order's state", ""));
+    has("nitpick? P(yes) 0.20 → keep 0.80, cut 0.70 → waiting");
+    has(&format!("id {}", r.new[0].0));
+    has("cannot_tell");
+    has("escalated: yes");
+    has("models: haiku, sonnet");
+    has("`orders.py` `cancel` line 2: confirmed");
+    has("`orders.py` `Order.refund`: not found");
+    has("→ unsure");
+    // the stored verdict keeps what the check cited
+    let s = f.store();
+    let v = only(&s).verdict.clone().unwrap();
+    assert_eq!(v.cited.len(), 2);
+    assert!(!v.cited[1].confirmed && v.cited[1].unit.as_deref() == Some("Order.refund"));
 }

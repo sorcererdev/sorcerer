@@ -54,6 +54,8 @@ pub struct Scope {
     pub base: String,
     pub units: Vec<ScopedUnit>,
     pub files: Vec<ScopedFile>,
+    /// The files considered and left out, each with why (for the run log).
+    pub skipped: Vec<(PathBuf, String)>,
 }
 
 /// The scope of a pass for WHY. With ALL, every unit of each file is in
@@ -96,12 +98,20 @@ pub fn scope_of(
         base,
         units: Vec::new(),
         files: Vec::new(),
+        skipped: Vec::new(),
     };
     for file in candidates {
-        if project.languages.for_path(&file).is_none()
-            || exclude.is_match(&file)
-            || !fences.allows(&file)
-        {
+        let left_out = if project.languages.for_path(&file).is_none() {
+            Some("no language")
+        } else if exclude.is_match(&file) {
+            Some("excluded by [scry] exclude")
+        } else if !fences.allows(&file) {
+            Some("fenced")
+        } else {
+            None
+        };
+        if let Some(why) = left_out {
+            scope.skipped.push((file, why.into()));
             continue;
         }
         if !project.root.join(&file).exists() {
@@ -112,12 +122,19 @@ pub fn scope_of(
                     units_now: Vec::new(),
                     deleted: true,
                 });
+            } else {
+                scope
+                    .skipped
+                    .push((file, "deleted, and not at the base".into()));
             }
             continue;
         }
         let text = match view.text(&file) {
             Ok(t) => t,
-            Err(Error::NotText { .. }) => continue,
+            Err(Error::NotText { .. }) => {
+                scope.skipped.push((file, "not text".into()));
+                continue;
+            }
             Err(e) => return Err(e),
         };
         let now = view.units(&file)?;

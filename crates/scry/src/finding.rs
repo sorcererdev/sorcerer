@@ -66,6 +66,35 @@ pub struct StoredVerdict {
     /// `right`, `wrong`, `cannot_tell`, or the citation failure.
     pub verdict: String,
     pub why: String,
+    /// What the check cited (or, for a citation failure, the finding's own
+    /// evidence), each confirmed or not. Absent in stores written before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cited: Vec<StoredCitation>,
+}
+
+/// One citation behind a verdict: a path, a unit or a line, and whether it
+/// was found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredCitation {
+    pub path: String,
+    pub unit: Option<String>,
+    pub line: Option<u32>,
+    pub confirmed: bool,
+}
+
+impl StoredCitation {
+    /// `path unit line N`, the parts it has.
+    pub fn label(&self) -> String {
+        let mut s = self.path.clone();
+        if let Some(u) = &self.unit {
+            s.push(' ');
+            s.push_str(u);
+        }
+        if let Some(l) = self.line {
+            s.push_str(&format!(" line {l}"));
+        }
+        s
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -27,7 +27,8 @@ use sorcerer_core::view::CodebaseView;
 use crate::decide::Decider;
 use crate::research::{Research, Researcher, Tool};
 use crate::{Error, Result};
-use prompts::{RawCitation, claim_prompt, guard_questions, parse_reply};
+pub use prompts::RawCitation;
+use prompts::{claim_prompt, guard_questions, parse_reply};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Citation {
@@ -59,11 +60,22 @@ pub enum Verdict {
     CannotTell,
 }
 
+/// A citation as the verdict's reply gave it, and whether it was confirmed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cited {
+    pub raw: RawCitation,
+    pub confirmed: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Checked {
     pub verdict: Verdict,
     pub why: String,
+    /// The confirmed citations; empty when any did not confirm.
     pub citations: Vec<Citation>,
+    /// Every citation of the reply the verdict came from, confirmed or not,
+    /// so a `cannot_tell` can say which one failed.
+    pub cited: Vec<Cited>,
     pub escalated: bool,
     pub errands: Vec<Errand>,
 }
@@ -118,6 +130,7 @@ struct Attempt {
     why: String,
     citations: Vec<Citation>,
     raw: Vec<RawCitation>,
+    cited: Vec<Cited>,
 }
 
 pub fn check(claim: &Claim, deps: &CheckerDeps, cancel: &Cancel) -> Result<Checked> {
@@ -132,6 +145,7 @@ pub fn check(claim: &Claim, deps: &CheckerDeps, cancel: &Cancel) -> Result<Check
         verdict: a.verdict,
         why: a.why,
         citations: a.citations,
+        cited: a.cited,
         escalated,
         errands,
     };
@@ -184,27 +198,37 @@ fn attempt(
         provider: model.into(),
         why,
     })?;
-    Ok(match confirm(&reply.citations, deps) {
+    let each: Vec<Option<Citation>> = reply
+        .citations
+        .iter()
+        .map(|c| confirm_one(c, deps.view, deps.fences))
+        .collect();
+    let cited: Vec<Cited> = reply
+        .citations
+        .iter()
+        .zip(&each)
+        .map(|(c, ok)| Cited {
+            raw: c.clone(),
+            confirmed: ok.is_some(),
+        })
+        .collect();
+    // every citation confirmed, or the verdict is cannot_tell
+    Ok(match each.into_iter().collect::<Option<Vec<Citation>>>() {
         Some(citations) => Attempt {
             verdict: reply.verdict,
             why: reply.why,
             citations,
             raw: reply.citations,
+            cited,
         },
         None => Attempt {
             verdict: Verdict::CannotTell,
             why: CITATION_MISSED.into(),
             citations: Vec::new(),
             raw: reply.citations,
+            cited,
         },
     })
-}
-
-/// Each citation confirmed, or None when any is not found.
-fn confirm(raw: &[RawCitation], deps: &CheckerDeps) -> Option<Vec<Citation>> {
-    raw.iter()
-        .map(|c| confirm_one(c, deps.view, deps.fences))
-        .collect()
 }
 
 fn confirm_one(c: &RawCitation, view: &dyn CodebaseView, fences: &Fences) -> Option<Citation> {
