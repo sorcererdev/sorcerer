@@ -75,3 +75,33 @@ class and why; `cases.md` is the case plan and, once the cases exist, their tabl
 f34c8acd0e7c4cca6c550419416467d386ce96eb0d8a61b31f4778acb2cb05fc  conventions.md
 d4bce8f54dda36b47936a8b0a77cc9bf723465db56556c7f292af182ff57f4f9  scry.toml
 ```
+
+## How the corpus is made
+
+Everything the corpus rests on is in this directory; `tools/README.md` lists the scripts.
+
+1. **Base and conventions** (above), frozen before any case.
+2. **Candidates.** `tools/gen.py` runs sonnet on a fresh copy of the base. A V-must try runs without
+   the conventions, told the scenario and the file(s) to work in, and is kept only when its patch
+   breaks the intended rule (a natural violation, `made = "natural: …"`); when every try follows the
+   rule, the violation is derived by hand from the twin (`made = "hand: …"`). A twin runs with
+   `conventions.md` in its prompt and must follow every rule. B cases are bugs planted by hand in a
+   twin or feature base, with its added test changed so it misses the bug; N cases are hand-written or
+   taken from a feature base. Every hand edit is a `tools/derive.py` script, saved under `tools/gen/`.
+3. **Checks.** Every case passes `cargo check`, `cargo test` and `cargo clippy -- -D warnings`
+   (offline, locked) on a fresh copy of the base (`tools/check_case.py`). A candidate that does not
+   build gets one follow-up run with the compiler's output (`gen.py --fix`) before a scripted hand fix.
+   The eval itself never compiles: it parses with the vendored tree-sitter grammar.
+4. **Records.** `cases/<id>.toml` (`id, set, scenario, patch, rule, rule_class, rule_broken,
+   planted_lines, expect, made, twin, changed_files`) and `cases/<id>.patch` on `base/`; `cases.md`
+   is the table.
+5. **Recording.** One live run of the eval in record mode, by hand, on the finished corpus: every
+   review reply (per pack), claim verdict and Jev answer is written here; afterwards the eval replays
+   them for free.
+6. **Labels.** A finding is a **hit** when its recorded statement names the planted problem (the
+   case's `expect`); T and N cases have no hits, and any finding shown there is noise. `tools/judge.py`
+   (haiku) marks each recorded finding; the user reads every finding shown on a T or N case and every
+   V-must or B case the judge gave no hit, and writes corrections to `tools/results/overrides.json`;
+   `tools/label.py` writes `labels.json`. The overturned marks are listed below with one line each.
+7. **Passing scores.** Set from the first recording (`corpus.toml`): one case of slack on V-must and B,
+   0.5 shown a case on T and N; they move only by a ruling recorded there.
