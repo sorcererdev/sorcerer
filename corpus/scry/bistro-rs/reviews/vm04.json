@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0362312,
+      "files": [
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "The opening-hours rule is enforced in the route, not in a command. I didn't open any other files, so I haven't checked that `Weekday` and `weekday()` exist on the model.\n\n`is_open` (lines 58-62) decides whether a booking is allowed. Line 69 then refuses it with a hard-coded 422. Both steps break the steering rules:\n\n- **rules-in-commands:** whether a booking is allowed or refused belongs in the command's `handle`, not in the route.\n- **statuses-failures:** the 422 is picked in the route. It should come from a failure variant, such as a closed-hours variant on the create-booking failure enum, mapped in `failures.rs`.\n- **rule-tests:** the rule is only tested through the route, at lines 155-167. The rule must be tested in the command's own `mod tests` against the in-memory adapter.\n\nBecause the check lives in the route, any other caller of `CreateBooking::handle` can book outside opening hours.\n\n```json\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/web/bookings/routes.rs\", \"lines\": [58, 71], \"statement\": \"The opening-hours rule (closed Mondays, 17:00-21:30) is decided in the route by `is_open`, and the route picks the 422 status itself. The rule belongs in `CreateBooking::handle` as a failure variant, with its status mapped in `failures.rs`. As written, any other caller of the command bypasses the rule, and the rule is only tested at route level.\", \"rule\": \"rules-in-commands\", \"evidence\": [{\"file\": \"src/web/bookings/routes.rs\", \"lines\": [69, 71]}, {\"file\": \"src/web/bookings/routes.rs\", \"lines\": [155, 167]}]}], \"open\": []}\n```"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0485977,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/web/bookings/failures.rs"
+      ],
+      "reply": "`Slot` is a day plus a start time and derives `PartialEq`, so `existing.slot == input.slot` compares the start time as well as the day. That confirms the finding.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [66, 75], \"statement\": \"The check filters bookings to the day, then also requires `existing.slot == input.slot`, and `Slot` includes the start time. A guest can therefore still book 19:00 and 21:00 on the same day, even though the failure reason and the test name `a_guest_may_book_once_a_day` say one booking per day. The check only catches the same guest at the same time on a different table, and the day filter does nothing.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/models/slot.rs\", \"lines\": [123, 128]}]}], \"open\": []}\n```"
+    }
+  ]
+}

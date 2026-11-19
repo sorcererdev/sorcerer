@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.05035630000000001,
+      "files": [
+        "src/booking/queries/guest_history.rs",
+        "src/booking/queries/mod.rs"
+      ],
+      "reply": "The new query reads the bookings file directly instead of going through the repository port. It also copies the file adapter's storage format. I found no other problems in the changed units.\n\n- **Direct `std::fs` access:** `GuestHistory::handle` (`guest_history.rs:20-24`) calls `fs::read_to_string` on a path it holds. This breaks `ports`, since `std::fs` belongs only in `ports/<port>/file.rs`. It also holds a `PathBuf` rather than an `Rc<dyn BookingRepository>`. That is the `adapters-main` shape, so `main.rs` would have to pass it a path instead of the repository. The in-memory adapter can never serve this query, because `handle` only reads a file. The fix is to add a method such as `bookings_for(guest)` to the `BookingRepository` trait, implement it in both adapters, and have the query hold the repository.\n- **Duplicated tab-separated format:** `parse_line` (`guest_history.rs:35-50`) is a copy of the parser in `file.rs:35`. If the adapter's format changes, this query will silently skip every line it can no longer parse. Moving the read behind the port removes this duplicate.\n\n```json\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/booking/queries/guest_history.rs\", \"lines\": [14, 33], \"statement\": \"GuestHistory reads the bookings file itself with std::fs::read_to_string and holds a PathBuf instead of an Rc<dyn BookingRepository>. Queries must reach stored data only through a port, and only main.rs picks adapters. As written the query cannot run against the in-memory adapter.\", \"rule\": \"ports\", \"evidence\": [{\"file\": \"src/booking/queries/guest_history.rs\", \"lines\": [19, 24]}, {\"file\": \"src/booking/ports/booking_repository/mod.rs\", \"lines\": [11, 15]}]}, {\"issue_type\": \"design\", \"file\": \"src/booking/queries/guest_history.rs\", \"lines\": [35, 50], \"statement\": \"parse_line duplicates the file adapter's line parser and so its storage format. If the adapter's format changes, this query silently drops every line it can no longer parse. The parsing belongs inside the adapter behind a repository method.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/ports/booking_repository/file.rs\", \"lines\": [35, 50]}]}], \"open\": []}\n```"
+    }
+  ]
+}

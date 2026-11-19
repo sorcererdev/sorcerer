@@ -1,0 +1,18 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0709507,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/booking/ports/clock/in_memory.rs",
+        "src/booking/ports/clock/mod.rs",
+        "src/booking/ports/clock/system.rs",
+        "src/booking/ports/mod.rs",
+        "src/main.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "No problems found in this change.\n\n- **Ordering:** `Day` derives `Ord`, with year, month and day fields, so the `input.slot.day < self.clock.today()` comparison at `create_booking.rs:58` orders dates correctly.\n- **Clock port:** `SystemClock` calls `Day::from_days_since_epoch`, which exists in `slot.rs`. `main.rs` is the only place that constructs the real adapter.\n- **Status and tests:** `SlotInPast` has a status in `failures.rs`, and the command file tests both the refused past day and the allowed today.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

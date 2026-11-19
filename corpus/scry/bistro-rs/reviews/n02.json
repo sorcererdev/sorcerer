@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0268462,
+      "files": [
+        "src/main.rs"
+      ],
+      "reply": "The change swaps the CLI default from the file-backed store to the in-memory one. The flag changes from `--memory` to `--file`, and the usage text and doc comment match. No other file in the repository refers to `--memory` or `bistro.db`, so nothing is left calling the old flag. `main.rs` is the only place that picks adapters, which fits the `adapters-main` rule. I found no problems.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

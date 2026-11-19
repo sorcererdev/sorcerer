@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0529704,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/web/bookings/failures.rs"
+      ],
+      "reply": "The opening-hours check at line 49 refuses a 17:00 booking, but the refusal message says bookings start at 17:00.\n\nThe condition is `input.slot.start <= Time::new(17, 0)`, so a 17:00 start is refused as `OutsideOpeningHours`. The message at line 54 reads \"we take bookings 17:00 to 21:30\", and 21:30 is accepted because the upper bound uses `>`. A guest asking for exactly 17:00 is turned away with a message saying 17:00 is allowed. The new test only tries 16:30 and 17:30, so it never exercises the lower boundary.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [48, 58], \"statement\": \"The lower bound uses `<=` against 17:00, so a 17:00 booking is refused, yet the reason says bookings are taken from 17:00 to 21:30 and the upper bound 21:30 is inclusive. Guests asking for 17:00 get a refusal that contradicts its own message. The test checks only 16:30 and 17:30, so the boundary is untested.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [49, 54]}, {\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [183, 187]}]}], \"open\": []}\n```"
+    }
+  ]
+}

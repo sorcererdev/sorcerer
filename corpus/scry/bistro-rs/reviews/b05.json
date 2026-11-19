@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.07460320000000001,
+      "files": [
+        "src/booking/commands/mod.rs",
+        "src/booking/commands/swap_tables.rs",
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "The swap only validates one of the two moves, so it can save an invalid booking.\n\n`handle` builds `first_moved` and `second_moved` (`swap_tables.rs:43-50`) but calls `check` only for `first_moved` (line 51). `second_moved` is saved without any checks:\n\n- **Party size:** `second_moved` goes to the first booking's old table. Say b1 is a party of 2 on t2 (2 seats) and b2 is a party of 4 on t1 (4 seats). `first_moved` goes to t1 and passes. `second_moved` goes to t2 with a party of 4 and is saved, even though `check` would return `PartyTooLarge` at line 71 for it.\n- **Slot taken:** a third booking on the first booking's table at the second booking's slot is never looked for, so two bookings can end up on the same table and slot.\n- **Tests:** none of the tests exercise the second booking's move, which is why this isn't caught.\n\nThe `rule-tests` rule requires each booking rule to be proven at the command, and these two rules are only proven for one direction.\n\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/swap_tables.rs\", \"lines\": [51, 53], \"statement\": \"handle validates only first_moved; second_moved (moving onto the first booking's table) is saved without the party-size or slot-taken check. A party larger than the first table's seats, or a clash with a third booking at that slot, is silently saved.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/swap_tables.rs\", \"lines\": [43, 53]}, {\"file\": \"src/booking/commands/swap_tables.rs\", \"lines\": [65, 85]}]}], \"open\": []}"
+    }
+  ]
+}

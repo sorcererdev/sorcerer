@@ -1,0 +1,17 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0581392,
+      "files": [
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/pages.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "The change has one problem: the web layer reaches the repository directly instead of going through a query.\n\n```json\n{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/web/bookings/routes.rs\", \"lines\": [43, 50], \"statement\": \"The guest_page route calls `app.bookings.bookings_for(guest)`, which goes straight to the BookingRepository port from code under web/. App now holds an `Rc<dyn BookingRepository>` and app.rs imports the trait, so the web layer names a port trait. The lookup should be a query (e.g. GetGuestBookings) that the route calls, as day_page does with GetDaySchedule.\", \"rule\": \"web-commands\", \"evidence\": [{\"file\": \"src/web/app.rs\", \"lines\": [3, 18]}, {\"file\": \"src/main.rs\", \"lines\": [44, 48]}]}], \"open\": []}\n```"
+    }
+  ]
+}

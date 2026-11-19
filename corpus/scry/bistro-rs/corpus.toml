@@ -2,3 +2,23 @@
 name = "bistro-rs"
 language = "rust"
 sets = ["V-must", "B", "T", "N"]
+
+# Passing scores move only by a ruling recorded here, with its date and reason. Set 2026-11-19 from
+# the baseline below by the rule hits - 1 on V-must and B, 0.5 shown a case on T and N.
+[passing_scores]
+v_must_min = 9
+b_min = 3
+t_mean_max = 0.5
+n_mean_max = 0.5
+
+# The first recording, 2026-11-19 (reviews via claude -p on sonnet, claim checks with Jev guarding):
+# V-must 10 cases, 10 with a hit shown, 1.100 shown a case; B 6, 4, 0.667; T 10, 0, 0.100;
+# N 6, 0, 0.167.
+[baseline]
+recorded = "2026-11-19"
+scry = "4df22b0"
+review_model = "sonnet"
+v_must = 10
+b = 4
+t_mean = 0.1
+n_mean = 0.167

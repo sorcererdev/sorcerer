@@ -134,3 +134,19 @@ Every hand edit is a script in `tools/gen/<name>.derive.py`; `tools/build_cases.
 `cases/` and the table in `cases.md` from the chosen patches; `tools/results/check-results.txt` is
 the last `check_case.py` run (32/32). The base's dates (2026-10-09) are now in the past: a case that
 refuses past days moves its test bookings forward.
+
+## The recording and the labels (2026-11-19)
+
+Recorded once with `SCRY_RECORD=all cargo test -p scry --test eval bistro_rs -- --nocapture` at
+scry `6896daf` (the replay fix that followed, `4df22b0`, changed how replies are read, not what was
+recorded): `recorded: 32 reviews $1.861, 8 checks $0.023, 21 jev answers`, 4.5 minutes. The replies
+carry prose and a fenced JSON block, read as the pass reads them (`review_prompt::json_in`).
+
+Labels: `tools/judge.py` (haiku, $0.006) marked 20 recorded findings, 15 hits; the D5 subset for the
+user to read is the two findings shown on T and N cases (n01: a booking on an earlier day counts as
+over even when its sitting runs past midnight; t06: `weeks` has no upper limit) and the V-must and B
+cases with no hit (b06, which drew no finding). No mark was overturned (`tools/results/overrides.json`
+is empty); no override could change the numbers, since every V-must and B finding is marked a hit.
+
+The baseline and the passing scores are in `corpus.toml`: V-must 10/10 with a hit shown, B 4/6, T
+0.100, N 0.167 shown a case; passing scores 9, 3, 0.5, 0.5.

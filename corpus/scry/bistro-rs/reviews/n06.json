@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0631932,
+      "files": [
+        "src/booking/commands/change_party_size.rs",
+        "src/booking/commands/mod.rs",
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "Reviewing the changed units, I found no problems that meet the bar for a finding. The change adds `booking` to both adapters and makes `save` replace an existing booking by id instead of appending. Those two adapters are the only implementers of the trait, so nothing else breaks. `ChangePartySize::handle` makes the read, the check and the write as separate calls. It returns its failures in `Err`, and each rule has a test against the in-memory adapter.\n\nI considered flagging `FileBookingRepository::save` (`src/booking/ports/booking_repository/file.rs:81-98`) under `repo-one-op`, because it reads all bookings and then writes them back. I did not, because it is one logical upsert write, and the command still makes the separate read and save calls itself.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

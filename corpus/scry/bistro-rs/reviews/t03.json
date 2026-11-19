@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.0418164,
+      "files": [
+        "src/main.rs"
+      ],
+      "reply": "I found no problems in this change. I checked the demo setup against the table definitions in `main.rs`: t1 seats 2, t2 seats 4 and t3 seats 6, so the demo parties of 2, 4 and 5 all fit. `Day` implements `FromStr` and `Form::get` exists, so the `day=` override on the `--demo` path works. Bookings go through the `create_booking` command, and the adapter is chosen only in `main.rs`, so no steering rule is broken.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

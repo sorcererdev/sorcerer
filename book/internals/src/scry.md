@@ -581,3 +581,23 @@ its confidence 0.49 is under 0.70 and it is withheld. vm05 shows 2, not 3: the f
 P 0.51 (0.49 before), so it merges; the case still hits. vm02, vm07 and vm08 each hold two
 findings Jev calls the same problem within one pass; they hit because a merge within one pass
 keeps the first finding's wording (see the pass, step 4).
+
+
+bistro-rs (`corpus/scry/bistro-rs/`, the Rust corpus: a std-only Rust bistro with its own frozen
+conventions, 32 cases), recorded live once on 2026-11-19 (`SCRY_RECORD=all`: 32 reviews on sonnet
+through `claude -p`, $1.86; 8 claim checks, $0.02; 21 Jev answers) and replayed at scry `4df22b0`
+(identical over three runs, no Jev key). Its test is `bistro_rs_reaches_its_passing_scores`:
+
+| set | cases | with a hit shown | shown a case | passing score |
+|---|---|---|---|---|
+| V-must | 10 | 10 | 1.100 | at least 9 |
+| B | 6 | 4 | 0.667 | at least 3 |
+| T | 10 | 0 | 0.100 | at most 0.5 |
+| N | 6 | 0 | 0.167 | at most 0.5 |
+
+The passing scores were set from this first recording by one rule: one case of slack on V-must and
+B (hits − 1), so a drift in one Jev answer does not fail CI and a second case changing side does,
+and 0.5 shown a case on T and N, as for bistro. They move only by a ruling recorded in the corpus's
+`corpus.toml` with its date and reason: up when a scry change raises the replayed number and the
+user wants it held, never down to pass. A re-recording (a new review model, a changed prompt) resets
+the baseline, and its report lists every case that changed side.

@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "cost_usd": 0.045582,
+      "files": [
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "I found no problems in this change. The route now collapses whitespace in the guest name before building `CreateBookingInput`. The page format at `src/web/bookings/pages.rs:43` matches what the new test asserts. Tidying the input is parsing, so it doesn't conflict with the `rules-in-commands` rule.\n\nI didn't flag whitespace-only guest names. They now become an empty string, but `create_booking.rs` never checked for an empty guest, so that gap predates this change.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}
