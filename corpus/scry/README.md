@@ -13,13 +13,13 @@ not required).
 |---|---|
 | `base/` | bistro as plain files: the app every case starts from. |
 | `cases/<id>.toml`, `cases/<id>.patch` | one case each: its set, scenario, the rule it touches, the lines planted, what a reviewer should say, how it was made, and the files it changes; the patch is the change, applied to `base/` uncommitted. Written by hand and checked against `base/` when the corpus was built. |
-| `steering.md` | bistro's rules, the steering the reviewer was given when the replies were recorded. |
+| `scry.toml` | bistro's steering: the context and its 13 rules (`ports`, `web-commands`, `adapters-main`, `rules-in-commands`, `failures-returned`, `statuses-failures`, `queries-read`, `clock`, `repo-one-op`, `rule-tests`, `docstring`, `main-keywords`, `union-lines`). Converted on 2026-11-18 from the Markdown rules file the replies were recorded with (`git show ac87c44^:corpus/scry/steering.md`): the context is the paragraph between its title and `## Rules`, each `###` heading became a rule in order, its text the heading line then its body, every word kept; the ids are the ones the recorded replies already cite, so no recording's `rule` changed (the eval's `the_recorded_replies_cite_the_corpus_rule_ids` checks it: 33 of the 42 findings cite one, 9 cite none). |
 | `labels.json` | per case: its set, the statements that count as a hit, and its changed files. |
-| `reviews/<case>.json` | one recorded reviewer reply per case: what sonnet answered (2026-11-15), one reply per changed file merged into one per case. |
+| `reviews/<case>.json` | one recorded reviewer reply per case: what sonnet answered (2026-11-15), one reply per changed file merged into one per case. They were recorded under an older prompt wording (Markdown steering, the field `kind`); on 2026-11-18 the field `kind` was renamed `issue_type` in each, a field-name conversion and nothing else, so they replay through today's parser. |
 | `checks.json` | the recorded claim-check verdicts, by the statement checked (whitespace collapsed). |
-| `jev/<key>.json` | Jev's recorded answers, one file per question, named by its `question_key`. 43 recorded live by the eval (`SCRY_RECORD_JEV=1`, 2026-11-18); 3 (`246641af322a93f4`, `28d40b419ee79956`, `aa472c0c767b131a`) carried over from the original measurement's recording (same keys), for the questions the same-pass merge rule asks; `5988dcc32dcd0b79` and `8d40d48fd13b0094` are live answers the eval no longer asks. |
+| `jev/<key>.json` | Jev's recorded answers, one file per question, named by its `question_key`: all 44 recorded live by the eval (`SCRY_RECORD_JEV=1`) on 2026-11-18, from an empty directory, so it holds exactly the questions the eval asks. |
 
-The cases, steering, labels, replies and verdicts were carried over from an earlier
+The cases, rules, labels, replies and verdicts were carried over from an earlier
 measurement of the same reviewer (see the internals book, Scry, "Where scry came from"); the
 script that converted them is in this repository's history (`scripts/port-scry-corpus`, last
 run for commit `081e1ec`).

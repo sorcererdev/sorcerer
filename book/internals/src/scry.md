@@ -500,11 +500,13 @@ test job. The corpus is `corpus/scry/` (its `README.md` says what each file is a
 
 - `base/`, bistro as plain files; per case the eval copies it to a temp dir, `git init`s and
   commits it, then `git apply`s `cases/<id>.patch` (left uncommitted) and writes
-  `.sorcerer/scry.md` from `steering.md` (the bistro project's rules) and a config with
+  `.sorcerer/scry.toml` from the corpus's `scry.toml` (bistro's context and 13 rules, ids as
+  the recorded replies cite them) and a config with
   `[languages] names = ["python"]` and `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The
   project's grammars point at core's vendored sources; the request is `ScopeRequest::Working`
   with the caps `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`.
-- `reviews/<id>.json`, the recorded sonnet findings for the case. `CorpusReviewer` answers a pack with the
+- `reviews/<id>.json`, the recorded sonnet findings for the case, each citing a rule by id
+  (`the_recorded_replies_cite_the_corpus_rule_ids` checks every one is in `scry.toml`). `CorpusReviewer` answers a pack with the
   findings whose `file` is one of the pack's files (an empty reply otherwise), at $0.04.
 - `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
   the checker closure answers from it, `CannotTell` for a statement it does not hold.
@@ -526,18 +528,23 @@ run once by hand with `JEV_API_KEY` set:
 `SCRY_RECORD_JEV=1 cargo test -p scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
 
-Replayed on 2026-11-18 (identical over three runs), at the numbers the original measurement
-gave:
+Replayed on 2026-11-18 (identical over three runs, no Jev key), with Jev's 44 answers
+re-recorded live that day for the `scry.toml` steering, beside the numbers before it (the
+Markdown steering, where a cited heading was matched by substring and Jev mostly saw the whole
+Rules section):
 
-| set | cases | with a hit shown | shown a case |
-|---|---|---|---|
-| V-must | 18 | 18 | 1.333 |
-| B | 8 | 6 | 0.875 |
-| T | 18 | 0 | 0.000 |
-| N | 8 | 0 | 0.125 |
-| V-taste | 6 | 0 | 0.000 |
+| set | cases | with a hit shown | shown a case | before: hit, shown |
+|---|---|---|---|---|
+| V-must | 18 | 17 | 1.222 | 18, 1.333 |
+| B | 8 | 6 | 0.875 | 6, 0.875 |
+| T | 18 | 0 | 0.000 | 0, 0.000 |
+| N | 8 | 0 | 0.125 | 0, 0.125 |
+| V-taste | 6 | 0 | 0.000 | 0, 0.000 |
 
-vm02, vm07 and vm08 each hold two findings Jev calls the same problem within one pass; they
-hit because a merge within one pass keeps the first finding's wording (see the pass, step 4).
-Most Jev answers were recorded live; three were seeded from the original measurement's
-recording, whose keys are the same (`corpus/scry/README.md` lists them).
+Two cases changed. vm16 lost its hit: its finding cites `repo-one-op`, and Jev, now shown
+that rule's text rather than the whole Rules section, put P(nitpick) at 0.51 (0.22 before), so
+its confidence 0.49 is under 0.70 and it is withheld. vm05 shows 2, not 3: the finding citing
+`statuses-failures` is now judged the same problem as the one citing `rules-in-commands` at
+P 0.51 (0.49 before), so it merges; the case still hits. vm02, vm07 and vm08 each hold two
+findings Jev calls the same problem within one pass; they hit because a merge within one pass
+keeps the first finding's wording (see the pass, step 4).

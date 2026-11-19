@@ -21,6 +21,7 @@ use scry::domain::config::scry_config;
 use scry::domain::findings::Findings;
 use scry::domain::review_prompt::ReviewAsk;
 use scry::domain::scope::ScopeRequest;
+use scry::domain::steering::{Steering, parse_steering};
 use scry::ports::reviewer::{Reviewed, Reviewer};
 use scry::ports::run_log::{Quiet, RunLog};
 use scry::usecases::review_change::{
@@ -194,8 +195,8 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     git(root, &["apply", patch.to_str().unwrap()]);
     support::write(
         root,
-        ".sorcerer/scry.md",
-        &std::fs::read_to_string(corpus().join("steering.md")).unwrap(),
+        ".sorcerer/scry.toml",
+        &std::fs::read_to_string(corpus().join("scry.toml")).unwrap(),
     );
     support::write(
         root,
@@ -262,7 +263,13 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
         }),
         ..ReviewRequest::of(ScopeRequest::Working)
     };
-    match review_change(&project, &req, &deps) {
+    let outcome = review_change(&project, &req, &deps);
+    // the log is written whatever happened, so a case that stops can be read
+    if let Some(d) = &log_dir {
+        std::fs::create_dir_all(d).unwrap();
+        std::fs::write(d.join(format!("{}.md", c.id)), log.borrow().as_str()).unwrap();
+    }
+    match outcome {
         Ok(ReviewOutcome::Ran(r)) => assert!(
             r.failures.is_empty(),
             "case {}: failures {:?}",
@@ -271,11 +278,6 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
         ),
         Ok(ReviewOutcome::Skipped(why)) => panic!("case {} skipped: {why}", c.id),
         Err(e) => panic!("case {}: {e}", c.id),
-    }
-
-    if let Some(d) = &log_dir {
-        std::fs::create_dir_all(d).unwrap();
-        std::fs::write(d.join(format!("{}.md", c.id)), log.borrow().as_str()).unwrap();
     }
 
     let s: Findings = support::read_store(&project);
@@ -378,4 +380,35 @@ fn the_eval_reaches_its_passing_scores() {
         t <= 0.5 && n <= 0.5,
         "noise passing score missed: T {t}, N {n}"
     );
+}
+
+/// Every rule a recorded reply cites is one of the corpus steering's ids
+/// (the replies were recorded with these ids; nothing was mapped since).
+#[test]
+fn the_recorded_replies_cite_the_corpus_rule_ids() {
+    let file = corpus().join("scry.toml");
+    let raw = parse_steering(&std::fs::read_to_string(&file).unwrap(), &file).unwrap();
+    let ids: BTreeSet<&str> = raw.rules.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids.len(), 13);
+    let steering = Steering {
+        context: raw.context.clone(),
+        includes: Vec::new(),
+        rules: raw.rules.clone(),
+    };
+    assert!(steering.over_cap().is_none());
+    let mut cited = 0;
+    for e in std::fs::read_dir(corpus().join("reviews")).unwrap() {
+        let path = e.unwrap().path();
+        let reply: Value =
+            serde_json::from_str(read_json(&path)["reply"].as_str().unwrap()).unwrap();
+        for f in reply["findings"].as_array().unwrap() {
+            assert!(f.get("kind").is_none(), "{}", path.display());
+            let rule = f["rule"].as_str().unwrap_or("").trim();
+            if !rule.is_empty() {
+                assert!(ids.contains(rule), "{}: {rule}", path.display());
+                cited += 1;
+            }
+        }
+    }
+    assert_eq!(cited, 33);
 }
