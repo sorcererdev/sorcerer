@@ -1,15 +1,15 @@
-//! The eval: 58 bistro cases (`corpus/scry/`) run through whole passes with
-//! every model call replayed, scored against its passing scores. The review calls replay
-//! the recorded sonnet findings (split by the pack's files), the claim checks the
-//! recorded verdicts, and Jev its recording under `corpus/scry/jev/`. The passing
-//! scores: V-must >= 16/18 with a hit shown, B >= 6/8, at most 0.5 shown a T or N
-//! case on average.
+//! The eval: each corpus under `corpus/scry/<name>/` (its `corpus.toml`
+//! names its language, sets and passing scores) run case by case through
+//! whole passes with every model call replayed, scored against its passing
+//! scores. One `#[test]` a corpus. The review calls replay the recorded
+//! findings (split by the pack's files), the claim checks the recorded
+//! verdicts, and Jev its recording under the corpus's `jev/`.
 //!
 //! `SCRY_EVAL_CASES=b01,vm02` runs only those cases and prints their
 //! findings (the passing scores are then not asserted: a look, not a measure).
 //! `SCRY_EVAL_LOG=DIR` writes each case's scope and pass trace (the run
 //! log's middle, as `scry -v` would stream it) to `DIR/<id>.md`.
-//! `SCRY_RECORD_JEV=1` (with `JEV_API_KEY`) asks Jev what is not recorded:
+//! `SCRY_RECORD=jev` (with `JEV_API_KEY`) asks Jev what is not recorded:
 //! an outward call, run by hand, never in CI.
 mod support;
 
@@ -27,6 +27,7 @@ use scry::ports::run_log::{Quiet, RunLog};
 use scry::usecases::review_change::{
     Progress, ReviewDeps, ReviewOutcome, ReviewRequest, review_change,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::SystemEnv;
@@ -37,10 +38,64 @@ use sorcerer_models::domain::decide::{Question, Weighed};
 use sorcerer_models::ports::decider::Decider;
 use support::{FixedClock, errand, git};
 
-const SETS: [&str; 5] = ["V-must", "B", "T", "N", "V-taste"];
+/// A corpus directory and what its `corpus.toml` says.
+struct Corpus {
+    dir: PathBuf,
+    name: String,
+    language: String,
+    sets: Vec<String>,
+    passing_scores: Option<PassingScores>,
+}
 
-fn corpus() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/scry")
+#[derive(Deserialize)]
+struct PassingScores {
+    v_must_min: usize,
+    b_min: usize,
+    t_mean_max: f64,
+    n_mean_max: f64,
+}
+
+#[derive(Deserialize)]
+struct CorpusFile {
+    name: String,
+    language: String,
+    sets: Vec<String>,
+    passing_scores: Option<PassingScores>,
+}
+
+/// The corpus at `corpus/scry/<name>/`.
+fn corpus(name: &str) -> Corpus {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../corpus/scry")
+        .join(name);
+    let file = dir.join("corpus.toml");
+    let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    let f: CorpusFile = toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    assert_eq!(f.name, name, "{}: name", file.display());
+    Corpus {
+        dir,
+        name: f.name,
+        language: f.language,
+        sets: f.sets,
+        passing_scores: f.passing_scores,
+    }
+}
+
+/// What `SCRY_RECORD` asks for: nothing (replay only), Jev's answers, or
+/// everything that has no recording.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Record {
+    Nothing,
+    Jev,
+}
+
+fn record_mode() -> Record {
+    match std::env::var("SCRY_RECORD").as_deref() {
+        Err(_) | Ok("") => Record::Nothing,
+        Ok("jev") => Record::Jev,
+        Ok("all") => panic!("SCRY_RECORD=all: not yet"),
+        Ok(other) => panic!("SCRY_RECORD={other}: expected jev or all"),
+    }
 }
 
 fn read_json(p: &Path) -> Value {
@@ -59,8 +114,8 @@ struct Case {
     changed: Vec<PathBuf>,
 }
 
-fn cases() -> Vec<Case> {
-    let labels = read_json(&corpus().join("labels.json"));
+fn cases(corpus: &Corpus) -> Vec<Case> {
+    let labels = read_json(&corpus.dir.join("labels.json"));
     let strings = |v: &Value| -> Vec<String> {
         v.as_array()
             .unwrap()
@@ -84,18 +139,42 @@ fn cases() -> Vec<Case> {
         .collect()
 }
 
-/// The review call replayed: the case's recorded findings whose file is one of
-/// the pack's files, as one reply (an empty one when none are).
+/// The findings of every pack recorded in `reviews/<case>.json`, in order.
+fn recorded_findings(file: &Path) -> Vec<Value> {
+    let rec = read_json(file);
+    let packs = rec["packs"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{}: no packs", file.display()));
+    let mut out = Vec::new();
+    for pack in packs {
+        let reply = pack["reply"].as_str().unwrap();
+        if reply.trim().is_empty() {
+            continue;
+        }
+        let reply: Value =
+            serde_json::from_str(reply).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+        out.extend(reply["findings"].as_array().cloned().unwrap_or_default());
+    }
+    out
+}
+
+/// The review call replayed: the case's recorded findings (over all its
+/// packs) whose file is one of the pack's files, as one reply (an empty one
+/// when none are).
 struct CorpusReviewer {
     findings: Vec<Value>,
 }
 
 impl CorpusReviewer {
-    fn for_case(id: &str) -> CorpusReviewer {
-        let rec = read_json(&corpus().join("reviews").join(format!("{id}.json")));
-        let reply: Value = serde_json::from_str(rec["reply"].as_str().unwrap()).unwrap();
+    fn for_case(corpus: &Corpus, id: &str) -> CorpusReviewer {
+        let file = corpus.dir.join("reviews").join(format!("{id}.json"));
+        assert!(
+            file.exists(),
+            "case {id}: no recorded review ({}); record it with SCRY_RECORD=all",
+            file.display()
+        );
         CorpusReviewer {
-            findings: reply["findings"].as_array().cloned().unwrap_or_default(),
+            findings: recorded_findings(&file),
         }
     }
 }
@@ -182,33 +261,42 @@ struct Row {
     hit: bool,
 }
 
-fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: bool) -> Row {
+fn run_case(
+    corpus: &Corpus,
+    c: &Case,
+    checks: &BTreeMap<String, String>,
+    record: Record,
+    look: bool,
+) -> Row {
     let dir = tempfile::TempDir::new().unwrap();
     let root = dir.path();
-    copy_tree(&corpus().join("base"), root);
+    copy_tree(&corpus.dir.join("base"), root);
     git(root, &["init", "-q", "-b", "main"]);
     git(root, &["config", "user.name", "t"]);
     git(root, &["config", "user.email", "t@example.com"]);
     git(root, &["add", "-A"]);
     git(root, &["commit", "-q", "-m", "base"]);
-    let patch = corpus().join("cases").join(format!("{}.patch", c.id));
+    let patch = corpus.dir.join("cases").join(format!("{}.patch", c.id));
     git(root, &["apply", patch.to_str().unwrap()]);
     support::write(
         root,
         ".sorcerer/scry.toml",
-        &std::fs::read_to_string(corpus().join("scry.toml")).unwrap(),
+        &std::fs::read_to_string(corpus.dir.join("scry.toml")).unwrap(),
     );
     support::write(
         root,
         ".sorcerer/config.toml",
-        "[languages]\nnames = [\"python\"]\n\n[scry]\nbudget_per_pass = 5.0\nbudget_per_day = 1000.0\n",
+        &format!(
+            "[languages]\nnames = [\"{}\"]\n\n[scry]\nbudget_per_pass = 5.0\nbudget_per_day = 1000.0\n",
+            corpus.language
+        ),
     );
 
     let (project, view) = support::project_with_vendored_grammars(root);
     let cfg = scry_config(&project).unwrap();
-    let reviewer = CorpusReviewer::for_case(&c.id);
-    let mut decider = RecordedDecider::new(corpus().join("jev"));
-    if record {
+    let reviewer = CorpusReviewer::for_case(corpus, &c.id);
+    let mut decider = RecordedDecider::new(corpus.dir.join("jev"));
+    if record != Record::Nothing {
         // the live Jev, its ledger the temp project's
         decider =
             decider.recording_with(scry::adapters::wiring::jev_for(&project, &SystemEnv).unwrap());
@@ -316,16 +404,20 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     }
 }
 
-fn table(rows: &[Row]) -> (String, BTreeMap<&'static str, (usize, usize, f64)>) {
+type BySet = BTreeMap<String, (usize, usize, f64)>;
+
+fn table(corpus: &Corpus, rows: &[Row]) -> (String, BySet) {
     let mut by = BTreeMap::new();
-    let mut out =
-        String::from("| set | cases | with a hit shown | shown a case |\n|---|---|---|---|\n");
-    for k in SETS {
-        let mine: Vec<&Row> = rows.iter().filter(|r| r.set == k).collect();
+    let mut out = format!(
+        "# {}\n\n| set | cases | with a hit shown | shown a case |\n|---|---|---|---|\n",
+        corpus.name
+    );
+    for k in &corpus.sets {
+        let mine: Vec<&Row> = rows.iter().filter(|r| &r.set == k).collect();
         let hits = mine.iter().filter(|r| r.hit).count();
         let per = mine.iter().map(|r| r.shown).sum::<usize>() as f64 / mine.len().max(1) as f64;
         out += &format!("| {k} | {} | {hits} | {per:.3} |\n", mine.len());
-        by.insert(k, (mine.len(), hits, per));
+        by.insert(k.clone(), (mine.len(), hits, per));
     }
     out += "\n| case | set | shown | hit |\n|---|---|---|---|\n";
     for r in rows {
@@ -340,53 +432,82 @@ fn table(rows: &[Row]) -> (String, BTreeMap<&'static str, (usize, usize, f64)>) 
     (out, by)
 }
 
-#[test]
-fn the_eval_reaches_its_passing_scores() {
-    let only: Option<Vec<String>> = std::env::var("SCRY_EVAL_CASES")
+/// The cases `SCRY_EVAL_CASES` names, when it is set: a look, not a measure.
+fn only_cases() -> Option<Vec<String>> {
+    std::env::var("SCRY_EVAL_CASES")
         .ok()
         .filter(|v| !v.is_empty())
-        .map(|v| v.split(',').map(str::to_string).collect());
-    let record = std::env::var("SCRY_RECORD_JEV").as_deref() == Ok("1");
-    let checks: BTreeMap<String, String> =
-        serde_json::from_value(read_json(&corpus().join("checks.json"))).unwrap();
+        .map(|v| v.split(',').map(str::to_string).collect())
+}
 
-    let mut cases = cases();
+/// Runs CORPUS's cases (those `SCRY_EVAL_CASES` names, when it is set) and
+/// returns its table and the numbers by set; the table is printed.
+fn run_corpus(corpus: &Corpus) -> (String, BySet) {
+    let only = only_cases();
+    let record = record_mode();
+    let checks: BTreeMap<String, String> =
+        serde_json::from_value(read_json(&corpus.dir.join("checks.json"))).unwrap();
+
+    let mut cases = cases(corpus);
     cases.sort_by(|a, b| a.id.cmp(&b.id));
     let mut rows = Vec::new();
     for c in cases
         .iter()
         .filter(|c| only.as_ref().is_none_or(|o| o.contains(&c.id)))
     {
-        rows.push(run_case(c, &checks, record, only.is_some()));
+        rows.push(run_case(corpus, c, &checks, record, only.is_some()));
     }
-    let (text, by) = table(&rows);
+    let (text, by) = table(corpus, &rows);
     println!("{text}");
-    if only.is_some() {
+    (text, by)
+}
+
+/// CORPUS's numbers against its passing scores; a look (`SCRY_EVAL_CASES`)
+/// or a recording (`SCRY_RECORD`) asserts nothing, and a corpus with no
+/// passing scores fails.
+fn assert_passing_scores(corpus: &Corpus, by: &BySet) {
+    if only_cases().is_some() || record_mode() != Record::Nothing {
         return;
     }
-    let (_, v, _) = by["V-must"];
-    let (_, b, _) = by["B"];
+    let Some(p) = &corpus.passing_scores else {
+        panic!("{}: no passing scores yet (corpus.toml)", corpus.name);
+    };
+    let (vn, v, _) = by["V-must"];
+    let (bn, b, _) = by["B"];
     let (_, _, t) = by["T"];
     let (_, _, n) = by["N"];
+    let name = &corpus.name;
     assert!(
-        v >= 16,
-        "V-must with a hit shown: {v} of 18, the passing score is 16"
+        v >= p.v_must_min,
+        "{name}: V-must with a hit shown: {v} of {vn}, the passing score is {}",
+        p.v_must_min
     );
     assert!(
-        b >= 6,
-        "B with a hit shown: {b} of 8, the passing score is 6"
+        b >= p.b_min,
+        "{name}: B with a hit shown: {b} of {bn}, the passing score is {}",
+        p.b_min
     );
     assert!(
-        t <= 0.5 && n <= 0.5,
-        "noise passing score missed: T {t}, N {n}"
+        t <= p.t_mean_max && n <= p.n_mean_max,
+        "{name}: noise passing score missed: T {t} (at most {}), N {n} (at most {})",
+        p.t_mean_max,
+        p.n_mean_max
     );
+}
+
+#[test]
+fn bistro_reaches_its_passing_scores() {
+    let c = corpus("bistro");
+    let (_, by) = run_corpus(&c);
+    assert_passing_scores(&c, &by);
 }
 
 /// Every rule a recorded reply cites is one of the corpus steering's ids
 /// (the replies were recorded with these ids; nothing was mapped since).
 #[test]
 fn the_recorded_replies_cite_the_corpus_rule_ids() {
-    let file = corpus().join("scry.toml");
+    let bistro = corpus("bistro");
+    let file = bistro.dir.join("scry.toml");
     let raw = parse_steering(&std::fs::read_to_string(&file).unwrap(), &file).unwrap();
     let ids: BTreeSet<&str> = raw.rules.iter().map(|r| r.id.as_str()).collect();
     assert_eq!(ids.len(), 13);
@@ -397,11 +518,9 @@ fn the_recorded_replies_cite_the_corpus_rule_ids() {
     };
     assert!(steering.over_cap().is_none());
     let mut cited = 0;
-    for e in std::fs::read_dir(corpus().join("reviews")).unwrap() {
+    for e in std::fs::read_dir(bistro.dir.join("reviews")).unwrap() {
         let path = e.unwrap().path();
-        let reply: Value =
-            serde_json::from_str(read_json(&path)["reply"].as_str().unwrap()).unwrap();
-        for f in reply["findings"].as_array().unwrap() {
+        for f in &recorded_findings(&path) {
             assert!(f.get("kind").is_none(), "{}", path.display());
             let rule = f["rule"].as_str().unwrap_or("").trim();
             if !rule.is_empty() {

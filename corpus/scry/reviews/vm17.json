@@ -1,4 +1,0 @@
-{
-  "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/web/bookings/routes__test.py\", \"lines\": [54, 59], \"statement\": \"The new MAX_PARTY rule is proven only through route tests. `create_booking__test.py` has no test that runs it against the in-memory adapter; its one PartyTooLarge test covers the table-seats check. Route tests are not where a booking rule is proven.\", \"rule\": \"rule-tests\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [53, 54]}, {\"file\": \"src/bistro/booking/commands/create_booking__test.py\", \"lines\": [44, 47]}]}], \"open\": []}",
-  "cost_usd": 0.04
-}

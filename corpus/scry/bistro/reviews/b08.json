@@ -1,0 +1,13 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/hold_earliest_slot.py",
+        "src/bistro/booking/commands/hold_earliest_slot__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

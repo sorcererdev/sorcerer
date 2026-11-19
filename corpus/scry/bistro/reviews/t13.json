@@ -1,0 +1,19 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/booking/ports/clock/__init__.py",
+        "src/bistro/booking/ports/clock/clock.py",
+        "src/bistro/booking/ports/clock/in_memory_clock.py",
+        "src/bistro/booking/ports/clock/system_clock.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/failures.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

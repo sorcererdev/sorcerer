@@ -1,0 +1,22 @@
+# bistro: scry's Python corpus. The eval (crates/scry/tests/eval.rs) reads this file.
+name = "bistro"
+language = "python"
+sets = ["V-must", "B", "T", "N", "V-taste"]
+
+# Passing scores move only by a ruling recorded here, with its date and reason.
+[passing_scores]
+v_must_min = 16
+b_min = 6
+t_mean_max = 0.5
+n_mean_max = 0.5
+
+# The eval run of 2026-11-18 at scry 8e5e255: V-must 18 cases, 17 with a hit shown, 1.222 shown a
+# case; B 8, 6, 0.875; T 18, 0, 0.000; N 8, 0, 0.125; V-taste 6, 0, 0.000.
+[baseline]
+recorded = "2026-11-18"
+scry = "8e5e255"
+review_model = "sonnet"
+v_must = 17
+b = 6
+t_mean = 0.0
+n_mean = 0.125

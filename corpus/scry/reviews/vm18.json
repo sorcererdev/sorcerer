@@ -1,4 +1,0 @@
-{
-  "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [59, 60], \"statement\": \"The new Monday-closed rule is only proven by a route test that checks the 422 status. `create_booking__test.py` has no test that runs the rule against the in-memory adapter, so the rule is untested at the command.\", \"rule\": \"rule-tests\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/routes__test.py\", \"lines\": [54, 55]}, {\"file\": \"src/bistro/booking/commands/create_booking__test.py\", \"lines\": [1, 1]}]}], \"open\": []}",
-  "cost_usd": 0.04
-}

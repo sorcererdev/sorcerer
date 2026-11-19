@@ -1,0 +1,15 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/seat_walk_in.py",
+        "src/bistro/booking/commands/seat_walk_in__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [68, 69], \"statement\": \"walk_in_route hard-codes status_code=409 for the NoTableFits failure instead of calling a status function in web/bookings/failures.py. A new failure added to SeatWalkInFailure would silently get 409, because no exhaustive match covers it.\", \"rule\": \"statuses-failures\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/failures.py\", \"lines\": [10, 16]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

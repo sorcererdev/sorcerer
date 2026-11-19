@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [59, 68], \"statement\": \"The walk_in route decides which slot is 'now', which tables are taken, and which table to give (smallest that fits). Those are booking rules that belong in a command's handle(). Because they sit in the route, the time is also read with datetime.now() instead of coming from a Clock port, so tests cannot fix the date.\", \"rule\": \"rules-in-commands\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [59, 63]}]}, {\"issue_type\": \"convention\", \"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [64, 67], \"statement\": \"The 'no free table' refusal is a bare string with a hard-coded 409 chosen in the route. It is not a frozen failure dataclass returned from a command, and the status does not come from failures.py.\", \"rule\": \"statuses-failures\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [64, 67]}]}, {\"issue_type\": \"convention\", \"file\": \"src/bistro/web/bookings/routes__test.py\", \"lines\": [54, 67], \"statement\": \"The walk-in table choice and the 'no free table' refusal are only tested through route tests. No command test runs these rules against the in-memory adapter.\", \"rule\": \"rule-tests\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/routes__test.py\", \"lines\": [60, 67]}]}], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}

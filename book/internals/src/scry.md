@@ -496,20 +496,31 @@ The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar vie
 
 ## The eval
 
-`crates/scry/tests/eval.rs`, `the_eval_reaches_its_passing_scores`: 58 bistro cases
-run through whole passes with every model call replayed, so it costs nothing and runs in CI's
-test job. The corpus is `corpus/scry/` (its `README.md` says what each file is and how it was made):
+`crates/scry/tests/eval.rs` runs each corpus under `corpus/scry/<name>/` through whole passes with
+every model call replayed, so it costs nothing and runs in CI's test job. One `#[test]` a corpus
+(`bistro_reaches_its_passing_scores` for the Python corpus), each `corpus(name)` then
+`run_corpus(&Corpus)` then `assert_passing_scores`, so a failure names its corpus and
+`cargo test -p scry --test eval bistro_rs` runs one. `corpus/scry/README.md` is the index of corpora
+and says what each file is; each corpus's own `README.md` says how it was made.
 
-- `base/`, bistro as plain files; per case the eval copies it to a temp dir, `git init`s and
+- `corpus.toml`, read into `Corpus`: `name`, `language` (written into each case's config),
+  `sets` (the table's rows, in order), `[passing_scores]` (`PassingScores`: `v_must_min`, `b_min`,
+  `t_mean_max`, `n_mean_max`) and `[baseline]`, the recording they were set from, for people. The
+  passing scores are data, reviewed in a diff, and move only by a ruling recorded beside them. A
+  corpus with no `[passing_scores]` prints its table and fails "no passing scores yet".
+- `base/`, the project as plain files; per case the eval copies it to a temp dir, `git init`s and
   commits it, then `git apply`s `cases/<id>.patch` (left uncommitted) and writes
-  `.sorcerer/scry.toml` from the corpus's `scry.toml` (bistro's context and 13 rules, ids as
-  the recorded replies cite them) and a config with
-  `[languages] names = ["python"]` and `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The
-  project's grammars point at core's vendored sources; the request is `ScopeRequest::Working`
-  with the caps `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`.
-- `reviews/<id>.json`, the recorded sonnet findings for the case, each citing a rule by id
-  (`the_recorded_replies_cite_the_corpus_rule_ids` checks every one is in `scry.toml`). `CorpusReviewer` answers a pack with the
-  findings whose `file` is one of the pack's files (an empty reply otherwise), at $0.04.
+  `.sorcerer/scry.toml` from the corpus's `scry.toml` (its context and rules, ids as the recorded
+  replies cite them) and a config with `[languages] names = ["<language>"]` and
+  `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The project's grammars point at core's
+  vendored sources; the request is `ScopeRequest::Working` with the caps
+  `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`.
+- `reviews/<id>.json`, the recorded review replies in the packs form
+  `{"packs": [{"files", "reply", "cost_usd"}]}` (`recorded_findings` reads every pack's findings,
+  each citing a rule by id; `the_recorded_replies_cite_the_corpus_rule_ids` checks bistro's are all in
+  its `scry.toml`). `CorpusReviewer` answers a pack with the findings, over all the case's packs,
+  whose `file` is one of the pack's files (an empty reply otherwise), at $0.04, so a change in
+  packing still replays. A case with no file fails naming the case.
 - `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
   the checker closure answers from it, `CannotTell` for a statement it does not hold.
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
@@ -519,18 +530,20 @@ test job. The corpus is `corpus/scry/` (its `README.md` says what each file is a
 - `labels.json`, each case's set, the statements that count as a hit, and its changed files.
 
 Shown is the union over a case's changed files of `Findings::shown_in`; a case is a hit when
-a shown statement is one of its `hits`. The eval prints `set | cases | with a hit shown |
-shown a case` and one row a case, then asserts the passing scores: V-must at least 16 of 18 with
-a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on average.
+a shown statement is one of its `hits`. The eval prints `# <name>`, then `set | cases | with a hit
+shown | shown a case` and one row a case, then asserts the corpus's passing scores: bistro's are V-must
+at least 16 of 18 with a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on
+average.
 
 `SCRY_EVAL_LOG=DIR` writes each case's `scope_text` and pass trace to `DIR/<id>.md`.
 `SCRY_EVAL_CASES=b01,vm02` runs only those cases, prints every stored finding and every
 question Jev is asked (kind, key, P(yes), the findings), and asserts no passing score. To re-record Jev,
 run once by hand with `JEV_API_KEY` set:
-`SCRY_RECORD_JEV=1 cargo test -p scry --test eval -- --nocapture`; only missing answers are
+`SCRY_RECORD=jev cargo test -p scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
 
-Replayed on 2026-11-18 (identical over three runs, no Jev key), with Jev's 44 answers
+Bistro, replayed on 2026-11-18 at scry `8e5e255` (identical over three runs, no Jev key; its
+`corpus.toml` baseline), with Jev's 44 answers
 re-recorded live that day for the `scry.toml` steering, beside the numbers before it (the
 Markdown steering, where a cited heading was matched by substring and Jev mostly saw the whole
 Rules section):

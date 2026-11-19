@@ -1,4 +1,0 @@
-{
-  "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/booking/commands/cancel_booking.py\", \"lines\": [14, 27], \"statement\": \"An unknown booking id is something a guest can cause, but `handle()` raises `BookingNotFoundError` (an Exception subclass) instead of returning a frozen failure dataclass with a `reason` that belongs to a failure union. Callers such as routes would have to catch an exception and can't use the exhaustive failures.py match. The test also asserts the raise.\", \"rule\": \"failures-returned\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/cancel_booking.py\", \"lines\": [14, 15]}, {\"file\": \"src/bistro/booking/commands/cancel_booking.py\", \"lines\": [24, 25]}, {\"file\": \"src/bistro/booking/commands/cancel_booking__test.py\", \"lines\": [33, 37]}]}], \"open\": []}",
-  "cost_usd": 0.04
-}

@@ -1,0 +1,12 @@
+{
+  "packs": [
+    {
+      "files": [
+        "src/bistro/booking/commands/seat_walk_in.py",
+        "src/bistro/booking/commands/seat_walk_in__test.py"
+      ],
+      "reply": "{\"findings\": [], \"open\": []}",
+      "cost_usd": 0.04
+    }
+  ]
+}
