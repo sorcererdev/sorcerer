@@ -240,6 +240,17 @@ fn recorded_findings(file: &Path) -> Vec<Value> {
     out
 }
 
+/// Every file some recorded pack in FILE holds.
+fn recorded_files(file: &Path) -> BTreeSet<PathBuf> {
+    read_json(file)["packs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|p| p["files"].as_array().cloned().unwrap_or_default())
+        .filter_map(|f| f.as_str().map(PathBuf::from))
+        .collect()
+}
+
 /// The review call replayed: the case's recorded findings (over all its
 /// packs) whose file is one of the pack's files, as one reply (an empty one
 /// when none are). A case with no recording asks LIVE and appends each pack
@@ -249,6 +260,9 @@ struct CorpusReviewer<'a> {
     case: String,
     file: PathBuf,
     findings: Option<Vec<Value>>,
+    /// The files the recorded packs hold: a pack with a file outside them
+    /// is a miss (a recording that stopped part way through the case).
+    covered: BTreeSet<PathBuf>,
     live: Option<&'a dyn Reviewer>,
     tally: &'a Mutex<Tally>,
 }
@@ -262,10 +276,16 @@ impl<'a> CorpusReviewer<'a> {
     ) -> CorpusReviewer<'a> {
         let file = corpus.dir.join("reviews").join(format!("{id}.json"));
         let findings = file.exists().then(|| recorded_findings(&file));
+        let covered = if file.exists() {
+            recorded_files(&file)
+        } else {
+            BTreeSet::new()
+        };
         CorpusReviewer {
             case: id.to_string(),
             file,
             findings,
+            covered,
             live,
             tally,
         }
@@ -303,7 +323,11 @@ impl Reviewer for CorpusReviewer<'_> {
         cancel: &Cancel,
     ) -> sorcerer_models::Result<Reviewed> {
         let files: BTreeSet<&Path> = ask.units.iter().map(|u| u.file.as_path()).collect();
-        let Some(findings) = &self.findings else {
+        let recorded = self
+            .findings
+            .as_ref()
+            .filter(|_| files.iter().all(|f| self.covered.contains(*f)));
+        let Some(findings) = recorded else {
             let names: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
             let Some(live) = self.live else {
                 // an error, not a panic: the pass fails the case after its log is written
@@ -929,4 +953,23 @@ fn a_miss_without_record_names_the_case_and_pack() {
 #[should_panic(expected = "SCRY_RECORD is refused when CI is set")]
 fn record_is_refused_under_ci() {
     record_mode_from(Some("all"), true);
+}
+
+#[test]
+fn a_partly_recorded_case_asks_for_the_missing_pack() {
+    let c = fixture_corpus("eval-fixture-partial");
+    run_corpus_with(&c, None, Record::All, &stub_live);
+    // as if pack [c.py]'s live call had failed: c2 holds only pack [d.py]
+    let file = c.dir.join("reviews/c2.json");
+    let mut rec = read_json(&file);
+    rec["packs"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|p| p["files"] != json!(["c.py"]));
+    std::fs::write(&file, rec.to_string()).unwrap();
+    // a recording asks for that pack again (not an empty replay) and keeps [d.py]
+    run_corpus_with(&c, None, Record::All, &stub_live);
+    let packs: Vec<Value> = read_json(&file)["packs"].as_array().unwrap().clone();
+    let files: Vec<&Value> = packs.iter().map(|p| &p["files"]).collect();
+    assert_eq!(files, vec![&json!(["c.py"]), &json!(["d.py"])]);
 }

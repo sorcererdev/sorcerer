@@ -22,7 +22,7 @@ nitpick: nothing shown), **V-taste** (breaks a rule of taste: shown is allowed, 
 | `cases/<id>.toml`, `cases/<id>.patch` | one case each: the patch is the change, applied to `base/` uncommitted |
 | `scry.toml` | the steering the reviewer reads |
 | `labels.json` | per case: its set, the statements that count as a hit, and its changed files |
-| `reviews/<case>.json` | the recorded review replies: `{"packs": [{"files": [...], "reply": "...", "cost_usd": …}]}`. Replayed by file: a pack's reply is every recorded finding (over all the case's packs) whose `file` is one of the pack's files, so a change in packing still replays. A case with no file fails the eval. |
+| `reviews/<case>.json` | the recorded review replies: `{"packs": [{"files": [...], "reply": "...", "cost_usd": …}]}`. Replayed by file: a pack's reply is every recorded finding (over all the case's packs) whose `file` is one of the pack's files, so a change in packing still replays. A case with no file, or a pack with a file no recorded pack holds (a recording stopped part way), fails the eval. |
 | `checks.json` | the recorded claim-check verdicts (`right`, `wrong`, `cannot_tell`), by the statement checked (whitespace collapsed) |
 | `jev/<key>.json` | Jev's recorded answers, one file per question, named by its `question_key` |
 

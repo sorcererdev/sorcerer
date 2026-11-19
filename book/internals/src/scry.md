@@ -522,7 +522,7 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   each citing a rule by id; `the_recorded_replies_cite_the_corpus_rule_ids` checks bistro's are all in
   its `scry.toml`). `CorpusReviewer` answers a pack with the findings, over all the case's packs,
   whose `file` is one of the pack's files (an empty reply otherwise), at $0.04, so a change in
-  packing still replays. A case with no file fails naming the case.
+  packing still replays. A case with no file, or a pack with a file no recorded pack holds, fails naming the case and the pack.
 - `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
   the checker closure answers from it, `CannotTell` for a statement it does not hold.
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
@@ -549,13 +549,15 @@ To record a corpus, run its test once by hand with `JEV_API_KEY` set and `claude
 statement with no verdict in another corpus would be checked too). `run_corpus` then calls
 `run_corpus_with(corpus, only, Record::All, &live)`; `live` builds, per case, the live calls in a
 `Live`: a `ResearchReviewer` over `researcher_for`, the real `claim_checker` with Jev guarding, and
-a `RecordedDecider` recording with `jev_for`'s Jev. A case with no `reviews/<case>.json` is a miss:
+a `RecordedDecider` recording with `jev_for`'s Jev. A pack is a miss when its case has no `reviews/<case>.json`, or when one of the pack's files is in none
+of the recorded packs (a recording that stopped part way through the case, `recorded_files`):
 `CorpusReviewer` asks the live reviewer with the pass's own `ReviewAsk` and model and appends
 `{"files", "reply", "cost_usd"}` for each pack (packs sorted by their files). A statement not in
 `checks.json` is checked live and its verdict word (`right`, `wrong`, `cannot_tell`) written back,
 sorted. Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
 case prints the running total, and the end prints `recorded: N reviews $X, M checks $Y, K jev
-answers`. Without `SCRY_RECORD=all`, a miss fails naming the case and the pack's files.
+answers`. Without `SCRY_RECORD=all`, a miss fails naming the case and the pack's files
+(`a_partly_recorded_case_asks_for_the_missing_pack` covers the partial case).
 `record_mode_from` refuses any `SCRY_RECORD` when `CI` is set, before the first case. The tests
 `recording_writes_each_pack_and_the_verdict_word`, `a_miss_without_record_names_the_case_and_pack`
 and `record_is_refused_under_ci` run the mode on a fixture corpus with stubs for the live calls.
