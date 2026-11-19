@@ -8,6 +8,9 @@
 - `src/config.rs`: `ScryConfig`, `scry_config`.
 - `src/kind.rs`: `Kind`, `Verify`, `KINDS`, `kind`.
 - `src/steering.rs`: `Steering`, `steering_of`, `steering`.
+- `src/scope.rs`: `ScopeWhy`, `Scope`, `ScopedUnit`, `ScopedFile`, `scope_of`.
+- `tests/support/mod.rs`: git fixtures, `project_with_vendored_grammars`, and the doubles
+  `StubFinder`, `StubDecider`, `FixedClock`.
 - `library/scry.md`: the shipped steering layer.
 
 Later tasks add the store, the find call, the judge, the pass and the CLI here.
@@ -93,3 +96,34 @@ alone. `Finder` is the seam: `find(ask, model, cap_usd, cancel)` returns a `Foun
 text and its `Errand`). `ResearchFinder` is the live one, one `Research` (product `scry`, verb
 `find`, tools Read/Grep/Glob, `FIND_TIMEOUT` 420 s); the corpus gate swaps in recorded replies
 through the same trait.
+
+## The scope
+
+`src/scope.rs`. `scope_of(project, view, why, all, cfg)` turns a `ScopeWhy` (`Saved`, `Named`,
+`Working`, `Since(rev)`) into a `Scope`: the `base` compared against, the `ScopedUnit`s to
+review and the `ScopedFile`s the pass touched. The base is `HEAD`, or for `Since` the view's
+`merge_base(rev)` (a bad rev is that `Error::Git`, naming it); with no commit yet it is empty
+and every file is all new. The files are the named ones, or the view's `changed_since(base)`
+(every file, by `glob("**")`, with no commit). A file is dropped when no language covers it,
+`[scry] exclude` matches it, `Fences::allows` refuses it, or its text is `NotText`.
+
+A file that is gone but was at the base is a `ScopedFile` with `deleted` and no units, so the
+pass can sweep its findings. A rename is a deletion and an addition (`changed_since` runs
+with `--no-renames`). For a file that exists, the units are `compare_units(view.units_at(file,
+base), view.units(file))`'s `Added` and `Changed`, or every unit with `all` or no commit; a
+base whose units do not read counts as none. `ScopedFile::diff` is `view.diff(file, base)`, or
+the file's text when that is empty; `units_now` names every unit now, for the gone sweep.
+
+`header_of` is olifant's `headerOf`: the innermost unit strictly enclosing this one (any
+kind, another name), and its definition line trimmed. `def_line` finds that line as the first
+line before the body holding the unit's own name, so a decorator above it is passed over.
+
+### Test support
+
+`crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
+`git_repo` (no commit), `git_project`, `write`, `commit`, `project_with_vendored_grammars`
+(core's vendored grammars, no network), and three doubles. `StubFinder` answers a find by the
+set of files in its pack (an empty findings list otherwise) and records every `FindAsk`.
+`StubDecider` answers each question with the first rule whose kind prefixes the question's and
+whose predicate holds, else a certain no, and records the questions. `FixedClock` is a clock
+set by hand (`at`, `now`, `offset`); the pass's `Clock` trait is implemented for it there.

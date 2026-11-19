@@ -33,13 +33,17 @@ pub trait CodebaseView: Send + Sync {
     fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>>;
     /// The file's units now; empty when no language covers it.
     fn units(&self, path: &Path) -> Result<Vec<Unit>>;
+    /// The file's units at REV; empty when it did not exist there or no
+    /// language covers it.
+    fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>>;
     fn facts(&self, path: &Path, unit: &Unit) -> Result<Facts>;
     /// Lines matching PATTERN (a regex), in files matching GLOB when given.
     fn grep(&self, pattern: &str, glob: Option<&str>) -> Result<Vec<GrepHit>>;
     /// Files matching PATTERN, sorted.
     fn glob(&self, pattern: &str) -> Result<Vec<PathBuf>>;
     /// Files that differ from REV in the working tree, plus untracked files
-    /// git does not ignore, sorted.
+    /// git does not ignore, sorted. A rename is both paths: the old one
+    /// deleted, the new one added.
     fn changed_since(&self, rev: &str) -> Result<Vec<PathBuf>>;
     /// The file's change against REV in the working tree, as `git diff` prints
     /// it; empty when there is none (also for an untracked file).
@@ -160,6 +164,16 @@ impl CodebaseView for FilesView {
         self.units_in(path, &text)
     }
 
+    fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>> {
+        if self.project.languages.for_path(path).is_none() {
+            return Ok(Vec::new());
+        }
+        match self.text_at(path, rev)? {
+            Some(text) => self.units_in(path, &text),
+            None => Ok(Vec::new()),
+        }
+    }
+
     fn facts(&self, path: &Path, unit: &Unit) -> Result<Facts> {
         let Some(lang) = self.project.languages.for_path(path) else {
             return Ok(Facts::default());
@@ -206,6 +220,7 @@ impl CodebaseView for FilesView {
         let mut out: Vec<PathBuf> = git(&[
             "diff",
             "--name-only",
+            "--no-renames",
             "--relative",
             "--end-of-options",
             rev,

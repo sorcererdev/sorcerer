@@ -168,3 +168,37 @@ fn merge_base_of_an_unknown_rev_names_it() {
     let err = view(d.path()).merge_base("nosuch").unwrap_err();
     assert!(err.to_string().contains("nosuch"), "{err}");
 }
+
+#[test]
+fn units_at_head_are_the_committed_units() {
+    let d = project();
+    support::write(
+        d.path(),
+        "src/a.py",
+        "def f():\n    return 1\n\ndef g():\n    pass\n",
+    );
+    let v = view(d.path());
+    let names = |us: Vec<sorcerer_core::unit::Unit>| -> Vec<String> {
+        us.into_iter().map(|u| u.name).collect()
+    };
+    assert_eq!(
+        names(v.units_at(Path::new("src/a.py"), "HEAD").unwrap()),
+        ["f"]
+    );
+    assert_eq!(names(v.units(Path::new("src/a.py")).unwrap()), ["f", "g"]);
+    assert!(
+        v.units_at(Path::new("src/new.py"), "HEAD")
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn changed_since_lists_both_sides_of_a_rename() {
+    let d = project();
+    support::git(d.path(), &["mv", "src/a.py", "src/b.py"]);
+    assert_eq!(
+        view(d.path()).changed_since("HEAD").unwrap(),
+        vec![PathBuf::from("src/a.py"), PathBuf::from("src/b.py")]
+    );
+}

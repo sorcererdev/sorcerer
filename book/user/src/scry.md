@@ -13,6 +13,23 @@ lost: a later pass can raise a finding again.
 Findings stay in `.sorcerer/state/scry/findings.json` until the code changes or you dismiss
 them. Scry spends money, so it stops at a per-pass and a per-day cap.
 
+## What a pass looks at
+
+A pass looks at the units a change adds or alters, compared with a base:
+
+- `scry` alone: every file that differs from `HEAD` in your working tree, untracked files too.
+- `scry <file>…`: the files you name, against `HEAD`. (Saving a file in the editor is the
+  same, for that file.)
+- `--all`: every unit of each file in scope, not only the changed ones.
+- `--since <rev>`: the files your branch changed since it left `<rev>`. Scry compares against
+  the merge base, the commit where your branch and `<rev>` last agree, so changes made on
+  `<rev>` after you branched are not yours and are not reviewed.
+
+A file nobody committed yet, or any file in a repository with no commit, is all new: every
+unit is in scope. A renamed file is a new file at its new path. Scry leaves out files no
+language covers, files matching `exclude`, fenced files (`.env*`, `.sorcerer/`, your
+`[model] not_evidence`) and files that are not text.
+
 ## Kinds
 
 | kind | means | shown by default |

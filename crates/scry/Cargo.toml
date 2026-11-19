@@ -21,6 +21,7 @@ serde_json.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+globset.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

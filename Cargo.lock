@@ -1361,6 +1361,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "globset",
  "serde",
  "serde_json",
  "sorcerer-core",

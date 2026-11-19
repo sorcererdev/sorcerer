@@ -5,5 +5,6 @@ pub mod config;
 pub mod find;
 pub mod finding;
 pub mod kind;
+pub mod scope;
 pub mod steering;
 pub mod store;

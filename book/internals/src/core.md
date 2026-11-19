@@ -144,8 +144,9 @@ does.
 ## The codebase view
 
 `view.rs`. Products and the researcher's tools never touch the file system directly: they
-ask a `CodebaseView` for a file's `text`, its `text_at(rev)`, its `units`, a unit's
-`facts`, a `grep`, a `glob`, or the files `changed_since(rev)`. The trait exists because a
+ask a `CodebaseView` for a file's `text`, its `text_at(rev)`, its `units` (now, or
+`units_at(rev)`), a unit's `facts`, a `grep`, a `glob`, or the files `changed_since(rev)`
+(a rename is listed as both paths, `--no-renames`, so the old path reads as deleted). The trait exists because a
 separate sorcerer tool will serve a codebase as a graph over an API; when a product needs
 it, that service is one more implementation of this trait.
 
