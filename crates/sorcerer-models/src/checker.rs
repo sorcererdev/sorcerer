@@ -232,14 +232,18 @@ fn confirm_one(c: &RawCitation, view: &dyn CodebaseView, fences: &Fences) -> Opt
 }
 
 /// The unit called NAME: the exact qualified name (the earliest of several),
-/// or a bare name that is the last part of exactly one qualified name.
+/// or a bare name that is the last part of exactly one qualified name. The
+/// prompt asks for `Class.method` while a language may join with `::`, so
+/// the two separators are read alike.
 fn unit_named<'u>(units: &'u [Unit], name: &str) -> Option<&'u Unit> {
-    if let Some(u) = units.iter().find(|u| u.name == name) {
+    let plain = |s: &str| s.replace("::", ".");
+    let name = plain(name);
+    if let Some(u) = units.iter().find(|u| plain(&u.name) == name) {
         return Some(u);
     }
     let ends: Vec<&Unit> = units
         .iter()
-        .filter(|u| u.name.ends_with(&format!(".{name}")) || u.name.ends_with(&format!("::{name}")))
+        .filter(|u| plain(&u.name).ends_with(&format!(".{name}")))
         .collect();
     if ends.len() == 1 { Some(ends[0]) } else { None }
 }
@@ -287,4 +291,48 @@ fn guard_evidence(raw: &[RawCitation], view: &dyn CodebaseView, fences: &Fences)
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sorcerer_core::fingerprint::Fingerprint;
+    use sorcerer_core::unit::UnitKind;
+
+    fn unit(name: &str, start: u32) -> Unit {
+        Unit {
+            name: name.into(),
+            kind: UnitKind::Method,
+            span: Span {
+                start,
+                end: start + 5,
+            },
+            body: None,
+            fingerprint: Fingerprint::parse("0000000").unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_cited_method_matches_whatever_separator_the_language_uses() {
+        // the prompt asks for Class.method; a language may name it Class::method
+        let units = [unit("Jev::new", 1), unit("Jev::ask_raw", 10)];
+        assert_eq!(
+            unit_named(&units, "Jev.ask_raw").map(|u| u.span.start),
+            Some(10)
+        );
+        assert_eq!(
+            unit_named(&units, "Jev::ask_raw").map(|u| u.span.start),
+            Some(10)
+        );
+        assert_eq!(
+            unit_named(&units, "ask_raw").map(|u| u.span.start),
+            Some(10)
+        );
+        let dotted = [unit("Order.cancel", 3)];
+        assert_eq!(
+            unit_named(&dotted, "Order::cancel").map(|u| u.span.start),
+            Some(3)
+        );
+        assert!(unit_named(&units, "Other.ask_raw").is_none());
+    }
 }
