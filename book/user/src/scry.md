@@ -75,7 +75,7 @@ check $  total $`, then `waiting on the cap: N units`. Jev's questions are in th
 `scry dismiss ID` takes the id or a unique prefix of four or more characters and prints
 `dismissed 7f3a2c (here)`; a dismissed finding is not shown again in that unit, or in any with
 `--everywhere`. `scry why ID` prints Markdown: the statement, the rule cited and its text, the
-unit, the cited lines with their code, the claim checker's verdict, the keep score, how often
+unit and the line it starts on, each cited range with its code (two lines either side), the claim checker's verdict, the keep score, how often
 it was seen and its history. An unknown or ambiguous id exits 2. None of these four needs Jev.
 
 ### Exit codes

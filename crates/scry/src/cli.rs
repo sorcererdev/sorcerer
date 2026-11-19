@@ -18,13 +18,13 @@ use sorcerer_core::grammar::GrammarCache;
 use sorcerer_core::ledger::Ledger;
 use sorcerer_core::project::default_decider;
 use sorcerer_core::store::{Snapshot, Store};
+use sorcerer_core::unit::Span;
 use sorcerer_core::view::{CodebaseView, FilesView};
 use sorcerer_models::decide::jev::Jev;
 use sorcerer_models::providers::default_provider_for;
 
 use crate::config::scry_config;
 use crate::finding::{Finding, Status};
-use crate::judge::cited_code;
 use crate::live::{Live, Wired};
 use crate::pass::{Caps, Outcome, Report, pass};
 use crate::scope::{Scope, ScopeWhy, scope_of};
@@ -446,8 +446,9 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         writeln!(err, "scry: {msg}")?;
         return Ok(2);
     };
-    let (file, line) = (f.place.file.display(), f.place.lines.start);
-    writeln!(out, "# {}: {file}:{line}\n\n{}\n", f.kind, f.statement)?;
+    let file = f.place.file.display();
+    let lines = lines_text(f.place.lines.start, f.place.lines.end);
+    writeln!(out, "# {}: {file}:{lines}\n\n{}\n", f.kind, f.statement)?;
     if let Some(r) = &f.rule {
         let st = steering(project)?;
         let name = st
@@ -461,12 +462,10 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         }
         writeln!(out)?;
     }
-    if let Some(u) = &f.place.unit {
-        writeln!(
-            out,
-            "Unit: {u} ({file}:{})\n",
-            lines_text(f.place.lines.start, f.place.lines.end)
-        )?;
+    match (&f.place.unit, f.place.unit_start) {
+        (Some(u), Some(at)) => writeln!(out, "Unit: {u} (starts at {file}:{at})\n")?,
+        (Some(u), None) => writeln!(out, "Unit: {u}\n")?,
+        _ => {}
     }
     if !f.evidence.is_empty() {
         writeln!(out, "Evidence:")?;
@@ -478,7 +477,7 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
                 lines_text(e.lines.start, e.lines.end)
             )?;
             match std::fs::read_to_string(project.root.join(&e.file)) {
-                Ok(text) => writeln!(out, "{}", cited_code(&text, e.lines.start))?,
+                Ok(text) => writeln!(out, "{}", cited_range(&text, e.lines))?,
                 Err(_) => writeln!(out, "(the file cannot be read)")?,
             }
         }
@@ -637,6 +636,18 @@ fn shown_in_scope<'s>(s: &'s ScryStore, scope: &Scope, kinds: &[String]) -> Vec<
         kb.total_cmp(&ka)
     });
     v
+}
+
+/// The cited lines whole, two either side, numbered as the claim prompt
+/// numbers them; a range past the end stops at the last line.
+fn cited_range(text: &str, lines: Span) -> String {
+    let ls: Vec<&str> = text.lines().collect();
+    let lo = lines.start.saturating_sub(2).max(1) as usize;
+    let hi = (lines.end.max(lines.start) as usize + 2).min(ls.len());
+    (lo..=hi)
+        .filter_map(|n| ls.get(n - 1).map(|l| format!("{n:>4} {l}")))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn lines_text(a: u32, z: u32) -> String {

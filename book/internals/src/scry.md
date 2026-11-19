@@ -310,8 +310,9 @@ zone) and falls back to the system clock when `Live::open` fails. `list` sorts b
 cell). `cost` groups the ledger's `scry` errands by local day in the clock's offset
 (`BTreeMap` by date): `find` and `check` are counted and summed, `decide` only added to the
 total; the waiting units are the store's `capped` sets. `dismiss` is `ScryStore::dismiss`
-inside `Store::update`; `why` re-reads the steering for the rule's text and the file for
-`judge::cited_code`.
+inside `Store::update`; `why` re-reads the steering for the rule's text and each cited file for
+`cited_range` (the cited lines, two either side; not `judge::cited_code`, the claim prompt's
+window of 8 around the first line).
 `held_back` prints the failures and caps. Exit: `Skipped` or an error is 2; anything shown is
 1; else 2 when a find failed, a unit was capped or a claim check was held back
 (`Report::checks_capped`), else 0.
@@ -322,9 +323,6 @@ through `Ledger::at`, so nothing creates `.sorcerer/state`): `provider` (`defaul
 languages whose `files` cover a file `glob("**")` lists, each `Languages::load`ed through the
 cache), `steering`, `store` and `ledger`. `doctor` prints them `name  ok|FAIL  detail` and
 exits 2 when any failed.
-
-`list`, `cost`, `dismiss` and `why` are parsed but print "not built yet" and exit 2 until the
-next task.
 
 ## Test support
 

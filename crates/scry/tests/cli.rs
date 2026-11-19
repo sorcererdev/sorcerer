@@ -753,6 +753,21 @@ fn dismiss_unknown_exits_2() {
     assert_eq!(r.code, 2);
 }
 
+/// A cited range prints whole, two lines either side, however long (the
+/// demo's 24-39 citation printed 16-32, the claim prompt's window).
+#[test]
+fn why_prints_the_whole_cited_range() {
+    let dir = changed_project();
+    let mut f = stored::finding("aaaa02", "bug", scry::finding::Status::Open, "orders.py", 2);
+    f.evidence[0].lines = sorcerer_core::unit::Span { start: 5, end: 6 };
+    stored::put(dir.path(), vec![f]);
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["why", "aaaa"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    let want = "Evidence:\norders.py:5-6\n   3 \n   4 \n   5 def place(order):\n   6     return order.place()\n\n";
+    assert!(r.out.contains(want), "{}", r.out);
+}
+
 #[test]
 fn why_shows_rule_evidence_verdict_and_history() {
     let dir = changed_project();
@@ -766,18 +781,16 @@ fn why_shows_rule_evidence_verdict_and_history() {
     let r = scry(dir.path(), &d, &["why", "aaaa"]);
     assert_eq!(r.code, 0, "{}", r.err);
     let want = format!(
-        "# bug: orders.py:2\n\n{}\n\n\
+        "# bug: orders.py:2-3\n\n{}\n\n\
          Rule: Commands return a Result (must)\n\
          A command returns Result, never panics.\n\n\
-         Unit: cancel (orders.py:2-3)\n\n\
+         Unit: cancel (starts at orders.py:1)\n\n\
          Evidence:\n\
          orders.py:2\n\
          \x20  1 def cancel(order):\n\
          \x20  2     return order.cancel(now=True)\n\
          \x20  3 \n\
-         \x20  4 \n\
-         \x20  5 def place(order):\n\
-         \x20  6     return order.place()\n\n\
+         \x20  4 \n\n\
          Checked: right: the call passes it\n\
          Keep: 0.90\n\
          Seen: 3 times since 2026-11-18\n\n\
