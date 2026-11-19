@@ -1,7 +1,7 @@
 //! Verification rounds, caps and charges (design §6.9, olifant's
 //! `Inspect/Pass.hs`): what a call is likely to cost, whether it still fits
 //! the caps, and the rounds that take a file's waiting findings through
-//! their citations and claim checks, best kept first, until `max_shown`
+//! their citations and claim checks, best kept first, until `MAX_SHOWN`
 //! are open.
 
 use std::collections::HashSet;
@@ -13,7 +13,7 @@ use sorcerer_core::ledger::Errand;
 use sorcerer_core::{Cancel, Result};
 use sorcerer_models::checker::{Checked, Citation, Claim, ClaimKind, Verdict};
 
-use crate::config::ScryConfig;
+use crate::config::{MAX_SHOWN, ScryConfig};
 use crate::finding::{Finding, Id, Status, StoredCitation, StoredVerdict};
 use crate::judge::{citations, cites};
 use crate::kind::{Verify, kind};
@@ -126,7 +126,7 @@ pub(crate) struct Around<'a> {
     pub now: DateTime<Utc>,
     /// The findings that were waiting before this pass: they take a place
     /// only while the file has room; the pass's own new ones may take up
-    /// to `max_shown` places.
+    /// to `MAX_SHOWN` places.
     pub old_waiting: &'a HashSet<Id>,
     pub check_estimate: f64,
     /// Writes the store as the pass has it now.
@@ -150,7 +150,7 @@ pub(crate) fn verify(
     around: &mut Around,
 ) -> Result<Verified> {
     let now = around.now;
-    let shown = |f: &Finding| cfg.kinds.contains(&f.kind);
+    let shown = |f: &Finding| cfg.issue_types.contains(&f.kind);
     let mut open_now = store
         .findings
         .iter()
@@ -183,7 +183,7 @@ pub(crate) fn verify(
             let f = find(store, &id);
             let is_new = !around.old_waiting.contains(&id);
             let c = usize::from(shown(f));
-            if (is_new && n >= cfg.max_shown) || (!is_new && o >= cfg.max_shown) {
+            if (is_new && n >= MAX_SHOWN) || (!is_new && o >= MAX_SHOWN) {
                 rest.push(id);
             } else {
                 o += c;
@@ -208,8 +208,8 @@ pub(crate) fn verify(
             "{}- room: {open_now} open of {} shown in the file; {new_passed} of the pass's own opened, of {}\n\
              - candidates: {}\n- left for a later round: {}\n",
             sub(&format!("Round {round}")),
-            cfg.max_shown,
-            cfg.max_shown,
+            MAX_SHOWN,
+            MAX_SHOWN,
             listed(&batch),
             listed(&rest),
         ));

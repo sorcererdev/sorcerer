@@ -180,7 +180,10 @@ pub fn pass(
         now.with_timezone(&offset).date_naive(),
         offset,
     );
-    let (find_est, check_est) = (find_estimate(&rows, &cfg.find_model), check_estimate(&rows));
+    let (find_est, check_est) = (
+        find_estimate(&rows, &cfg.review_model),
+        check_estimate(&rows),
+    );
     (deps.trace)(&format!(
         "{}- caps: pass {}, day {} (scry spent {} earlier today), budget {}\n\
          - estimates: find {} ({}), check {}\n\
@@ -191,7 +194,7 @@ pub fn pass(
         usd(today),
         caps.budget.map_or("none".into(), usd),
         usd(find_est),
-        cfg.find_model,
+        cfg.review_model,
         usd(check_est),
         count(base.findings.len(), "finding"),
         count(base.inspected.len(), "file"),
@@ -389,14 +392,13 @@ impl Run<'_, '_> {
             // one call's cap: what the caps leave, never more than a pass
             // may spend (on the command line nothing else bounds it, and a
             // timeout is charged its cap)
-            let cap = self
-                .budget
-                .room()
-                .map_or(self.cfg.pass_cost, |r| r.min(self.cfg.pass_cost));
+            let cap = self.budget.room().map_or(self.cfg.budget_per_pass, |r| {
+                r.min(self.cfg.budget_per_pass)
+            });
             let open_ids: Vec<&str> = ask.open.iter().map(|f| f.id.0.as_str()).collect();
             self.t(&format!(
                 "- model {}, cap {}\n- open findings to answer: {}\n\nPrompt:\n\n{}",
-                self.cfg.find_model,
+                self.cfg.review_model,
                 usd(cap),
                 if open_ids.is_empty() {
                     "none".into()
@@ -408,7 +410,7 @@ impl Run<'_, '_> {
             let found = self
                 .deps
                 .finder
-                .find(&ask, &self.cfg.find_model, cap, self.cancel);
+                .find(&ask, &self.cfg.review_model, cap, self.cancel);
             match &found {
                 Ok(f) => self.t(&format!(
                     "Reply:\n\n{}- errand: {}, {:.1} s, {}\n",
@@ -892,7 +894,7 @@ impl Run<'_, '_> {
                     self.t("- result: new\n");
                 }
                 let (keep, on, w) = self.keep(&raw, pl.fingerprint.as_ref(), &code_a)?;
-                let status = if keep >= self.cfg.cut {
+                let status = if keep >= self.cfg.confidence_threshold {
                     Status::Waiting
                 } else {
                     Status::Withheld
@@ -905,7 +907,7 @@ impl Run<'_, '_> {
                 self.t(&format!(
                     "- nitpick? {} → keep {keep:.2}, cut {:.2} → {}\n- id {}, {}\n",
                     p_text(&w),
-                    self.cfg.cut,
+                    self.cfg.confidence_threshold,
                     status_word(status),
                     id.0,
                     status_word(status)
@@ -934,7 +936,7 @@ impl Run<'_, '_> {
             first: self.now,
             last: self.now,
             history: vec![(self.now, status)],
-            model: self.cfg.find_model.clone(),
+            model: self.cfg.review_model.clone(),
             cost_usd: 0.0,
         });
         self.new.last().cloned().expect("just pushed")
@@ -971,13 +973,13 @@ impl Run<'_, '_> {
                         keep: Some(keep),
                         asked_on: Some(on),
                     };
-                    if keep >= self.cfg.cut {
+                    if keep >= self.cfg.confidence_threshold {
                         f.set_status(Status::Waiting, self.now);
                     }
                     self.t(&format!(
                         "- withheld, and what it was asked on changed: nitpick? {} → keep {keep:.2}, cut {:.2} → {}\n",
                         p_text(&w[0]),
-                        self.cfg.cut,
+                        self.cfg.confidence_threshold,
                         status_word(f.status)
                     ));
                 } else {

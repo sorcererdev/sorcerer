@@ -310,7 +310,7 @@ fn head(
         Ok(cfg) => {
             s.push_str(&format!(
                 "- caps: pass none on the command line, day {}, budget {}\n- config ([scry] with the defaults filled in):\n\n",
-                usd(cfg.day_cost),
+                usd(cfg.budget_per_day),
                 a.budget.map_or("none".into(), usd),
             ));
             let fields = serde_json::to_value(&cfg)
@@ -774,7 +774,7 @@ fn run(
     log.put(&log::scope_text(&scope));
     let caps = Caps {
         pass: None,
-        day: cfg.day_cost,
+        day: cfg.budget_per_day,
         budget: a.budget,
     };
     let ledger_rows = || {
@@ -800,7 +800,7 @@ fn run(
         Snapshot::Absent => ScryStore::default(),
         Snapshot::Unreadable(why) => anyhow::bail!("the finding store cannot be read ({why})"),
     };
-    let shown = shown_in_scope(&stored, &scope, &cfg.kinds);
+    let shown = shown_in_scope(&stored, &scope, &cfg.issue_types);
     for f in &shown {
         if a.json {
             writeln!(out, "{}", finding_json(f))?;
@@ -869,8 +869,8 @@ fn summary_text(
             "printed".to_string()
         } else {
             let because = match f.status {
-                Status::Open if !cfg.kinds.contains(&f.kind) => {
-                    format!("its kind {} is not in [scry] kinds", f.kind)
+                Status::Open if !cfg.issue_types.contains(&f.kind) => {
+                    format!("its kind {} is not in [scry] issue_types", f.kind)
                 }
                 Status::Open if !in_scope => "its unit is not in this run's scope".into(),
                 Status::Open => "open".into(),
@@ -878,7 +878,7 @@ fn summary_text(
                 Status::Withheld => format!(
                     "judged a nitpick (keep {:.2} under the cut {:.2})",
                     f.scores.keep.unwrap_or(0.0),
-                    cfg.cut
+                    cfg.confidence_threshold
                 ),
                 Status::Refuted => "the claim check said it is wrong".into(),
                 Status::Unsure => "the check could not confirm it".into(),

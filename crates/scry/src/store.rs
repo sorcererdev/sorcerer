@@ -10,7 +10,7 @@ use sorcerer_core::store::{Store, Versioned};
 use sorcerer_core::unit::Span;
 use sorcerer_core::{Project, Result};
 
-use crate::config::ScryConfig;
+use crate::config::{MAX_SHOWN, ScryConfig};
 pub use crate::finding::{
     Evidence, Finding, Id, Place, Scores, Status, StoredCitation, StoredVerdict,
 };
@@ -95,20 +95,22 @@ impl ScryStore {
         Ok(())
     }
 
-    /// The file's open findings of shown kinds, best `keep` first, at most `max_shown`.
+    /// The file's open findings of shown kinds, best `keep` first, at most `MAX_SHOWN`.
     pub fn shown_in(&self, cfg: &ScryConfig, file: &Path) -> Vec<&Finding> {
         let mut v: Vec<&Finding> = self
             .findings
             .iter()
             .filter(|f| {
-                f.status == Status::Open && f.place.file == file && cfg.kinds.contains(&f.kind)
+                f.status == Status::Open
+                    && f.place.file == file
+                    && cfg.issue_types.contains(&f.kind)
             })
             .collect();
         v.sort_by(|a, b| {
             let (ka, kb) = (a.scores.keep.unwrap_or(0.0), b.scores.keep.unwrap_or(0.0));
             kb.total_cmp(&ka)
         });
-        v.truncate(cfg.max_shown);
+        v.truncate(MAX_SHOWN);
         v
     }
 }

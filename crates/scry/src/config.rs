@@ -5,17 +5,18 @@ use sorcerer_core::{Error, Project, Result};
 
 use crate::kind::kind;
 
+/// At most this many findings are shown in a file at a time.
+pub const MAX_SHOWN: usize = 3;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ScryConfig {
     pub enabled: bool,
-    pub kinds: Vec<String>,
-    pub find_model: String,
-    pub cut: f64,
-    pub max_shown: usize,
-    pub settle: f64,
-    pub pass_cost: f64,
-    pub day_cost: f64,
+    pub issue_types: Vec<String>,
+    pub review_model: String,
+    pub confidence_threshold: f64,
+    pub budget_per_pass: f64,
+    pub budget_per_day: f64,
     pub exclude: Vec<String>,
 }
 
@@ -23,15 +24,13 @@ impl Default for ScryConfig {
     fn default() -> ScryConfig {
         ScryConfig {
             enabled: true,
-            kinds: ["bug", "assumption", "convention"]
+            issue_types: ["bug", "assumption", "convention"]
                 .map(String::from)
                 .to_vec(),
-            find_model: "sonnet".into(),
-            cut: 0.7,
-            max_shown: 3,
-            settle: 2.0,
-            pass_cost: 0.25,
-            day_cost: 3.00,
+            review_model: "sonnet".into(),
+            confidence_threshold: 0.7,
+            budget_per_pass: 0.25,
+            budget_per_day: 3.00,
             exclude: Vec::new(),
         }
     }
@@ -45,24 +44,23 @@ pub fn scry_config(p: &Project) -> Result<ScryConfig> {
         file: file.clone(),
         why: format!("[scry] {why}"),
     };
-    if !(0.0..=1.0).contains(&c.cut) {
-        return Err(bad(format!("cut = {} is outside 0..=1", c.cut)));
-    }
-    if c.max_shown < 1 {
-        return Err(bad("max_shown must be at least 1".into()));
+    if !(0.0..=1.0).contains(&c.confidence_threshold) {
+        return Err(bad(format!(
+            "confidence_threshold = {} is outside 0..=1",
+            c.confidence_threshold
+        )));
     }
     for (key, v) in [
-        ("settle", c.settle),
-        ("pass_cost", c.pass_cost),
-        ("day_cost", c.day_cost),
+        ("budget_per_pass", c.budget_per_pass),
+        ("budget_per_day", c.budget_per_day),
     ] {
         if v.is_nan() || v < 0.0 {
             return Err(bad(format!("{key} = {v} must not be negative")));
         }
     }
-    if let Some(k) = c.kinds.iter().find(|k| kind(k).is_none()) {
+    if let Some(k) = c.issue_types.iter().find(|k| kind(k).is_none()) {
         return Err(bad(format!(
-            "kinds: `{k}` is not a kind (bug, assumption, convention, design)"
+            "issue_types: `{k}` is not an issue type (bug, assumption, convention, design)"
         )));
     }
     Ok(c)
@@ -87,20 +85,23 @@ mod tests {
         let (_d, p) = project(None);
         let c = scry_config(&p).unwrap();
         assert!(c.enabled);
-        assert_eq!(c.kinds, ["bug", "assumption", "convention"]);
-        assert_eq!(c.find_model, "sonnet");
-        assert_eq!((c.cut, c.max_shown, c.settle), (0.7, 3, 2.0));
-        assert_eq!((c.pass_cost, c.day_cost), (0.25, 3.00));
+        assert_eq!(c.issue_types, ["bug", "assumption", "convention"]);
+        assert_eq!(c.review_model, "sonnet");
+        assert_eq!(c.confidence_threshold, 0.7);
+        assert_eq!((c.budget_per_pass, c.budget_per_day), (0.25, 3.00));
         assert!(c.exclude.is_empty());
+        assert_eq!(MAX_SHOWN, 3);
     }
 
     #[test]
     fn a_table_overrides_and_keeps_the_rest() {
-        let (_d, p) = project(Some("[scry]\nmax_shown = 5\nexclude = [\"gen/**\"]\n"));
+        let (_d, p) = project(Some(
+            "[scry]\nbudget_per_pass = 0.5\nexclude = [\"gen/**\"]\n",
+        ));
         let c = scry_config(&p).unwrap();
-        assert_eq!(c.max_shown, 5);
+        assert_eq!(c.budget_per_pass, 0.5);
         assert_eq!(c.exclude, ["gen/**"]);
-        assert_eq!(c.cut, 0.7);
+        assert_eq!(c.confidence_threshold, 0.7);
     }
 
     #[test]
@@ -111,14 +112,30 @@ mod tests {
     }
 
     #[test]
+    fn an_old_key_is_refused_by_name() {
+        for (toml, key) in [
+            ("cut = 0.5", "cut"),
+            ("max_shown = 3", "max_shown"),
+            ("kinds = [\"bug\"]", "kinds"),
+            ("find_model = \"haiku\"", "find_model"),
+            ("pass_cost = 0.1", "pass_cost"),
+            ("day_cost = 1.0", "day_cost"),
+            ("settle = 2.0", "settle"),
+        ] {
+            let (_d, p) = project(Some(&format!("[scry]\n{toml}\n")));
+            let e = scry_config(&p).unwrap_err().to_string();
+            assert!(e.contains(key), "{toml}: {e}");
+        }
+    }
+
+    #[test]
     fn out_of_range_values_are_refused() {
         for (toml, key) in [
-            ("cut = 1.5", "cut"),
-            ("max_shown = 0", "max_shown"),
-            ("kinds = [\"style\"]", "style"),
-            ("settle = -1.0", "settle"),
-            ("pass_cost = -0.1", "pass_cost"),
-            ("day_cost = -3.0", "day_cost"),
+            ("confidence_threshold = 1.5", "confidence_threshold"),
+            ("issue_types = [\"style\"]", "style"),
+            ("budget_per_pass = -0.1", "budget_per_pass"),
+            ("budget_per_day = -3.0", "budget_per_day"),
+            ("budget_per_day = nan", "budget_per_day"),
         ] {
             let (_d, p) = project(Some(&format!("[scry]\n{toml}\n")));
             let e = scry_config(&p).unwrap_err().to_string();

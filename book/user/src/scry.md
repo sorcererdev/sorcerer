@@ -7,7 +7,7 @@ normal.
 
 Each finding has a kind, a place, a short statement and the code it cites. Scry checks the
 citations, asks the claim checker whether the claim holds, and asks Jev whether it is a
-nitpick. Only what survives is shown, at most `max_shown` at a time. The rest is kept, not
+nitpick. Only what survives is shown, at most 3 in a file at a time. The rest is kept, not
 lost: a later pass can raise a finding again.
 
 Findings stay in `.sorcerer/state/scry/findings.json` until the code changes or you dismiss
@@ -105,7 +105,7 @@ and exit code do not change. The log holds, in run order:
 - **Findings**: each finding as the model gave it (kind, place, rule, statement, evidence),
   the rule it resolved to, the unit it was placed in, each same-problem question with Jev's
   P(yes) and what came of it (new, merged, dropped), the nitpick question's P(yes), the keep
-  score against `cut`, and the id it got.
+  score against `confidence_threshold`, and the id it got.
 - **Remember**: what was resolved (the finder said it no longer holds, or it was not found
   again) or gone.
 - **Verification**: per file and round, the candidates and the room, each finding's citations
@@ -210,19 +210,17 @@ error that names the key and the file.
 | key | default | meaning |
 |---|---|---|
 | `enabled` | `true` | turn scry off for the project: `scry` then looks at nothing, says so on stderr and exits 0, even with no Jev key or provider |
-| `kinds` | `["bug", "assumption", "convention"]` | the kinds shown |
-| `find_model` | `"sonnet"` | the model that looks for problems |
-| `cut` | `0.7` | the keep line, 0 to 1: a finding is shown only when Jev's keep score (one minus the chance it is a nitpick) is at least this |
-| `max_shown` | `3` | findings shown at once, at least 1 |
-| `settle` | `2` | seconds the editor waits after a save before a pass, so a burst of saves is one pass (0 or more); unused on the command line |
-| `pass_cost` | `0.25` | dollars one pass may spend (the editor's cap) |
-| `day_cost` | `3.00` | dollars scry may spend on the project in a local day |
+| `issue_types` | `["bug", "assumption", "convention"]` | the issue types shown |
+| `review_model` | `"sonnet"` | the model that reviews the change |
+| `confidence_threshold` | `0.7` | 0 to 1: a finding is shown only when its confidence (one minus Jev's chance that it is a nitpick) is at least this |
+| `budget_per_pass` | `0.25` | dollars one pass may spend (the editor's cap) |
+| `budget_per_day` | `3.00` | dollars scry may spend on the project in a local day |
 | `exclude` | `[]` | globs of files scry skips |
 
 ## What it costs
 
 A pass that finds changed units not yet inspected makes one find call for them, about $0.04
-on sonnet (about $0.005 with `find_model = "haiku"`, which misses more). Each `bug` or
+on sonnet (about $0.005 with `review_model = "haiku"`, which misses more). Each `bug` or
 `assumption` that survives the nitpick question gets a claim check, about $0.016. A pass with
 nothing new to look at costs nothing. Jev's questions cost about $0.00005 each and are not
 counted against the caps. Once the ledger has priced calls, scry estimates from the last 20
@@ -230,17 +228,17 @@ of each.
 
 Scry checks the caps before every paid call, against what that call is likely to cost:
 
-- `pass_cost`: what one pass may spend.
-- `day_cost`: what scry may spend in your local day, counting the passes before this one.
+- `budget_per_pass`: what one pass may spend.
+- `budget_per_day`: what scry may spend in your local day, counting the passes before this one.
 - `--budget USD` on the command line: what the run may spend.
 
 A find call that times out (after 420 s) is counted at the cap it ran under, which is never
-more than `pass_cost`, even on the command line where no pass cap applies: one hung call does
+more than `budget_per_pass`, even on the command line where no pass cap applies: one hung call does
 not use up the day.
 
 A unit a cap holds back is not inspected; scry records it and the next pass with room takes
 it. A finding whose claim check does not fit waits, and is checked on a later pass. Findings
-are checked best first, and only until `max_shown` are open in the file: a claim the checker
+are checked best first, and only until 3 are open in the file: a claim the checker
 refutes frees its place for the next one.
 
 ## Steering

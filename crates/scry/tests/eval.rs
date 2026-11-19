@@ -195,7 +195,7 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     support::write(
         root,
         ".sorcerer/config.toml",
-        "[languages]\nnames = [\"python\"]\n\n[scry]\npass_cost = 5.0\nday_cost = 1000.0\n",
+        "[languages]\nnames = [\"python\"]\n\n[scry]\nbudget_per_pass = 5.0\nbudget_per_day = 1000.0\n",
     );
 
     let (project, view) = support::project_with_vendored_grammars(root);
@@ -251,8 +251,8 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
         },
     };
     let caps = Caps {
-        pass: Some(cfg.pass_cost),
-        day: cfg.day_cost,
+        pass: Some(cfg.budget_per_pass),
+        day: cfg.budget_per_day,
         budget: None,
     };
     match pass(&project, &scope, &caps, false, &deps, &Cancel::default()) {

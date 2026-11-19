@@ -544,9 +544,9 @@ fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_find() {
 
 /// A hung find call on the command line (no pass cap) is not presumed to
 /// have spent the rest of the day: its cap, and its charge, stay within
-/// `pass_cost`.
+/// `budget_per_pass`.
 #[test]
-fn a_timed_out_find_is_charged_at_most_the_pass_cost() {
+fn a_timed_out_find_is_charged_at_most_the_budget_per_pass() {
     let f = Fixture::new();
     let finder = StubFinder::new().timing_out();
     let caps = Caps {
@@ -556,9 +556,9 @@ fn a_timed_out_find_is_charged_at_most_the_pass_cost() {
     };
     let no_check = |_: &Claim| -> sorcerer_models::Result<Checked> { unreachable!() };
     let r = f.run(&finder, &no_check, &caps);
-    let pass_cost = ScryConfig::default().pass_cost;
+    let budget_per_pass = ScryConfig::default().budget_per_pass;
     assert_eq!(r.failures.len(), 1, "{:?}", r.failures);
-    assert!(finder.caps.lock().unwrap()[0] <= pass_cost);
-    assert!(r.spent <= pass_cost, "charged {}", r.spent);
+    assert!(finder.caps.lock().unwrap()[0] <= budget_per_pass);
+    assert!(r.spent <= budget_per_pass, "charged {}", r.spent);
     assert!(r.spent > 0.0);
 }

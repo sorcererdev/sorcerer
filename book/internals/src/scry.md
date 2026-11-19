@@ -28,9 +28,11 @@
 ## Config
 
 `scry_config(&Project)` reads `[scry]` through core's `Config::table`, which is strict about
-unknown keys (`deny_unknown_fields`), then range-checks: `cut` in 0..=1, `max_shown` at least
-1, `settle`, `pass_cost` and `day_cost` not negative, and every entry of `kinds` a name in
-`KINDS`. Each failure is an `Error::Config` naming the key and `.sorcerer/config.toml`.
+unknown keys (`deny_unknown_fields`), then range-checks: `confidence_threshold` in 0..=1,
+`budget_per_pass` and `budget_per_day` not negative (nor NaN), and every entry of `issue_types`
+a name in `KINDS`. The keys are `enabled`, `issue_types`, `review_model`,
+`confidence_threshold`, `budget_per_pass`, `budget_per_day` and `exclude`; at most
+`MAX_SHOWN` (3, a constant in `config.rs`) findings are shown in a file. Each failure is an `Error::Config` naming the key and `.sorcerer/config.toml`.
 `ScryConfig::default()` holds the shipped values.
 
 ## Kinds
@@ -38,7 +40,7 @@ unknown keys (`deny_unknown_fields`), then range-checks: `cut` in 0..=1, `max_sh
 `KINDS` is the table of kinds: a `name`, the `sentence` the find prompt prints after it, whether
 it is `shown` by default, and its `Verify` (`Citations`, or `CitationsThenClaim` where the
 claim checker also runs). The sentences are those of the golden find prompt, word for word.
-A new kind is a new row. `[scry] kinds` chooses which rows are shown.
+A new kind is a new row. `[scry] issue_types` chooses which rows are shown.
 
 ## Steering
 
@@ -86,8 +88,8 @@ fingerprints a pass has looked at, and `capped`, each file to the units a cost c
 `Unreadable` and never rewritten. `new_id` hashes time, file, lines and statement with FNV and
 keeps six digits, rehashing with a counter while taken. `get` takes an id or a unique prefix of
 at least four characters. `dismiss` sets `dismissed-here` or `dismissed-everywhere`. `shown_in`
-is a file's open findings whose kind is in `[scry] kinds`, best `keep` first, at most
-`max_shown`.
+is a file's open findings whose kind is in `[scry] issue_types`, best `keep` first, at most
+`MAX_SHOWN`.
 
 ## The find call
 
@@ -214,7 +216,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    units (`Run::open_on`). Before each call `Budget::allows(find_estimate)`; once one pack is
    capped every later one is, and its units' names go to `capped[file]` in the store. The
    call's `cap_usd` is the per-call cap, set here in the pass and nowhere else:
-   `Budget::room` bounded by `pass_cost` (`pass_cost` when nothing bounds the room). On the
+   `Budget::room` bounded by `budget_per_pass` (`budget_per_pass` when nothing bounds the room). On the
    command line `Caps.pass` is `None`, so without the bound `room` is the rest of the local
    day and one hung call would be charged all of it. A call that fails, or a reply
    `parse_find` refuses, is a `failures` line (`find failed for a.py: …`) and its units stay
@@ -226,7 +228,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
    `ask` batch of `same_problem` questions and the first at P ≥ `SAME_CUT` wins;
    `match_stored` says merge (`Run::merge`), drop, or new. A new finding gets the `nitpick`
-   question (`Run::keep`): keep at or past `cut` is `waiting`, else `withheld`, with
+   question (`Run::keep`): keep at or past `confidence_threshold` is `waiting`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
    statement and evidence (printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
@@ -277,7 +279,7 @@ decides reads it: the eval's table is the same with or without it. The calls:
   rounds, **Inspected**.
 - `Run::judge` and `Run::merge`: the statement, the rule as cited and as resolved, the
   evidence, the placement, each same-problem question's P(yes) and the outcome, the nitpick
-  question's P(yes) with keep against `cut`, and the id and status given.
+  question's P(yes) with keep against `confidence_threshold`, and the id and status given.
 - `rounds::verify`: a **Verification** section for a file with waiting findings, then per
   round the room, the candidates and the rest; each finding's citations (`judge::cites`
   names the one that failed); each claim check's models (its errands'), escalation, verdict
@@ -298,8 +300,8 @@ least left under any finite cap. `cost_of(errands)` sums a call's priced errands
 `verify(store, file, cfg, budget, deps, cancel, around)` takes the file's waiting findings,
 best `keep` first, in rounds. A round takes the candidates that would fit if all passed: one
 that was waiting before the pass (`Around::old_waiting`) only while the file's open findings
-of shown kinds are under `max_shown`; one this pass found while fewer than `max_shown` of the
-pass's own have opened (only kinds in `cfg.kinds` count). Then, per finding: `citations`
+of shown kinds are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
+pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding: `citations`
 (failure → `unsure`, the reason as verdict); a `Verify::Citations` kind opens at once; a
 `CitationsThenClaim` kind's check is reserved against the budget at `check_estimate`, and one
 that does not fit leaves its finding waiting and stops the rounds (`Verified { capped }`).
@@ -344,11 +346,11 @@ stderr and exit 2; clap's usage errors exit 2, `--help` 0.
 
 A run (`run`): open the project from the directory, `scry_config`, the wiring, then
 `scope_of` with `Since(rev)`, `Named` (files joined to the directory, so `../a.py` works from a
-subdirectory) or `Working`; `pass` with `Caps { pass: None, day: day_cost, budget: --budget }`
+subdirectory) or `Working`; `pass` with `Caps { pass: None, day: budget_per_day, budget: --budget }`
 (the day's cap already counts what scry spent earlier today, so leaving `budget` unset is "the
 day's remaining"); then the store is read again and `shown_in_scope` takes every open finding
 of a shown kind whose place's file and unit are a scope unit, best `keep` first, with no
-`max_shown`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
+`MAX_SHOWN`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
 one object a line. The summary line is skipped when nothing was shown, looked at or spent.
 
 The store commands (`list`, `cost`, `dismiss`, `why`, `log` in `src/cli.rs`) need no Jev, so `go` does
@@ -422,7 +424,7 @@ test job. The corpus is `corpus/scry/` (its `README.md` says where each file cam
 - `base/`, bistro as plain files; per case the eval copies it to a temp dir, `git init`s and
   commits it, then `git apply`s `cases/<id>.patch` (left uncommitted) and writes
   `.sorcerer/scry.md` from `steering.md` (1a's steering) and a config with
-  `[languages] names = ["python"]` and `[scry] pass_cost = 5.0, day_cost = 1000.0`. The
+  `[languages] names = ["python"]` and `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The
   project's grammars point at core's vendored sources; the scope is `scope_of(Working)`.
 - `finds/<id>.json`, 1a's sonnet findings for the case. `CorpusFinder` answers a pack with the
   findings whose `file` is one of the pack's files (an empty reply otherwise), at $0.04.
