@@ -11,7 +11,9 @@ use sorcerer_core::unit::Span;
 use sorcerer_core::{Project, Result};
 
 use crate::config::ScryConfig;
-pub use crate::finding::{Evidence, Finding, Id, Place, Scores, Status, StoredVerdict};
+pub use crate::finding::{
+    Evidence, Finding, Id, Place, Scores, Status, StoredCitation, StoredVerdict,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScryStore {
@@ -147,6 +149,7 @@ mod tests {
             verdict: Some(StoredVerdict {
                 verdict: "right".into(),
                 why: "w".into(),
+                cited: Vec::new(),
             }),
             status,
             seen: 1,

@@ -27,6 +27,8 @@ scry list [--status S]...  # every finding in the store, open first (--json)
 scry cost [--since DAY]    # what scry spent, a local day a row (--json)
 scry dismiss 7f3a2c        # stop showing a finding (--everywhere: in every unit)
 scry why 7f3a2c            # a finding in full
+scry -v                    # a run, its log streamed to stderr as it goes
+scry log [N]               # the latest run's log (2: the one before); --list, --path
 ```
 
 A run looks at the units in scope it has not already looked at as they are now, then prints
@@ -55,7 +57,7 @@ Problems go to stderr, one line each: a find call that failed (`scry: find faile
 src/a.py: …`; its units are looked at again next run), and units or a claim check a cap held
 back (`scry: the day's cap stopped 2 units; they wait for the next run`).
 
-A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`) is passed as
+A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`, `log`) is passed as
 `./list`. `--since` takes no files.
 
 ### Looking at the store
@@ -78,8 +80,66 @@ leaves the waiting line out (`waiting_units` is `null`).
 `--everywhere`. `scry why ID` prints Markdown: the statement, the rule cited and its text, the
 unit and the line it starts on, each cited range with its code (two lines either side; a
 citation outside the project or on a fenced path, such as `.env`, is named but its code is not
-printed), the claim checker's verdict, the keep score, how often
+printed), the claim checker's verdict and, under `Cited by the check:`, each citation it
+gave with `confirmed` or `not found`, the keep score, how often
 it was seen and its history. An unknown or ambiguous id exits 2. None of these four needs Jev.
+
+### Reading what a run did
+
+Every run (not `list`, `cost`, `dismiss`, `why`, `doctor` or `log`, and not a run with scry
+off) writes its log, a Markdown file, to `.sorcerer/state/scry/runs/`, named for when it
+started in UTC: `2026-11-18T23-00-00Z.md` (`-2`, `-3` when two start in the same second).
+The newest 20 are kept. A log that cannot be written is one line on stderr; the run's output
+and exit code do not change. The log holds, in run order:
+
+- **Run**: the time (local and UTC), the project, scry's version, the command line, the caps
+  and the effective `[scry]` settings.
+- **Scope**: each file considered, in (with its added or changed units) or skipped and why (no
+  language, excluded, fenced, not text, deleted).
+- **Pass** and **Units**: the caps, what scry spent earlier today, the cost estimates, and each
+  unit: to send, or already inspected at its fingerprint.
+- **Find calls**: per pack, its units, the model and cap, the whole prompt and the whole reply,
+  the call's cost and time, and what the reply parsed to (or why it did not), or that a cap
+  held the pack back.
+- **Findings**: each finding as the model gave it (kind, place, rule, statement, evidence),
+  the rule it resolved to, the unit it was placed in, each same-problem question with Jev's
+  P(yes) and what came of it (new, merged, dropped), the nitpick question's P(yes), the keep
+  score against `cut`, and the id it got.
+- **Remember**: what was resolved (the finder said it no longer holds, or it was not found
+  again) or gone.
+- **Verification**: per file and round, the candidates and the room, each finding's citations
+  (holding, or which did not), and each claim check: the models, whether it escalated, the
+  verdict and reason, every citation the check gave with `confirmed` or `not found`, the cost,
+  and the status that followed.
+- **Inspected**: the units marked looked at.
+- **Summary**: each finding the run added or changed, its status and why it is or is not
+  printed; what was spent, by verb; failures; and a last line, `**Result:** 1 finding shown,
+  2 units looked at, $0.05, exit 1`.
+
+`scry -v` (`--verbose`) streams the same text to stderr as the run goes; stdout and the exit
+code are as without it, so `scry -v --json` still prints only JSON on stdout. `scry log`
+prints the latest log, `scry log 2` the one before, `scry log --list` the logs kept, newest
+first (file, local time and the result line), and `scry log --path` the latest's path. With no
+log yet, it says so on stderr and exits 2.
+
+A finding the checker could not confirm is `unsure` and not shown. To see why:
+
+```
+$ scry list --status unsure
+status  kind  file             line  rule  statement
+unsure  bug   src/orders.rs    41    -     cancel returns None when the order is missing
+$ scry why 7f3a
+…
+Checked: cannot_tell: cited code not found
+Cited by the check:
+src/orders.rs Orders.cancel line 41: confirmed
+src/orders.rs Order.refund: not found
+```
+
+The checker named a unit, `Order.refund`, that the file does not define, so it could not
+confirm the claim, and an unconfirmed claim is never shown. `scry log --list` finds the run
+that checked it, and its **Verification** section shows the same check with the models it
+went through and what it cost.
 
 ### Exit codes
 

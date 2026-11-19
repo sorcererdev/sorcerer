@@ -22,12 +22,13 @@ use sorcerer_models::checker::{Checked, Claim};
 use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
 
 use crate::config::{ScryConfig, scry_config};
-use crate::find::{FindAsk, FindUnit, Finder, RawFinding, pack_units, parse_find};
+use crate::find::{FindAsk, FindUnit, Finder, RawFinding, find_prompt, pack_units, parse_find};
 use crate::finding::{Evidence, Finding, Id, Place, Scores, Status};
 use crate::judge::{
     Match, SAME_CUT, asked_on, candidates, citations, cited_code, finding_text, keep_of,
     match_stored, nitpick, place, same_problem,
 };
+use crate::log::{Trace, block, count, section, sub, usd};
 use crate::rounds::{Around, Budget, check_estimate, find_estimate, verify};
 use crate::scope::{Scope, ScopedUnit};
 use crate::steering::{Steering, steering};
@@ -70,6 +71,9 @@ pub struct PassDeps<'a> {
     pub checker: Checker<'a>,
     pub clock: &'a dyn Clock,
     pub progress: &'a (dyn Fn(&Progress) + Sync),
+    /// The run log: each step's inputs and decisions, as Markdown
+    /// (`log::quiet` when nobody reads it). Called on the pass's thread only.
+    pub trace: Trace<'a>,
 }
 
 /// Spend caps in USD: a pass's, the local day's, and a run's budget.
@@ -95,6 +99,8 @@ pub struct Report {
     pub whole: bool,
     /// A claim check did not fit the caps; its finding waits.
     pub checks_capped: bool,
+    /// Every finding this pass added or changed, in store order.
+    pub touched: Vec<Id>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -174,6 +180,23 @@ pub fn pass(
         now.with_timezone(&offset).date_naive(),
         offset,
     );
+    let (find_est, check_est) = (find_estimate(&rows, &cfg.find_model), check_estimate(&rows));
+    (deps.trace)(&format!(
+        "{}- caps: pass {}, day {} (scry spent {} earlier today), budget {}\n\
+         - estimates: find {} ({}), check {}\n\
+         - store: {}, {} inspected before\n",
+        section("Pass"),
+        caps.pass.map_or("none".into(), usd),
+        usd(caps.day),
+        usd(today),
+        caps.budget.map_or("none".into(), usd),
+        usd(find_est),
+        cfg.find_model,
+        usd(check_est),
+        count(base.findings.len(), "finding"),
+        count(base.inspected.len(), "file"),
+    ));
+    let start = base.clone();
     let mut run = Run {
         cfg: &cfg,
         st: &st,
@@ -186,8 +209,8 @@ pub fn pass(
         merged: HashSet::new(),
         new: Vec::new(),
         budget: Budget::new(caps, today),
-        find_estimate: find_estimate(&rows, &cfg.find_model),
-        check_estimate: check_estimate(&rows),
+        find_estimate: find_est,
+        check_estimate: check_est,
         disk: &findings,
         written: base,
         renames: HashMap::new(),
@@ -200,7 +223,14 @@ pub fn pass(
     let (written, mine, mut renames) = (run.written, run.mine, run.renames);
     findings.update(|current| *current = merge_into(&written, &mine, current, &mut renames))?;
     let mut report = report;
-    for id in &mut report.new {
+    let was: HashMap<&Id, &Finding> = start.findings.iter().map(|f| (&f.id, f)).collect();
+    report.touched = mine
+        .findings
+        .iter()
+        .filter(|f| was.get(&f.id) != Some(f))
+        .map(|f| f.id.clone())
+        .collect();
+    for id in report.new.iter_mut().chain(report.touched.iter_mut()) {
         if let Some(to) = renames.get(id) {
             *id = to.clone();
         }
@@ -249,7 +279,7 @@ impl Run<'_, '_> {
             .filter(|f| f.status == Status::Waiting)
             .map(|f| f.id.clone())
             .collect();
-        self.sweep_gone(scope);
+        let gone = self.sweep_gone(scope);
 
         // the units to send, packed
         let to_send: Vec<&ScopedUnit> = scope
@@ -264,6 +294,29 @@ impl Run<'_, '_> {
                         .is_some_and(|s| s.contains(u.unit.fingerprint.as_str()))
             })
             .collect();
+        let mut units_text = section("Units");
+        for u in &scope.units {
+            let sending = to_send.iter().any(|s| std::ptr::eq(*s, u));
+            let what = if sending && fresh {
+                "to send (fresh)"
+            } else if sending {
+                "to send"
+            } else {
+                "already inspected at this fingerprint"
+            };
+            units_text.push_str(&format!(
+                "- `{}` `{}` ({}-{}, fingerprint {}): {what}\n",
+                u.file.display(),
+                u.unit.name,
+                u.unit.span.start,
+                u.unit.span.end,
+                u.unit.fingerprint,
+            ));
+        }
+        if scope.units.is_empty() {
+            units_text.push_str("- no unit in scope\n");
+        }
+        self.t(&units_text);
         let mut prints: HashMap<(PathBuf, String, u32), Fingerprint> = HashMap::new();
         let mut units = Vec::new();
         for u in &to_send {
@@ -289,9 +342,28 @@ impl Run<'_, '_> {
         let mut raws: Vec<RawFinding> = Vec::new();
         let mut no_longer: HashSet<String> = HashSet::new();
         let mut held: HashSet<String> = HashSet::new();
-        for pack in pack_units(units) {
+        let packs = pack_units(units);
+        self.t(&section("Find calls"));
+        if packs.is_empty() {
+            self.t("- nothing to send\n");
+        }
+        for (n, pack) in packs.into_iter().enumerate() {
             let files = files_of(&pack);
+            let unit_names: Vec<String> = pack
+                .iter()
+                .map(|u| format!("`{}` `{}`", u.file.display(), u.name))
+                .collect();
+            self.t(&format!(
+                "{}- units: {}\n",
+                sub(&format!("Pack {}: {}", n + 1, names(&files))),
+                unit_names.join(", ")
+            ));
             if capped > 0 || !self.budget.allows(self.find_estimate) {
+                self.t(&format!(
+                    "- capped: the estimate {} does not fit (room {}); these units wait for a later run\n",
+                    usd(self.find_estimate),
+                    self.budget.room().map_or("unbounded".into(), usd),
+                ));
                 capped += pack.len();
                 for u in &pack {
                     self.mine
@@ -303,6 +375,7 @@ impl Run<'_, '_> {
                 continue;
             }
             if self.cancel.is_cancelled() {
+                self.t("- cancelled before the call\n");
                 failures.push(format!("find cancelled for {}", names(&files)));
                 continue;
             }
@@ -320,10 +393,32 @@ impl Run<'_, '_> {
                 .budget
                 .room()
                 .map_or(self.cfg.pass_cost, |r| r.min(self.cfg.pass_cost));
+            let open_ids: Vec<&str> = ask.open.iter().map(|f| f.id.0.as_str()).collect();
+            self.t(&format!(
+                "- model {}, cap {}\n- open findings to answer: {}\n\nPrompt:\n\n{}",
+                self.cfg.find_model,
+                usd(cap),
+                if open_ids.is_empty() {
+                    "none".into()
+                } else {
+                    open_ids.join(", ")
+                },
+                block(&find_prompt(&ask)),
+            ));
             let found = self
                 .deps
                 .finder
                 .find(&ask, &self.cfg.find_model, cap, self.cancel);
+            match &found {
+                Ok(f) => self.t(&format!(
+                    "Reply:\n\n{}- errand: {}, {:.1} s, {}\n",
+                    block(&f.reply),
+                    f.errand.cost_usd.map_or("unpriced".into(), usd),
+                    f.errand.seconds,
+                    if f.errand.ok { "ok" } else { "not ok" },
+                )),
+                Err(e) => self.t(&format!("- the call failed: {e}\n")),
+            }
             // an unpriced answer is charged its estimate, a timeout the cap
             // it ran under (what its errand records), any other failure nothing
             self.budget.charge(match &found {
@@ -331,13 +426,45 @@ impl Run<'_, '_> {
                 Err(sorcerer_models::Error::Timeout { .. }) => cap,
                 Err(_) => 0.0,
             });
+            let answered_call = found.is_ok();
             let reply = match found {
                 Err(e) => Err(e.to_string()),
                 Ok(f) => parse_find(&f.reply),
             };
             match reply {
-                Err(why) => failures.push(format!("find failed for {}: {why}", names(&files))),
+                Err(why) => {
+                    if answered_call {
+                        self.t(&format!("- parse error: {why}\n"));
+                    }
+                    failures.push(format!("find failed for {}: {why}", names(&files)))
+                }
                 Ok(r) => {
+                    let answers: Vec<String> = r
+                        .open
+                        .iter()
+                        .map(|o| {
+                            let said = if o.holds {
+                                "still holds"
+                            } else {
+                                "no longer holds"
+                            };
+                            let counted = if ask.open.iter().any(|f| f.id.0 == o.id) {
+                                ""
+                            } else {
+                                " (not shown to this call: ignored)"
+                            };
+                            format!("{} {said}{counted}", o.id)
+                        })
+                        .collect();
+                    self.t(&format!(
+                        "- parsed: {}; open answers: {}\n",
+                        count(r.findings.len(), "finding"),
+                        if answers.is_empty() {
+                            "none".into()
+                        } else {
+                            answers.join(", ")
+                        }
+                    ));
                     (self.deps.progress)(&Progress::Found(r.findings.len()));
                     for u in &ask.units {
                         let key = (u.file.clone(), u.name.clone(), u.lines.start);
@@ -359,21 +486,51 @@ impl Run<'_, '_> {
         }
 
         // place, match, filter
-        for raw in raws {
+        self.t(&section("Findings"));
+        if raws.is_empty() {
+            self.t("- none found\n");
+        }
+        for (n, raw) in raws.into_iter().enumerate() {
+            self.t(&sub(&format!(
+                "Finding {}: {} at {}:{}-{}",
+                n + 1,
+                raw.kind,
+                raw.file.display(),
+                raw.lines.start,
+                raw.lines.end
+            )));
             self.judge(raw, scope)?;
         }
 
         // resolved by the find call's answer
         let now = self.now;
+        let mut remember = section("Remember");
         for f in &mut self.mine.findings {
             if no_longer.contains(&f.id.0) && matches!(f.status, Status::Open | Status::Waiting) {
                 f.set_status(Status::Resolved, now);
+                remember.push_str(&format!(
+                    "- {} resolved: the find call said it no longer holds\n",
+                    f.id.0
+                ));
             }
+        }
+        for id in &gone {
+            remember.push_str(&format!(
+                "- {} gone: its unit or file is no longer there\n",
+                id.0
+            ));
         }
 
         // a unit whose text changed while the pass ran keeps no new findings
         // and is not inspected
         let moved = self.drop_moved(&answered);
+        for (file, name) in &moved {
+            remember.push_str(&format!(
+                "- `{}` `{}` changed while the pass ran: its new findings are dropped, it is not inspected\n",
+                file.display(),
+                name
+            ));
+        }
         let kept: Vec<&Sent> = answered
             .iter()
             .filter(|(file, name, _, _)| !moved.contains(&(file.clone(), name.clone())))
@@ -403,9 +560,21 @@ impl Run<'_, '_> {
                     && matches!((sent_at, f.place.fingerprint), (Some(now_fp), Some(was)) if *now_fp != was);
                 if not_found {
                     f.set_status(Status::Resolved, now);
+                    remember.push_str(&format!(
+                        "- {} resolved: its unit changed and the find call did not raise it again\n",
+                        f.id.0
+                    ));
                 }
             }
+        } else {
+            remember.push_str(
+                "- the pass was not whole (a cap or a failure): nothing is resolved for not being found again\n",
+            );
         }
+        if remember.trim_end().ends_with("## Remember") {
+            remember.push_str("- nothing resolved or gone\n");
+        }
+        self.t(&remember);
 
         // the verification rounds, file by file
         let mut checks_capped = false;
@@ -442,10 +611,22 @@ impl Run<'_, '_> {
 
         // checked again: a unit may have changed while the checks ran
         let moved = self.drop_moved(&answered);
+        let mut written = section("Inspected");
+        for (file, name) in &moved {
+            written.push_str(&format!(
+                "- `{}` `{}` changed while the checks ran: not inspected\n",
+                file.display(),
+                name
+            ));
+        }
         for (file, name, _, fp) in answered
             .iter()
             .filter(|(file, name, _, _)| !moved.contains(&(file.clone(), name.clone())))
         {
+            written.push_str(&format!(
+                "- `{}` `{name}` inspected at {fp}\n",
+                file.display()
+            ));
             self.mine
                 .inspected
                 .entry(file.clone())
@@ -459,6 +640,11 @@ impl Run<'_, '_> {
             }
         }
 
+        if written.trim_end().ends_with("## Inspected") {
+            written.push_str("- no unit newly inspected\n");
+        }
+        self.t(&written);
+
         Ok(Report {
             looked_at: answered.len(),
             new: self.new.clone(),
@@ -467,6 +653,7 @@ impl Run<'_, '_> {
             failures,
             whole,
             checks_capped,
+            touched: Vec::new(),
         })
     }
 
@@ -489,8 +676,9 @@ impl Run<'_, '_> {
 
     /// Open, waiting and withheld findings of a file in scope whose unit is
     /// no longer in it (or whose file was deleted) are gone.
-    fn sweep_gone(&mut self, scope: &Scope) {
+    fn sweep_gone(&mut self, scope: &Scope) -> Vec<Id> {
         let now = self.now;
+        let mut gone = Vec::new();
         for sf in &scope.files {
             for f in &mut self.mine.findings {
                 let left = sf.deleted
@@ -503,9 +691,15 @@ impl Run<'_, '_> {
                     && matches!(f.status, Status::Open | Status::Waiting | Status::Withheld)
                 {
                     f.set_status(Status::Gone, now);
+                    gone.push(f.id.clone());
                 }
             }
         }
+        gone
+    }
+
+    fn t(&self, text: &str) {
+        (self.deps.trace)(text);
     }
 
     /// The open and waiting findings on PACK's units, for the find call to answer.
@@ -556,29 +750,64 @@ impl Run<'_, '_> {
         raw: &RawFinding,
         unit_fp: Option<&Fingerprint>,
         code: &str,
-    ) -> std::result::Result<(f64, String), Halt> {
+    ) -> std::result::Result<(f64, String, Weighed), Halt> {
         let q = nitpick(self.st, raw, code);
         let on = asked_on(unit_fp, rule_context(&q), self.st);
         let w = self.ask(std::slice::from_ref(&q))?;
-        Ok((keep_of(&w[0]), on))
+        let w = w.into_iter().next().expect("one answer for one question");
+        Ok((keep_of(&w), on, w))
     }
 
     fn judge(&mut self, mut raw: RawFinding, scope: &Scope) -> std::result::Result<(), Halt> {
+        let cited_rule = raw.rule.clone();
         raw.rule = raw
             .rule
             .as_deref()
             .and_then(|r| self.st.resolve_rule(r))
             .map(String::from);
+        let evidence: Vec<String> = raw
+            .evidence
+            .iter()
+            .map(|(f, l)| format!("{}:{}-{}", f.display(), l.start, l.end))
+            .collect();
+        let rule = match (&cited_rule, &raw.rule) {
+            (None, _) => "none cited".to_string(),
+            (Some(c), Some(r)) => format!("cited \"{c}\", resolved to \"{r}\""),
+            (Some(c), None) => {
+                format!("cited \"{c}\", no rule matches: the rule is dropped, the finding stays")
+            }
+        };
+        self.t(&format!(
+            "- statement: {}\n- rule: {rule}\n- evidence: {}\n",
+            raw.statement,
+            if evidence.is_empty() {
+                "none".into()
+            } else {
+                evidence.join(", ")
+            }
+        ));
         let units_now = if self.fences.allows(&raw.file) {
             self.deps.view.units(&raw.file).unwrap_or_default()
         } else {
             Vec::new()
         };
         let (pl, status) = place(&raw, &scope.units, &units_now);
+        let unit = pl
+            .unit
+            .as_deref()
+            .map_or("no unit".into(), |u| format!("unit `{u}`"));
         if status == Status::Elsewhere {
-            self.add(&raw, pl, Status::Elsewhere, Scores::default());
+            let id = self.add(&raw, pl, Status::Elsewhere, Scores::default());
+            self.t(&format!(
+                "- placed: elsewhere (its lines are in no unit in scope; {unit} now): stored with no question\n- id {}, elsewhere\n",
+                id.0
+            ));
             return Ok(());
         }
+        self.t(&format!(
+            "- placed: {unit} (fingerprint {})\n",
+            pl.fingerprint.map_or("none".into(), |f| f.to_string())
+        ));
         let code_a = cited_code(&self.text(&raw.file), raw.lines.start);
         let cands: Vec<Finding> = candidates(&self.mine, &raw).into_iter().cloned().collect();
         let mut hit = None;
@@ -603,16 +832,66 @@ impl Run<'_, '_> {
                 qs.push(same_problem(&a, &b, &code_a, &code_b));
             }
             let ws = self.ask(&qs)?;
+            let mut lines = String::new();
+            let mut first = true;
+            for (c, w) in cands.iter().zip(&ws) {
+                let p = p_yes(w);
+                let said = if p >= SAME_CUT && first {
+                    first = false;
+                    "the same: the first at or past the cut wins"
+                } else if p >= SAME_CUT {
+                    "the same, but an earlier one won"
+                } else {
+                    "not the same"
+                };
+                lines.push_str(&format!(
+                    "- same problem as {} ({}, {})? {} → {said}\n",
+                    c.id.0,
+                    status_word(c.status),
+                    finding_text(
+                        &c.kind,
+                        &c.place.file,
+                        c.place.lines.start,
+                        c.rule.as_deref(),
+                        &c.statement
+                    ),
+                    p_text(w),
+                ));
+            }
+            self.t(&lines);
             hit = cands
                 .into_iter()
                 .zip(ws)
                 .find(|(_, w)| p_yes(w) >= SAME_CUT);
+        } else {
+            self.t(
+                "- same-problem question: no stored finding shares its file, rule or cited code\n",
+            );
         }
         match hit.map(|(c, _)| (match_stored(&c, pl.unit.as_deref()), c)) {
-            Some((Match::Drop, _)) => Ok(()),
-            Some((Match::Merge, c)) => self.merge(&c.id, raw, pl),
-            _ => {
-                let (keep, on) = self.keep(&raw, pl.fingerprint.as_ref(), &code_a)?;
+            Some((Match::Drop, c)) => {
+                self.t(&format!(
+                    "- result: dropped ({} was {} here)\n",
+                    c.id.0,
+                    status_word(c.status)
+                ));
+                Ok(())
+            }
+            Some((Match::Merge, c)) => {
+                self.t(&format!("- result: merge into {}\n", c.id.0));
+                self.merge(&c.id, raw, pl)
+            }
+            other => {
+                if let Some((_, c)) = other {
+                    self.t(&format!(
+                        "- result: new ({} is {}: a match starts afresh)\n",
+                        c.id.0,
+                        status_word(c.status)
+                    ));
+                } else {
+                    self.t("- result: new\n");
+                }
+                let (keep, on, w) = self.keep(&raw, pl.fingerprint.as_ref(), &code_a)?;
                 let status = if keep >= self.cfg.cut {
                     Status::Waiting
                 } else {
@@ -622,13 +901,21 @@ impl Run<'_, '_> {
                     keep: Some(keep),
                     asked_on: Some(on),
                 };
-                self.add(&raw, pl, status, scores);
+                let id = self.add(&raw, pl, status, scores);
+                self.t(&format!(
+                    "- nitpick? {} → keep {keep:.2}, cut {:.2} → {}\n- id {}, {}\n",
+                    p_text(&w),
+                    self.cfg.cut,
+                    status_word(status),
+                    id.0,
+                    status_word(status)
+                ));
                 Ok(())
             }
         }
     }
 
-    fn add(&mut self, raw: &RawFinding, pl: Place, status: Status, scores: Scores) {
+    fn add(&mut self, raw: &RawFinding, pl: Place, status: Status, scores: Scores) -> Id {
         let id = self
             .mine
             .new_id(self.now, &pl.file, pl.lines, &raw.statement);
@@ -650,6 +937,7 @@ impl Run<'_, '_> {
             model: self.cfg.find_model.clone(),
             cost_usd: 0.0,
         });
+        self.new.last().cloned().expect("just pushed")
     }
 
     /// RAW merges into the stored finding ID: its place, wording and evidence
@@ -686,6 +974,14 @@ impl Run<'_, '_> {
                     if keep >= self.cfg.cut {
                         f.set_status(Status::Waiting, self.now);
                     }
+                    self.t(&format!(
+                        "- withheld, and what it was asked on changed: nitpick? {} → keep {keep:.2}, cut {:.2} → {}\n",
+                        p_text(&w[0]),
+                        self.cfg.cut,
+                        status_word(f.status)
+                    ));
+                } else {
+                    self.t("- withheld, asked on the same unit, rule and sides: not asked again\n");
                 }
             }
             Status::Refuted | Status::Unsure => {
@@ -694,11 +990,18 @@ impl Run<'_, '_> {
                         new.iter().map(|e| e.print.clone()).collect();
                     if new_prints != old_prints {
                         f.set_status(Status::Waiting, self.now);
+                        self.t("- its evidence moved: it waits to be checked again\n");
                     }
                 }
             }
             _ => {}
         }
+        self.t(&format!(
+            "- id {} (merged; seen {}), {}\n",
+            f.id.0,
+            count(f.seen as usize, "time"),
+            status_word(f.status)
+        ));
         self.merged.insert(f.id.clone());
         if let Some(slot) = self.mine.findings.iter_mut().find(|g| g.id == f.id) {
             *slot = f;
@@ -723,6 +1026,22 @@ impl Run<'_, '_> {
             .map(|(file, name, _, _)| (file.clone(), name.clone()))
             .collect()
     }
+}
+
+/// `P(yes) 0.20`, or the answer when it carries no probability.
+fn p_text(w: &Weighed) -> String {
+    match w.answer.p_yes() {
+        Some(p) => format!("P(yes) {p:.2}"),
+        None => format!("{:?}", w.answer),
+    }
+}
+
+/// A status as the store writes it (`open`, `dismissed-here`, …).
+pub fn status_word(s: Status) -> String {
+    serde_json::to_value(s)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
 }
 
 fn p_yes(w: &Weighed) -> f64 {

@@ -297,3 +297,29 @@ fn a_line_past_the_end_is_cannot_tell() {
         Verdict::CannotTell
     );
 }
+
+#[test]
+fn every_raw_citation_is_kept_with_whether_it_confirmed() {
+    let w = world();
+    let r = stub(&[(
+        "sonnet",
+        reply(
+            "right",
+            &format!(r#"{GOOD}, {{"path": "src/orders.py", "unit": "refund", "line": null}}"#),
+        ),
+    )]);
+    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    assert_eq!(c.verdict, Verdict::CannotTell);
+    let got: Vec<(&str, Option<&str>, bool)> = c
+        .cited
+        .iter()
+        .map(|x| (x.raw.path.as_str(), x.raw.unit.as_deref(), x.confirmed))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("src/orders.py", Some("cancel"), true),
+            ("src/orders.py", Some("refund"), false),
+        ]
+    );
+}

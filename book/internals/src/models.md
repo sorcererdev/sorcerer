@@ -147,4 +147,9 @@ against the original.
    `cannot_tell` ("cited code not found"). Each confirmed citation carries the
    fingerprint of its lines, so a later change to the cited code shows.
 
+`Checked` carries the confirmed `citations` (empty when any failed) and `cited`: every
+`RawCitation` of the reply the verdict came from, each a `Cited` with `confirmed`, so a
+`cannot_tell` can say which citation did not confirm. When the check escalated, `cited` is the
+strong model's; the first model's citations are not kept.
+
 Scry's verify step runs it on `bug` and `assumption` findings.

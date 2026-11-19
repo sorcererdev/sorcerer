@@ -124,6 +124,7 @@ impl Live {
             checker: &*self.checker,
             clock: &self.clock,
             progress: &quiet,
+            trace: &crate::log::quiet,
         }
     }
 }

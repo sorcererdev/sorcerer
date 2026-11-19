@@ -81,6 +81,7 @@ impl Doubles {
                     verdict: Verdict::Right,
                     why: "it does".into(),
                     citations: Vec::new(),
+                    cited: Vec::new(),
                     escalated: false,
                     errands: Vec::new(),
                 })
@@ -98,6 +99,7 @@ impl Wired for &Doubles {
             checker: &*self.checker,
             clock: &self.clock,
             progress: &quiet,
+            trace: &scry::log::quiet,
         }
     }
 }
@@ -573,6 +575,7 @@ mod stored {
             verdict: Some(StoredVerdict {
                 verdict: "right".into(),
                 why: "the call passes it".into(),
+                cited: Vec::new(),
             }),
             status,
             seen: 3,
@@ -893,4 +896,228 @@ fn why_shows_rule_evidence_verdict_and_history() {
         "x".repeat(100)
     );
     assert_eq!(r.out, want);
+}
+
+// ---- the run log, -v and scry log ----
+
+fn runs_dir(dir: &Path) -> std::path::PathBuf {
+    dir.join(".sorcerer/state/scry/runs")
+}
+
+fn run_logs(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(runs_dir(dir))
+        .map(|rd| {
+            rd.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+fn bug_doubles(dir: &Path) -> Doubles {
+    Doubles::new(
+        dir,
+        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+    )
+}
+
+#[test]
+fn a_run_writes_one_log_and_twenty_one_runs_leave_twenty() {
+    let dir = changed_project();
+    let d = bug_doubles(dir.path());
+    let r = scry(dir.path(), &d, &[]);
+    assert_eq!(r.code, 1, "{}", r.err);
+    let logs = run_logs(dir.path());
+    assert_eq!(logs, vec!["2026-11-18T23-00-00Z.md".to_string()]);
+    let text = std::fs::read_to_string(runs_dir(dir.path()).join(&logs[0])).unwrap();
+    for s in [
+        "## Run",
+        "## Scope",
+        "## Find calls",
+        "## Findings",
+        "## Summary",
+        "cancel() passes now=True",
+        "exit 1",
+    ] {
+        assert!(text.contains(s), "no {s:?} in\n{text}");
+    }
+    // the store commands write no log
+    scry(dir.path(), &d, &["list"]);
+    assert_eq!(run_logs(dir.path()).len(), 1);
+    for _ in 0..20 {
+        scry(dir.path(), &d, &[]);
+    }
+    let logs = run_logs(dir.path());
+    assert_eq!(logs.len(), 20, "{logs:?}");
+    // the oldest, the first run's, was deleted
+    assert!(!logs.contains(&"2026-11-18T23-00-00Z.md".to_string()));
+    assert!(logs.contains(&"2026-11-18T23-00-00Z-2.md".to_string()));
+    assert!(logs.contains(&"2026-11-18T23-00-00Z-21.md".to_string()));
+}
+
+#[test]
+fn scry_log_prints_the_latest_the_one_before_a_list_and_a_path() {
+    let dir = changed_project();
+    let d = bug_doubles(dir.path());
+    scry(dir.path(), &d, &[]);
+    scry(dir.path(), &d, &[]);
+    let latest = scry(dir.path(), &d, &["log"]);
+    assert_eq!(latest.code, 0, "{}", latest.err);
+    assert!(
+        latest.out.contains("1 finding shown, 0 units looked at"),
+        "{}",
+        latest.out
+    );
+    let before = scry(dir.path(), &d, &["log", "2"]);
+    assert_eq!(before.code, 0);
+    assert!(
+        before.out.contains("1 finding shown, 1 unit looked at"),
+        "{}",
+        before.out
+    );
+    assert!(before.out.contains("## Find calls"));
+
+    let list = scry(dir.path(), &d, &["log", "--list"]);
+    assert_eq!(list.code, 0);
+    let lines: Vec<&str> = list.out.lines().collect();
+    assert_eq!(lines.len(), 3, "{}", list.out);
+    assert!(
+        lines[1].starts_with("2026-11-18T23-00-00Z-2.md"),
+        "{}",
+        list.out
+    );
+    assert!(lines[1].contains("2026-11-18 23:00"), "{}", list.out);
+    assert!(lines[1].contains("0 units looked at"), "{}", list.out);
+    assert!(
+        lines[2].starts_with("2026-11-18T23-00-00Z.md"),
+        "{}",
+        list.out
+    );
+
+    let path = scry(dir.path(), &d, &["log", "--path"]);
+    assert_eq!(path.code, 0);
+    let p = std::path::PathBuf::from(path.out.trim_end());
+    assert!(
+        p.ends_with(".sorcerer/state/scry/runs/2026-11-18T23-00-00Z-2.md"),
+        "{p:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), latest.out);
+
+    let past = scry(dir.path(), &d, &["log", "3"]);
+    assert_eq!(past.code, 2);
+    assert_eq!(past.err.lines().count(), 1, "{}", past.err);
+}
+
+#[test]
+fn scry_log_with_no_log_exits_2_on_one_line() {
+    let dir = changed_project();
+    let d = plain_doubles(dir.path());
+    for a in [&["log"][..], &["log", "--list"], &["log", "--path"]] {
+        let r = scry(dir.path(), &d, a);
+        assert_eq!((r.code, r.out.as_str()), (2, ""), "{a:?}");
+        assert_eq!(r.err.lines().count(), 1, "{}", r.err);
+        assert!(r.err.starts_with("scry: "), "{}", r.err);
+    }
+}
+
+#[test]
+fn verbose_streams_the_log_on_stderr_and_leaves_stdout_as_it_was() {
+    let quiet_dir = changed_project();
+    let loud_dir = changed_project();
+    let (dq, dl) = (bug_doubles(quiet_dir.path()), bug_doubles(loud_dir.path()));
+    let quiet = scry(quiet_dir.path(), &dq, &[]);
+    let loud = scry(loud_dir.path(), &dl, &["-v"]);
+    assert_eq!(loud.code, quiet.code);
+    assert_eq!(loud.out, quiet.out);
+    assert_eq!(quiet.err, "");
+    let log =
+        std::fs::read_to_string(runs_dir(loud_dir.path()).join(&run_logs(loud_dir.path())[0]))
+            .unwrap();
+    assert_eq!(loud.err, log);
+    assert!(loud.err.contains("## Find calls"));
+
+    let json_dir = changed_project();
+    let dj = bug_doubles(json_dir.path());
+    let j = scry(json_dir.path(), &dj, &["--verbose", "--json"]);
+    assert_eq!(j.code, 1);
+    for line in j.out.lines() {
+        serde_json::from_str::<serde_json::Value>(line).expect(line);
+    }
+    assert!(j.err.contains("## Find calls"), "{}", j.err);
+}
+
+#[test]
+fn why_names_the_citation_a_check_could_not_confirm() {
+    use sorcerer_models::checker::{Cited, RawCitation};
+    let dir = changed_project();
+    let mut d = bug_doubles(dir.path());
+    d.checker = Box::new(|_: &Claim| {
+        Ok(Checked {
+            verdict: Verdict::CannotTell,
+            why: "cited code not found".into(),
+            citations: Vec::new(),
+            cited: vec![
+                Cited {
+                    raw: RawCitation {
+                        path: "orders.py".into(),
+                        unit: Some("cancel".into()),
+                        line: Some(2),
+                    },
+                    confirmed: true,
+                },
+                Cited {
+                    raw: RawCitation {
+                        path: "orders.py".into(),
+                        unit: Some("Order.refund".into()),
+                        line: None,
+                    },
+                    confirmed: false,
+                },
+            ],
+            escalated: false,
+            errands: Vec::new(),
+        })
+    });
+    let r = scry(dir.path(), &d, &[]);
+    assert_eq!(r.code, 0, "{}{}", r.out, r.err);
+    let list = scry(dir.path(), &d, &["list", "--status", "unsure"]);
+    assert_eq!(list.out.lines().count(), 2, "{}", list.out);
+    let s = scry(dir.path(), &d, &["list", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(s.out.trim()).unwrap();
+    let id = v["findings"][0]["id"].as_str().unwrap().to_string();
+    let w = scry(dir.path(), &d, &["why", &id]);
+    assert_eq!(w.code, 0, "{}", w.err);
+    assert!(
+        w.out.contains("Checked: cannot_tell: cited code not found"),
+        "{}",
+        w.out
+    );
+    assert!(w.out.contains("Cited by the check:\n"), "{}", w.out);
+    assert!(
+        w.out.contains("orders.py cancel line 2: confirmed\n"),
+        "{}",
+        w.out
+    );
+    assert!(
+        w.out.contains("orders.py Order.refund: not found\n"),
+        "{}",
+        w.out
+    );
+}
+
+#[test]
+fn a_store_written_before_cited_still_reads() {
+    let v: scry::finding::StoredVerdict =
+        serde_json::from_str(r#"{"verdict": "right", "why": "it does"}"#).unwrap();
+    assert!(v.cited.is_empty());
+    // and a verdict with nothing cited is written as before
+    let back = serde_json::to_string(&v).unwrap();
+    assert_eq!(back, r#"{"verdict":"right","why":"it does"}"#);
+    let dir = changed_project();
+    stored::three(dir.path());
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["why", "aaaa"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert!(!r.out.contains("Cited by the check"), "{}", r.out);
 }
