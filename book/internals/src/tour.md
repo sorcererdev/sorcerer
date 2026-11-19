@@ -13,6 +13,10 @@ another's results reads a versioned file under `.sorcerer/state/`.
 Core is synchronous and makes no model calls. Everything that spends money lives in
 `sorcerer-models`, behind a trait with a recorded double, so no test calls a model.
 
+Every crate is in layers (`domain/`, `ports/`, `usecases/`, `adapters/`, and `cli/` in a
+product), each depending only on the layers inside it; [Architecture](architecture.md) says
+what each holds, how a feature is added and tested, and how `scripts/layers` checks the rule.
+
 ## The modules
 
 `crates/sorcerer-core/src/` is in three layers (see [Architecture](architecture.md)):

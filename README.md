@@ -33,7 +33,8 @@ The first run for a language fetches and compiles its tree-sitter grammar into
 ## Books
 
 - `book/user/`: using sorcerer (`mdbook serve book/user`)
-- `book/internals/`: how it works, so you can change it
+- `book/internals/`: how it works, so you can change it (start with its Architecture
+  chapter: every crate is in layers, checked by `scripts/layers`)
 
 ## License
 

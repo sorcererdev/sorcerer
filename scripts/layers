@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# The dependency rule: in each crate, a layer uses only the layers inside it.
+#   domain    uses nothing of the crate's other layers, and does no I/O
+#   ports     uses domain
+#   usecases  uses domain and ports
+#   adapters  uses anything but cli
+#   cli       uses anything
+# Checked on `use crate::<layer>` paths (a `super::` path stays inside its
+# layer) in each file's code before its `#[cfg(test)]` module: a test may
+# set up files. Files outside a layer directory (lib.rs, main.rs, error.rs,
+# cancel.rs) are not checked.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+refused() {
+  case "$1" in
+    domain) echo "ports usecases adapters cli" ;;
+    ports) echo "usecases adapters cli" ;;
+    usecases) echo "adapters cli" ;;
+    adapters) echo "cli" ;;
+    *) echo "" ;;
+  esac
+}
+
+# What a domain file may not touch: the file system, processes, the
+# environment, the network and the clock.
+IMPURE='std::fs|std::process|std::env|std::net|std::time::SystemTime|Utc::now|Local::now|reqwest|canonicalize'
+
+bad=0
+for src in crates/*/src; do
+  for layer in domain ports usecases adapters cli; do
+    dir="$src/$layer"
+    [ -d "$dir" ] || continue
+    no=$(refused "$layer")
+    while IFS= read -r -d '' file; do
+      # the code before the test module, with its line numbers
+      code=$(awk '/^#\[cfg\(test\)\]/ { exit } { printf "%d:%s\n", NR, $0 }' "$file")
+      for other in $no; do
+        while IFS= read -r hit; do
+          [ -n "$hit" ] || continue
+          echo "$file:${hit%%:*}: $layer may not use crate::$other"
+          bad=1
+        done < <(printf '%s\n' "$code" | grep -E "\bcrate::$other\b" | grep -vE '^[0-9]+:[[:space:]]*//' || true)
+      done
+      if [ "$layer" = domain ]; then
+        while IFS= read -r hit; do
+          [ -n "$hit" ] || continue
+          what=$(printf '%s\n' "$hit" | grep -oE "$IMPURE" | head -1)
+          echo "$file:${hit%%:*}: domain may not use $what"
+          bad=1
+        done < <(printf '%s\n' "$code" | grep -E "$IMPURE" | grep -vE '^[0-9]+:[[:space:]]*//' || true)
+      fi
+    done < <(find "$dir" -name '*.rs' -print0 | sort -z)
+  done
+done
+exit "$bad"
