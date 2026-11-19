@@ -1,23 +1,20 @@
 //! Judging a finding after the review call (olifant's `Inspect/Judge.hs`):
 //! place it (in a unit in scope, or elsewhere), pick the stored findings
 //! worth asking Jev the same-problem question about, say what a match does
-//! (the merge table), ask Jev whether it is a nitpick, and check that its
-//! citations exist.
+//! (the merge table), and ask Jev whether it is a nitpick.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::fnv::fnv64_hex;
 use sorcerer_core::domain::unit::{Span, Unit, unit_at};
-use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape, Weighed};
 
-use crate::finding::{Evidence, Finding, Place, Status};
-use crate::review::RawFinding;
-use crate::scope::ScopedUnit;
-use crate::steering::Steering;
-use crate::store::ScryStore;
+use crate::domain::finding::{Finding, Place, Status};
+use crate::domain::findings::Findings;
+use crate::domain::review_prompt::RawFinding;
+use crate::domain::scope::ScopedUnit;
+use crate::domain::steering::Steering;
 
 /// P(same problem) at or past this merges.
 pub const SAME_THRESHOLD: f64 = 0.5;
@@ -62,7 +59,7 @@ fn overlaps(a: Span, b: Span) -> bool {
 /// The stored findings worth asking Jev about, in store order: not
 /// resolved or gone, and sharing RAW's file, its rule, or a cited range.
 /// RAW's rule is the resolved heading (the pass resolves it first).
-pub fn candidates<'a>(store: &'a ScryStore, raw: &RawFinding) -> Vec<&'a Finding> {
+pub fn candidates<'a>(store: &'a Findings, raw: &RawFinding) -> Vec<&'a Finding> {
     store
         .findings
         .iter()
@@ -213,51 +210,4 @@ pub fn cited_code(text: &str, line: u32) -> String {
         .filter_map(|n| ls.get(n - 1).map(|l| format!("{n:>4} {l}")))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// Each cited range checked by its first line: a relative path inside the
-/// root, not fenced, readable, the first line within the file (the end
-/// line is ignored: a range running past the end is clamped). The prints:
-/// the enclosing unit's fingerprint, else seven hex digits of the whole
-/// file's FNV-1a. `Err` is the reason the finding is unsure.
-pub fn citations(
-    view: &dyn CodebaseView,
-    fences: &Fences,
-    evidence: &[(PathBuf, Span)],
-) -> Result<Vec<Evidence>, String> {
-    if evidence.is_empty() {
-        return Err("no evidence cited".into());
-    }
-    evidence
-        .iter()
-        .map(|(path, lines)| {
-            cite(view, fences, path, *lines).ok_or_else(|| "cited code not found".to_string())
-        })
-        .collect()
-}
-
-/// Whether one cited range holds, as [`citations`] checks it.
-pub fn cites(view: &dyn CodebaseView, fences: &Fences, path: &Path, lines: Span) -> bool {
-    cite(view, fences, path, lines).is_some()
-}
-
-fn cite(view: &dyn CodebaseView, fences: &Fences, path: &Path, lines: Span) -> Option<Evidence> {
-    if path.is_absolute() || !fences.allows(path) {
-        return None;
-    }
-    let text = view.text(path).ok()?;
-    let rows = text.lines().count() as u32;
-    if lines.start < 1 || lines.start > rows {
-        return None;
-    }
-    let units = view.units(path).unwrap_or_default();
-    let print = match unit_at(&units, lines.start) {
-        Some(u) => u.fingerprint.to_string(),
-        None => fnv64_hex(text.as_bytes())[..7].to_string(),
-    };
-    Some(Evidence {
-        file: path.to_path_buf(),
-        lines,
-        print: Some(print),
-    })
 }

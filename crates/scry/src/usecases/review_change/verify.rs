@@ -1,127 +1,80 @@
-//! Verification rounds, caps and charges (design §6.9, olifant's
-//! `Inspect/Pass.hs`): what a call is likely to cost, whether it still fits
-//! the caps, and the rounds that take a file's waiting findings through
-//! their citations and claim checks, best kept first, until `MAX_SHOWN`
-//! are open.
+//! The verification rounds, file by file: a file's waiting findings, best
+//! first, through their citations and claim checks until `MAX_SHOWN` are
+//! open, within the caps; and the citation check itself.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::domain::unit::{Span, unit_at};
+use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Cancel, Result};
-use sorcerer_models::domain::claim::{Checked, Citation, Claim, ClaimKind, Verdict};
+use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
 
-use crate::config::{MAX_SHOWN, ScryConfig};
-use crate::finding::{Finding, FindingId, Status, StoredCitation, StoredVerdict};
-use crate::issue_type::{Verify, issue_type};
-use crate::judge::{citations, cites};
-use crate::log::{citation, section, sub, usd};
-use crate::pass::status_word;
-use crate::pass::{Caps, PassDeps, Progress};
-use crate::store::ScryStore;
+use super::{Halt, Progress, ReviewDeps, Run};
+use crate::domain::budget::{Budget, cost_of};
+use crate::domain::config::{MAX_SHOWN, ScryConfig};
+use crate::domain::finding::{
+    Evidence, Finding, FindingId, Status, StoredCitation, StoredVerdict, status_word,
+};
+use crate::domain::findings::{Findings, merge_into, renamed};
+use crate::domain::log_text::{citation, section, sub, usd};
+use crate::domain::verification::{claim_of, needs_claim, verdict_word};
 
-/// A review call on sonnet, a review call on a haiku model, a claim check:
-/// what olifant's 1a measured, used until the ledger has priced rows.
-pub const REVIEW_DEFAULT: f64 = 0.04;
-pub const REVIEW_HAIKU_DEFAULT: f64 = 0.005;
-pub const CHECK_DEFAULT: f64 = 0.016;
-
-/// What the next review call is likely to cost: the mean of the last 20
-/// priced `scry` `review` rows, else $0.04 ($0.005 when MODEL is a haiku).
-pub fn review_estimate(rows: &[Errand], model: &str) -> f64 {
-    let default = if model.contains("haiku") {
-        REVIEW_HAIKU_DEFAULT
-    } else {
-        REVIEW_DEFAULT
-    };
-    mean_or(rows, "review", default)
-}
-
-/// What a claim check is likely to cost: the mean of the last 20 priced
-/// `scry` `check` rows, else $0.016.
-pub fn check_estimate(rows: &[Errand]) -> f64 {
-    mean_or(rows, "check", CHECK_DEFAULT)
-}
-
-fn mean_or(rows: &[Errand], verb: &str, default: f64) -> f64 {
-    let costs: Vec<f64> = rows
-        .iter()
-        .rev()
-        .filter(|e| e.product == "scry" && e.verb == verb)
-        .filter_map(|e| e.cost_usd)
-        .take(20)
-        .collect();
-    if costs.is_empty() {
-        default
-    } else {
-        costs.iter().sum::<f64>() / costs.len() as f64
-    }
-}
-
-/// A pass's spending against the caps: the pass's own, the local day's
-/// (with what scry spent earlier today) and the run's budget.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Budget {
-    caps: Caps,
-    today: f64,
-    spent: f64,
-}
-
-impl Budget {
-    /// SPENT_TODAY is what scry spent earlier in the user's local day.
-    pub fn new(caps: &Caps, spent_today: f64) -> Budget {
-        Budget {
-            caps: caps.clone(),
-            today: spent_today,
-            spent: 0.0,
+impl Run<'_, '_> {
+    /// The rounds over each file in SCOPE that was not deleted; whether a
+    /// claim check was held back by the caps. OLD_WAITING are the findings
+    /// that were waiting before this pass.
+    pub(super) fn verify_files(
+        &mut self,
+        scope: &crate::domain::scope::Scope,
+        old_waiting: &HashSet<FindingId>,
+    ) -> std::result::Result<bool, Halt> {
+        let mut checks_capped = false;
+        for sf in scope.files.iter().filter(|sf| !sf.deleted) {
+            let Run {
+                mine,
+                written,
+                disk,
+                budget,
+                cfg,
+                deps,
+                cancel,
+                fences,
+                now,
+                check_estimate,
+                renames,
+                ..
+            } = self;
+            let mut save = |s: &Findings| -> Result<()> {
+                disk.update(&mut |current| *current = merge_into(written, s, current, renames))?;
+                *written = renamed(s, renames);
+                Ok(())
+            };
+            let mut around = Around {
+                fences,
+                now: *now,
+                old_waiting,
+                check_estimate: *check_estimate,
+                save: &mut save,
+            };
+            let v = verify(mine, &sf.file, cfg, budget, deps, cancel, &mut around)?;
+            checks_capped |= v.capped;
         }
-    }
 
-    /// Whether a call estimated at E still fits every cap.
-    pub fn allows(&self, estimate: f64) -> bool {
-        let after = self.spent + estimate;
-        let over = |cap: Option<f64>| cap.is_some_and(|c| after > c);
-        !(over(self.caps.pass) || self.today + after > self.caps.day || over(self.caps.budget))
-    }
-
-    pub fn charge(&mut self, cost: f64) {
-        self.spent += cost;
-    }
-
-    /// What this pass has spent.
-    pub fn spent(&self) -> f64 {
-        self.spent
-    }
-
-    /// The least room left under any cap, if any cap is finite.
-    pub fn room(&self) -> Option<f64> {
-        [
-            self.caps.pass.map(|c| c - self.spent),
-            Some(self.caps.day - self.today - self.spent).filter(|r| r.is_finite()),
-            self.caps.budget.map(|c| c - self.spent),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|r| r.max(0.0))
-        .reduce(f64::min)
+        Ok(checks_capped)
     }
 }
 
-/// What a paid call is charged: its errands' costs (one with no cost
-/// counts zero).
-pub fn cost_of(errands: &[Errand]) -> f64 {
-    errands.iter().filter_map(|e| e.cost_usd).sum()
-}
-
-pub(crate) struct Verified {
+struct Verified {
     /// A claim check did not fit the caps: its finding waits.
     pub capped: bool,
 }
 
 /// What the rounds need from the pass besides the store and budget.
-pub(crate) struct Around<'a> {
+struct Around<'a> {
     pub fences: &'a Fences,
     pub now: DateTime<Utc>,
     /// The findings that were waiting before this pass: they take a place
@@ -130,7 +83,7 @@ pub(crate) struct Around<'a> {
     pub old_waiting: &'a HashSet<FindingId>,
     pub check_estimate: f64,
     /// Writes the store as the pass has it now.
-    pub save: &'a mut dyn FnMut(&ScryStore) -> Result<()>,
+    pub save: &'a mut dyn FnMut(&Findings) -> Result<()>,
 }
 
 /// The rounds over FILE's waiting findings, best kept first. Each round
@@ -140,12 +93,12 @@ pub(crate) struct Around<'a> {
 /// checks are reserved against the budget, then run side by side. A
 /// failed check frees its place for the next round; one that does not fit
 /// the caps leaves its finding waiting and stops the rounds.
-pub(crate) fn verify(
-    store: &mut ScryStore,
+fn verify(
+    store: &mut Findings,
     file: &Path,
     cfg: &ScryConfig,
     budget: &mut Budget,
-    deps: &PassDeps,
+    deps: &ReviewDeps,
     cancel: &Cancel,
     around: &mut Around,
 ) -> Result<Verified> {
@@ -170,7 +123,7 @@ pub(crate) fn verify(
         kb.total_cmp(&ka)
     });
     let mut cands: Vec<FindingId> = waiting.into_iter().map(|f| f.id.clone()).collect();
-    let t = |s: &str| (deps.trace)(s);
+    let t = |s: &str| deps.log.put(s);
     if !cands.is_empty() {
         t(&section(&format!("Verification: {}", file.display())));
     }
@@ -313,7 +266,7 @@ pub(crate) fn verify(
         let results: Vec<(FindingId, sorcerer_models::Result<Checked>)> = std::thread::scope(|s| {
             let handles: Vec<_> = to_check
                 .into_iter()
-                .map(|(id, claim)| s.spawn(move || (id, checker(&claim))))
+                .map(|(id, claim)| s.spawn(move || (id, checker.check(&claim))))
                 .collect();
             handles
                 .into_iter()
@@ -401,36 +354,7 @@ pub(crate) fn verify(
     Ok(Verified { capped: false })
 }
 
-fn needs_claim(f: &Finding) -> bool {
-    issue_type(&f.issue_type).is_some_and(|k| k.verify == Verify::CitationsThenClaim)
-}
-
-/// The finding's statement, pointed at its cited code.
-fn claim_of(f: &Finding) -> Claim {
-    Claim {
-        statement: f.statement.clone(),
-        about: f
-            .evidence
-            .iter()
-            .map(|e| Citation {
-                file: e.file.clone(),
-                lines: e.lines,
-                print: e.print.clone(),
-            })
-            .collect(),
-        kind: ClaimKind::Code,
-    }
-}
-
-fn verdict_word(v: Verdict) -> &'static str {
-    match v {
-        Verdict::Right => "right",
-        Verdict::Wrong => "wrong",
-        Verdict::CannotTell => "cannot_tell",
-    }
-}
-
-fn by_id<'s>(store: &'s ScryStore, id: &FindingId) -> &'s Finding {
+fn by_id<'s>(store: &'s Findings, id: &FindingId) -> &'s Finding {
     store
         .findings
         .iter()
@@ -438,10 +362,57 @@ fn by_id<'s>(store: &'s ScryStore, id: &FindingId) -> &'s Finding {
         .expect("a candidate is in the store")
 }
 
-fn by_id_mut<'s>(store: &'s mut ScryStore, id: &FindingId) -> &'s mut Finding {
+fn by_id_mut<'s>(store: &'s mut Findings, id: &FindingId) -> &'s mut Finding {
     store
         .findings
         .iter_mut()
         .find(|f| f.id == *id)
         .expect("a candidate is in the store")
+}
+
+/// Each cited range checked by its first line: a relative path inside the
+/// root, not fenced, readable, the first line within the file (the end
+/// line is ignored: a range running past the end is clamped). The prints:
+/// the enclosing unit's fingerprint, else seven hex digits of the whole
+/// file's FNV-1a. `Err` is the reason the finding is unsure.
+pub fn citations(
+    view: &dyn CodebaseView,
+    fences: &Fences,
+    evidence: &[(PathBuf, Span)],
+) -> std::result::Result<Vec<Evidence>, String> {
+    if evidence.is_empty() {
+        return Err("no evidence cited".into());
+    }
+    evidence
+        .iter()
+        .map(|(path, lines)| {
+            cite(view, fences, path, *lines).ok_or_else(|| "cited code not found".to_string())
+        })
+        .collect()
+}
+
+/// Whether one cited range holds, as [`citations`] checks it.
+pub fn cites(view: &dyn CodebaseView, fences: &Fences, path: &Path, lines: Span) -> bool {
+    cite(view, fences, path, lines).is_some()
+}
+
+fn cite(view: &dyn CodebaseView, fences: &Fences, path: &Path, lines: Span) -> Option<Evidence> {
+    if path.is_absolute() || !fences.allows(path) {
+        return None;
+    }
+    let text = view.text(path).ok()?;
+    let rows = text.lines().count() as u32;
+    if lines.start < 1 || lines.start > rows {
+        return None;
+    }
+    let units = view.units(path).unwrap_or_default();
+    let print = match unit_at(&units, lines.start) {
+        Some(u) => u.fingerprint.to_string(),
+        None => fnv64_hex(text.as_bytes())[..7].to_string(),
+    };
+    Some(Evidence {
+        file: path.to_path_buf(),
+        lines,
+        print: Some(print),
+    })
 }

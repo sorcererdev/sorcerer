@@ -3,15 +3,16 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use scry::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
-use scry::judge::{
-    Match, SAME_THRESHOLD, asked_on, candidates, citations, cited_code, confidence_of,
-    finding_text, match_stored, nitpick, place, same_problem,
+use scry::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
+use scry::domain::findings::Findings;
+use scry::domain::judging::{
+    Match, SAME_THRESHOLD, asked_on, candidates, cited_code, confidence_of, finding_text,
+    match_stored, nitpick, place, same_problem,
 };
-use scry::review::RawFinding;
-use scry::scope::ScopedUnit;
-use scry::steering::steering_of;
-use scry::store::ScryStore;
+use scry::domain::review_prompt::RawFinding;
+use scry::domain::scope::ScopedUnit;
+use scry::domain::steering::steering_of;
+use scry::usecases::review_change::verify::citations;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::{Fingerprint, fingerprint};
 use sorcerer_core::domain::unit::{Span, Unit, UnitKind};
@@ -128,7 +129,7 @@ fn candidates_share_the_file_the_rule_or_a_cited_range_and_skip_resolved_and_gon
         lines: span(5, 9),
         print: None,
     }];
-    let store = ScryStore {
+    let store = Findings {
         findings: vec![
             stored(Status::Open, "a.py", None),
             stored(Status::Resolved, "a.py", None),

@@ -9,11 +9,18 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
-use scry::pass::Clock;
-use scry::review::{ReviewAsk, Reviewed, Reviewer};
+use scry::adapters::json_finding_store::JsonFindingStore;
+use scry::adapters::scry_toml::ScryToml;
+use scry::domain::findings::Findings;
+use scry::domain::review_prompt::ReviewAsk;
+use scry::ports::clock::Clock;
+use scry::ports::finding_store::FindingStore;
+use scry::ports::reviewer::{Reviewed, Reviewer};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::json_store::Snapshot;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
@@ -310,5 +317,47 @@ impl Clock for FixedClock {
 
     fn offset(&self) -> FixedOffset {
         self.zone
+    }
+}
+
+/// The ports a review talks through, over PROJECT's files.
+pub struct Ports {
+    pub store: JsonFindingStore,
+    pub ledger: JsonlLedger,
+    pub settings: ScryToml,
+}
+
+impl Ports {
+    pub fn of(project: &Project) -> Ports {
+        Ports {
+            store: JsonFindingStore::for_project(project).unwrap(),
+            ledger: JsonlLedger::for_project(project).unwrap(),
+            settings: ScryToml::for_project(project),
+        }
+    }
+}
+
+/// PROJECT's finding store.
+pub fn store_of(project: &Project) -> JsonFindingStore {
+    JsonFindingStore::for_project(project).unwrap()
+}
+
+/// F applied to PROJECT's store under its lock; what F gave.
+pub fn update_store<R>(
+    project: &Project,
+    f: impl FnOnce(&mut Findings) -> R,
+) -> sorcerer_core::Result<R> {
+    let mut f = Some(f);
+    let mut out = None;
+    store_of(project).update(&mut |s| out = f.take().map(|f| f(s)))?;
+    Ok(out.expect("the update ran"))
+}
+
+/// PROJECT's findings as stored (none when there is no store yet).
+pub fn read_store(project: &Project) -> Findings {
+    match store_of(project).read().unwrap() {
+        Snapshot::Current(s) => s,
+        Snapshot::Absent => Findings::default(),
+        Snapshot::Unreadable(why) => panic!("{why}"),
     }
 }

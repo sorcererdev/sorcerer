@@ -1,6 +1,7 @@
-//! The live wiring of a pass: the project's view, the review call through a
-//! researcher on the chosen provider, Jev, and the claim checker, each
-//! recording its errands as scry's (`review`, `check`, `decide`).
+//! The live wiring of a review: the project's view, the reviewer over a
+//! researcher on the chosen provider, Jev, the claim checker (each
+//! recording its errands as scry's `review`, `check`, `decide`), the
+//! finding store, the ledger, the settings and the system clock.
 
 use std::sync::Arc;
 
@@ -18,45 +19,48 @@ use sorcerer_models::adapters::claude_code::ClaudeCodeResearcher;
 use sorcerer_models::adapters::jev::Jev;
 use sorcerer_models::adapters::providers::default_provider_for;
 use sorcerer_models::adapters::tool_loop::LoopResearcher;
-use sorcerer_models::domain::claim::{Checked, Claim};
+use sorcerer_models::domain::claim::Claim;
 use sorcerer_models::ports::decider::Decider;
 use sorcerer_models::ports::researcher::Researcher;
 use sorcerer_models::usecases::check_claim::{CheckClaimDeps, check_claim};
 
-use crate::pass::{PassDeps, Progress, SystemClock};
-use crate::review::ResearchReviewer;
+use crate::adapters::json_finding_store::JsonFindingStore;
+use crate::adapters::research_reviewer::ResearchReviewer;
+use crate::adapters::scry_toml::ScryToml;
+use crate::adapters::system_clock::SystemClock;
+use crate::ports::claim_checker::ClaimChecker;
+use crate::ports::run_log::Quiet;
+use crate::usecases::review_change::{Progress, ReviewDeps};
 
 /// The product scry's errands are recorded under.
 pub const PRODUCT: &str = "scry";
 
-/// What a pass needs, however it was built: the live wiring or a test's doubles.
+/// What a review needs, however it was built: the live wiring or a test's
+/// doubles.
 pub trait Wired {
-    fn deps(&self) -> PassDeps<'_>;
-    /// The cancel the claim checks watch; the pass is given the same.
-    fn cancel(&self) -> Cancel {
-        Cancel::default()
-    }
+    fn deps(&self) -> ReviewDeps<'_>;
 }
 
-type CheckFn = dyn Fn(&Claim) -> sorcerer_models::Result<Checked> + Send + Sync;
-
-pub struct Live {
+pub struct Wiring {
     view: Arc<FilesView>,
     reviewer: ResearchReviewer,
     jev: Jev,
-    checker: Box<CheckFn>,
+    checker: Box<dyn ClaimChecker>,
+    store: JsonFindingStore,
+    ledger: JsonlLedger,
+    settings: ScryToml,
     clock: SystemClock,
     cancel: Cancel,
 }
 
 fn quiet(_: &Progress) {}
 
-impl Live {
+impl Wiring {
     /// The live wiring for PROJECT: Jev from `[decide]` (its key is
     /// required), the default provider (`claude` runs Claude Code as the
     /// researcher; any other provider runs sorcerer's tool loop over it),
     /// grammars from the user's cache.
-    pub fn open(project: &Project, env: &dyn Env) -> Result<Live> {
+    pub fn open(project: &Project, env: &dyn Env) -> Result<Wiring> {
         let jev = jev_for(project, env)?;
         let (provider, choice) = default_provider_for(project, env)?;
         let cfg = project
@@ -83,7 +87,7 @@ impl Live {
             ))
         };
         let cancel = Cancel::default();
-        let checker = checker_over(
+        let checker = claim_checker(
             researcher.clone(),
             Arc::new(jev.clone()),
             fences,
@@ -91,36 +95,35 @@ impl Live {
             project.languages.clone(),
             cancel.clone(),
         );
-        Ok(Live {
+        Ok(Wiring {
             view,
             reviewer: ResearchReviewer { researcher },
             jev,
             checker,
+            store: JsonFindingStore::for_project(project)?,
+            ledger: JsonlLedger::for_project(project)?,
+            settings: ScryToml::for_project(project),
             clock: SystemClock,
             cancel,
         })
     }
+}
 
-    pub fn deps(&self) -> PassDeps<'_> {
-        PassDeps {
+impl Wired for Wiring {
+    fn deps(&self) -> ReviewDeps<'_> {
+        ReviewDeps {
             view: &*self.view,
             reviewer: &self.reviewer,
             decider: &self.jev,
             checker: &*self.checker,
+            store: &self.store,
+            ledger: &self.ledger,
+            settings: &self.settings,
             clock: &self.clock,
+            log: &Quiet,
             progress: &quiet,
-            trace: &crate::log::quiet,
+            cancel: &self.cancel,
         }
-    }
-}
-
-impl Wired for Live {
-    fn deps(&self) -> PassDeps<'_> {
-        Live::deps(self)
-    }
-
-    fn cancel(&self) -> Cancel {
-        self.cancel.clone()
     }
 }
 
@@ -136,17 +139,17 @@ pub fn jev_for(project: &Project, env: &dyn Env) -> Result<Jev> {
     Ok(jev.for_product(PRODUCT))
 }
 
-/// The claim checker as the pass calls it: `check` with the shipped
+/// The claim checker as a review calls it: `check_claim` with the shipped
 /// defaults, its errands recorded as scry's `check`, Jev guarding, a unit
 /// named the way the project's LANGUAGES name the claim's files' units.
-pub fn checker_over(
+pub fn claim_checker(
     researcher: Arc<dyn Researcher>,
     decider: Arc<dyn Decider>,
     fences: Fences,
     view: Arc<dyn CodebaseView>,
     languages: Languages,
     cancel: Cancel,
-) -> Box<CheckFn> {
+) -> Box<dyn ClaimChecker> {
     Box::new(move |claim: &Claim| {
         let mut deps =
             CheckClaimDeps::defaults(&*researcher, Some(&*decider), &fences, &*view, PRODUCT);

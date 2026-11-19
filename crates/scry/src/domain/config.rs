@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::{Error, Result};
 
-use crate::issue_type::issue_type;
+use crate::domain::issue_type::issue_type;
 
 /// At most this many findings are shown in a file at a time.
 pub const MAX_SHOWN: usize = 3;

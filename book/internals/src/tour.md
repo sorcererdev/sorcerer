@@ -60,5 +60,10 @@ root.
 | `adapters/jev.rs` | Jev |
 | `adapters/{scripted_provider,recorded_researcher,recorded_decider}.rs` | the doubles tests use |
 
+`crates/scry/src/` adds a fifth layer, `cli/`, beside `usecases/` (the API: `review_change`
+and the small commands' use cases), `domain/`, `ports/` and `adapters/` (the store file, the
+run log, the settings, the reviewer over a researcher, the wiring). Its module map is in
+[Scry](scry.md).
+
 Two demos show the core working on a real repository: `examples/units.rs` in core and
 `examples/ask.rs` in models (see the README).

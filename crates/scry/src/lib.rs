@@ -1,17 +1,14 @@
-//! Scry: reads a change and says what it gets wrong. Config, issue types, steering
-//! and the finding store live here; the pass is `pass`;
-//! `live` wires it to the models and `cli` is the command line.
+//! Scry: reads a change and says what it gets wrong.
+//!
+//! `usecases/` is the API, one module a feature (`review_change`, its steps
+//! private; `list_findings`, `explain_finding`, `dismiss_finding`,
+//! `report_cost`, `check_setup`). `domain/` is data and rules with no I/O;
+//! `ports/` the traits a use case talks through; `adapters/` implement them
+//! (the store file, the run log, `.sorcerer/` settings, the reviewer over a
+//! researcher, the wiring); `cli/` parses, calls one use case, prints.
 
+pub mod adapters;
 pub mod cli;
-pub mod config;
-pub mod finding;
-pub mod issue_type;
-pub mod judge;
-pub mod live;
-pub mod log;
-pub mod pass;
-pub mod review;
-pub mod rounds;
-pub mod scope;
-pub mod steering;
-pub mod store;
+pub mod domain;
+pub mod ports;
+pub mod usecases;

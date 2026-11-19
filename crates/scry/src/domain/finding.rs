@@ -137,3 +137,11 @@ impl Finding {
         self.history.push((at, s));
     }
 }
+
+/// A status as the store writes it (`open`, `dismissed-here`, …).
+pub fn status_word(s: Status) -> String {
+    serde_json::to_value(s)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}

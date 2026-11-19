@@ -1,23 +1,20 @@
-//! The finding store: `.sorcerer/state/scry/findings.json`, version 2.
+//! The findings a project holds: each finding, the units each file was
+//! reviewed at, and the units a cap held back; and how a pass lays its
+//! findings over the store as it is now.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sorcerer_core::Result;
-use sorcerer_core::adapters::json_store::{Store, Versioned};
 use sorcerer_core::domain::fnv::fnv64_hex;
-use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::Span;
 
-use crate::config::{MAX_SHOWN, ScryConfig};
-pub use crate::finding::{
-    Evidence, Finding, FindingId, Place, Scores, Status, StoredCitation, StoredVerdict,
-};
+use crate::domain::config::{MAX_SHOWN, ScryConfig};
+use crate::domain::finding::{Finding, FindingId, Status};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ScryStore {
+pub struct Findings {
     pub findings: Vec<Finding>,
     /// Per file, the units a pass has looked at.
     pub reviewed: BTreeMap<PathBuf, BTreeSet<String>>,
@@ -25,15 +22,7 @@ pub struct ScryStore {
     pub capped: BTreeMap<PathBuf, BTreeSet<String>>,
 }
 
-impl Versioned for ScryStore {
-    const VERSION: u32 = 2;
-}
-
-pub fn store(p: &Project) -> Result<Store<ScryStore>> {
-    Store::in_project(p, "scry/findings.json")
-}
-
-impl ScryStore {
+impl Findings {
     /// Six hex digits of the finding's hash; rehashed with a counter while taken.
     pub fn new_id(
         &self,
@@ -125,11 +114,99 @@ impl ScryStore {
     }
 }
 
+/// The pass's store (MINE, made from BASE) laid over CURRENT, the store as
+/// it is now (olifant's `mergeInto`): a finding the pass changed takes the
+/// pass's version only when its status in CURRENT is still what the pass
+/// started from, so a dismissal made meanwhile stands; the pass's new
+/// findings are added; reviewed sets are joined. A new finding whose id
+/// was taken meanwhile (by a finding added from elsewhere) takes a fresh
+/// one; RENAMES maps the pass's ids to the ids written, is applied to MINE
+/// first and grows with each such clash. BASE is in written ids.
+pub fn merge_into(
+    base: &Findings,
+    mine: &Findings,
+    current: &Findings,
+    renames: &mut HashMap<FindingId, FindingId>,
+) -> Findings {
+    let mine = renamed(mine, renames);
+    let by_id = |s: &Findings| -> HashMap<FindingId, Finding> {
+        s.findings
+            .iter()
+            .map(|f| (f.id.clone(), f.clone()))
+            .collect()
+    };
+    let (b, m) = (by_id(base), by_id(&mine));
+    let mut taken: HashSet<String> = current
+        .findings
+        .iter()
+        .chain(&mine.findings)
+        .map(|f| f.id.0.clone())
+        .collect();
+    let cur: HashSet<&FindingId> = current.findings.iter().map(|f| &f.id).collect();
+    let mut findings: Vec<Finding> = current
+        .findings
+        .iter()
+        .filter(|f| !(b.contains_key(&f.id) && !m.contains_key(&f.id)))
+        .map(|f| match (b.get(&f.id), m.get(&f.id)) {
+            (Some(was), Some(ours)) if was.status == f.status => ours.clone(),
+            _ => f.clone(),
+        })
+        .collect();
+    for f in mine.findings.iter().filter(|f| !b.contains_key(&f.id)) {
+        let mut f = f.clone();
+        if cur.contains(&f.id) {
+            let id = free_id(&f.id, &taken);
+            taken.insert(id.0.clone());
+            renames.insert(f.id.clone(), id.clone());
+            f.id = id;
+        }
+        findings.push(f);
+    }
+    let mut reviewed = current.reviewed.clone();
+    for (file, set) in &mine.reviewed {
+        reviewed
+            .entry(file.clone())
+            .or_default()
+            .extend(set.iter().cloned());
+    }
+    let capped = if mine.capped == base.capped {
+        current.capped.clone()
+    } else {
+        mine.capped.clone()
+    };
+    Findings {
+        findings,
+        reviewed,
+        capped,
+    }
+}
+
+/// STORE with its finding ids mapped through RENAMES.
+pub fn renamed(store: &Findings, renames: &HashMap<FindingId, FindingId>) -> Findings {
+    let mut s = store.clone();
+    for f in &mut s.findings {
+        if let Some(to) = renames.get(&f.id) {
+            f.id = to.clone();
+        }
+    }
+    s
+}
+
+/// Six hex digits from ID and a counter, not in TAKEN.
+fn free_id(id: &FindingId, taken: &HashSet<String>) -> FindingId {
+    (1..)
+        .map(|n: u64| fnv64_hex(format!("{}\0{n}", id.0).as_bytes())[..6].to_string())
+        .find(|c| !taken.contains(c))
+        .map(FindingId)
+        .expect("an unbounded counter finds a free id")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sorcerer_core::adapters::json_store::Snapshot;
     use sorcerer_core::domain::fingerprint::Fingerprint;
+
+    use crate::domain::finding::{Evidence, Place, Scores, StoredVerdict};
 
     fn at(s: &str) -> DateTime<Utc> {
         s.parse().unwrap()
@@ -173,69 +250,11 @@ mod tests {
         }
     }
 
-    const ALL: [Status; 10] = [
-        Status::Open,
-        Status::Waiting,
-        Status::Withheld,
-        Status::Refuted,
-        Status::Unsure,
-        Status::Elsewhere,
-        Status::DismissedHere,
-        Status::DismissedEverywhere,
-        Status::Resolved,
-        Status::Gone,
-    ];
-
-    #[test]
-    fn a_store_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let st: Store<ScryStore> = Store::at(dir.path().join("scry/findings.json"));
-        let mut data = ScryStore::default();
-        for (i, s) in ALL.iter().enumerate() {
-            data.findings
-                .push(finding(&format!("00000{i}"), "bug", 0.9, *s));
-        }
-        data.reviewed
-            .insert("a.txt".into(), BTreeSet::from(["f".to_string()]));
-        data.capped
-            .insert("b.txt".into(), BTreeSet::from(["g".to_string()]));
-        st.update(|s| *s = data.clone()).unwrap();
-        match st.read().unwrap() {
-            Snapshot::Current(back) => assert_eq!(back, data),
-            other => panic!("{other:?}"),
-        }
-        let text = std::fs::read_to_string(st.path()).unwrap();
-        assert!(text.contains("\"status\": \"dismissed-here\""), "{text}");
-        for word in ["\"issue_type\"", "\"confidence\"", "\"reviewed\""] {
-            assert!(text.contains(word), "{word} missing: {text}");
-        }
-        for word in ["\"kind\"", "\"keep\"", "\"inspected\""] {
-            assert!(!text.contains(word), "{word} still there: {text}");
-        }
-    }
-
-    #[test]
-    fn a_version_one_store_is_unreadable_and_untouched() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("findings.json");
-        let bytes = br#"{"version": 1, "data": {"findings": [], "inspected": {}, "capped": {}}}"#;
-        std::fs::write(&path, bytes).unwrap();
-        let st: Store<ScryStore> = Store::at(path.clone());
-        match st.read().unwrap() {
-            Snapshot::Unreadable(why) => {
-                assert_eq!(why, "version 1, and this sorcerer reads version 2")
-            }
-            other => panic!("{other:?}"),
-        }
-        assert!(st.update(|_| ()).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
-    }
-
     #[test]
     fn ids_are_six_hex_and_rehash_on_collision() {
         let t = at("2026-11-18T12:00:00Z");
         let span = Span { start: 1, end: 2 };
-        let mut s = ScryStore::default();
+        let mut s = Findings::default();
         let first = s.new_id(t, Path::new("a.txt"), span, "x");
         assert_eq!(first.0.len(), 6);
         assert!(first.0.chars().all(|c| c.is_ascii_hexdigit()));
@@ -248,7 +267,7 @@ mod tests {
 
     #[test]
     fn dismiss_records_history_and_refuses_unknown_ids() {
-        let mut s = ScryStore::default();
+        let mut s = Findings::default();
         s.findings.push(finding("abcdef", "bug", 0.9, Status::Open));
         let t = at("2026-11-19T00:00:00Z");
         s.dismiss("abcdef", false, t).unwrap();
@@ -262,7 +281,7 @@ mod tests {
 
     #[test]
     fn get_finds_by_a_unique_prefix_and_refuses_an_ambiguous_one() {
-        let mut s = ScryStore::default();
+        let mut s = Findings::default();
         s.findings.push(finding("abcd01", "bug", 0.9, Status::Open));
         s.findings.push(finding("abcd02", "bug", 0.9, Status::Open));
         s.findings.push(finding("ffee11", "bug", 0.9, Status::Open));
@@ -278,7 +297,7 @@ mod tests {
 
     #[test]
     fn shown_in_keeps_the_best_open_of_shown_issue_types() {
-        let mut s = ScryStore::default();
+        let mut s = Findings::default();
         s.findings
             .push(finding("000001", "bug", 0.75, Status::Open));
         s.findings
@@ -298,17 +317,5 @@ mod tests {
             .collect();
         assert_eq!(ids, ["000003", "000004", "000005"]);
         assert!(s.shown_in(&cfg, Path::new("b.txt")).is_empty());
-    }
-
-    #[test]
-    fn a_store_from_a_newer_scry_is_unreadable_and_untouched() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("findings.json");
-        let bytes = br#"{"version": 3, "data": {}}"#;
-        std::fs::write(&path, bytes).unwrap();
-        let st: Store<ScryStore> = Store::at(path.clone());
-        assert!(matches!(st.read().unwrap(), Snapshot::Unreadable(_)));
-        assert!(st.update(|_| ()).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 }

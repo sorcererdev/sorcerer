@@ -1,20 +1,15 @@
-//! The review call: one model run over a pack of changed units, with the
-//! project's steering, the open findings to answer and the tools to look
-//! things up. Ported from inspect's `Find.hs`, prompt word for word.
+//! The review call as data: the pack of changed units it is asked about, with
+//! the project's steering and the open findings to answer; its prompt and
+//! the parse of its reply. Ported from inspect's `Find.hs`, prompt word for word.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use sorcerer_core::Cancel;
-use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::unit::Span;
-use sorcerer_models::domain::research::{Research, Tool};
-use sorcerer_models::ports::researcher::Researcher;
 
-use crate::finding::Finding;
-use crate::issue_type::ISSUE_TYPES;
+use crate::domain::finding::Finding;
+use crate::domain::issue_type::ISSUE_TYPES;
 
 /// Seconds a review call may take.
 pub const REVIEW_TIMEOUT: Duration = Duration::from_secs(420);
@@ -319,53 +314,4 @@ pub fn pack_units(units: Vec<ReviewUnit>) -> Vec<Vec<ReviewUnit>> {
         }
     }
     packs
-}
-
-#[derive(Debug, Clone)]
-pub struct Reviewed {
-    pub reply: String,
-    pub errand: Errand,
-}
-
-/// The seam the eval swaps for recorded replies.
-pub trait Reviewer: Send + Sync {
-    fn review(
-        &self,
-        ask: &ReviewAsk,
-        model: &str,
-        cap_usd: f64,
-        cancel: &Cancel,
-    ) -> sorcerer_models::Result<Reviewed>;
-}
-
-/// The review call over a researcher (Claude Code, or the tool loop over a provider).
-pub struct ResearchReviewer {
-    pub researcher: Arc<dyn Researcher>,
-}
-
-impl Reviewer for ResearchReviewer {
-    fn review(
-        &self,
-        ask: &ReviewAsk,
-        model: &str,
-        cap_usd: f64,
-        cancel: &Cancel,
-    ) -> sorcerer_models::Result<Reviewed> {
-        let r = self.researcher.research(
-            Research {
-                product: "scry".into(),
-                verb: "review".into(),
-                prompt: review_prompt(ask),
-                model: model.into(),
-                tools: vec![Tool::Read, Tool::Grep, Tool::Glob],
-                cap_usd,
-                timeout: REVIEW_TIMEOUT,
-            },
-            cancel,
-        )?;
-        Ok(Reviewed {
-            reply: r.answer,
-            errand: r.errand,
-        })
-    }
 }

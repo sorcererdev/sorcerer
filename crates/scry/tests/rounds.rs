@@ -6,15 +6,19 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset, Utc};
-use scry::config::ScryConfig;
-use scry::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
-use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, pass};
-use scry::rounds::{Budget, check_estimate, review_estimate};
-use scry::scope::{ScopeWhy, scope_of};
-use scry::store::{ScryStore, store};
+use scry::domain::budget::Caps;
+use scry::domain::budget::{Budget, check_estimate, review_estimate};
+use scry::domain::config::ScryConfig;
+use scry::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
+use scry::domain::findings::Findings;
+use scry::domain::scope::ScopeRequest;
+use scry::ports::claim_checker::ClaimChecker;
+use scry::ports::run_log::Quiet;
+use scry::usecases::review_change::{
+    Progress, ReviewDeps, ReviewOutcome, ReviewReport, ReviewRequest, review_change,
+};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::files_view::FilesView;
-use sorcerer_core::adapters::json_store::Snapshot;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::project::Project;
@@ -42,7 +46,7 @@ fn no_caps() -> Caps {
     }
 }
 
-type CheckFn<'a> = dyn Fn(&Claim) -> sorcerer_models::Result<Checked> + Sync + 'a;
+type CheckFn<'a> = dyn ClaimChecker + 'a;
 
 struct Fixture {
     dir: TempDir,
@@ -66,7 +70,7 @@ impl Fixture {
         Fixture { dir, project, view }
     }
 
-    fn run(&self, reviewer: &StubReviewer, checker: &CheckFn<'_>, caps: &Caps) -> Report {
+    fn run(&self, reviewer: &StubReviewer, checker: &CheckFn<'_>, caps: &Caps) -> ReviewReport {
         let progress = |_: &Progress| {};
         self.run_with(reviewer, checker, caps, &FixedClock::at(t0()), &progress)
     }
@@ -78,41 +82,34 @@ impl Fixture {
         caps: &Caps,
         clock: &FixedClock,
         progress: &(dyn Fn(&Progress) + Sync),
-    ) -> Report {
-        let scope = scope_of(
-            &self.project,
-            &self.view,
-            ScopeWhy::Working,
-            false,
-            &ScryConfig::default(),
-        )
-        .unwrap();
+    ) -> ReviewReport {
         let decider = StubDecider::new();
-        let deps = PassDeps {
+        let ports = support::Ports::of(&self.project);
+        let cancel = Cancel::default();
+        let deps = ReviewDeps {
             view: &self.view,
             reviewer,
             decider: &decider,
             checker,
+            store: &ports.store,
+            ledger: &ports.ledger,
+            settings: &ports.settings,
             clock,
+            log: &Quiet,
             progress,
-            trace: &scry::log::quiet,
+            cancel: &cancel,
         };
-        match pass(
-            &self.project,
-            &scope,
-            caps,
-            false,
-            &deps,
-            &Cancel::default(),
-        )
-        .unwrap()
-        {
-            Outcome::Ran(r) => r,
-            Outcome::Skipped(why) => panic!("skipped: {why}"),
+        let req = ReviewRequest {
+            caps: Some(caps.clone()),
+            ..ReviewRequest::of(ScopeRequest::Working)
+        };
+        match review_change(&self.project, &req, &deps).unwrap() {
+            ReviewOutcome::Ran(r) => r,
+            ReviewOutcome::Skipped(why) => panic!("skipped: {why}"),
         }
     }
 
-    fn store(&self) -> ScryStore {
+    fn store(&self) -> Findings {
         read_store(&self.project)
     }
 
@@ -134,25 +131,19 @@ impl Fixture {
     /// FINDINGS stored, with `cancel` already reviewed (nothing to review).
     fn seed(&self, findings: Vec<Finding>) {
         let print = self.cancel_print();
-        store(&self.project)
-            .unwrap()
-            .update(|s| {
-                s.findings = findings;
-                s.reviewed
-                    .entry("orders.py".into())
-                    .or_default()
-                    .insert(print);
-            })
-            .unwrap();
+        support::update_store(&self.project, |s| {
+            s.findings = findings;
+            s.reviewed
+                .entry("orders.py".into())
+                .or_default()
+                .insert(print);
+        })
+        .unwrap();
     }
 }
 
-fn read_store(p: &Project) -> ScryStore {
-    match store(p).unwrap().read().unwrap() {
-        Snapshot::Current(s) => s,
-        Snapshot::Absent => ScryStore::default(),
-        Snapshot::Unreadable(why) => panic!("{why}"),
-    }
+fn read_store(p: &Project) -> Findings {
+    support::read_store(p)
 }
 
 /// A finding on `cancel` citing line 2, with ID, ISSUE_TYPE, CONFIDENCE and STATUS.
@@ -198,7 +189,7 @@ fn waiting_bugs(keeps: &[f64]) -> Vec<Finding> {
         .collect()
 }
 
-fn status_of(s: &ScryStore, id: &str) -> Status {
+fn status_of(s: &Findings, id: &str) -> Status {
     s.findings.iter().find(|f| f.id.0 == id).unwrap().status
 }
 
@@ -539,9 +530,7 @@ fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_review() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(status_of(&f.store(), "000011"), Status::Waiting);
 
-    store(&f.project)
-        .unwrap()
-        .update(|s| s.dismiss("00000e", false, t0()))
+    support::update_store(&f.project, |s| s.dismiss("00000e", false, t0()))
         .unwrap()
         .unwrap();
     f.run(&reviewer, &checker, &no_caps());

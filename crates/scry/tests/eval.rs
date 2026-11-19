@@ -16,15 +16,19 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use scry::config::scry_config;
-use scry::pass::{Caps, Outcome, PassDeps, Progress, pass};
-use scry::review::{ReviewAsk, Reviewed, Reviewer};
-use scry::scope::{ScopeWhy, scope_of};
-use scry::store::{ScryStore, store};
+use scry::domain::budget::Caps;
+use scry::domain::config::scry_config;
+use scry::domain::findings::Findings;
+use scry::domain::review_prompt::ReviewAsk;
+use scry::domain::scope::ScopeRequest;
+use scry::ports::reviewer::{Reviewed, Reviewer};
+use scry::ports::run_log::{Quiet, RunLog};
+use scry::usecases::review_change::{
+    Progress, ReviewDeps, ReviewOutcome, ReviewRequest, review_change,
+};
 use serde_json::{Value, json};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::SystemEnv;
-use sorcerer_core::adapters::json_store::Snapshot;
 use sorcerer_models::adapters::jev::question_key;
 use sorcerer_models::adapters::recorded_decider::RecordedDecider;
 use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
@@ -201,12 +205,12 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
 
     let (project, view) = support::project_with_vendored_grammars(root);
     let cfg = scry_config(&project).unwrap();
-    let scope = scope_of(&project, &view, ScopeWhy::Working, false, &cfg).unwrap();
     let reviewer = CorpusReviewer::for_case(&c.id);
     let mut decider = RecordedDecider::new(corpus().join("jev"));
     if record {
         // the live Jev, its ledger the temp project's
-        decider = decider.recording_with(scry::live::jev_for(&project, &SystemEnv).unwrap());
+        decider =
+            decider.recording_with(scry::adapters::wiring::jev_for(&project, &SystemEnv).unwrap());
     }
     let checker = |claim: &Claim| -> sorcerer_models::Result<Checked> {
         let verdict = match checks.get(&collapse(&claim.statement)).map(String::as_str) {
@@ -232,38 +236,40 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     let progress = |_: &Progress| {};
     // SCRY_EVAL_LOG=DIR writes each case's scope and pass trace to DIR/<id>.md
     let log_dir = std::env::var_os("SCRY_EVAL_LOG").map(PathBuf::from);
-    let log = std::cell::RefCell::new(format!(
-        "# scry eval case {}\n{}",
-        c.id,
-        scry::log::scope_text(&scope)
-    ));
+    let log = std::cell::RefCell::new(format!("# scry eval case {}\n", c.id));
     let collect = |s: &str| log.borrow_mut().push_str(s);
-    let deps = PassDeps {
+    let log_to: &dyn RunLog = if log_dir.is_some() { &collect } else { &Quiet };
+    let ports = support::Ports::of(&project);
+    let cancel = Cancel::default();
+    let deps = ReviewDeps {
         view: &view,
         reviewer: &reviewer,
         decider,
         checker: &checker,
+        store: &ports.store,
+        ledger: &ports.ledger,
+        settings: &ports.settings,
         clock: &clock,
+        log: log_to,
         progress: &progress,
-        trace: if log_dir.is_some() {
-            &collect
-        } else {
-            &scry::log::quiet
-        },
+        cancel: &cancel,
     };
-    let caps = Caps {
-        pass: Some(cfg.budget_per_pass),
-        day: cfg.budget_per_day,
-        budget: None,
+    let req = ReviewRequest {
+        caps: Some(Caps {
+            pass: Some(cfg.budget_per_pass),
+            day: cfg.budget_per_day,
+            budget: None,
+        }),
+        ..ReviewRequest::of(ScopeRequest::Working)
     };
-    match pass(&project, &scope, &caps, false, &deps, &Cancel::default()) {
-        Ok(Outcome::Ran(r)) => assert!(
+    match review_change(&project, &req, &deps) {
+        Ok(ReviewOutcome::Ran(r)) => assert!(
             r.failures.is_empty(),
             "case {}: failures {:?}",
             c.id,
             r.failures
         ),
-        Ok(Outcome::Skipped(why)) => panic!("case {} skipped: {why}", c.id),
+        Ok(ReviewOutcome::Skipped(why)) => panic!("case {} skipped: {why}", c.id),
         Err(e) => panic!("case {}: {e}", c.id),
     }
 
@@ -272,11 +278,7 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
         std::fs::write(d.join(format!("{}.md", c.id)), log.borrow().as_str()).unwrap();
     }
 
-    let s: ScryStore = match store(&project).unwrap().read().unwrap() {
-        Snapshot::Current(s) => s,
-        Snapshot::Absent => ScryStore::default(),
-        Snapshot::Unreadable(why) => panic!("case {}: {why}", c.id),
-    };
+    let s: Findings = support::read_store(&project);
     if look {
         for f in &s.findings {
             let first: String = f.statement.chars().take(90).collect();

@@ -4,11 +4,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use scry::config::ScryConfig;
-use scry::finding::{Finding, Status};
-use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, merge_into, pass, renamed};
-use scry::scope::{ScopeWhy, scope_of};
-use scry::store::{ScryStore, store};
+use scry::domain::budget::Caps;
+use scry::domain::finding::{Finding, Status};
+use scry::domain::findings::Findings;
+use scry::domain::findings::{merge_into, renamed};
+use scry::domain::scope::ScopeRequest;
+use scry::ports::finding_store::FindingStore;
+use scry::ports::run_log::Quiet;
+use scry::usecases::review_change::{
+    Progress, ReviewDeps, ReviewOutcome, ReviewReport, ReviewRequest, review_change,
+};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::json_store::Snapshot;
@@ -54,7 +59,7 @@ impl Fixture {
         self.dir.path()
     }
 
-    fn run(&self, reviewer: &StubReviewer, decider: &StubDecider, fresh: bool) -> Outcome {
+    fn run(&self, reviewer: &StubReviewer, decider: &StubDecider, fresh: bool) -> ReviewOutcome {
         self.try_run(reviewer, decider, fresh).unwrap()
     }
 
@@ -63,15 +68,7 @@ impl Fixture {
         reviewer: &StubReviewer,
         decider: &StubDecider,
         fresh: bool,
-    ) -> sorcerer_core::Result<Outcome> {
-        let scope = scope_of(
-            &self.project,
-            &self.view,
-            ScopeWhy::Working,
-            false,
-            &ScryConfig::default(),
-        )
-        .unwrap();
+    ) -> sorcerer_core::Result<ReviewOutcome> {
         // a claim check that fails: a waiting finding stays waiting
         let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
             Err(sorcerer_models::Error::Reply {
@@ -81,40 +78,43 @@ impl Fixture {
         };
         let clock = FixedClock::at(t0());
         let progress = |_: &Progress| {};
-        let deps = PassDeps {
+        let ports = support::Ports::of(&self.project);
+        let cancel = Cancel::default();
+        let deps = ReviewDeps {
             view: &self.view,
             reviewer,
             decider,
             checker: &checker,
+            store: &ports.store,
+            ledger: &ports.ledger,
+            settings: &ports.settings,
             clock: &clock,
+            log: &Quiet,
             progress: &progress,
-            trace: &scry::log::quiet,
+            cancel: &cancel,
         };
-        let caps = Caps {
-            pass: None,
-            day: f64::INFINITY,
-            budget: None,
-        };
-        pass(
-            &self.project,
-            &scope,
-            &caps,
+        let req = ReviewRequest {
             fresh,
-            &deps,
-            &Cancel::default(),
-        )
+            caps: Some(Caps {
+                pass: None,
+                day: f64::INFINITY,
+                budget: None,
+            }),
+            ..ReviewRequest::of(ScopeRequest::Working)
+        };
+        review_change(&self.project, &req, &deps)
     }
 
-    fn store(&self) -> ScryStore {
-        match store(&self.project).unwrap().read().unwrap() {
+    fn store(&self) -> Findings {
+        match support::store_of(&self.project).read().unwrap() {
             Snapshot::Current(s) => s,
-            Snapshot::Absent => ScryStore::default(),
+            Snapshot::Absent => Findings::default(),
             Snapshot::Unreadable(why) => panic!("{why}"),
         }
     }
 
     fn store_path(&self) -> PathBuf {
-        store(&self.project).unwrap().path().to_path_buf()
+        support::store_of(&self.project).path().to_path_buf()
     }
 
     fn edit(&self, from: &str, to: &str) {
@@ -125,10 +125,10 @@ impl Fixture {
     }
 }
 
-fn ran(o: Outcome) -> Report {
+fn ran(o: ReviewOutcome) -> ReviewReport {
     match o {
-        Outcome::Ran(r) => r,
-        Outcome::Skipped(why) => panic!("skipped: {why}"),
+        ReviewOutcome::Ran(r) => r,
+        ReviewOutcome::Skipped(why) => panic!("skipped: {why}"),
     }
 }
 
@@ -148,7 +148,7 @@ fn reply(kind: &str, line: u32, statement: &str, rule: &str) -> String {
     .to_string()
 }
 
-fn only(s: &ScryStore) -> &Finding {
+fn only(s: &Findings) -> &Finding {
     assert_eq!(s.findings.len(), 1, "{:#?}", s.findings);
     &s.findings[0]
 }
@@ -366,9 +366,7 @@ fn dismissed_everywhere_drops_the_new_finding() {
         false,
     ));
     let id = only(&f.store()).id.clone();
-    store(&f.project)
-        .unwrap()
-        .update(|s| s.dismiss(&id.0, true, t0()))
+    support::update_store(&f.project, |s| s.dismiss(&id.0, true, t0()))
         .unwrap()
         .unwrap();
     let decider = StubDecider::new().on("same", |_| true, StubDecider::p_yes(0.8));
@@ -439,15 +437,13 @@ fn no_longer_holds_resolves_only_a_finding_the_call_was_shown() {
         false,
     ));
     // a waiting finding on `place`, which this pass does not send
-    store(&f.project)
-        .unwrap()
-        .update(|s| {
-            let mut other = s.findings[0].clone();
-            other.id = scry::finding::FindingId("abcdef".into());
-            other.place.unit = Some("place".into());
-            s.findings.push(other);
-        })
-        .unwrap();
+    support::update_store(&f.project, |s| {
+        let mut other = s.findings[0].clone();
+        other.id = scry::domain::finding::FindingId("abcdef".into());
+        other.place.unit = Some("place".into());
+        s.findings.push(other);
+    })
+    .unwrap();
     f.edit("cancel(now=True)", "cancel(now=True) or order");
     let answer = serde_json::json!({
         "findings": [],
@@ -535,8 +531,8 @@ fn jev_silent_skips_and_writes_nothing() {
     let before = std::fs::read(f.store_path()).unwrap();
     let decider = StubDecider::new().on("nitpick", |_| true, Answer::Unsure);
     match f.run(&bug_reviewer("cancel() returns None."), &decider, true) {
-        Outcome::Skipped(why) => assert_eq!(why, "Jev did not answer"),
-        Outcome::Ran(r) => panic!("ran: {r:?}"),
+        ReviewOutcome::Skipped(why) => assert_eq!(why, "Jev did not answer"),
+        ReviewOutcome::Ran(r) => panic!("ran: {r:?}"),
     }
     assert_eq!(std::fs::read(f.store_path()).unwrap(), before);
 }
@@ -553,9 +549,7 @@ fn a_dismissal_during_the_pass_stands() {
     let project = f.project.clone();
     let dismissed = id.clone();
     let reviewer = bug_reviewer("cancel() gives back None.").on_review(move |_| {
-        store(&project)
-            .unwrap()
-            .update(|s| s.dismiss(&dismissed.0, false, t0()))
+        support::update_store(&project, |s| s.dismiss(&dismissed.0, false, t0()))
             .unwrap()
             .unwrap();
     });
@@ -598,14 +592,14 @@ fn a_new_finding_whose_id_was_taken_meanwhile_is_re_ided() {
     let ours = only(&f.store()).clone();
     let mut theirs = ours.clone();
     theirs.statement = "added from another terminal".into();
-    let base = ScryStore::default();
-    let mine = ScryStore {
+    let base = Findings::default();
+    let mine = Findings {
         findings: vec![ours.clone()],
-        ..ScryStore::default()
+        ..Findings::default()
     };
-    let current = ScryStore {
+    let current = Findings {
         findings: vec![theirs.clone()],
-        ..ScryStore::default()
+        ..Findings::default()
     };
     let mut renames = std::collections::HashMap::new();
     let written = merge_into(&base, &mine, &current, &mut renames);
@@ -638,14 +632,6 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
 
     let f = Fixture::new();
     write(f.root(), "notes.txt", "not code\n");
-    let scope = scope_of(
-        &f.project,
-        &f.view,
-        ScopeWhy::Working,
-        false,
-        &ScryConfig::default(),
-    )
-    .unwrap();
     let reviewer = bug_reviewer("cancel ignores the order's state");
     let decider = StubDecider::new().on("nitpick", |_| true, StubDecider::p_yes(0.2));
     let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
@@ -680,25 +666,34 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
             ],
         })
     };
-    let log = RefCell::new(scry::log::scope_text(&scope));
+    let log = RefCell::new(String::new());
     let trace = |s: &str| log.borrow_mut().push_str(s);
     let clock = FixedClock::at(t0());
     let progress = |_: &Progress| {};
-    let deps = PassDeps {
+    let ports = support::Ports::of(&f.project);
+    let cancel = Cancel::default();
+    let deps = ReviewDeps {
         view: &f.view,
         reviewer: &reviewer,
         decider: &decider,
         checker: &checker,
+        store: &ports.store,
+        ledger: &ports.ledger,
+        settings: &ports.settings,
         clock: &clock,
+        log: &trace,
         progress: &progress,
-        trace: &trace,
+        cancel: &cancel,
     };
-    let caps = Caps {
-        pass: None,
-        day: f64::INFINITY,
-        budget: None,
+    let req = ReviewRequest {
+        caps: Some(Caps {
+            pass: None,
+            day: f64::INFINITY,
+            budget: None,
+        }),
+        ..ReviewRequest::of(ScopeRequest::Working)
     };
-    let r = ran(pass(&f.project, &scope, &caps, false, &deps, &Cancel::default()).unwrap());
+    let r = ran(review_change(&f.project, &req, &deps).unwrap());
     assert_eq!(r.new.len(), 1);
     assert_eq!(r.touched, r.new);
     let log = log.into_inner();
@@ -706,7 +701,9 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
     has("`notes.txt`: skipped (no language)");
     has("## Review calls");
     has("## Reviewed");
-    has(&scry::review::review_prompt(&reviewer.asks()[0]));
+    has(&scry::domain::review_prompt::review_prompt(
+        &reviewer.asks()[0],
+    ));
     has(&reply("bug", 2, "cancel ignores the order's state", ""));
     has("nitpick? P(yes) 0.20 → confidence 0.80, threshold 0.70 → waiting");
     has(&format!("id {}", r.new[0].0));

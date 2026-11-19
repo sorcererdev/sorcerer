@@ -3,10 +3,7 @@
 //! can cite; `## A nitpick is` and `## Worth saying is` replace the two sides
 //! of Jev's nitpick question.
 
-use sorcerer_core::domain::project::Project;
-use sorcerer_core::{Error, Result};
-
-const SHIPPED: &str = include_str!("../../../library/scry.md");
+pub(crate) const SHIPPED: &str = include_str!("../../../../library/scry.md");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Steering {
@@ -81,16 +78,6 @@ pub fn steering_of(texts: &[&str]) -> Steering {
         worth: last("Worth saying is", ship_worth),
         rules,
         text,
-    }
-}
-
-/// The shipped layer, then `.sorcerer/scry.md` when the project has one.
-pub fn steering(p: &Project) -> Result<Steering> {
-    let file = p.root.join(".sorcerer/scry.md");
-    match std::fs::read_to_string(&file) {
-        Ok(t) => Ok(steering_of(&[SHIPPED, &t])),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(steering_of(&[SHIPPED])),
-        Err(e) => Err(Error::io(&file, e)),
     }
 }
 
@@ -193,14 +180,5 @@ mod tests {
         );
         assert_eq!(s.resolve_rule(""), None);
         assert_eq!(s.resolve_rule("nothing like it"), None);
-    }
-
-    #[test]
-    fn the_project_file_is_a_second_layer() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(d.path().join(".sorcerer")).unwrap();
-        std::fs::write(d.path().join(".sorcerer/scry.md"), SAMPLE).unwrap();
-        let p = Project::open(d.path()).unwrap();
-        assert_eq!(steering(&p).unwrap().rules.len(), 1);
     }
 }

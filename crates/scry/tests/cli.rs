@@ -6,9 +6,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use scry::adapters::wiring::{Wired, Wiring, claim_checker, jev_for};
 use scry::cli::{doctor_rows, main_with};
-use scry::live::{Live, Wired, checker_over, jev_for};
-use scry::pass::{PassDeps, Progress};
+use scry::ports::claim_checker::ClaimChecker;
+use scry::ports::run_log::Quiet;
+use scry::usecases::review_change::{Progress, ReviewDeps};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::files_view::FilesView;
@@ -59,8 +61,6 @@ fn bug_reply(statement: &str) -> String {
     .to_string()
 }
 
-type CheckFn = dyn Fn(&Claim) -> sorcerer_models::Result<Checked> + Send + Sync;
-
 /// The pass's doubles: the vendored grammars' view, a stub reviewer and
 /// decider, a fixed clock and a claim checker that says right.
 struct Doubles {
@@ -68,16 +68,20 @@ struct Doubles {
     reviewer: StubReviewer,
     decider: StubDecider,
     clock: FixedClock,
-    checker: Box<CheckFn>,
+    checker: Box<dyn ClaimChecker>,
+    ports: support::Ports,
+    cancel: Cancel,
 }
 
 fn quiet(_: &Progress) {}
 
 impl Doubles {
     fn new(dir: &Path, reviewer: StubReviewer) -> Doubles {
-        let (_, view) = support::project_with_vendored_grammars(dir);
+        let (project, view) = support::project_with_vendored_grammars(dir);
         Doubles {
             view,
+            ports: support::Ports::of(&project),
+            cancel: Cancel::default(),
             reviewer,
             decider: StubDecider::new(),
             clock: FixedClock::at(t0()),
@@ -96,15 +100,19 @@ impl Doubles {
 }
 
 impl Wired for &Doubles {
-    fn deps(&self) -> PassDeps<'_> {
-        PassDeps {
+    fn deps(&self) -> ReviewDeps<'_> {
+        ReviewDeps {
             view: &self.view,
             reviewer: &self.reviewer,
             decider: &self.decider,
             checker: &*self.checker,
+            store: &self.ports.store,
+            ledger: &self.ports.ledger,
+            settings: &self.ports.settings,
             clock: &self.clock,
+            log: &Quiet,
             progress: &quiet,
-            trace: &scry::log::quiet,
+            cancel: &self.cancel,
         }
     }
 }
@@ -372,7 +380,7 @@ fn no_jev_key_exits_2_naming_jev_api_key() {
     let env = MapEnv::default().on_path("claude");
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = main_with(args(&[]), dir.path(), &env, &mut out, &mut err, 100, |p| {
-        Live::open(p, &env)
+        Wiring::open(p, &env)
     });
     let err = String::from_utf8(err).unwrap();
     assert_eq!(code, 2);
@@ -387,9 +395,9 @@ fn live_opens_with_claude_and_a_jev_key() {
         .on_path("claude")
         .var_set("JEV_API_KEY", "k");
     let p = Project::open(dir.path()).unwrap();
-    assert!(Live::open(&p, &env).is_ok());
+    assert!(Wiring::open(&p, &env).is_ok());
     let none = MapEnv::default().var_set("JEV_API_KEY", "k");
-    let e = Live::open(&p, &none).err().unwrap().to_string();
+    let e = Wiring::open(&p, &none).err().unwrap().to_string();
     assert!(e.contains("ANTHROPIC_API_KEY"), "{e}");
 }
 
@@ -402,7 +410,7 @@ fn doctor(dir: &Path, env: &MapEnv) -> Ran {
         &mut out,
         &mut err,
         100,
-        |_: &Project| -> anyhow::Result<Live> { panic!("doctor wires no pass") },
+        |_: &Project| -> anyhow::Result<Wiring> { panic!("doctor wires no pass") },
     );
     Ran {
         code,
@@ -521,7 +529,7 @@ fn the_live_claim_check_and_jev_record_as_scry() {
     let dir = changed_project();
     let (project, view) = support::project_with_vendored_grammars(dir.path());
     let researcher = Arc::new(Recording(Mutex::new(Vec::new()), Mutex::new(Vec::new())));
-    let check = checker_over(
+    let check = claim_checker(
         researcher.clone(),
         Arc::new(StubDecider::new()),
         Fences::for_project(&project).unwrap(),
@@ -538,7 +546,7 @@ fn the_live_claim_check_and_jev_record_as_scry() {
         }],
         kind: ClaimKind::Code,
     };
-    let _ = check(&claim);
+    let _ = check.check(&claim);
     let asked = researcher.0.lock().unwrap().clone();
     assert!(!asked.is_empty());
     // the project's languages reach the prompt: a Python file's unit wording
@@ -582,9 +590,10 @@ fn the_live_claim_check_and_jev_record_as_scry() {
 mod stored {
     use super::*;
     use chrono::FixedOffset;
-    use scry::store::{
-        Evidence, Finding, FindingId, Place, Scores, ScryStore, Status, StoredVerdict, store,
+    use scry::domain::finding::{
+        Evidence, Finding, FindingId, Place, Scores, Status, StoredVerdict,
     };
+    use scry::domain::findings::Findings;
     use sorcerer_core::domain::unit::Span;
 
     pub fn finding(id: &str, issue_type: &str, status: Status, file: &str, line: u32) -> Finding {
@@ -633,15 +642,13 @@ mod stored {
 
     pub fn put(dir: &Path, findings: Vec<Finding>) {
         let p = Project::open(dir).unwrap();
-        store(&p)
-            .unwrap()
-            .update(|s| {
-                *s = ScryStore {
-                    findings,
-                    ..Default::default()
-                }
-            })
-            .unwrap();
+        support::update_store(&p, |s| {
+            *s = Findings {
+                findings,
+                ..Default::default()
+            }
+        })
+        .unwrap();
     }
 
     pub fn three(dir: &Path) {
@@ -763,18 +770,22 @@ fn ny_doubles(dir: &Path) -> Doubles {
 fn cost_sums_by_local_day() {
     let dir = changed_project();
     ledger_fixture(dir.path());
-    let mut s = stored::finding("aaaa01", "bug", scry::store::Status::Waiting, "a.py", 1);
+    let mut s = stored::finding(
+        "aaaa01",
+        "bug",
+        scry::domain::finding::Status::Waiting,
+        "a.py",
+        1,
+    );
     s.statement.clear();
     let p = Project::open(dir.path()).unwrap();
-    scry::store::store(&p)
-        .unwrap()
-        .update(|st| {
-            st.findings.push(s);
-            st.capped
-                .insert("a.py".into(), ["f".to_string(), "g".to_string()].into());
-            st.capped.insert("b.py".into(), ["h".to_string()].into());
-        })
-        .unwrap();
+    support::update_store(&p, |st| {
+        st.findings.push(s);
+        st.capped
+            .insert("a.py".into(), ["f".to_string(), "g".to_string()].into());
+        st.capped.insert("b.py".into(), ["h".to_string()].into());
+    })
+    .unwrap();
     let d = ny_doubles(dir.path());
     let r = scry(dir.path(), &d, &["cost"]);
     let want = "day         reviews  checks  review $  check $  total $\n\
@@ -869,7 +880,13 @@ fn dismiss_unknown_exits_2() {
 #[test]
 fn why_prints_the_whole_cited_range() {
     let dir = changed_project();
-    let mut f = stored::finding("aaaa02", "bug", scry::finding::Status::Open, "orders.py", 2);
+    let mut f = stored::finding(
+        "aaaa02",
+        "bug",
+        scry::domain::finding::Status::Open,
+        "orders.py",
+        2,
+    );
     f.evidence[0].lines = sorcerer_core::domain::unit::Span { start: 5, end: 6 };
     stored::put(dir.path(), vec![f]);
     let d = plain_doubles(dir.path());
@@ -886,7 +903,7 @@ fn why_does_not_print_a_fenced_or_outside_citation() {
     let mut f = stored::finding(
         "aaaa03",
         "bug",
-        scry::finding::Status::Waiting,
+        scry::domain::finding::Status::Waiting,
         "orders.py",
         2,
     );
@@ -1197,7 +1214,7 @@ fn why_and_the_log_say_a_citation_stood_on_its_line() {
 
 #[test]
 fn a_store_written_before_cited_still_reads() {
-    let v: scry::finding::StoredVerdict =
+    let v: scry::domain::finding::StoredVerdict =
         serde_json::from_str(r#"{"verdict": "right", "why": "it does"}"#).unwrap();
     assert!(v.cited.is_empty());
     // and a verdict with nothing cited is written as before

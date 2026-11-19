@@ -2,8 +2,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
-use scry::finding::{Finding, FindingId, Place, Scores, Status};
-use scry::review::*;
+use scry::adapters::research_reviewer::ResearchReviewer;
+use scry::domain::finding::{Finding, FindingId, Place, Scores, Status};
+use scry::domain::review_prompt::*;
+use scry::ports::reviewer::Reviewer;
 use sorcerer_core::Cancel;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::unit::Span;
