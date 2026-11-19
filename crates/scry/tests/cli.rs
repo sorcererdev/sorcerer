@@ -487,3 +487,303 @@ fn the_live_claim_check_and_jev_record_as_scry() {
         rows.errands
     );
 }
+
+// ---- list, cost, dismiss, why ----
+
+mod stored {
+    use super::*;
+    use chrono::FixedOffset;
+    use scry::store::{
+        Evidence, Finding, Id, Place, Scores, ScryStore, Status, StoredVerdict, store,
+    };
+    use sorcerer_core::unit::Span;
+
+    pub fn finding(id: &str, kind: &str, status: Status, file: &str, line: u32) -> Finding {
+        let t: DateTime<Utc> = "2026-11-18T12:00:00Z".parse().unwrap();
+        Finding {
+            id: Id(id.into()),
+            kind: kind.into(),
+            rule: None,
+            statement: format!("statement of {id}"),
+            place: Place {
+                file: file.into(),
+                unit: Some("cancel".into()),
+                lines: Span {
+                    start: line,
+                    end: line + 1,
+                },
+                unit_start: Some(1),
+                fingerprint: None,
+            },
+            evidence: vec![Evidence {
+                file: file.into(),
+                lines: Span {
+                    start: line,
+                    end: line,
+                },
+                print: None,
+            }],
+            scores: Scores {
+                keep: Some(0.9),
+                asked_on: None,
+            },
+            verdict: Some(StoredVerdict {
+                verdict: "right".into(),
+                why: "the call passes it".into(),
+            }),
+            status,
+            seen: 3,
+            first: t,
+            last: t,
+            history: vec![(t, Status::Open)],
+            model: "sonnet".into(),
+            cost_usd: 0.04,
+        }
+    }
+
+    pub fn put(dir: &Path, findings: Vec<Finding>) {
+        let p = Project::open(dir).unwrap();
+        store(&p)
+            .unwrap()
+            .update(|s| {
+                *s = ScryStore {
+                    findings,
+                    ..Default::default()
+                }
+            })
+            .unwrap();
+    }
+
+    pub fn three(dir: &Path) {
+        let mut long = finding("aaaa02", "bug", Status::Open, "orders.py", 2);
+        long.rule = Some("Commands return a Result".into());
+        long.statement = "x".repeat(100);
+        put(
+            dir,
+            vec![
+                finding("cccc03", "convention", Status::Withheld, "a.py", 9),
+                long,
+                finding("bbbb01", "assumption", Status::Open, "orders.py", 1),
+            ],
+        );
+    }
+
+    pub fn ny() -> FixedOffset {
+        FixedOffset::west_opt(5 * 3600).unwrap()
+    }
+}
+
+fn plain_doubles(dir: &Path) -> Doubles {
+    Doubles::new(dir, StubFinder::new())
+}
+
+#[test]
+fn list_prints_the_table_open_first() {
+    let dir = changed_project();
+    stored::three(dir.path());
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["list"]);
+    let cut = format!("{}…", "x".repeat(79));
+    let want = format!(
+        "status    kind        file       line  rule                      statement\n\
+         open      assumption  orders.py  1     -                         statement of bbbb01\n\
+         open      bug         orders.py  2     Commands return a Result  {cut}\n\
+         withheld  convention  a.py       9     -                         statement of cccc03\n"
+    );
+    assert_eq!(
+        (r.code, r.out.as_str(), r.err.as_str()),
+        (0, want.as_str(), "")
+    );
+}
+
+#[test]
+fn list_filters_by_status() {
+    let dir = changed_project();
+    stored::three(dir.path());
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["list", "--status", "withheld"]);
+    assert_eq!(r.code, 0);
+    assert_eq!(r.out.lines().count(), 2, "{}", r.out);
+    assert!(r.out.contains("cccc03") && !r.out.contains("bbbb01"));
+    let r = scry(
+        dir.path(),
+        &d,
+        &["list", "--status", "withheld", "--status", "open"],
+    );
+    assert_eq!(r.out.lines().count(), 4);
+}
+
+#[test]
+fn list_json_has_the_fields() {
+    let dir = changed_project();
+    stored::three(dir.path());
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["list", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.out).unwrap();
+    let f = &v["findings"][1];
+    assert_eq!(f["id"], "aaaa02");
+    assert_eq!(f["status"], "open");
+    assert_eq!(f["kind"], "bug");
+    assert_eq!(f["file"], "orders.py");
+    assert_eq!(f["line"], 2);
+    assert_eq!(f["rule"], "Commands return a Result");
+    assert_eq!(f["keep"], 0.9);
+    assert_eq!(f["verdict"], "right");
+    assert_eq!(f["seen"], 3);
+    assert_eq!(v["findings"][0]["rule"], serde_json::Value::Null);
+}
+
+fn ledger_at(dir: &Path, rows: &[(&str, &str, &str, Option<f64>)]) {
+    let p = Project::open(dir).unwrap();
+    let ledger = Ledger::for_project(&p).unwrap();
+    for (at, product, verb, cost) in rows {
+        let mut e = support::errand(verb, "sonnet", 0.0);
+        e.at = at.parse().unwrap();
+        e.product = (*product).into();
+        e.cost_usd = *cost;
+        ledger.append(&e).unwrap();
+    }
+}
+
+fn ledger_fixture(dir: &Path) {
+    ledger_at(
+        dir,
+        &[
+            // the 17th in New York, the last two after midnight in UTC
+            ("2026-11-17T15:00:00Z", "scry", "find", Some(0.04)),
+            ("2026-11-18T03:00:00Z", "scry", "check", Some(0.016)),
+            ("2026-11-18T04:00:00Z", "scry", "decide", Some(0.001)),
+            // the 18th in New York (it turns at 05:00Z)
+            ("2026-11-18T05:30:00Z", "scry", "find", Some(0.04)),
+            ("2026-11-18T14:00:00Z", "scry", "find", Some(0.05)),
+            ("2026-11-18T14:05:00Z", "scry", "check", Some(0.02)),
+            ("2026-11-18T14:06:00Z", "scry", "decide", Some(0.01)),
+            ("2026-11-18T14:07:00Z", "conjure", "find", Some(9.0)),
+        ],
+    );
+}
+
+fn ny_doubles(dir: &Path) -> Doubles {
+    let mut d = plain_doubles(dir);
+    d.clock = FixedClock::at("2026-11-18T20:00:00Z".parse().unwrap()).in_zone(stored::ny());
+    d
+}
+
+#[test]
+fn cost_sums_by_local_day() {
+    let dir = changed_project();
+    ledger_fixture(dir.path());
+    let mut s = stored::finding("aaaa01", "bug", scry::store::Status::Waiting, "a.py", 1);
+    s.statement.clear();
+    let p = Project::open(dir.path()).unwrap();
+    scry::store::store(&p)
+        .unwrap()
+        .update(|st| {
+            st.findings.push(s);
+            st.capped
+                .insert("a.py".into(), ["f".to_string(), "g".to_string()].into());
+            st.capped.insert("b.py".into(), ["h".to_string()].into());
+        })
+        .unwrap();
+    let d = ny_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["cost"]);
+    let want = "day         finds  checks  find $  check $  total $\n\
+                2026-11-17  1      1       0.04    0.02     0.06\n\
+                2026-11-18  2      1       0.09    0.02     0.12\n\
+                waiting on the cap: 3 units\n";
+    assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, want, ""));
+    let j = scry(dir.path(), &d, &["cost", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&j.out).unwrap();
+    assert_eq!(v["waiting_units"], 3);
+    assert_eq!(v["days"][1]["day"], "2026-11-18");
+    assert_eq!(v["days"][1]["finds"], 2);
+    assert_eq!(v["days"][0]["checks"], 1);
+}
+
+#[test]
+fn cost_since_leaves_earlier_days_out() {
+    let dir = changed_project();
+    ledger_fixture(dir.path());
+    let d = ny_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["cost", "--since", "2026-11-18"]);
+    assert_eq!(
+        r.out,
+        "day         finds  checks  find $  check $  total $\n\
+         2026-11-18  2      1       0.09    0.02     0.12\n\
+         waiting on the cap: 0 units\n"
+    );
+    let bad = scry(dir.path(), &d, &["cost", "--since", "yesterday"]);
+    assert_eq!(bad.code, 2);
+}
+
+#[test]
+fn dismiss_by_prefix_then_a_run_no_longer_prints_it() {
+    let dir = changed_project();
+    let d = Doubles::new(
+        dir.path(),
+        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+    );
+    let first = scry(dir.path(), &d, &["--json"]);
+    assert_eq!(first.code, 1);
+    let id = serde_json::from_str::<serde_json::Value>(first.out.lines().next().unwrap()).unwrap()
+        ["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = scry(dir.path(), &d, &["dismiss", &id[..4]]);
+    assert_eq!(
+        (r.code, r.out.as_str()),
+        (0, format!("dismissed {id} (here)\n").as_str())
+    );
+    let again = scry(dir.path(), &d, &[]);
+    assert_eq!((again.code, again.out.as_str()), (0, ""));
+    let e = scry(dir.path(), &d, &["dismiss", &id, "--everywhere"]);
+    assert_eq!(e.out, format!("dismissed {id} (everywhere)\n"));
+}
+
+#[test]
+fn dismiss_unknown_exits_2() {
+    let dir = changed_project();
+    stored::three(dir.path());
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["dismiss", "ffffff"]);
+    assert_eq!(r.code, 2);
+    assert!(r.err.contains("no finding ffffff"), "{}", r.err);
+    let r = scry(dir.path(), &d, &["why", "ffffff"]);
+    assert_eq!(r.code, 2);
+}
+
+#[test]
+fn why_shows_rule_evidence_verdict_and_history() {
+    let dir = changed_project();
+    write(
+        dir.path(),
+        ".sorcerer/scry.md",
+        "## Rules\n\n### Commands return a Result (must)\nA command returns Result, never panics.\n",
+    );
+    stored::three(dir.path());
+    let d = plain_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["why", "aaaa"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    let want = format!(
+        "# bug: orders.py:2\n\n{}\n\n\
+         Rule: Commands return a Result (must)\n\
+         A command returns Result, never panics.\n\n\
+         Unit: cancel (orders.py:2-3)\n\n\
+         Evidence:\n\
+         orders.py:2\n\
+         \x20  1 def cancel(order):\n\
+         \x20  2     return order.cancel(now=True)\n\
+         \x20  3 \n\
+         \x20  4 \n\
+         \x20  5 def place(order):\n\
+         \x20  6     return order.place()\n\n\
+         Checked: right: the call passes it\n\
+         Keep: 0.90\n\
+         Seen: 3 times since 2026-11-18\n\n\
+         History:\n\
+         2026-11-18T12:00:00Z  open\n",
+        "x".repeat(100)
+    );
+    assert_eq!(r.out, want);
+}

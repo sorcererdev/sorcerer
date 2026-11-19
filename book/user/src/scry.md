@@ -23,6 +23,10 @@ scry --json                # the findings as JSON, one object a line
 scry --fresh               # look again at units already looked at as they are now
 scry --budget 0.50         # spend at most this much on this run
 scry doctor                # whether scry can run here
+scry list [--status S]...  # every finding in the store, open first (--json)
+scry cost [--since DAY]    # what scry spent, a local day a row (--json)
+scry dismiss 7f3a2c        # stop showing a finding (--everywhere: in every unit)
+scry why 7f3a2c            # a finding in full
 ```
 
 A run looks at the units in scope it has not already looked at as they are now, then prints
@@ -53,6 +57,26 @@ back (`scry: the day's cap stopped 2 units; they wait for the next run`).
 
 A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`) is passed as
 `./list`. `--since` takes no files.
+
+### Looking at the store
+
+`scry list` prints a table, `status  kind  file  line  rule  statement` (`-` when no rule, the
+statement cut to 80 characters), open findings first, then by file and line. `--status` (repeat
+it) keeps only those statuses (`open`, `waiting`, `withheld`, `refuted`, `unsure`, `elsewhere`,
+`dismissed-here`, `dismissed-everywhere`, `resolved`, `gone`). `--json` prints
+`{"findings": [{"id", "status", "kind", "file", "line", "rule", "statement", "keep",
+"verdict", "seen"}]}`.
+
+`scry cost` reads the ledger: a row for each of your local days, `day  finds  checks  find $
+check $  total $`, then `waiting on the cap: N units`. Jev's questions are in the total only.
+`--since 2026-11-01` leaves earlier days out; `--json` prints `{"days": [...],
+"waiting_units": N}`.
+
+`scry dismiss ID` takes the id or a unique prefix of four or more characters and prints
+`dismissed 7f3a2c (here)`; a dismissed finding is not shown again in that unit, or in any with
+`--everywhere`. `scry why ID` prints Markdown: the statement, the rule cited and its text, the
+unit, the cited lines with their code, the claim checker's verdict, the keep score, how often
+it was seen and its history. An unknown or ambiguous id exits 2. None of these four needs Jev.
 
 ### Exit codes
 

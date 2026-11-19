@@ -298,6 +298,16 @@ day's remaining"); then the store is read again and `shown_in_scope` takes every
 of a shown kind whose place's file and unit are a scope unit, best `keep` first, with no
 `max_shown`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
 one object a line. The summary line is skipped when nothing was shown, looked at or spent.
+
+The store commands (`list`, `cost`, `dismiss`, `why` in `src/cli.rs`) need no Jev, so `go` does
+not require the wiring: `clock_of` asks it for the clock (the tests' `FixedClock` carries the
+zone) and falls back to the system clock when `Live::open` fails. `list` sorts by
+`status_rank`, then file and line, and prints through `table` (columns padded to their widest
+cell). `cost` groups the ledger's `scry` errands by local day in the clock's offset
+(`BTreeMap` by date): `find` and `check` are counted and summed, `decide` only added to the
+total; the waiting units are the store's `capped` sets. `dismiss` is `ScryStore::dismiss`
+inside `Store::update`; `why` re-reads the steering for the rule's text and the file for
+`judge::cited_code`.
 `held_back` prints the failures and caps. Exit: `Skipped` or an error is 2; anything shown is
 1; else 2 when a find failed, a unit was capped or a claim check was held back
 (`Report::checks_capped`), else 0.
