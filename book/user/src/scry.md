@@ -81,7 +81,8 @@ leaves the waiting line out (`waiting_units` is `null`).
 unit and the line it starts on, each cited range with its code (two lines either side; a
 citation outside the project or on a fenced path, such as `.env`, is named but its code is not
 printed), the claim checker's verdict and, under `Cited by the check:`, each citation it
-gave with `confirmed` or `not found`, the keep score, how often
+gave with `confirmed`, `not found`, or `unit not found, confirmed on line N`, the keep
+score, how often
 it was seen and its history. An unknown or ambiguous id exits 2. None of these four needs Jev.
 
 ### Reading what a run did
@@ -109,7 +110,8 @@ and exit code do not change. The log holds, in run order:
   again) or gone.
 - **Verification**: per file and round, the candidates and the room, each finding's citations
   (holding, or which did not), and each claim check: the models, whether it escalated, the
-  verdict and reason, every citation the check gave with `confirmed` or `not found`, the cost,
+  verdict and reason, every citation the check gave with `confirmed`, `not found` or `unit not
+  found, confirmed on line N`, the cost,
   and the status that followed.
 - **Inspected**: the units marked looked at.
 - **Summary**: each finding the run added or changed, its status and why it is or is not
@@ -136,8 +138,12 @@ src/orders.rs Orders.cancel line 41: confirmed
 src/orders.rs Order.refund: not found
 ```
 
-The checker named a unit, `Order.refund`, that the file does not define, so it could not
-confirm the claim, and an unconfirmed claim is never shown. `scry log --list` finds the run
+The checker named a unit, `Order.refund`, that the file does not define, and gave no line, so
+it could not confirm the claim, and an unconfirmed claim is never shown. Had it given a line
+inside the file, the citation would stand on that line (`src/orders.rs Order.refund line 52:
+unit not found, confirmed on line 52`) and the verdict would be kept: a name the checker got
+wrong does not hide a real bug. A citation on a fenced path, outside the project, or past the
+end of its file never confirms. `scry log --list` finds the run
 that checked it, and its **Verification** section shows the same check with the models it
 went through and what it cost.
 

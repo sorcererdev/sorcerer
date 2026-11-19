@@ -80,9 +80,23 @@ pub struct StoredCitation {
     pub unit: Option<String>,
     pub line: Option<u32>,
     pub confirmed: bool,
+    /// Confirmed on its line although its unit was not found. Absent when
+    /// false, and in stores written before it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unit_missed: bool,
 }
 
 impl StoredCitation {
+    /// `confirmed`, `not found`, or, for one that stood on its line,
+    /// `unit not found, confirmed on line N` (the label names the unit).
+    pub fn outcome(&self) -> String {
+        match (self.confirmed, self.unit_missed, self.line) {
+            (true, true, Some(l)) => format!("unit not found, confirmed on line {l}"),
+            (true, _, _) => "confirmed".into(),
+            (false, _, _) => "not found".into(),
+        }
+    }
+
     /// `path unit line N`, the parts it has.
     pub fn label(&self) -> String {
         let mut s = self.path.clone();

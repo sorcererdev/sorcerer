@@ -60,7 +60,8 @@ life), `kind`, optional `rule`, `statement`, a `Place` (file, unit, lines, `unit
 `Fingerprint`), `Vec<Evidence>` (file, lines, and the `print` of the cited code when verified),
 `Scores` (`keep`, and `asked_on`, what the nitpick judgement was asked about), an optional
 `StoredVerdict` (`right`, `wrong`, `cannot_tell`, or the citation failure, with its reason,
-and `cited`, each `StoredCitation` behind it with `confirmed`: what the claim check cited, or
+and `cited`, each `StoredCitation` behind it with `confirmed` and `unit_missed` (skipped when
+false; `StoredCitation::outcome` words it for the log and `why`): what the claim check cited, or
 for a citation failure the finding's own evidence; `serde(default)` and skipped when empty,
 so a store from before it reads and one with nothing cited is written as before),
 `status`, `seen`, `first`, `last`, `history`, and the `model` and `cost_usd` of the find.
@@ -323,9 +324,10 @@ next round, which takes the rest. The rounds end when a round takes nobody.
 - The view, a `FilesView` on the user's `GrammarCache`.
 - The finder, `LiveFinder`, which lends the shared researcher to a `ResearchFinder` per call
   (scry's `find`).
-- The claim checker, `checker_over(researcher, decider, fences, view, cancel)`: a boxed
-  closure that runs `sorcerer_models::checker::check` with `CheckerDeps::defaults(.., "scry")`,
-  so its errands are scry's `check` and Jev guards it.
+- The claim checker, `checker_over(researcher, decider, fences, view, languages, cancel)`: a
+  boxed closure that runs `sorcerer_models::checker::check` with
+  `CheckerDeps::defaults(.., "scry")` and the project's `languages`, so its errands are scry's
+  `check`, Jev guards it, and its prompt names units the way the claim's files' language does.
 - `SystemClock`, a progress callback that prints nothing, and `log::quiet` as the trace (the
   command line puts its own in).
 

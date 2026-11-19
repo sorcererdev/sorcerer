@@ -5,16 +5,69 @@
 //! instructions and sides (`guardQuestions`, `checkWords`, `verdictWords`)
 //! from `Server/Cascade.hs`. They are what the corpus measured: change
 //! them only against the record.
+//!
+//! Departures from olifant's words: the claim prompt names a unit the way
+//! the claim's language does (its `unit_words`, else a neutral fallback)
+//! where olifant always said `Class.method`, and it asks for the line too,
+//! since a citation whose unit name does not resolve now stands on its
+//! line (`confirm_one`).
 
 use serde_json::Value;
+use sorcerer_core::language::Languages;
 
 use super::{Claim, Verdict};
 use crate::decide::{Question, Shape};
 
-const EVIDENCE_SHAPE: &str = r#"{"path": "<path relative to the current directory>", "unit": "<function or class name, or null>", "line": <line number, or null>}"#;
+const EVIDENCE_SHAPE: &str = r#"{"path": "<path relative to the current directory>", "unit": "<unit name, or null>", "line": <line number, or null>}"#;
 
-/// The prompt a researcher is given to check CLAIM against the code.
-pub fn claim_prompt(claim: &Claim) -> String {
+/// How a unit is named when no language says: the claim's files have no
+/// language, or theirs has no `unit_words`.
+pub const NEUTRAL_UNIT_WORDS: &str = "a function, class or method name";
+
+/// The sentence saying what "unit" holds, in the words of each language
+/// the claim's files are in: one language's `unit_words`, or for several,
+/// each one's after the files it covers.
+fn unit_sentence(claim: &Claim, languages: Option<&Languages>) -> String {
+    let words_for = |f: &std::path::Path| {
+        languages
+            .and_then(|ls| ls.for_path(f))
+            .and_then(|l| l.unit_words.clone())
+            .unwrap_or_else(|| NEUTRAL_UNIT_WORDS.to_string())
+    };
+    // each distinct wording, in order, with the files it covers
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for c in &claim.about {
+        let w = words_for(&c.file);
+        let f = format!("`{}`", c.file.display());
+        match groups.iter_mut().find(|(g, _)| *g == w) {
+            Some((_, fs)) if fs.contains(&f) => {}
+            Some((_, fs)) => fs.push(f),
+            None => groups.push((w, vec![f])),
+        }
+    }
+    let head = r#"In evidence, "unit" is"#;
+    let tail = "For anything else (a template, a heading, part of a function, several names) give null and the line. Give the line too, so the citation can be checked if the name is not found.";
+    match groups.as_slice() {
+        [] => {
+            format!("{head} {NEUTRAL_UNIT_WORDS}, exactly as the file defines it, or null. {tail}")
+        }
+        [(w, _)] => format!("{head} {w}, exactly as the file defines it, or null. {tail}"),
+        _ => {
+            let each: Vec<String> = groups
+                .iter()
+                .map(|(w, fs)| format!("in {}, {w}", fs.join(", ")))
+                .collect();
+            format!(
+                "{head} one name exactly as the file defines it, or null: {}. {tail}",
+                each.join("; ")
+            )
+        }
+    }
+}
+
+/// The prompt a researcher is given to check CLAIM against the code, a
+/// unit named the way the language of the claim's files names one.
+pub fn claim_prompt(claim: &Claim, languages: Option<&Languages>) -> String {
     let mut lines: Vec<String> = vec![
         "Check one sentence of a software plan against this repository (the current directory)."
             .into(),
@@ -47,10 +100,10 @@ pub fn claim_prompt(claim: &Claim) -> String {
         [
             "```",
             "For right or wrong, give at least one evidence entry: the code the verdict rests on.",
-            r#"In evidence, "unit" is the exact name of one function, class or method as the file defines it (Class.method for a method), or null. For anything else (a template, a heading, part of a function, several names) give null and the line. A unit the file does not define voids the verdict."#,
         ]
         .map(String::from),
     );
+    lines.push(unit_sentence(claim, languages));
     lines.iter().map(|l| format!("{l}\n")).collect()
 }
 

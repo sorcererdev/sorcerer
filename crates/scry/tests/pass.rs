@@ -655,6 +655,7 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
                         line: Some(2),
                     },
                     confirmed: true,
+                    unit_missed: false,
                 },
                 Cited {
                     raw: RawCitation {
@@ -663,6 +664,7 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
                         line: None,
                     },
                     confirmed: false,
+                    unit_missed: false,
                 },
             ],
             escalated: true,

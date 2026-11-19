@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use sorcerer_core::fences::Fences;
 use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::language::GrammarSource;
+use sorcerer_core::language::{GrammarSource, Languages};
 use sorcerer_core::unit::Span;
 use sorcerer_core::view::FilesView;
 use sorcerer_core::{Cancel, Project};
@@ -19,11 +19,13 @@ use sorcerer_models::research::{Research, Researched, Researcher};
 struct Stub {
     by_model: HashMap<String, String>,
     asked: Mutex<Vec<String>>,
+    prompts: Mutex<Vec<String>>,
 }
 
 impl Researcher for Stub {
     fn research(&self, r: Research, _: &Cancel) -> sorcerer_models::Result<Researched> {
         self.asked.lock().unwrap().push(r.model.clone());
+        self.prompts.lock().unwrap().push(r.prompt.clone());
         let mut errand = sorcerer_core::ledger::Errand {
             at: chrono::Utc::now(),
             product: r.product.clone(),
@@ -127,6 +129,7 @@ fn stub(answers: &[(&str, String)]) -> Stub {
             .map(|(m, a)| (m.to_string(), a.clone()))
             .collect(),
         asked: Mutex::new(vec![]),
+        prompts: Mutex::new(vec![]),
     }
 }
 
@@ -134,10 +137,12 @@ fn deps<'a>(w: &'a World, r: &'a Stub, d: Option<&'a dyn Decider>) -> CheckerDep
     CheckerDeps::defaults(r, d, &w.fences, &w.view, "scry")
 }
 
+/// olifant's prompt, but for the unit wording (here neutral: the claim
+/// points at no file) and the line asked for alongside a unit.
 #[test]
 fn the_prompt_is_olifants() {
     assert_eq!(
-        claim_prompt(&claim()),
+        claim_prompt(&claim(), None),
         std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/claim-prompt.txt")
         )
@@ -241,7 +246,7 @@ fn a_citation_into_a_fenced_file_is_cannot_tell() {
 }
 
 #[test]
-fn a_unit_the_file_does_not_define_is_cannot_tell() {
+fn a_unit_the_file_does_not_define_with_no_line_is_cannot_tell() {
     let w = world();
     let r = stub(&[(
         "sonnet",
@@ -322,4 +327,135 @@ fn every_raw_citation_is_kept_with_whether_it_confirmed() {
             ("src/orders.py", Some("refund"), false),
         ]
     );
+}
+
+fn claim_about(files: &[&str]) -> Claim {
+    Claim {
+        about: files
+            .iter()
+            .map(|f| Citation {
+                file: PathBuf::from(f),
+                lines: Span { start: 1, end: 1 },
+                print: None,
+            })
+            .collect(),
+        ..claim()
+    }
+}
+
+fn shipped() -> Languages {
+    Languages::assemble(tempfile::TempDir::new().unwrap().path(), &[]).unwrap()
+}
+
+#[test]
+fn a_claim_on_a_rust_file_names_units_the_rust_way() {
+    let ls = shipped();
+    let p = claim_prompt(&claim_about(&["src/checker.rs"]), Some(&ls));
+    assert!(p.contains("(Type::method)"), "{p}");
+    assert!(!p.contains("Class.method"), "{p}");
+}
+
+#[test]
+fn a_claim_on_a_python_file_names_units_the_python_way() {
+    let ls = shipped();
+    let p = claim_prompt(&claim_about(&["src/orders.py"]), Some(&ls));
+    assert!(p.contains("(Class.method)"), "{p}");
+    assert!(!p.contains("Type::method"), "{p}");
+}
+
+#[test]
+fn a_claim_on_a_file_no_language_covers_names_units_neutrally() {
+    let ls = shipped();
+    for p in [
+        claim_prompt(&claim_about(&["notes.txt"]), Some(&ls)),
+        claim_prompt(&claim_about(&["src/orders.py"]), None),
+        claim_prompt(&claim(), Some(&ls)),
+    ] {
+        assert!(p.contains("a function, class or method name"), "{p}");
+        assert!(
+            !p.contains("Class.method") && !p.contains("Type::method"),
+            "{p}"
+        );
+    }
+}
+
+#[test]
+fn a_claim_across_languages_names_each_ones_units() {
+    let ls = shipped();
+    let p = claim_prompt(
+        &claim_about(&["src/orders.py", "src/checker.rs", "src/more.py"]),
+        Some(&ls),
+    );
+    assert!(
+        p.contains("(Class.method)") && p.contains("(Type::method)"),
+        "{p}"
+    );
+    assert!(p.contains("`src/orders.py`, `src/more.py`"), "{p}");
+}
+
+#[test]
+fn the_checker_asks_in_the_claims_language() {
+    let w = world();
+    let r = stub(&[("sonnet", reply("right", GOOD))]);
+    let ls = shipped();
+    let mut d = deps(&w, &r, None);
+    d.languages = Some(&ls);
+    check(&claim_about(&["src/orders.py"]), &d, &Cancel::default()).unwrap();
+    assert!(r.prompts.lock().unwrap()[0].contains("(Class.method)"));
+}
+
+#[test]
+fn an_unknown_unit_with_a_good_line_is_confirmed_on_the_line() {
+    let w = world();
+    let r = stub(&[(
+        "sonnet",
+        reply(
+            "right",
+            r#"{"path": "src/orders.py", "unit": "Orders::cancel_it", "line": 2}"#,
+        ),
+    )]);
+    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    assert_eq!(c.verdict, Verdict::Right);
+    assert_eq!(c.citations[0].lines, Span { start: 2, end: 2 });
+    assert!(c.citations[0].print.is_some());
+    assert!(c.cited[0].confirmed && c.cited[0].unit_missed);
+}
+
+#[test]
+fn a_found_unit_is_not_marked_missed() {
+    let w = world();
+    let r = stub(&[("sonnet", reply("right", GOOD))]);
+    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    assert!(c.cited[0].confirmed && !c.cited[0].unit_missed);
+}
+
+#[test]
+fn an_unknown_unit_with_a_line_past_the_end_is_cannot_tell() {
+    let w = world();
+    let r = stub(&[(
+        "sonnet",
+        reply(
+            "right",
+            r#"{"path": "src/orders.py", "unit": "refund", "line": 99}"#,
+        ),
+    )]);
+    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    assert_eq!(c.verdict, Verdict::CannotTell);
+    assert!(!c.cited[0].confirmed);
+}
+
+#[test]
+fn a_fenced_file_with_a_good_unit_is_cannot_tell() {
+    let w = world();
+    // a Python file the fences hold back (`.env*`), defining the unit cited
+    support::write(w._d.path(), ".env.py", "def cancel():\n    pass\n");
+    let r = stub(&[(
+        "sonnet",
+        reply(
+            "right",
+            r#"{"path": ".env.py", "unit": "cancel", "line": 1}"#,
+        ),
+    )]);
+    let c = check(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
+    assert_eq!(c.verdict, Verdict::CannotTell);
 }

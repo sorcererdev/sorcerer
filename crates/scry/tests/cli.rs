@@ -467,11 +467,12 @@ fn doctor_rows_load_the_project_languages_and_name_a_bad_store() {
     assert!(get("ledger").is_ok());
 }
 
-/// A researcher that records what it was asked as, and fails.
-struct Recording(Mutex<Vec<(String, String)>>);
+/// A researcher that records what it was asked as, and the prompt, and fails.
+struct Recording(Mutex<Vec<(String, String)>>, Mutex<Vec<String>>);
 
 impl Researcher for Recording {
     fn research(&self, r: Research, _: &Cancel) -> sorcerer_models::Result<Researched> {
+        self.1.lock().unwrap().push(r.prompt.clone());
         self.0.lock().unwrap().push((r.product, r.verb));
         Err(sorcerer_models::Error::Reply {
             provider: "stub".into(),
@@ -484,22 +485,30 @@ impl Researcher for Recording {
 fn the_live_claim_check_and_jev_record_as_scry() {
     let dir = changed_project();
     let (project, view) = support::project_with_vendored_grammars(dir.path());
-    let researcher = Arc::new(Recording(Mutex::new(Vec::new())));
+    let researcher = Arc::new(Recording(Mutex::new(Vec::new()), Mutex::new(Vec::new())));
     let check = checker_over(
         researcher.clone(),
         Arc::new(StubDecider::new()),
         Fences::for_project(&project).unwrap(),
         Arc::new(view) as Arc<dyn CodebaseView>,
+        project.languages.clone(),
         Cancel::default(),
     );
     let claim = Claim {
         statement: "cancel passes now".into(),
-        about: Vec::new(),
+        about: vec![sorcerer_models::checker::Citation {
+            file: "orders.py".into(),
+            lines: sorcerer_core::unit::Span { start: 1, end: 1 },
+            print: None,
+        }],
         kind: ClaimKind::Code,
     };
     let _ = check(&claim);
     let asked = researcher.0.lock().unwrap().clone();
     assert!(!asked.is_empty());
+    // the project's languages reach the prompt: a Python file's unit wording
+    let prompt = researcher.1.lock().unwrap()[0].clone();
+    assert!(prompt.contains("(Class.method)"), "{prompt}");
     assert!(
         asked.iter().all(|(p, v)| p == "scry" && v == "check"),
         "{asked:?}"
@@ -1065,6 +1074,7 @@ fn why_names_the_citation_a_check_could_not_confirm() {
                         line: Some(2),
                     },
                     confirmed: true,
+                    unit_missed: false,
                 },
                 Cited {
                     raw: RawCitation {
@@ -1073,6 +1083,7 @@ fn why_names_the_citation_a_check_could_not_confirm() {
                         line: None,
                     },
                     confirmed: false,
+                    unit_missed: false,
                 },
             ],
             escalated: false,
@@ -1101,6 +1112,48 @@ fn why_names_the_citation_a_check_could_not_confirm() {
     );
     assert!(
         w.out.contains("orders.py Order.refund: not found\n"),
+        "{}",
+        w.out
+    );
+}
+
+#[test]
+fn why_and_the_log_say_a_citation_stood_on_its_line() {
+    use sorcerer_models::checker::{Cited, RawCitation};
+    let dir = changed_project();
+    let mut d = bug_doubles(dir.path());
+    d.checker = Box::new(|_: &Claim| {
+        Ok(Checked {
+            verdict: Verdict::Right,
+            why: "it does".into(),
+            citations: Vec::new(),
+            cited: vec![Cited {
+                raw: RawCitation {
+                    path: "orders.py".into(),
+                    unit: Some("Orders::cancel".into()),
+                    line: Some(2),
+                },
+                confirmed: true,
+                unit_missed: true,
+            }],
+            escalated: false,
+            errands: Vec::new(),
+        })
+    });
+    let r = scry(dir.path(), &d, &["--verbose"]);
+    assert!(
+        r.err
+            .contains("`orders.py` `Orders::cancel` line 2: unit not found, confirmed on line 2"),
+        "{}",
+        r.err
+    );
+    let s = scry(dir.path(), &d, &["list", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(s.out.trim()).unwrap();
+    let id = v["findings"][0]["id"].as_str().unwrap().to_string();
+    let w = scry(dir.path(), &d, &["why", &id]);
+    assert!(
+        w.out
+            .contains("orders.py Orders::cancel line 2: unit not found, confirmed on line 2\n"),
         "{}",
         w.out
     );
