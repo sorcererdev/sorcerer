@@ -1,4 +1,4 @@
 {
-  "reply": "{\"findings\": [{\"kind\": \"convention\", \"file\": \"src/bistro/main.py\", \"lines\": [32, 32], \"statement\": \"GetDaySummary is built with a positional argument, `GetDaySummary(booking_repository)`, while the neighbouring queries and commands use keyword arguments one per line. Adding a second dependency later would then not be a one-line change.\", \"rule\": \"main-keywords\", \"evidence\": [{\"file\": \"src/bistro/main.py\", \"lines\": [25, 31]}]}], \"open\": []}",
+  "reply": "{\"findings\": [{\"issue_type\": \"convention\", \"file\": \"src/bistro/main.py\", \"lines\": [32, 32], \"statement\": \"GetDaySummary is built with a positional argument, `GetDaySummary(booking_repository)`, while the neighbouring queries and commands use keyword arguments one per line. Adding a second dependency later would then not be a one-line change.\", \"rule\": \"main-keywords\", \"evidence\": [{\"file\": \"src/bistro/main.py\", \"lines\": [25, 31]}]}], \"open\": []}",
   "cost_usd": 0.04
 }
