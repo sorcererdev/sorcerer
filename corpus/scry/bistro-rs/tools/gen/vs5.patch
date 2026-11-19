@@ -1,0 +1,98 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..afa6d33 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -20,12 +20,16 @@ pub enum CreateBookingFailure {
+     SlotTaken { reason: String },
+     PartyTooLarge { reason: String },
+     TableNotFound { reason: String },
++    PartyOverPolicyLimit { reason: String },
+ }
+ 
++pub const MAX_PARTY: u32 = 8;
++
+ impl CreateBookingFailure {
+     pub fn reason(&self) -> &str {
+         match self {
+             CreateBookingFailure::SlotTaken { reason }
++            | CreateBookingFailure::PartyOverPolicyLimit { reason }
+             | CreateBookingFailure::PartyTooLarge { reason }
+             | CreateBookingFailure::TableNotFound { reason } => reason,
+         }
+@@ -43,6 +47,11 @@ impl CreateBooking {
+     }
+ 
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
++        if input.party > MAX_PARTY {
++            return Err(CreateBookingFailure::PartyOverPolicyLimit {
++                reason: format!("a booking is for at most {} people", MAX_PARTY),
++            });
++        }
+         let Some(table) = self.bookings.table(&input.table_id) else {
+             return Err(CreateBookingFailure::TableNotFound {
+                 reason: format!("there is no table {}", input.table_id),
+@@ -142,6 +151,21 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn a_party_over_the_policy_limit_is_refused_on_any_table() {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "big".into(),
++            seats: 20,
++        }]));
++        let create = CreateBooking::new(bookings, Rc::new(SequentialIds::default()));
++        let result = create.handle(input("big", 9, "Ada"));
++        assert!(matches!(
++            result,
++            Err(CreateBookingFailure::PartyOverPolicyLimit { .. })
++        ));
++        assert!(create.handle(input("big", 8, "Ada")).is_ok());
++    }
++
+     #[test]
+     fn an_unknown_table_is_not_found() {
+         let (create, _) = command();
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..99d7e06 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -7,5 +7,6 @@ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+         CreateBookingFailure::SlotTaken { .. } => 409,
+         CreateBookingFailure::PartyTooLarge { .. } => 422,
+         CreateBookingFailure::TableNotFound { .. } => 404,
++        CreateBookingFailure::PartyOverPolicyLimit { .. } => 422,
+     }
+ }
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..ae5eca1 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -81,9 +81,13 @@ mod tests {
+     use crate::booking::queries::get_day_schedule::GetDaySchedule;
+ 
+     fn app() -> App {
++        app_with_seats(4)
++    }
++
++    fn app_with_seats(seats: u32) -> App {
+         let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
+             id: "t1".into(),
+-            seats: 4,
++            seats,
+         }]));
+         App {
+             create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
+@@ -134,6 +138,12 @@ mod tests {
+         assert_eq!(create_booking(&form(&[("party", "9")]), &app()).status, 422);
+     }
+ 
++    #[test]
++    fn a_party_over_the_policy_limit_is_refused_even_if_the_table_fits() {
++        let response = create_booking(&form(&[("party", "9")]), &app_with_seats(20));
++        assert_eq!(response.status, 422);
++    }
++
+     #[test]
+     fn an_unknown_table_is_not_found() {
+         assert_eq!(

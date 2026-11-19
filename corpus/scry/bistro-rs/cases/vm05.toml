@@ -1,0 +1,12 @@
+id = "vm05"
+set = "V-must"
+scenario = "cancel a booking"
+patch = "cases/vm05.patch"
+rule = "failures-returned"
+rule_class = "evidenced"
+rule_broken = true
+planted_lines = ["src/booking/commands/cancel_booking.rs:26"]
+expect = "CancelBooking::handle panics on an unknown booking id, which a guest can cause, instead of returning a failure variant in Err."
+made = "hand: tools/gen/vm05.derive.py on twin t05; the natural try fr1 returned the failure"
+twin = "t05"
+changed_files = ["src/booking/commands/cancel_booking.rs", "src/booking/commands/mod.rs", "src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs"]

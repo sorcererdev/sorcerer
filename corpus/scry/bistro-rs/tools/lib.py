@@ -3,7 +3,7 @@
 Every answer is cached under tools/cache/claude by a hash of the request; a rerun without
 EXP_LIVE=1 replays it and costs nothing, and an uncached request without EXP_LIVE=1 is an error.
 EXP_CEILING (default 4.0, claude-reported USD) stops a live run before it would pass the ceiling."""
-import glob, hashlib, json, os, subprocess, time
+import glob, hashlib, json, os, shutil, subprocess, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXP = os.path.dirname(HERE)  # corpus/scry/bistro-rs
@@ -32,12 +32,20 @@ def sh(args, cwd=None, cap=300, check=True, env=None):
     return r
 
 
+def clear(d):
+    """Removes D, a directory this harness made under the scratch directory, and nothing else."""
+    scratch = os.path.realpath(SCRATCH)
+    if not os.path.realpath(d).startswith(scratch + os.sep):
+        raise RuntimeError(f"refusing to remove {d}: not under {scratch}")
+    shutil.rmtree(d)
+
+
 def base_repo():
     """base/ committed into a git repository under the scratch directory, made once a harness run, so
     copies are clones and patches apply with git."""
-    d = os.path.join(SCRATCH, "base-repo")
+    d = os.path.join(SCRATCH, f"base-repo-{os.getpid()}")  # one a process: gen runs side by side
     if os.path.exists(d):
-        sh(["rm", "-rf", d])
+        clear(d)
     os.makedirs(SCRATCH, exist_ok=True)
     sh(["cp", "-R", BASE, d])
     sh(["git", "init", "-q"], cwd=d)
@@ -56,7 +64,7 @@ def fresh_copy(name):
         _BASE_REPO = base_repo()
     d = os.path.join(SCRATCH, name)
     if os.path.exists(d):
-        sh(["rm", "-rf", d])
+        clear(d)
     sh(["git", "clone", "-q", _BASE_REPO, d])
     return d
 

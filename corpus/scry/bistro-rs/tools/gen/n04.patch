@@ -1,0 +1,30 @@
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..99095b3 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -51,7 +51,10 @@ fn create_booking_input(form: &Form) -> Result<CreateBookingInput, Response> {
+             start: parsed::<Time>(form, "start")?,
+         },
+         party,
+-        guest: field(form, "guest")?.to_string(),
++        guest: field(form, "guest")?
++            .split_whitespace()
++            .collect::<Vec<_>>()
++            .join(" "),
+     })
+ }
+ 
+@@ -119,6 +122,13 @@ mod tests {
+         assert!(response.body.contains("Ada"));
+     }
+ 
++    #[test]
++    fn the_guest_name_is_tidied() {
++        let response = create_booking(&form(&[("guest", "  Ada   Lovelace ")]), &app());
++        assert_eq!(response.status, 201);
++        assert!(response.body.contains("Booked: Ada Lovelace for 2"));
++    }
++
+     #[test]
+     fn a_taken_slot_is_a_conflict() {
+         let app = app();

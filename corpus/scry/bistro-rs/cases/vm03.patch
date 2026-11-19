@@ -1,0 +1,46 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..637f89d 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -4,7 +4,10 @@ use std::rc::Rc;
+ 
+ use crate::booking::models::booking::Booking;
+ use crate::booking::models::slot::Slot;
++use crate::booking::models::table::Table;
++use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+ use crate::booking::ports::booking_repository::BookingRepository;
++use crate::booking::ports::id_generator::in_memory::SequentialIds;
+ use crate::booking::ports::id_generator::IdGenerator;
+ 
+ #[derive(Debug, Clone, PartialEq, Eq)]
+@@ -42,6 +45,20 @@ impl CreateBooking {
+         CreateBooking { bookings, ids }
+     }
+ 
++    pub fn demo() -> CreateBooking {
++        let tables = [("t1", 2), ("t2", 4), ("t3", 6)]
++            .into_iter()
++            .map(|(id, seats)| Table {
++                id: id.into(),
++                seats,
++            })
++            .collect();
++        CreateBooking::new(
++            Rc::new(InMemoryBookingRepository::new(tables)),
++            Rc::new(SequentialIds::default()),
++        )
++    }
++
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
+         let Some(table) = self.bookings.table(&input.table_id) else {
+             return Err(CreateBookingFailure::TableNotFound {
+@@ -77,9 +94,6 @@ impl CreateBooking {
+ mod tests {
+     use super::*;
+     use crate::booking::models::slot::{Day, Time};
+-    use crate::booking::models::table::Table;
+-    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+-    use crate::booking::ports::id_generator::in_memory::SequentialIds;
+ 
+     fn seven() -> Slot {
+         Slot {

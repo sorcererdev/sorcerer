@@ -1,0 +1,12 @@
+id = "b03"
+set = "B"
+scenario = "opening hours"
+patch = "cases/b03.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/booking/commands/create_booking.rs:49"]
+expect = "The opening-hours check refuses 17:00 itself (<= 17:00), though bookings are taken from 17:00."
+made = "hand: tools/gen/b03.derive.py on twin t04's feature: the test's open slots moved from 17:00 to 17:30"
+twin = ""
+changed_files = ["src/booking/commands/create_booking.rs", "src/web/bookings/failures.rs"]

@@ -1,0 +1,74 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..4301780 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -19,14 +19,18 @@ pub struct CreateBookingInput {
+ pub enum CreateBookingFailure {
+     SlotTaken { reason: String },
+     PartyTooLarge { reason: String },
++    PartyOverLimit { reason: String },
+     TableNotFound { reason: String },
+ }
+ 
++const MAX_PARTY: u32 = 8;
++
+ impl CreateBookingFailure {
+     pub fn reason(&self) -> &str {
+         match self {
+             CreateBookingFailure::SlotTaken { reason }
+             | CreateBookingFailure::PartyTooLarge { reason }
++            | CreateBookingFailure::PartyOverLimit { reason }
+             | CreateBookingFailure::TableNotFound { reason } => reason,
+         }
+     }
+@@ -48,6 +52,11 @@ impl CreateBooking {
+                 reason: format!("there is no table {}", input.table_id),
+             });
+         };
++        if input.party > MAX_PARTY {
++            return Err(CreateBookingFailure::PartyOverLimit {
++                reason: format!("no booking may be for more than {MAX_PARTY} people"),
++            });
++        }
+         if input.party > table.seats {
+             return Err(CreateBookingFailure::PartyTooLarge {
+                 reason: format!(
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..5340237 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -6,6 +6,7 @@ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+     match failure {
+         CreateBookingFailure::SlotTaken { .. } => 409,
+         CreateBookingFailure::PartyTooLarge { .. } => 422,
++        CreateBookingFailure::PartyOverLimit { .. } => 422,
+         CreateBookingFailure::TableNotFound { .. } => 404,
+     }
+ }
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..62b7320 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -134,6 +134,22 @@ mod tests {
+         assert_eq!(create_booking(&form(&[("party", "9")]), &app()).status, 422);
+     }
+ 
++    #[test]
++    fn a_party_over_the_limit_is_refused_even_at_a_big_table() {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "t1".into(),
++            seats: 12,
++        }]));
++        let app = App {
++            create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
++            get_day_schedule: GetDaySchedule::new(bookings),
++        };
++        let response = create_booking(&form(&[("party", "9")]), &app);
++        assert_eq!(response.status, 422);
++        assert!(response.body.contains("more than 8"));
++        assert_eq!(create_booking(&form(&[("party", "8")]), &app).status, 201);
++    }
++
+     #[test]
+     fn an_unknown_table_is_not_found() {
+         assert_eq!(

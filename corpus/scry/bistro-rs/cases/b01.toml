@@ -1,0 +1,12 @@
+id = "b01"
+set = "B"
+scenario = "change party size"
+patch = "cases/b01.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/booking/commands/change_party_size.rs:49"]
+expect = "ChangePartySize refuses a party equal to the table's seats (>= where CreateBooking uses >), so a party that exactly fills its table cannot be set."
+made = "hand: tools/gen/b01.derive.py on feature base f-party: the added test's party changed from 4 to 3"
+twin = ""
+changed_files = ["src/booking/commands/change_party_size.rs", "src/booking/commands/mod.rs", "src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs"]

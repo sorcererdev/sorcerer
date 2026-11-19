@@ -1,0 +1,12 @@
+id = "t02"
+set = "T"
+scenario = "guest's bookings"
+patch = "cases/t02.patch"
+rule = "web-commands"
+rule_class = "pattern"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t02)"
+twin = "vm02"
+changed_files = ["src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs", "src/booking/queries/find_guest_bookings.rs", "src/booking/queries/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/pages.rs", "src/web/bookings/routes.rs"]

@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Opening hours: the restaurant takes bookings only from 17:00 to 21:30 and is closed on Mondays. Put the check on Slot in src/booking/models/slot.rs and have the create-booking route refuse a slot outside the hours. Work only in src/booking/models/slot.rs and src/web/bookings/routes.rs.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "ve2b"
+ },
+ "result": "I added `Slot::is_within_opening_hours` in `slot.rs` (17:00\u201321:30 inclusive, not Monday), and `create_booking` in `routes.rs` now returns 422 \"the restaurant is closed at that time\" for slots outside those hours. I haven't run `cargo test` or `cargo clippy`, and I didn't add any tests for the new check.",
+ "cost": 0.0383753,
+ "secs": 6.5,
+ "turns": 5,
+ "subtype": "success"
+}

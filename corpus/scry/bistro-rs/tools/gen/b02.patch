@@ -1,0 +1,78 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..1a4ac65 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -20,6 +20,7 @@ pub enum CreateBookingFailure {
+     SlotTaken { reason: String },
+     PartyTooLarge { reason: String },
+     TableNotFound { reason: String },
++    GuestAlreadyBooked { reason: String },
+ }
+ 
+ impl CreateBookingFailure {
+@@ -27,7 +28,8 @@ impl CreateBookingFailure {
+         match self {
+             CreateBookingFailure::SlotTaken { reason }
+             | CreateBookingFailure::PartyTooLarge { reason }
+-            | CreateBookingFailure::TableNotFound { reason } => reason,
++            | CreateBookingFailure::TableNotFound { reason }
++            | CreateBookingFailure::GuestAlreadyBooked { reason } => reason,
+         }
+     }
+ }
+@@ -61,6 +63,16 @@ impl CreateBooking {
+                 reason: format!("table {} is booked at {}", table.id, input.slot.start),
+             });
+         }
++        if self
++            .bookings
++            .bookings_on(input.slot.day)
++            .iter()
++            .any(|existing| existing.guest == input.guest && existing.slot == input.slot)
++        {
++            return Err(CreateBookingFailure::GuestAlreadyBooked {
++                reason: format!("{} already has a booking that day", input.guest),
++            });
++        }
+         let booking = Booking {
+             id: self.ids.next_id(),
+             table_id: table.id,
+@@ -132,6 +144,27 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn a_guest_may_book_once_a_day() {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![
++            Table {
++                id: "t1".into(),
++                seats: 4,
++            },
++            Table {
++                id: "t2".into(),
++                seats: 4,
++            },
++        ]));
++        let create = CreateBooking::new(bookings, Rc::new(SequentialIds::default()));
++        create.handle(input("t1", 2, "Ada")).unwrap();
++        let result = create.handle(input("t2", 2, "Ada"));
++        assert!(matches!(
++            result,
++            Err(CreateBookingFailure::GuestAlreadyBooked { .. })
++        ));
++    }
++
+     #[test]
+     fn a_party_larger_than_the_table_is_refused() {
+         let (create, _) = command();
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..dbbcfb3 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -7,5 +7,6 @@ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+         CreateBookingFailure::SlotTaken { .. } => 409,
+         CreateBookingFailure::PartyTooLarge { .. } => 422,
+         CreateBookingFailure::TableNotFound { .. } => 404,
++        CreateBookingFailure::GuestAlreadyBooked { .. } => 409,
+     }
+ }

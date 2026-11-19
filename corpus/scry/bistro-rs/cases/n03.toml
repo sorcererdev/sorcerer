@@ -1,0 +1,12 @@
+id = "n03"
+set = "N"
+scenario = "walk-ins"
+patch = "cases/n03.patch"
+rule = "rules-in-commands"
+rule_class = "evidenced"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "hand: tools/gen/n03.derive.py on feature base f-walkin: the table choice in a private helper fn in the command's module"
+twin = ""
+changed_files = ["src/booking/commands/mod.rs", "src/booking/commands/seat_walk_in.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

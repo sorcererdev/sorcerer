@@ -38,6 +38,10 @@ def main():
     ids = sys.argv[1:] or sorted(os.path.basename(f)[:-5] for f in glob.glob(os.path.join(EXP, "cases", "*.toml")))
     bad = 0
     for i in ids:
+        if not i.endswith(".patch") and not os.path.getsize(patch_of(i)):
+            bad += 1
+            print(f"FAIL {i:14} the case's patch is empty", flush=True)
+            continue
         steps = check(patch_of(i))
         ok = all(s[1] for s in steps) and len(steps) == len(STEPS)
         bad += not ok

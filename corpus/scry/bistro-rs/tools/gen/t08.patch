@@ -1,0 +1,247 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..eac9ae4 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -5,6 +5,7 @@ use std::rc::Rc;
+ use crate::booking::models::booking::Booking;
+ use crate::booking::models::slot::Slot;
+ use crate::booking::ports::booking_repository::BookingRepository;
++use crate::booking::ports::clock::Clock;
+ use crate::booking::ports::id_generator::IdGenerator;
+ 
+ #[derive(Debug, Clone, PartialEq, Eq)]
+@@ -20,6 +21,7 @@ pub enum CreateBookingFailure {
+     SlotTaken { reason: String },
+     PartyTooLarge { reason: String },
+     TableNotFound { reason: String },
++    SlotInPast { reason: String },
+ }
+ 
+ impl CreateBookingFailure {
+@@ -27,7 +29,8 @@ impl CreateBookingFailure {
+         match self {
+             CreateBookingFailure::SlotTaken { reason }
+             | CreateBookingFailure::PartyTooLarge { reason }
+-            | CreateBookingFailure::TableNotFound { reason } => reason,
++            | CreateBookingFailure::TableNotFound { reason }
++            | CreateBookingFailure::SlotInPast { reason } => reason,
+         }
+     }
+ }
+@@ -35,14 +38,28 @@ impl CreateBookingFailure {
+ pub struct CreateBooking {
+     bookings: Rc<dyn BookingRepository>,
+     ids: Rc<dyn IdGenerator>,
++    clock: Rc<dyn Clock>,
+ }
+ 
+ impl CreateBooking {
+-    pub fn new(bookings: Rc<dyn BookingRepository>, ids: Rc<dyn IdGenerator>) -> CreateBooking {
+-        CreateBooking { bookings, ids }
++    pub fn new(
++        bookings: Rc<dyn BookingRepository>,
++        ids: Rc<dyn IdGenerator>,
++        clock: Rc<dyn Clock>,
++    ) -> CreateBooking {
++        CreateBooking {
++            bookings,
++            ids,
++            clock,
++        }
+     }
+ 
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
++        if input.slot.day < self.clock.today() {
++            return Err(CreateBookingFailure::SlotInPast {
++                reason: format!("{} is before today", input.slot.day),
++            });
++        }
+         let Some(table) = self.bookings.table(&input.table_id) else {
+             return Err(CreateBookingFailure::TableNotFound {
+                 reason: format!("there is no table {}", input.table_id),
+@@ -79,6 +96,7 @@ mod tests {
+     use crate::booking::models::slot::{Day, Time};
+     use crate::booking::models::table::Table;
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++    use crate::booking::ports::clock::in_memory::FixedClock;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
+ 
+     fn seven() -> Slot {
+@@ -93,7 +111,11 @@ mod tests {
+             id: "t1".into(),
+             seats: 4,
+         }]));
+-        let create = CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default()));
++        let create = CreateBooking::new(
++            bookings.clone(),
++            Rc::new(SequentialIds::default()),
++            Rc::new(FixedClock(Day::new(2026, 10, 1))),
++        );
+         (create, bookings)
+     }
+ 
+@@ -142,6 +164,27 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn a_day_before_today_is_refused() {
++        let (create, bookings) = command();
++        let mut past = input("t1", 2, "Ada");
++        past.slot.day = Day::new(2026, 9, 30);
++        let result = create.handle(past.clone());
++        assert!(matches!(
++            result,
++            Err(CreateBookingFailure::SlotInPast { .. })
++        ));
++        assert_eq!(bookings.booking_at("t1", &past.slot), None);
++    }
++
++    #[test]
++    fn today_can_be_booked() {
++        let (create, _) = command();
++        let mut today = input("t1", 2, "Ada");
++        today.slot.day = Day::new(2026, 10, 1);
++        assert!(create.handle(today).is_ok());
++    }
++
+     #[test]
+     fn an_unknown_table_is_not_found() {
+         let (create, _) = command();
+diff --git a/src/booking/ports/clock/in_memory.rs b/src/booking/ports/clock/in_memory.rs
+new file mode 100644
+index 0000000..23aba75
+--- /dev/null
++++ b/src/booking/ports/clock/in_memory.rs
+@@ -0,0 +1,12 @@
++//! A Clock in memory: always the day it was given, for tests and demos.
++
++use crate::booking::models::slot::Day;
++use crate::booking::ports::clock::Clock;
++
++pub struct FixedClock(pub Day);
++
++impl Clock for FixedClock {
++    fn today(&self) -> Day {
++        self.0
++    }
++}
+diff --git a/src/booking/ports/clock/mod.rs b/src/booking/ports/clock/mod.rs
+new file mode 100644
+index 0000000..dbe3251
+--- /dev/null
++++ b/src/booking/ports/clock/mod.rs
+@@ -0,0 +1,10 @@
++//! Where today's date comes from.
++
++pub mod in_memory;
++pub mod system;
++
++use crate::booking::models::slot::Day;
++
++pub trait Clock {
++    fn today(&self) -> Day;
++}
+diff --git a/src/booking/ports/clock/system.rs b/src/booking/ports/clock/system.rs
+new file mode 100644
+index 0000000..96a846c
+--- /dev/null
++++ b/src/booking/ports/clock/system.rs
+@@ -0,0 +1,18 @@
++//! The Clock for real use: today's date from the system time.
++
++use std::time::{SystemTime, UNIX_EPOCH};
++
++use crate::booking::models::slot::Day;
++use crate::booking::ports::clock::Clock;
++
++pub struct SystemClock;
++
++impl Clock for SystemClock {
++    fn today(&self) -> Day {
++        let seconds = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .map(|d| d.as_secs())
++            .unwrap_or_default();
++        Day::from_days_since_epoch((seconds / 86_400) as i64)
++    }
++}
+diff --git a/src/booking/ports/mod.rs b/src/booking/ports/mod.rs
+index 42858a9..561011a 100644
+--- a/src/booking/ports/mod.rs
++++ b/src/booking/ports/mod.rs
+@@ -1,4 +1,5 @@
+ //! The ports booking talks through: one trait each, with its adapters beside it.
+ 
+ pub mod booking_repository;
++pub mod clock;
+ pub mod id_generator;
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..327dd52 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -11,6 +11,7 @@ use bistro::booking::models::table::Table;
+ use bistro::booking::ports::booking_repository::BookingRepository;
+ use bistro::booking::ports::booking_repository::file::FileBookingRepository;
+ use bistro::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++use bistro::booking::ports::clock::system::SystemClock;
+ use bistro::booking::ports::id_generator::time_ids::TimeIds;
+ use bistro::booking::queries::get_day_schedule::GetDaySchedule;
+ use bistro::web::Form;
+@@ -40,9 +41,10 @@ fn create(db_path: Option<&Path>) -> App {
+         None => Rc::new(InMemoryBookingRepository::new(tables())),
+     };
+     let id_generator = Rc::new(TimeIds::default());
++    let clock = Rc::new(SystemClock);
+     // commands and queries
+     App {
+-        create_booking: CreateBooking::new(booking_repository.clone(), id_generator),
++        create_booking: CreateBooking::new(booking_repository.clone(), id_generator, clock),
+         get_day_schedule: GetDaySchedule::new(booking_repository),
+     }
+ }
+@@ -85,7 +87,7 @@ mod tests {
+         assert!(!db.exists());
+         let form = Form::from([
+             ("table_id", "t2"),
+-            ("day", "2026-10-09"),
++            ("day", "2999-10-09"),
+             ("start", "19:00"),
+             ("party", "2"),
+             ("guest", "Ada"),
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..1500914 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -7,5 +7,6 @@ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+         CreateBookingFailure::SlotTaken { .. } => 409,
+         CreateBookingFailure::PartyTooLarge { .. } => 422,
+         CreateBookingFailure::TableNotFound { .. } => 404,
++        CreateBookingFailure::SlotInPast { .. } => 422,
+     }
+ }
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..36d0a3d 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -77,6 +77,7 @@ mod tests {
+     use crate::booking::commands::create_booking::CreateBooking;
+     use crate::booking::models::table::Table;
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++    use crate::booking::ports::clock::in_memory::FixedClock;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
+     use crate::booking::queries::get_day_schedule::GetDaySchedule;
+ 
+@@ -86,7 +87,11 @@ mod tests {
+             seats: 4,
+         }]));
+         App {
+-            create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
++            create_booking: CreateBooking::new(
++                bookings.clone(),
++                Rc::new(SequentialIds::default()),
++                Rc::new(FixedClock(Day::new(2026, 10, 1))),
++            ),
+             get_day_schedule: GetDaySchedule::new(bookings),
+         }
+     }

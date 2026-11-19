@@ -1,0 +1,12 @@
+id = "b06"
+set = "B"
+scenario = "next free slot"
+patch = "cases/b06.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/booking/commands/hold_earliest_slot.rs:43"]
+expect = "The search covers only nine half hours (0..9), so the last slot of the evening, 21:30, is never offered."
+made = "hand: tools/gen/b06.derive.py on twin t07's feature: the full-evening test removed"
+twin = ""
+changed_files = ["src/booking/commands/hold_earliest_slot.rs", "src/booking/commands/mod.rs", "src/main.rs", "src/web/app.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Add a GuestHistory query in a new file src/booking/queries/guest_history.rs (register it in src/booking/queries/mod.rs): given a path to the bookings file bistro.db, list every booking a guest has ever made, oldest first. Work only in those two files.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "vp1b"
+ },
+ "result": "I added `GuestHistory::new(path).handle(guest)` in `src/booking/queries/guest_history.rs` and registered it in `queries/mod.rs`. It reads the tab-separated bookings file itself, since the repository has no list-all method and I was limited to those two files. It returns that guest's bookings sorted oldest first, or an empty list if the file is missing. I haven't run `cargo test` or `cargo clippy`, as you asked.",
+ "cost": 0.0783524,
+ "secs": 17.8,
+ "turns": 11,
+ "subtype": "success"
+}

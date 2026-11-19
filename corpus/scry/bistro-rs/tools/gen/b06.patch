@@ -1,0 +1,277 @@
+diff --git a/src/booking/commands/hold_earliest_slot.rs b/src/booking/commands/hold_earliest_slot.rs
+new file mode 100644
+index 0000000..3bcad47
+--- /dev/null
++++ b/src/booking/commands/hold_earliest_slot.rs
+@@ -0,0 +1,128 @@
++//! Hold the earliest free slot of a day at a table that fits the party.
++
++use std::rc::Rc;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::models::slot::{Day, Slot, Time};
++use crate::booking::ports::booking_repository::BookingRepository;
++use crate::booking::ports::id_generator::IdGenerator;
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct HoldEarliestSlotInput {
++    pub day: Day,
++    pub party: u32,
++    pub guest: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum HoldEarliestSlotFailure {
++    NoSlotFree { reason: String },
++}
++
++impl HoldEarliestSlotFailure {
++    pub fn reason(&self) -> &str {
++        match self {
++            HoldEarliestSlotFailure::NoSlotFree { reason } => reason,
++        }
++    }
++}
++
++pub struct HoldEarliestSlot {
++    bookings: Rc<dyn BookingRepository>,
++    ids: Rc<dyn IdGenerator>,
++}
++
++impl HoldEarliestSlot {
++    pub fn new(bookings: Rc<dyn BookingRepository>, ids: Rc<dyn IdGenerator>) -> HoldEarliestSlot {
++        HoldEarliestSlot { bookings, ids }
++    }
++
++    pub fn handle(&self, input: HoldEarliestSlotInput) -> Result<Booking, HoldEarliestSlotFailure> {
++        let tables = self.bookings.tables();
++        let taken = self.bookings.bookings_on(input.day);
++        for half_hours in 0..9 {
++            let start = Time::new(17 + half_hours / 2, (half_hours % 2) * 30);
++            let slot = Slot {
++                day: input.day,
++                start,
++            };
++            let free = tables.iter().find(|table| {
++                table.seats >= input.party
++                    && !taken
++                        .iter()
++                        .any(|b| b.table_id == table.id && b.slot == slot)
++            });
++            if let Some(table) = free {
++                let booking = Booking {
++                    id: self.ids.next_id(),
++                    table_id: table.id.clone(),
++                    slot,
++                    party: input.party,
++                    guest: input.guest,
++                };
++                self.bookings.save(booking.clone());
++                return Ok(booking);
++            }
++        }
++        Err(HoldEarliestSlotFailure::NoSlotFree {
++            reason: format!(
++                "no table for {} is free on {}",
++                input.party, input.day
++            ),
++        })
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::table::Table;
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++    use crate::booking::ports::id_generator::in_memory::SequentialIds;
++
++    fn command() -> HoldEarliestSlot {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![
++            Table {
++                id: "t1".into(),
++                seats: 2,
++            },
++            Table {
++                id: "t2".into(),
++                seats: 4,
++            },
++        ]));
++        HoldEarliestSlot::new(bookings, Rc::new(SequentialIds::default()))
++    }
++
++    fn input(party: u32, guest: &str) -> HoldEarliestSlotInput {
++        HoldEarliestSlotInput {
++            day: Day::new(2026, 10, 9),
++            party,
++            guest: guest.into(),
++        }
++    }
++
++    #[test]
++    fn holds_the_earliest_slot_at_a_table_that_fits() {
++        let booking = command().handle(input(3, "Ada")).unwrap();
++        assert_eq!(booking.table_id, "t2");
++        assert_eq!(booking.slot.start, Time::new(17, 0));
++    }
++
++    #[test]
++    fn the_next_caller_is_offered_the_next_slot() {
++        let hold = command();
++        hold.handle(input(3, "Ada")).unwrap();
++        let booking = hold.handle(input(3, "Grace")).unwrap();
++        assert_eq!(booking.slot.start, Time::new(17, 30));
++    }
++
++    #[test]
++    fn a_party_too_large_for_every_table_has_no_slot() {
++        let result = command().handle(input(9, "Ada"));
++        assert!(matches!(
++            result,
++            Err(HoldEarliestSlotFailure::NoSlotFree { .. })
++        ));
++    }
++}
+diff --git a/src/booking/commands/mod.rs b/src/booking/commands/mod.rs
+index c5aad87..bd4ed23 100644
+--- a/src/booking/commands/mod.rs
++++ b/src/booking/commands/mod.rs
+@@ -1,3 +1,4 @@
+ //! Commands: each changes the bookings, and holds the booking rules for its change.
+ 
+ pub mod create_booking;
++pub mod hold_earliest_slot;
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..1d7aba9 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -7,6 +7,7 @@ use std::path::Path;
+ use std::rc::Rc;
+ 
+ use bistro::booking::commands::create_booking::CreateBooking;
++use bistro::booking::commands::hold_earliest_slot::HoldEarliestSlot;
+ use bistro::booking::models::table::Table;
+ use bistro::booking::ports::booking_repository::BookingRepository;
+ use bistro::booking::ports::booking_repository::file::FileBookingRepository;
+@@ -42,7 +43,8 @@ fn create(db_path: Option<&Path>) -> App {
+     let id_generator = Rc::new(TimeIds::default());
+     // commands and queries
+     App {
+-        create_booking: CreateBooking::new(booking_repository.clone(), id_generator),
++        create_booking: CreateBooking::new(booking_repository.clone(), id_generator.clone()),
++        hold_earliest_slot: HoldEarliestSlot::new(booking_repository.clone(), id_generator),
+         get_day_schedule: GetDaySchedule::new(booking_repository),
+     }
+ }
+diff --git a/src/web/app.rs b/src/web/app.rs
+index 431f224..fe8e3fc 100644
+--- a/src/web/app.rs
++++ b/src/web/app.rs
+@@ -1,6 +1,7 @@
+ //! The web app: the commands and queries it was handed, the home page, and dispatch to each area's routes.
+ 
+ use crate::booking::commands::create_booking::CreateBooking;
++use crate::booking::commands::hold_earliest_slot::HoldEarliestSlot;
+ use crate::booking::queries::get_day_schedule::GetDaySchedule;
+ use crate::web::bookings::routes;
+ use crate::web::{Form, Response};
+@@ -10,6 +11,7 @@ pub const RESOURCES: &[&str] = &["bookings"];
+ 
+ pub struct App {
+     pub create_booking: CreateBooking,
++    pub hold_earliest_slot: HoldEarliestSlot,
+     pub get_day_schedule: GetDaySchedule,
+ }
+ 
+@@ -23,6 +25,7 @@ pub fn dispatch(app: &App, route: &str, form: &Form) -> Response {
+         "/" => home(),
+         "/bookings" => routes::day_page(form, app),
+         "/bookings/create_booking" => routes::create_booking(form, app),
++        "/bookings/hold_earliest_slot" => routes::hold_earliest_slot(form, app),
+         _ => Response::new(404, format!("no route {route}")),
+     }
+ }
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..7df8547 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -1,6 +1,13 @@
+ //! Each command's failures as HTTP statuses: an exhaustive match, so a new failure needs a status here.
+ 
+ use crate::booking::commands::create_booking::CreateBookingFailure;
++use crate::booking::commands::hold_earliest_slot::HoldEarliestSlotFailure;
++
++pub fn hold_earliest_slot_status(failure: &HoldEarliestSlotFailure) -> u16 {
++    match failure {
++        HoldEarliestSlotFailure::NoSlotFree { .. } => 409,
++    }
++}
+ 
+ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+     match failure {
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..3b3ce5a 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -3,9 +3,10 @@
+ use std::time::{SystemTime, UNIX_EPOCH};
+ 
+ use crate::booking::commands::create_booking::CreateBookingInput;
++use crate::booking::commands::hold_earliest_slot::HoldEarliestSlotInput;
+ use crate::booking::models::slot::{Day, Slot, Time};
+ use crate::web::app::App;
+-use crate::web::bookings::failures::create_booking_status;
++use crate::web::bookings::failures::{create_booking_status, hold_earliest_slot_status};
+ use crate::web::bookings::pages;
+ use crate::web::{Form, Response};
+ 
+@@ -69,12 +70,37 @@ pub fn create_booking(form: &Form, app: &App) -> Response {
+     }
+ }
+ 
++fn hold_earliest_slot_input(form: &Form) -> Result<HoldEarliestSlotInput, Response> {
++    Ok(HoldEarliestSlotInput {
++        day: parsed::<Day>(form, "day")?,
++        party: field(form, "party")?
++            .parse()
++            .map_err(|_| Response::new(400, "party is not a number"))?,
++        guest: field(form, "guest")?.to_string(),
++    })
++}
++
++pub fn hold_earliest_slot(form: &Form, app: &App) -> Response {
++    let input = match hold_earliest_slot_input(form) {
++        Ok(input) => input,
++        Err(response) => return response,
++    };
++    match app.hold_earliest_slot.handle(input) {
++        Ok(booking) => Response::new(201, pages::booking_page(&booking)),
++        Err(failure) => Response::new(
++            hold_earliest_slot_status(&failure),
++            pages::failure_page(failure.reason()),
++        ),
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use std::rc::Rc;
+ 
+     use super::*;
+     use crate::booking::commands::create_booking::CreateBooking;
++    use crate::booking::commands::hold_earliest_slot::HoldEarliestSlot;
+     use crate::booking::models::table::Table;
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
+@@ -85,8 +111,10 @@ mod tests {
+             id: "t1".into(),
+             seats: 4,
+         }]));
++        let ids = Rc::new(SequentialIds::default());
+         App {
+-            create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
++            create_booking: CreateBooking::new(bookings.clone(), ids.clone()),
++            hold_earliest_slot: HoldEarliestSlot::new(bookings.clone(), ids),
+             get_day_schedule: GetDaySchedule::new(bookings),
+         }
+     }

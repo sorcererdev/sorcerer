@@ -105,3 +105,32 @@ Everything the corpus rests on is in this directory; `tools/README.md` lists the
    `tools/label.py` writes `labels.json`. The overturned marks are listed below with one line each.
 7. **Passing scores.** Set from the first recording (`corpus.toml`): one case of slack on V-must and B,
    0.5 shown a case on T and N; they move only by a ruling recorded there.
+
+## How the cases came out (2026-11-19)
+
+Generation: 30 cached sonnet runs (`tools/gen.py`: 14 V-must tries, 10 twins, 4 feature bases, st1,
+and 2 `--fix` runs), **$2.57** claude-reported (ceiling $4; on the subscription it is usage). Replaying
+them costs nothing: `python3 -I tools/gen.py ID` without `EXP_LIVE` reads the cache (not in git:
+`tools/gen/ID.patch` and `ID.json` keep each run's diff, reply and cost).
+
+- **V-must: 8 natural, 2 hand.** Natural: vm01 (vp1b: the query reads the bookings file with
+  `std::fs`; vp1a took the port), vm03 (vp3a), vm04 (ve2: the hours check in the route), vm06 (st1,
+  on twin t06's command: the route maps the weekly failures to statuses itself), vm07 (ve9: the
+  query saves to hold the slot), vm08 (vs1: `SystemTime::now()` in the command; its own test failed,
+  one `--fix` run, then `main.rs`'s test booking moved past today by `vs1-hand.derive.py`), vm09
+  (vs4b: `swap_tables` on the port and adapters), vm10 (vs5b: the rule tested only in `routes.rs`;
+  vs5 also tested it at the command). Hand: vm02 (vp2a changed nothing; derived from twin t02 with
+  the query dropped and the route calling the port), vm05 (fr1 returned the failure; derived from
+  twin t05: `handle` panics on an unknown booking). ve2's route returns its own 422 for a closed slot:
+  not a command's failure, so `statuses-failures` is not counted as broken.
+- **T: 9 twins as generated, 1 hand.** t01 needed one `--fix` run (a clippy lint). The t03 run
+  changed nothing and said why (a demo constructor in the library would build an adapter outside
+  `main.rs`); t03 is hand-written: `main.rs --demo` makes its demo bookings through the command.
+- **B: 6 planted by hand**, b01 and b02 in the feature bases f-party and f-oneday, b03–b06 in twins
+  t04, t06, t09 and t07, each with its added test changed (or removed) so it misses the bug.
+- **N: 4 hand, 2 from feature bases** (n05 = f-summary, n06 = f-party as generated).
+
+Every hand edit is a script in `tools/gen/<name>.derive.py`; `tools/build_cases.py` writes
+`cases/` and the table in `cases.md` from the chosen patches; `tools/results/check-results.txt` is
+the last `check_case.py` run (32/32). The base's dates (2026-10-09) are now in the past: a case that
+refuses past days moves its test bookings forward.

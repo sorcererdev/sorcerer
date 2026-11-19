@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Hosts sometimes swap two bookings' tables. Add swap_tables(first_booking_id, second_booking_id) to the BookingRepository trait and both adapters. Work only in src/booking/ports/booking_repository/.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "vs4b"
+ },
+ "result": "I added `swap_tables(first_booking_id, second_booking_id)` to the `BookingRepository` trait and to both the in-memory and file adapters, swapping the two bookings' `table_id`s and doing nothing if either id is missing. I haven't run `cargo test` or `cargo clippy`. Any other `BookingRepository` implementor outside `src/booking/ports/booking_repository/` will now fail to compile until it gets the method. I also pulled the file adapter's line formatting into a `format_line` helper that `save` and `swap_tables` share.",
+ "cost": 0.05320930000000001,
+ "secs": 15.0,
+ "turns": 9,
+ "subtype": "success"
+}

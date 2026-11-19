@@ -1,0 +1,388 @@
+diff --git a/src/booking/commands/create_weekly_booking.rs b/src/booking/commands/create_weekly_booking.rs
+new file mode 100644
+index 0000000..be3ef7c
+--- /dev/null
++++ b/src/booking/commands/create_weekly_booking.rs
+@@ -0,0 +1,207 @@
++//! Book a table at the same time for a number of consecutive weeks, all or nothing.
++
++use std::rc::Rc;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::models::slot::{Day, Slot};
++use crate::booking::ports::booking_repository::BookingRepository;
++use crate::booking::ports::id_generator::IdGenerator;
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct CreateWeeklyBookingInput {
++    pub table_id: String,
++    pub slot: Slot,
++    pub weeks: u32,
++    pub party: u32,
++    pub guest: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum CreateWeeklyBookingFailure {
++    NoWeeks { reason: String },
++    SlotTaken { reason: String },
++    PartyTooLarge { reason: String },
++    TableNotFound { reason: String },
++}
++
++impl CreateWeeklyBookingFailure {
++    pub fn reason(&self) -> &str {
++        match self {
++            CreateWeeklyBookingFailure::NoWeeks { reason }
++            | CreateWeeklyBookingFailure::SlotTaken { reason }
++            | CreateWeeklyBookingFailure::PartyTooLarge { reason }
++            | CreateWeeklyBookingFailure::TableNotFound { reason } => reason,
++        }
++    }
++}
++
++pub struct CreateWeeklyBooking {
++    bookings: Rc<dyn BookingRepository>,
++    ids: Rc<dyn IdGenerator>,
++}
++
++impl CreateWeeklyBooking {
++    pub fn new(
++        bookings: Rc<dyn BookingRepository>,
++        ids: Rc<dyn IdGenerator>,
++    ) -> CreateWeeklyBooking {
++        CreateWeeklyBooking { bookings, ids }
++    }
++
++    pub fn handle(
++        &self,
++        input: CreateWeeklyBookingInput,
++    ) -> Result<Vec<Booking>, CreateWeeklyBookingFailure> {
++        if input.weeks == 0 {
++            return Err(CreateWeeklyBookingFailure::NoWeeks {
++                reason: "weeks must be at least 1".into(),
++            });
++        }
++        let Some(table) = self.bookings.table(&input.table_id) else {
++            return Err(CreateWeeklyBookingFailure::TableNotFound {
++                reason: format!("there is no table {}", input.table_id),
++            });
++        };
++        if input.party > table.seats {
++            return Err(CreateWeeklyBookingFailure::PartyTooLarge {
++                reason: format!(
++                    "table {} seats {}, not {}",
++                    table.id, table.seats, input.party
++                ),
++            });
++        }
++        let first = input.slot.day.days_since_epoch();
++        let slots: Vec<Slot> = (0..i64::from(input.weeks))
++            .map(|week| Slot {
++                day: Day::from_days_since_epoch(first + 7 * week),
++                start: input.slot.start,
++            })
++            .collect();
++        for slot in &slots[..slots.len() - 1] {
++            if self.bookings.booking_at(&table.id, slot).is_some() {
++                return Err(CreateWeeklyBookingFailure::SlotTaken {
++                    reason: format!(
++                        "table {} is booked on {} at {}",
++                        table.id, slot.day, slot.start
++                    ),
++                });
++            }
++        }
++        let bookings: Vec<Booking> = slots
++            .into_iter()
++            .map(|slot| Booking {
++                id: self.ids.next_id(),
++                table_id: table.id.clone(),
++                slot,
++                party: input.party,
++                guest: input.guest.clone(),
++            })
++            .collect();
++        for booking in &bookings {
++            self.bookings.save(booking.clone());
++        }
++        Ok(bookings)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::slot::Time;
++    use crate::booking::models::table::Table;
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++    use crate::booking::ports::id_generator::in_memory::SequentialIds;
++
++    fn seven() -> Slot {
++        Slot {
++            day: Day::new(2026, 10, 9),
++            start: Time::new(19, 0),
++        }
++    }
++
++    fn week_later(weeks: i64) -> Slot {
++        Slot {
++            day: Day::from_days_since_epoch(seven().day.days_since_epoch() + 7 * weeks),
++            start: seven().start,
++        }
++    }
++
++    fn command() -> (CreateWeeklyBooking, Rc<InMemoryBookingRepository>) {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "t1".into(),
++            seats: 4,
++        }]));
++        let create =
++            CreateWeeklyBooking::new(bookings.clone(), Rc::new(SequentialIds::default()));
++        (create, bookings)
++    }
++
++    fn input(table_id: &str, weeks: u32, party: u32) -> CreateWeeklyBookingInput {
++        CreateWeeklyBookingInput {
++            table_id: table_id.into(),
++            slot: seven(),
++            weeks,
++            party,
++            guest: "Ada".into(),
++        }
++    }
++
++    #[test]
++    fn books_the_same_time_each_week() {
++        let (create, bookings) = command();
++        let made = create.handle(input("t1", 3, 2)).unwrap();
++        assert_eq!(made.len(), 3);
++        for week in 0..3 {
++            assert!(bookings.booking_at("t1", &week_later(week)).is_some());
++        }
++        assert!(bookings.booking_at("t1", &week_later(3)).is_none());
++    }
++
++    #[test]
++    fn a_taken_week_books_nothing() {
++        let (create, bookings) = command();
++        create
++            .handle(CreateWeeklyBookingInput {
++                slot: week_later(1),
++                ..input("t1", 1, 2)
++            })
++            .unwrap();
++        let result = create.handle(input("t1", 3, 2));
++        assert!(matches!(
++            result,
++            Err(CreateWeeklyBookingFailure::SlotTaken { .. })
++        ));
++        assert!(bookings.booking_at("t1", &week_later(0)).is_none());
++        assert!(bookings.booking_at("t1", &week_later(2)).is_none());
++    }
++
++    #[test]
++    fn a_party_larger_than_the_table_is_refused() {
++        let (create, _) = command();
++        let result = create.handle(input("t1", 2, 6));
++        assert!(matches!(
++            result,
++            Err(CreateWeeklyBookingFailure::PartyTooLarge { .. })
++        ));
++    }
++
++    #[test]
++    fn an_unknown_table_is_not_found() {
++        let (create, _) = command();
++        let result = create.handle(input("t9", 2, 2));
++        assert!(matches!(
++            result,
++            Err(CreateWeeklyBookingFailure::TableNotFound { .. })
++        ));
++    }
++
++    #[test]
++    fn zero_weeks_is_refused() {
++        let (create, _) = command();
++        let result = create.handle(input("t1", 0, 2));
++        assert!(matches!(
++            result,
++            Err(CreateWeeklyBookingFailure::NoWeeks { .. })
++        ));
++    }
++}
+diff --git a/src/booking/commands/mod.rs b/src/booking/commands/mod.rs
+index c5aad87..5500b24 100644
+--- a/src/booking/commands/mod.rs
++++ b/src/booking/commands/mod.rs
+@@ -1,3 +1,4 @@
+ //! Commands: each changes the bookings, and holds the booking rules for its change.
+ 
+ pub mod create_booking;
++pub mod create_weekly_booking;
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..a2dafa1 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -7,6 +7,7 @@ use std::path::Path;
+ use std::rc::Rc;
+ 
+ use bistro::booking::commands::create_booking::CreateBooking;
++use bistro::booking::commands::create_weekly_booking::CreateWeeklyBooking;
+ use bistro::booking::models::table::Table;
+ use bistro::booking::ports::booking_repository::BookingRepository;
+ use bistro::booking::ports::booking_repository::file::FileBookingRepository;
+@@ -42,7 +43,8 @@ fn create(db_path: Option<&Path>) -> App {
+     let id_generator = Rc::new(TimeIds::default());
+     // commands and queries
+     App {
+-        create_booking: CreateBooking::new(booking_repository.clone(), id_generator),
++        create_booking: CreateBooking::new(booking_repository.clone(), id_generator.clone()),
++        create_weekly_booking: CreateWeeklyBooking::new(booking_repository.clone(), id_generator),
+         get_day_schedule: GetDaySchedule::new(booking_repository),
+     }
+ }
+diff --git a/src/web/app.rs b/src/web/app.rs
+index 431f224..b561ce9 100644
+--- a/src/web/app.rs
++++ b/src/web/app.rs
+@@ -1,6 +1,7 @@
+ //! The web app: the commands and queries it was handed, the home page, and dispatch to each area's routes.
+ 
+ use crate::booking::commands::create_booking::CreateBooking;
++use crate::booking::commands::create_weekly_booking::CreateWeeklyBooking;
+ use crate::booking::queries::get_day_schedule::GetDaySchedule;
+ use crate::web::bookings::routes;
+ use crate::web::{Form, Response};
+@@ -10,6 +11,7 @@ pub const RESOURCES: &[&str] = &["bookings"];
+ 
+ pub struct App {
+     pub create_booking: CreateBooking,
++    pub create_weekly_booking: CreateWeeklyBooking,
+     pub get_day_schedule: GetDaySchedule,
+ }
+ 
+@@ -23,6 +25,7 @@ pub fn dispatch(app: &App, route: &str, form: &Form) -> Response {
+         "/" => home(),
+         "/bookings" => routes::day_page(form, app),
+         "/bookings/create_booking" => routes::create_booking(form, app),
++        "/bookings/create_weekly_booking" => routes::create_weekly_booking(form, app),
+         _ => Response::new(404, format!("no route {route}")),
+     }
+ }
+diff --git a/src/web/bookings/failures.rs b/src/web/bookings/failures.rs
+index 23f145c..27eb7b3 100644
+--- a/src/web/bookings/failures.rs
++++ b/src/web/bookings/failures.rs
+@@ -1,6 +1,16 @@
+ //! Each command's failures as HTTP statuses: an exhaustive match, so a new failure needs a status here.
+ 
+ use crate::booking::commands::create_booking::CreateBookingFailure;
++use crate::booking::commands::create_weekly_booking::CreateWeeklyBookingFailure;
++
++pub fn create_weekly_booking_status(failure: &CreateWeeklyBookingFailure) -> u16 {
++    match failure {
++        CreateWeeklyBookingFailure::NoWeeks { .. } => 400,
++        CreateWeeklyBookingFailure::SlotTaken { .. } => 409,
++        CreateWeeklyBookingFailure::PartyTooLarge { .. } => 422,
++        CreateWeeklyBookingFailure::TableNotFound { .. } => 404,
++    }
++}
+ 
+ pub fn create_booking_status(failure: &CreateBookingFailure) -> u16 {
+     match failure {
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..df831cb 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -3,9 +3,10 @@
+ use std::time::{SystemTime, UNIX_EPOCH};
+ 
+ use crate::booking::commands::create_booking::CreateBookingInput;
++use crate::booking::commands::create_weekly_booking::CreateWeeklyBookingInput;
+ use crate::booking::models::slot::{Day, Slot, Time};
+ use crate::web::app::App;
+-use crate::web::bookings::failures::create_booking_status;
++use crate::web::bookings::failures::{create_booking_status, create_weekly_booking_status};
+ use crate::web::bookings::pages;
+ use crate::web::{Form, Response};
+ 
+@@ -69,12 +70,44 @@ pub fn create_booking(form: &Form, app: &App) -> Response {
+     }
+ }
+ 
++pub fn create_weekly_booking(form: &Form, app: &App) -> Response {
++    let input = match create_weekly_booking_input(form) {
++        Ok(input) => input,
++        Err(response) => return response,
++    };
++    match app.create_weekly_booking.handle(input) {
++        Ok(bookings) => {
++            let pages: Vec<String> = bookings.iter().map(pages::booking_page).collect();
++            Response::new(201, pages.join("\n"))
++        }
++        Err(failure) => Response::new(
++            create_weekly_booking_status(&failure),
++            pages::failure_page(failure.reason()),
++        ),
++    }
++}
++
++fn create_weekly_booking_input(form: &Form) -> Result<CreateWeeklyBookingInput, Response> {
++    let single = create_booking_input(form)?;
++    let weeks = field(form, "weeks")?
++        .parse()
++        .map_err(|_| Response::new(400, "weeks is not a number"))?;
++    Ok(CreateWeeklyBookingInput {
++        table_id: single.table_id,
++        slot: single.slot,
++        weeks,
++        party: single.party,
++        guest: single.guest,
++    })
++}
++
+ #[cfg(test)]
+ mod tests {
+     use std::rc::Rc;
+ 
+     use super::*;
+     use crate::booking::commands::create_booking::CreateBooking;
++    use crate::booking::commands::create_weekly_booking::CreateWeeklyBooking;
+     use crate::booking::models::table::Table;
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
+@@ -87,6 +120,10 @@ mod tests {
+         }]));
+         App {
+             create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
++            create_weekly_booking: CreateWeeklyBooking::new(
++                bookings.clone(),
++                Rc::new(SequentialIds::default()),
++            ),
+             get_day_schedule: GetDaySchedule::new(bookings),
+         }
+     }
+@@ -142,6 +179,22 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn weekly_bookings_are_created() {
++        let response = create_weekly_booking(&form(&[("weeks", "2")]), &app());
++        assert_eq!(response.status, 201);
++    }
++
++    #[test]
++    fn a_taken_week_is_a_conflict() {
++        let app = app();
++        create_booking(&form(&[]), &app);
++        assert_eq!(
++            create_weekly_booking(&form(&[("weeks", "2")]), &app).status,
++            409
++        );
++    }
++
+     #[test]
+     fn a_malformed_day_is_a_bad_request() {
+         assert_eq!(

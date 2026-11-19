@@ -1,0 +1,12 @@
+id = "vm01"
+set = "V-must"
+scenario = "guest history"
+patch = "cases/vm01.patch"
+rule = "ports"
+rule_class = "pattern"
+rule_broken = true
+planted_lines = ["src/booking/queries/guest_history.rs:3,20"]
+expect = "GuestHistory reads the bookings file itself with std::fs instead of going through the BookingRepository port; std::fs belongs in an adapter."
+made = "natural: sonnet without the conventions (gen.py vp1b, prompt in tools/gen.py); vp1a followed the rule (it took the port)"
+twin = "t01"
+changed_files = ["src/booking/queries/guest_history.rs", "src/booking/queries/mod.rs"]

@@ -1,0 +1,12 @@
+id = "b05"
+set = "B"
+scenario = "swap two bookings"
+patch = "cases/b05.patch"
+rule = ""
+rule_class = ""
+rule_broken = false
+planted_lines = ["src/booking/commands/swap_tables.rs:51"]
+expect = "Only the first booking's move is checked: the second booking can be moved to a table too small for its party or already taken at its slot."
+made = "hand: tools/gen/b05.derive.py on twin t09's feature: its tests move only the first booking badly"
+twin = ""
+changed_files = ["src/booking/commands/mod.rs", "src/booking/commands/swap_tables.rs", "src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs"]

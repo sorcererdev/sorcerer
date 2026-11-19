@@ -1,0 +1,82 @@
+diff --git a/src/booking/queries/guest_history.rs b/src/booking/queries/guest_history.rs
+new file mode 100644
+index 0000000..e4374e7
+--- /dev/null
++++ b/src/booking/queries/guest_history.rs
+@@ -0,0 +1,67 @@
++//! Every booking a guest has made, oldest first (a query).
++
++use std::rc::Rc;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::models::slot::Day;
++use crate::booking::ports::booking_repository::BookingRepository;
++
++const FIRST_DAY: i64 = 0;
++const LAST_DAY: i64 = 73_000;
++
++pub struct GuestHistory {
++    bookings: Rc<dyn BookingRepository>,
++}
++
++impl GuestHistory {
++    pub fn new(bookings: Rc<dyn BookingRepository>) -> GuestHistory {
++        GuestHistory { bookings }
++    }
++
++    pub fn handle(&self, guest: &str) -> Vec<Booking> {
++        let mut found: Vec<Booking> = (FIRST_DAY..=LAST_DAY)
++            .flat_map(|days| self.bookings.bookings_on(Day::from_days_since_epoch(days)))
++            .filter(|booking| booking.guest == guest)
++            .collect();
++        found.sort_by(|a, b| a.slot.cmp(&b.slot).then_with(|| a.id.cmp(&b.id)));
++        found
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::slot::{Slot, Time};
++    use crate::booking::models::table::Table;
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++
++    fn booking(id: &str, day: Day, hour: u32, guest: &str) -> Booking {
++        Booking {
++            id: id.into(),
++            table_id: "t1".into(),
++            slot: Slot {
++                day,
++                start: Time::new(hour, 0),
++            },
++            party: 2,
++            guest: guest.into(),
++        }
++    }
++
++    #[test]
++    fn lists_a_guests_bookings_across_days_oldest_first() {
++        let repository = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "t1".into(),
++            seats: 4,
++        }]));
++        let late = booking("b1", Day::new(2026, 10, 12), 19, "Ada");
++        let early = booking("b2", Day::new(2026, 10, 9), 20, "Ada");
++        let earlier = booking("b3", Day::new(2026, 10, 9), 18, "Ada");
++        repository.save(late.clone());
++        repository.save(early.clone());
++        repository.save(earlier.clone());
++        repository.save(booking("b4", Day::new(2026, 10, 9), 19, "Grace"));
++        let history = GuestHistory::new(repository).handle("Ada");
++        assert_eq!(history, vec![earlier, early, late]);
++    }
++}
+diff --git a/src/booking/queries/mod.rs b/src/booking/queries/mod.rs
+index 541a9d7..7d0cf35 100644
+--- a/src/booking/queries/mod.rs
++++ b/src/booking/queries/mod.rs
+@@ -1,3 +1,4 @@
+ //! Queries: each reads the bookings and changes nothing.
+ 
+ pub mod get_day_schedule;
++pub mod guest_history;

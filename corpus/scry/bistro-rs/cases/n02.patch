@@ -1,0 +1,42 @@
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..4a6d783 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,6 +1,6 @@
+ //! The composition root: adapters, then commands and queries, then the web app.
+ //!
+-//! Run one request: `bistro [--memory] <route> key=value…`, e.g.
++//! Run one request: `bistro [--file] <route> key=value…` (bookings kept in memory unless --file), e.g.
+ //! `bistro /bookings/create_booking table_id=t1 day=2026-10-09 start=19:00 party=2 guest=Ada`.
+ 
+ use std::path::Path;
+@@ -49,12 +49,12 @@ fn create(db_path: Option<&Path>) -> App {
+ 
+ fn main() {
+     let mut args: Vec<String> = std::env::args().skip(1).collect();
+-    let memory = args.first().is_some_and(|a| a == "--memory");
+-    if memory {
++    let file = args.first().is_some_and(|a| a == "--file");
++    if file {
+         args.remove(0);
+     }
+     let Some(route) = args.first().cloned() else {
+-        eprintln!("usage: bistro [--memory] <route> key=value…");
++        eprintln!("usage: bistro [--file] <route> key=value…");
+         std::process::exit(2);
+     };
+     let form = Form(
+@@ -64,10 +64,10 @@ fn main() {
+             .map(|(k, v)| (k.to_string(), v.to_string()))
+             .collect(),
+     );
+-    let app = create(if memory {
+-        None
+-    } else {
++    let app = create(if file {
+         Some(Path::new("bistro.db"))
++    } else {
++        None
+     });
+     let response = dispatch(&app, &route, &form);
+     println!("{}\n{}", response.status, response.body);

@@ -1,0 +1,275 @@
+diff --git a/src/booking/ports/booking_repository/file.rs b/src/booking/ports/booking_repository/file.rs
+index 9388601..2232505 100644
+--- a/src/booking/ports/booking_repository/file.rs
++++ b/src/booking/ports/booking_repository/file.rs
+@@ -74,6 +74,16 @@ impl BookingRepository for FileBookingRepository {
+         bookings
+     }
+ 
++    fn bookings_for(&self, guest: &str) -> Vec<Booking> {
++        let mut bookings: Vec<Booking> = self
++            .all()
++            .into_iter()
++            .filter(|b| b.guest == guest)
++            .collect();
++        bookings.sort_by_key(|b| (b.slot.day, b.slot.start));
++        bookings
++    }
++
+     fn save(&self, booking: Booking) {
+         let mut file = fs::OpenOptions::new()
+             .create(true)
+diff --git a/src/booking/ports/booking_repository/in_memory.rs b/src/booking/ports/booking_repository/in_memory.rs
+index 27ca418..c29162e 100644
+--- a/src/booking/ports/booking_repository/in_memory.rs
++++ b/src/booking/ports/booking_repository/in_memory.rs
+@@ -47,6 +47,18 @@ impl BookingRepository for InMemoryBookingRepository {
+             .collect()
+     }
+ 
++    fn bookings_for(&self, guest: &str) -> Vec<Booking> {
++        let mut bookings: Vec<Booking> = self
++            .bookings
++            .borrow()
++            .iter()
++            .filter(|b| b.guest == guest)
++            .cloned()
++            .collect();
++        bookings.sort_by_key(|b| (b.slot.day, b.slot.start));
++        bookings
++    }
++
+     fn save(&self, booking: Booking) {
+         self.bookings.borrow_mut().push(booking);
+     }
+diff --git a/src/booking/ports/booking_repository/mod.rs b/src/booking/ports/booking_repository/mod.rs
+index 0d5a2a2..13ae981 100644
+--- a/src/booking/ports/booking_repository/mod.rs
++++ b/src/booking/ports/booking_repository/mod.rs
+@@ -12,6 +12,7 @@ pub trait BookingRepository {
+     fn tables(&self) -> Vec<Table>;
+     fn booking_at(&self, table_id: &str, slot: &Slot) -> Option<Booking>;
+     fn bookings_on(&self, day: Day) -> Vec<Booking>;
++    fn bookings_for(&self, guest: &str) -> Vec<Booking>;
+     fn save(&self, booking: Booking);
+ }
+ 
+@@ -79,7 +80,9 @@ mod tests {
+             repository.save(booking.clone());
+             assert_eq!(repository.booking_at("t1", &seven()), Some(booking.clone()));
+             assert_eq!(repository.booking_at("t2", &seven()), None);
+-            assert_eq!(repository.bookings_on(seven().day), vec![booking]);
++            assert_eq!(repository.bookings_on(seven().day), vec![booking.clone()]);
++            assert_eq!(repository.bookings_for("Ada"), vec![booking]);
++            assert_eq!(repository.bookings_for("Grace"), vec![]);
+         }
+     }
+ }
+diff --git a/src/booking/queries/find_guest_bookings.rs b/src/booking/queries/find_guest_bookings.rs
+new file mode 100644
+index 0000000..4656a16
+--- /dev/null
++++ b/src/booking/queries/find_guest_bookings.rs
+@@ -0,0 +1,70 @@
++//! Every booking under a guest's name, on any day (a query).
++
++use std::rc::Rc;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::ports::booking_repository::BookingRepository;
++
++pub struct FindGuestBookings {
++    bookings: Rc<dyn BookingRepository>,
++}
++
++impl FindGuestBookings {
++    pub fn new(bookings: Rc<dyn BookingRepository>) -> FindGuestBookings {
++        FindGuestBookings { bookings }
++    }
++
++    pub fn handle(&self, guest: &str) -> Vec<Booking> {
++        self.bookings.bookings_for(guest)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::slot::{Day, Slot, Time};
++    use crate::booking::models::table::Table;
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++
++    #[test]
++    fn lists_the_guests_bookings_on_every_day() {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "t1".into(),
++            seats: 4,
++        }]));
++        let first = Booking {
++            id: "b1".into(),
++            table_id: "t1".into(),
++            slot: Slot {
++                day: Day::new(2026, 10, 9),
++                start: Time::new(19, 0),
++            },
++            party: 2,
++            guest: "Ada".into(),
++        };
++        let later = Booking {
++            id: "b2".into(),
++            slot: Slot {
++                day: Day::new(2026, 10, 10),
++                start: Time::new(19, 0),
++            },
++            ..first.clone()
++        };
++        let other = Booking {
++            id: "b3".into(),
++            slot: Slot {
++                day: Day::new(2026, 10, 11),
++                start: Time::new(19, 0),
++            },
++            guest: "Grace".into(),
++            ..first.clone()
++        };
++        bookings.save(later.clone());
++        bookings.save(other);
++        bookings.save(first.clone());
++        assert_eq!(
++            FindGuestBookings::new(bookings).handle("Ada"),
++            vec![first, later]
++        );
++    }
++}
+diff --git a/src/booking/queries/mod.rs b/src/booking/queries/mod.rs
+index 541a9d7..a2d86a1 100644
+--- a/src/booking/queries/mod.rs
++++ b/src/booking/queries/mod.rs
+@@ -1,3 +1,4 @@
+ //! Queries: each reads the bookings and changes nothing.
+ 
++pub mod find_guest_bookings;
+ pub mod get_day_schedule;
+diff --git a/src/main.rs b/src/main.rs
+index fa8e534..c575159 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -12,6 +12,7 @@ use bistro::booking::ports::booking_repository::BookingRepository;
+ use bistro::booking::ports::booking_repository::file::FileBookingRepository;
+ use bistro::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+ use bistro::booking::ports::id_generator::time_ids::TimeIds;
++use bistro::booking::queries::find_guest_bookings::FindGuestBookings;
+ use bistro::booking::queries::get_day_schedule::GetDaySchedule;
+ use bistro::web::Form;
+ use bistro::web::app::{App, dispatch};
+@@ -43,6 +44,7 @@ fn create(db_path: Option<&Path>) -> App {
+     // commands and queries
+     App {
+         create_booking: CreateBooking::new(booking_repository.clone(), id_generator),
++        find_guest_bookings: FindGuestBookings::new(booking_repository.clone()),
+         get_day_schedule: GetDaySchedule::new(booking_repository),
+     }
+ }
+diff --git a/src/web/app.rs b/src/web/app.rs
+index 431f224..a87a24d 100644
+--- a/src/web/app.rs
++++ b/src/web/app.rs
+@@ -1,6 +1,7 @@
+ //! The web app: the commands and queries it was handed, the home page, and dispatch to each area's routes.
+ 
+ use crate::booking::commands::create_booking::CreateBooking;
++use crate::booking::queries::find_guest_bookings::FindGuestBookings;
+ use crate::booking::queries::get_day_schedule::GetDaySchedule;
+ use crate::web::bookings::routes;
+ use crate::web::{Form, Response};
+@@ -11,6 +12,7 @@ pub const RESOURCES: &[&str] = &["bookings"];
+ pub struct App {
+     pub create_booking: CreateBooking,
+     pub get_day_schedule: GetDaySchedule,
++    pub find_guest_bookings: FindGuestBookings,
+ }
+ 
+ pub fn home() -> Response {
+@@ -22,6 +24,7 @@ pub fn dispatch(app: &App, route: &str, form: &Form) -> Response {
+     match route {
+         "/" => home(),
+         "/bookings" => routes::day_page(form, app),
++        "/bookings/guest" => routes::guest_page(form, app),
+         "/bookings/create_booking" => routes::create_booking(form, app),
+         _ => Response::new(404, format!("no route {route}")),
+     }
+diff --git a/src/web/bookings/pages.rs b/src/web/bookings/pages.rs
+index 5045baa..55deb4a 100644
+--- a/src/web/bookings/pages.rs
++++ b/src/web/bookings/pages.rs
+@@ -45,6 +45,17 @@ pub fn booking_page(booking: &Booking) -> String {
+     )
+ }
+ 
++pub fn guest_page(guest: &str, bookings: &[Booking]) -> String {
++    let mut page = format!("Bookings for {guest}\n");
++    for b in bookings {
++        page.push_str(&format!(
++            "{} {} table {} ({})\n",
++            b.slot.day, b.slot.start, b.table_id, b.party
++        ));
++    }
++    page
++}
++
+ pub fn failure_page(reason: &str) -> String {
+     format!("Not booked: {reason}")
+ }
+diff --git a/src/web/bookings/routes.rs b/src/web/bookings/routes.rs
+index 8f87c8d..2c5de67 100644
+--- a/src/web/bookings/routes.rs
++++ b/src/web/bookings/routes.rs
+@@ -40,6 +40,15 @@ pub fn day_page(form: &Form, app: &App) -> Response {
+     Response::new(200, pages::day_page(&schedule))
+ }
+ 
++pub fn guest_page(form: &Form, app: &App) -> Response {
++    let guest = match field(form, "name") {
++        Ok(guest) => guest,
++        Err(response) => return response,
++    };
++    let bookings = app.find_guest_bookings.handle(guest);
++    Response::new(200, pages::guest_page(guest, &bookings))
++}
++
+ fn create_booking_input(form: &Form) -> Result<CreateBookingInput, Response> {
+     let party = field(form, "party")?
+         .parse()
+@@ -78,6 +87,7 @@ mod tests {
+     use crate::booking::models::table::Table;
+     use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
+     use crate::booking::ports::id_generator::in_memory::SequentialIds;
++    use crate::booking::queries::find_guest_bookings::FindGuestBookings;
+     use crate::booking::queries::get_day_schedule::GetDaySchedule;
+ 
+     fn app() -> App {
+@@ -87,6 +97,7 @@ mod tests {
+         }]));
+         App {
+             create_booking: CreateBooking::new(bookings.clone(), Rc::new(SequentialIds::default())),
++            find_guest_bookings: FindGuestBookings::new(bookings.clone()),
+             get_day_schedule: GetDaySchedule::new(bookings),
+         }
+     }
+@@ -119,6 +130,16 @@ mod tests {
+         assert!(response.body.contains("Ada"));
+     }
+ 
++    #[test]
++    fn the_guest_page_lists_their_bookings() {
++        let app = app();
++        create_booking(&form(&[]), &app);
++        let page = guest_page(&Form::from([("name", "Ada")]), &app);
++        assert_eq!(page.status, 200);
++        assert!(page.body.contains("2026-10-09"));
++        assert_eq!(guest_page(&Form::from([]), &app).status, 400);
++    }
++
+     #[test]
+     fn a_taken_slot_is_a_conflict() {
+         let app = app();

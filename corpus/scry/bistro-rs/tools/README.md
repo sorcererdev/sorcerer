@@ -5,9 +5,10 @@ repository) with `python3 -I`; each needs only Python 3.11+, git, cargo and, for
 
 | script | what it does |
 |---|---|
-| `lib.py` | cached `claude -p` runs (`edit_run`: file tools only, `--restricted`, the fence, `--max-budget-usd`; `ask`: no tools), fresh copies of the base (a git clone of `base/` committed under `work/base-repo/`), the spend ledger, `sh` under `perl -e 'alarm N'` |
+| `lib.py` | cached `claude -p` runs (`edit_run`: file tools only, `--restricted`, the fence, `--max-budget-usd`; `ask`: no tools), fresh copies of the base (a git clone of `base/`, committed once a process under `work/base-repo-<pid>/`; `clear` removes only directories under `work/`), the spend ledger, `sh` under `perl -e 'alarm N'` |
 | `gen.py` | the candidates: `--list` prints every prompt; `gen.py ID…` runs or replays each and saves `gen/ID.patch` and `gen/ID.json`; `--fix ID` makes one follow-up run with the compiler's output |
-| `check_case.py` | each case (or patch) on a fresh copy: `cargo check`, `cargo test`, `cargo clippy -D warnings`, offline and locked, one shared target directory; `N/M pass`, exit 1 on any failure |
+| `check_case.py` | each case (or patch) on a fresh copy: `cargo check`, `cargo test`, `cargo clippy -D warnings`, offline and locked, one shared target directory; `N/M pass`, exit 1 on any failure (an empty case patch fails) |
+| `build_cases.py` | writes `cases/<id>.patch`, `cases/<id>.toml` (planted lines found in the patched tree) and the `cases.md` table from the patches chosen in `gen/` |
 | `derive.py` | a scripted hand edit on top of a patch (`sub`, `write`, `drop_test`), saved as a patch in `gen/` |
 | `judge.py` | haiku marks each recorded finding hit or not against the case's `expect` → `results/judged.json` (`--dry` prints the prompts) |
 | `label.py` | `labels.json` from `results/judged.json` and `results/overrides.json` (the user's corrections win) |

@@ -1,0 +1,12 @@
+id = "t09"
+set = "T"
+scenario = "swap two bookings"
+patch = "cases/t09.patch"
+rule = "repo-one-op"
+rule_class = "stated-only"
+rule_broken = false
+planted_lines = []
+expect = ""
+made = "model with the file: sonnet given conventions.md in its prompt (gen.py t09)"
+twin = "vm09"
+changed_files = ["src/booking/commands/mod.rs", "src/booking/commands/swap_tables.rs", "src/booking/ports/booking_repository/file.rs", "src/booking/ports/booking_repository/in_memory.rs", "src/booking/ports/booking_repository/mod.rs"]

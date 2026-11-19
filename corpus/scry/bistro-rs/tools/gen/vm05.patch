@@ -1,0 +1,214 @@
+diff --git a/src/booking/commands/cancel_booking.rs b/src/booking/commands/cancel_booking.rs
+new file mode 100644
+index 0000000..19cb320
+--- /dev/null
++++ b/src/booking/commands/cancel_booking.rs
+@@ -0,0 +1,81 @@
++//! Cancel a booking by its id.
++
++use std::rc::Rc;
++
++use crate::booking::models::booking::Booking;
++use crate::booking::ports::booking_repository::BookingRepository;
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct CancelBookingInput {
++    pub booking_id: String,
++}
++
++pub struct CancelBooking {
++    bookings: Rc<dyn BookingRepository>,
++}
++
++impl CancelBooking {
++    pub fn new(bookings: Rc<dyn BookingRepository>) -> CancelBooking {
++        CancelBooking { bookings }
++    }
++
++    pub fn handle(&self, input: CancelBookingInput) -> Booking {
++        let booking = self
++            .bookings
++            .booking(&input.booking_id)
++            .unwrap_or_else(|| panic!("there is no booking {}", input.booking_id));
++        self.bookings.delete(&booking.id);
++        booking
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::booking::models::slot::{Day, Slot, Time};
++    use crate::booking::models::table::Table;
++    use crate::booking::ports::booking_repository::in_memory::InMemoryBookingRepository;
++
++    fn seven() -> Slot {
++        Slot {
++            day: Day::new(2026, 10, 9),
++            start: Time::new(19, 0),
++        }
++    }
++
++    fn command() -> (CancelBooking, Rc<InMemoryBookingRepository>) {
++        let bookings = Rc::new(InMemoryBookingRepository::new(vec![Table {
++            id: "t1".into(),
++            seats: 4,
++        }]));
++        bookings.save(Booking {
++            id: "b1".into(),
++            table_id: "t1".into(),
++            slot: seven(),
++            party: 2,
++            guest: "Ada".into(),
++        });
++        (CancelBooking::new(bookings.clone()), bookings)
++    }
++
++    fn input(booking_id: &str) -> CancelBookingInput {
++        CancelBookingInput {
++            booking_id: booking_id.into(),
++        }
++    }
++
++    #[test]
++    fn cancels_a_booking_and_frees_the_slot() {
++        let (cancel, bookings) = command();
++        let booking = cancel.handle(input("b1"));
++        assert_eq!(booking.id, "b1");
++        assert_eq!(bookings.booking_at("t1", &seven()), None);
++    }
++
++    #[test]
++    #[should_panic(expected = "there is no booking b9")]
++    fn an_unknown_booking_is_not_found() {
++        let (cancel, _) = command();
++        cancel.handle(input("b9"));
++    }
++}
+diff --git a/src/booking/commands/mod.rs b/src/booking/commands/mod.rs
+index c5aad87..addca48 100644
+--- a/src/booking/commands/mod.rs
++++ b/src/booking/commands/mod.rs
+@@ -1,3 +1,4 @@
+ //! Commands: each changes the bookings, and holds the booking rules for its change.
+ 
++pub mod cancel_booking;
+ pub mod create_booking;
+diff --git a/src/booking/ports/booking_repository/file.rs b/src/booking/ports/booking_repository/file.rs
+index 9388601..ddac3c3 100644
+--- a/src/booking/ports/booking_repository/file.rs
++++ b/src/booking/ports/booking_repository/file.rs
+@@ -74,22 +74,40 @@ impl BookingRepository for FileBookingRepository {
+         bookings
+     }
+ 
++    fn booking(&self, booking_id: &str) -> Option<Booking> {
++        self.all().into_iter().find(|b| b.id == booking_id)
++    }
++
+     fn save(&self, booking: Booking) {
+         let mut file = fs::OpenOptions::new()
+             .create(true)
+             .append(true)
+             .open(&self.path)
+             .unwrap_or_else(|e| panic!("cannot open {}: {e}", self.path.display()));
+-        let line = format!(
+-            "{}\t{}\t{}\t{}\t{}\t{}\n",
+-            booking.id,
+-            booking.table_id,
+-            booking.slot.day,
+-            booking.slot.start,
+-            booking.party,
+-            booking.guest
+-        );
+-        file.write_all(line.as_bytes())
++        file.write_all(format_line(&booking).as_bytes())
+             .unwrap_or_else(|e| panic!("cannot write {}: {e}", self.path.display()));
+     }
++
++    fn delete(&self, booking_id: &str) {
++        let text: String = self
++            .all()
++            .iter()
++            .filter(|b| b.id != booking_id)
++            .map(format_line)
++            .collect();
++        fs::write(&self.path, text)
++            .unwrap_or_else(|e| panic!("cannot write {}: {e}", self.path.display()));
++    }
++}
++
++fn format_line(booking: &Booking) -> String {
++    format!(
++        "{}\t{}\t{}\t{}\t{}\t{}\n",
++        booking.id,
++        booking.table_id,
++        booking.slot.day,
++        booking.slot.start,
++        booking.party,
++        booking.guest
++    )
+ }
+diff --git a/src/booking/ports/booking_repository/in_memory.rs b/src/booking/ports/booking_repository/in_memory.rs
+index 27ca418..01ea858 100644
+--- a/src/booking/ports/booking_repository/in_memory.rs
++++ b/src/booking/ports/booking_repository/in_memory.rs
+@@ -47,7 +47,19 @@ impl BookingRepository for InMemoryBookingRepository {
+             .collect()
+     }
+ 
++    fn booking(&self, booking_id: &str) -> Option<Booking> {
++        self.bookings
++            .borrow()
++            .iter()
++            .find(|b| b.id == booking_id)
++            .cloned()
++    }
++
+     fn save(&self, booking: Booking) {
+         self.bookings.borrow_mut().push(booking);
+     }
++
++    fn delete(&self, booking_id: &str) {
++        self.bookings.borrow_mut().retain(|b| b.id != booking_id);
++    }
+ }
+diff --git a/src/booking/ports/booking_repository/mod.rs b/src/booking/ports/booking_repository/mod.rs
+index 0d5a2a2..beec7e4 100644
+--- a/src/booking/ports/booking_repository/mod.rs
++++ b/src/booking/ports/booking_repository/mod.rs
+@@ -12,7 +12,9 @@ pub trait BookingRepository {
+     fn tables(&self) -> Vec<Table>;
+     fn booking_at(&self, table_id: &str, slot: &Slot) -> Option<Booking>;
+     fn bookings_on(&self, day: Day) -> Vec<Booking>;
++    fn booking(&self, booking_id: &str) -> Option<Booking>;
+     fn save(&self, booking: Booking);
++    fn delete(&self, booking_id: &str);
+ }
+ 
+ /// Every BookingRepository adapter keeps the same contract.
+@@ -66,6 +68,24 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn deletes_a_booking_by_id() {
++        for repository in repositories("deletes") {
++            let booking = Booking {
++                id: "b1".into(),
++                table_id: "t1".into(),
++                slot: seven(),
++                party: 3,
++                guest: "Ada".into(),
++            };
++            repository.save(booking.clone());
++            assert_eq!(repository.booking("b1"), Some(booking));
++            repository.delete("b1");
++            assert_eq!(repository.booking("b1"), None);
++            assert_eq!(repository.booking_at("t1", &seven()), None);
++        }
++    }
++
+     #[test]
+     fn saves_and_finds_a_booking() {
+         for repository in repositories("saves") {

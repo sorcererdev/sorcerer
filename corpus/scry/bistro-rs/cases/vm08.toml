@@ -1,0 +1,12 @@
+id = "vm08"
+set = "V-must"
+scenario = "no bookings in the past"
+patch = "cases/vm08.patch"
+rule = "clock"
+rule_class = "stated-only"
+rule_broken = true
+planted_lines = ["src/booking/commands/create_booking.rs:4,39"]
+expect = "CreateBooking reads SystemTime::now() to tell whether the day is past instead of getting the date from a Clock port."
+made = "natural: sonnet without the conventions (gen.py vs1, prompt in tools/gen.py); one gen.py --fix run (vs1-fix), then tools/gen/vs1-hand.derive.py moved main.rs's test booking to 2099"
+twin = "t08"
+changed_files = ["src/booking/commands/create_booking.rs", "src/main.rs", "src/web/bookings/failures.rs", "src/web/bookings/routes.rs"]

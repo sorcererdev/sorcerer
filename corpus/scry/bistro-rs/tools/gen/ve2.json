@@ -1,0 +1,12 @@
+{
+ "req": {
+  "prompt": "Opening hours: the restaurant takes bookings only from 17:00 to 21:30 and is closed on Mondays. Make the create-booking route refuse anything else. Work only in src/web/bookings/routes.rs.\n\nKeep cargo test and cargo clippy (-D warnings) passing. Do not run anything; just edit. No new comments. Reply with one line saying what you changed.",
+  "model": "sonnet",
+  "tag": "ve2"
+ },
+ "result": "`create_booking` in `src/web/bookings/routes.rs` now returns 422 for any slot that starts before 17:00 or after 21:30, or falls on a Monday, and I added tests for both cases; I haven't run `cargo test` or `cargo clippy`, as you asked.",
+ "cost": 0.0524582,
+ "secs": 11.0,
+ "turns": 7,
+ "subtype": "success"
+}
