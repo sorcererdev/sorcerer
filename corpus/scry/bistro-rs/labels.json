@@ -1,0 +1,321 @@
+{
+  "b01": {
+    "set": "B",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/change_party_size.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "b02": {
+    "set": "B",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs"
+    ]
+  },
+  "b03": {
+    "set": "B",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs"
+    ]
+  },
+  "b04": {
+    "set": "B",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_weekly_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "b05": {
+    "set": "B",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/mod.rs",
+      "src/booking/commands/swap_tables.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "b06": {
+    "set": "B",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/hold_earliest_slot.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n01": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/models/booking.rs"
+    ]
+  },
+  "n02": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/main.rs"
+    ]
+  },
+  "n03": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/mod.rs",
+      "src/booking/commands/seat_walk_in.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n04": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n05": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/queries/get_day_summary.rs",
+      "src/booking/queries/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/pages.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "n06": {
+    "set": "N",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/change_party_size.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "t01": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs",
+      "src/booking/queries/list_guest_bookings.rs",
+      "src/booking/queries/mod.rs"
+    ]
+  },
+  "t02": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs",
+      "src/booking/queries/find_guest_bookings.rs",
+      "src/booking/queries/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/pages.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t03": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/main.rs"
+    ]
+  },
+  "t04": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs"
+    ]
+  },
+  "t05": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/cancel_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "t06": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_weekly_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t07": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/hold_earliest_slot.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t08": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/booking/ports/clock/in_memory.rs",
+      "src/booking/ports/clock/mod.rs",
+      "src/booking/ports/clock/system.rs",
+      "src/booking/ports/mod.rs",
+      "src/main.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "t09": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/mod.rs",
+      "src/booking/commands/swap_tables.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "t10": {
+    "set": "T",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs"
+    ]
+  },
+  "vm01": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/queries/guest_history.rs",
+      "src/booking/queries/mod.rs"
+    ]
+  },
+  "vm02": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/pages.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm03": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs"
+    ]
+  },
+  "vm04": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm05": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/cancel_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "vm06": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_weekly_booking.rs",
+      "src/booking/commands/mod.rs",
+      "src/main.rs",
+      "src/web/app.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm07": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/queries/mod.rs",
+      "src/booking/queries/next_free_slot.rs"
+    ]
+  },
+  "vm08": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/main.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  },
+  "vm09": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/ports/booking_repository/file.rs",
+      "src/booking/ports/booking_repository/in_memory.rs",
+      "src/booking/ports/booking_repository/mod.rs"
+    ]
+  },
+  "vm10": {
+    "set": "V-must",
+    "hits": [],
+    "changed": [
+      "src/booking/commands/create_booking.rs",
+      "src/web/bookings/failures.rs",
+      "src/web/bookings/routes.rs"
+    ]
+  }
+}

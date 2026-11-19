@@ -1,0 +1,4 @@
+# bistro-rs: scry's Rust corpus. The eval (crates/scry/tests/eval.rs) reads this file.
+name = "bistro-rs"
+language = "rust"
+sets = ["V-must", "B", "T", "N"]

@@ -303,12 +303,16 @@ impl Reviewer for CorpusReviewer<'_> {
         let Some(findings) = &self.findings else {
             let names: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
             let Some(live) = self.live else {
-                panic!(
-                    "case {}: no recorded review for the pack [{}] ({}); record it with SCRY_RECORD=all",
-                    self.case,
-                    names.join(", "),
-                    self.file.display()
-                );
+                // an error, not a panic: the pass fails the case after its log is written
+                return Err(sorcerer_models::Error::Reply {
+                    provider: "recorded".into(),
+                    why: format!(
+                        "case {}: no recorded review for the pack [{}] ({}); record it with SCRY_RECORD=all",
+                        self.case,
+                        names.join(", "),
+                        self.file.display()
+                    ),
+                });
             };
             let reviewed = live.review(ask, model, cap_usd, cancel)?;
             self.record(names, &reviewed);
