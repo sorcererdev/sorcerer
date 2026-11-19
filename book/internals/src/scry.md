@@ -340,3 +340,51 @@ waiting).
 The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar view, `StubFinder`,
 `StubDecider`, `FixedClock` and a checker that says right) into `main_with` through
 `impl Wired for &Doubles`, so the finder's asks can be read after two runs.
+
+## The replay gate
+
+`crates/scry/tests/gate.rs`, `the_replay_gate_clears_inspects_bars`: inspect's 58 bistro cases
+run through whole passes with every model call replayed, so it costs nothing and runs in CI's
+test job. The corpus is `corpus/scry/` (its `README.md` says where each file came from;
+`scripts/port-scry-corpus` wrote it from olifant's recordings and the notes' cases):
+
+- `base/`, bistro as plain files; per case the gate copies it to a temp dir, `git init`s and
+  commits it, then `git apply`s `cases/<id>.patch` (left uncommitted) and writes
+  `.sorcerer/scry.md` from `steering.md` (1a's steering) and a config with
+  `[languages] names = ["python"]` and `[scry] pass_cost = 5.0, day_cost = 1000.0`. The
+  project's grammars point at core's vendored sources; the scope is `scope_of(Working)`.
+- `finds/<id>.json`, 1a's sonnet findings for the case. `CorpusFinder` answers a pack with the
+  findings whose `file` is one of the pack's files (an empty reply otherwise), at $0.04.
+- `checks.json`, 1a's claim-check verdicts keyed by the statement with whitespace collapsed;
+  the checker closure answers from it, `CannotTell` for a statement it does not hold.
+- `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
+  `question_key` (FNV-1a over the Jev body without the model, the same bytes as olifant's
+  `questionKey`, so a question asked the same way has olifant's key). A question with no file
+  is an error, the pass is `Skipped`, and the gate fails naming the case.
+- `labels.json`, each case's set, the statements that count as a hit, and its changed files.
+
+Shown is the union over a case's changed files of `ScryStore::shown_in`; a case is a hit when
+a shown statement is one of its `hits`. The gate prints `set | cases | with a hit shown |
+shown a case` and one row a case, then asserts inspect's bars: V-must at least 16 of 18 with
+a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on average.
+
+`SCRY_GATE_CASES=b01,vm02` runs only those cases, prints every stored finding and every
+question Jev is asked (kind, key, P(yes), the findings), and asserts no bar. To re-record Jev,
+run once by hand with `JEV_API_KEY` set:
+`SCRY_RECORD_JEV=1 cargo test -p scry --test gate -- --nocapture`; only missing answers are
+asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
+
+Replayed on 2026-11-18 (identical over three runs):
+
+| set | cases | with a hit shown | shown a case |
+|---|---|---|---|
+| V-must | 18 | 15 | 1.222 |
+| B | 8 | 6 | 0.875 |
+| T | 18 | 0 | 0.000 |
+| N | 8 | 0 | 0.125 |
+| V-taste | 6 | 0 | 0.000 |
+
+The V-must bar fails: vm02, vm07 and vm08 each hold two findings that Jev calls the same
+problem within one pass, and the merge gives the stored finding the later finding's wording,
+so the labelled statement is no longer shown. Olifant's inspect measured 18/18 before it took
+up that merge rule (olifant `d8fc391`); its gate run today misses vm02 and vm08 the same way.
