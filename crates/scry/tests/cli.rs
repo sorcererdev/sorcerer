@@ -17,7 +17,7 @@ use sorcerer_core::{Cancel, Project};
 use sorcerer_models::checker::{Checked, Claim, ClaimKind, Verdict};
 use sorcerer_models::decide::{Decider, Question, Shape};
 use sorcerer_models::research::{Research, Researched, Researcher};
-use support::{FixedClock, StubDecider, StubFinder, commit, git_project, write};
+use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
@@ -39,7 +39,7 @@ fn changed_project() -> TempDir {
     dir
 }
 
-/// A find reply with one bug on orders.py line 2, citing line 2.
+/// A review reply with one bug on orders.py line 2, citing line 2.
 fn bug_reply(statement: &str) -> String {
     serde_json::json!({
         "findings": [{
@@ -56,11 +56,11 @@ fn bug_reply(statement: &str) -> String {
 
 type CheckFn = dyn Fn(&Claim) -> sorcerer_models::Result<Checked> + Send + Sync;
 
-/// The pass's doubles: the vendored grammars' view, a stub finder and
+/// The pass's doubles: the vendored grammars' view, a stub reviewer and
 /// decider, a fixed clock and a claim checker that says right.
 struct Doubles {
     view: FilesView,
-    finder: StubFinder,
+    reviewer: StubReviewer,
     decider: StubDecider,
     clock: FixedClock,
     checker: Box<CheckFn>,
@@ -69,11 +69,11 @@ struct Doubles {
 fn quiet(_: &Progress) {}
 
 impl Doubles {
-    fn new(dir: &Path, finder: StubFinder) -> Doubles {
+    fn new(dir: &Path, reviewer: StubReviewer) -> Doubles {
         let (_, view) = support::project_with_vendored_grammars(dir);
         Doubles {
             view,
-            finder,
+            reviewer,
             decider: StubDecider::new(),
             clock: FixedClock::at(t0()),
             checker: Box::new(|_: &Claim| {
@@ -94,7 +94,7 @@ impl Wired for &Doubles {
     fn deps(&self) -> PassDeps<'_> {
         PassDeps {
             view: &self.view,
-            finder: &self.finder,
+            reviewer: &self.reviewer,
             decider: &self.decider,
             checker: &*self.checker,
             clock: &self.clock,
@@ -142,10 +142,10 @@ fn a_clean_tree_prints_nothing_and_exits_0() {
     let dir = git_project();
     write(dir.path(), "orders.py", ORDERS);
     commit(dir.path(), "orders");
-    let d = Doubles::new(dir.path(), StubFinder::new());
+    let d = Doubles::new(dir.path(), StubReviewer::new());
     let r = scry(dir.path(), &d, &[]);
     assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, "", ""));
-    assert!(d.finder.asks().is_empty());
+    assert!(d.reviewer.asks().is_empty());
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn an_open_bug_prints_the_finding_and_exits_1() {
     let dir = changed_project();
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let r = scry(dir.path(), &d, &[]);
     assert_eq!(r.code, 1, "{}{}", r.out, r.err);
@@ -176,7 +176,7 @@ fn a_long_statement_wraps_under_itself() {
     let long = "cancel() returns None when the repository has no order with that id; the caller in api/orders.py:88 indexes the result.";
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply(long)),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply(long)),
     );
     let r = scry(dir.path(), &d, &[]);
     let lines: Vec<&str> = r.out.lines().collect();
@@ -192,12 +192,12 @@ fn a_second_run_prints_the_stored_findings_again_and_exits_1() {
     let dir = changed_project();
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let first = scry(dir.path(), &d, &[]);
     let second = scry(dir.path(), &d, &[]);
     assert_eq!((first.code, second.code), (1, 1));
-    assert_eq!(d.finder.asks().len(), 1);
+    assert_eq!(d.reviewer.asks().len(), 1);
     let finding = |r: &Ran| r.out.lines().take(3).collect::<Vec<_>>().join("\n");
     assert_eq!(finding(&first), finding(&second));
     assert!(
@@ -214,7 +214,7 @@ fn json_is_one_object_a_line() {
     let dir = changed_project();
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let r = scry(dir.path(), &d, &["--json"]);
     assert_eq!(r.code, 1);
@@ -251,7 +251,7 @@ fn json_is_one_object_a_line() {
 }
 
 #[test]
-fn scry_off_exits_0_without_a_find() {
+fn scry_off_exits_0_without_a_review() {
     let dir = changed_project();
     write(
         dir.path(),
@@ -260,13 +260,13 @@ fn scry_off_exits_0_without_a_find() {
     );
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let r = scry(dir.path(), &d, &[]);
     assert_eq!(r.code, 0, "{}{}", r.out, r.err);
     assert_eq!(r.out, "");
     assert!(r.err.contains("enabled = false"), "{}", r.err);
-    assert!(d.finder.asks().is_empty());
+    assert!(d.reviewer.asks().is_empty());
 }
 
 #[test]
@@ -294,16 +294,16 @@ fn scry_off_exits_0_before_any_wiring() {
 }
 
 #[test]
-fn a_failed_find_with_nothing_open_exits_2() {
+fn a_failed_review_with_nothing_open_exits_2() {
     let dir = changed_project();
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], "I could not decide."),
+        StubReviewer::new().reply(&["orders.py"], "I could not decide."),
     );
     let r = scry(dir.path(), &d, &[]);
     assert_eq!(r.code, 2, "{}{}", r.out, r.err);
     assert!(
-        r.err.contains("scry: find failed for orders.py"),
+        r.err.contains("scry: review failed for orders.py"),
         "{}",
         r.err
     );
@@ -315,7 +315,7 @@ fn named_files_are_taken_from_the_current_directory() {
     write(dir.path(), "sub/keep.txt", "");
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let r = scry(&dir.path().join("sub"), &d, &["../orders.py"]);
     assert_eq!(r.code, 1, "{}{}", r.out, r.err);
@@ -325,17 +325,17 @@ fn named_files_are_taken_from_the_current_directory() {
 #[test]
 fn since_with_files_is_refused() {
     let dir = changed_project();
-    let d = Doubles::new(dir.path(), StubFinder::new());
+    let d = Doubles::new(dir.path(), StubReviewer::new());
     let r = scry(dir.path(), &d, &["--since", "main", "orders.py"]);
     assert_eq!(r.code, 2);
     assert!(r.err.contains("--since"), "{}", r.err);
-    assert!(d.finder.asks().is_empty());
+    assert!(d.reviewer.asks().is_empty());
 }
 
 #[test]
 fn a_bad_since_rev_exits_2_naming_it() {
     let dir = changed_project();
-    let d = Doubles::new(dir.path(), StubFinder::new());
+    let d = Doubles::new(dir.path(), StubReviewer::new());
     let r = scry(dir.path(), &d, &["--since", "no-such-branch"]);
     assert_eq!(r.code, 2);
     assert!(r.err.contains("no-such-branch"), "{}", r.err);
@@ -352,7 +352,7 @@ fn an_unreadable_store_exits_2_untouched() {
     );
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let r = scry(dir.path(), &d, &[]);
     assert_eq!(r.code, 2);
@@ -455,7 +455,7 @@ fn an_old_store_exits_2_naming_its_version() {
     write(dir.path(), ".sorcerer/state/scry/findings.json", bytes);
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let r = scry(dir.path(), &d, &[]);
     assert_eq!(r.code, 2);
@@ -659,7 +659,7 @@ mod stored {
 }
 
 fn plain_doubles(dir: &Path) -> Doubles {
-    Doubles::new(dir, StubFinder::new())
+    Doubles::new(dir, StubReviewer::new())
 }
 
 #[test]
@@ -735,15 +735,15 @@ fn ledger_fixture(dir: &Path) {
         dir,
         &[
             // the 17th in New York, the last two after midnight in UTC
-            ("2026-11-17T15:00:00Z", "scry", "find", Some(0.04)),
+            ("2026-11-17T15:00:00Z", "scry", "review", Some(0.04)),
             ("2026-11-18T03:00:00Z", "scry", "check", Some(0.016)),
             ("2026-11-18T04:00:00Z", "scry", "decide", Some(0.001)),
             // the 18th in New York (it turns at 05:00Z)
-            ("2026-11-18T05:30:00Z", "scry", "find", Some(0.04)),
-            ("2026-11-18T14:00:00Z", "scry", "find", Some(0.05)),
+            ("2026-11-18T05:30:00Z", "scry", "review", Some(0.04)),
+            ("2026-11-18T14:00:00Z", "scry", "review", Some(0.05)),
             ("2026-11-18T14:05:00Z", "scry", "check", Some(0.02)),
             ("2026-11-18T14:06:00Z", "scry", "decide", Some(0.01)),
-            ("2026-11-18T14:07:00Z", "conjure", "find", Some(9.0)),
+            ("2026-11-18T14:07:00Z", "conjure", "review", Some(9.0)),
         ],
     );
 }
@@ -772,16 +772,17 @@ fn cost_sums_by_local_day() {
         .unwrap();
     let d = ny_doubles(dir.path());
     let r = scry(dir.path(), &d, &["cost"]);
-    let want = "day         finds  checks  find $  check $  total $\n\
-                2026-11-17  1      1       0.04    0.02     0.06\n\
-                2026-11-18  2      1       0.09    0.02     0.12\n\
+    let want = "day         reviews  checks  review $  check $  total $\n\
+                2026-11-17  1        1       0.04      0.02     0.06\n\
+                2026-11-18  2        1       0.09      0.02     0.12\n\
                 waiting on the cap: 3 units\n";
     assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, want, ""));
     let j = scry(dir.path(), &d, &["cost", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&j.out).unwrap();
     assert_eq!(v["waiting_units"], 3);
     assert_eq!(v["days"][1]["day"], "2026-11-18");
-    assert_eq!(v["days"][1]["finds"], 2);
+    assert_eq!(v["days"][1]["reviews"], 2);
+    assert!(v["days"][1].get("review_cost").is_some(), "{v}");
     assert_eq!(v["days"][0]["checks"], 1);
 }
 
@@ -793,8 +794,8 @@ fn cost_since_leaves_earlier_days_out() {
     let r = scry(dir.path(), &d, &["cost", "--since", "2026-11-18"]);
     assert_eq!(
         r.out,
-        "day         finds  checks  find $  check $  total $\n\
-         2026-11-18  2      1       0.09    0.02     0.12\n\
+        "day         reviews  checks  review $  check $  total $\n\
+         2026-11-18  2        1       0.09      0.02     0.12\n\
          waiting on the cap: 0 units\n"
     );
     let bad = scry(dir.path(), &d, &["cost", "--since", "yesterday"]);
@@ -826,7 +827,7 @@ fn dismiss_by_prefix_then_a_run_no_longer_prints_it() {
     let dir = changed_project();
     let d = Doubles::new(
         dir.path(),
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     );
     let first = scry(dir.path(), &d, &["--json"]);
     assert_eq!(first.code, 1);
@@ -957,7 +958,7 @@ fn run_logs(dir: &Path) -> Vec<String> {
 fn bug_doubles(dir: &Path) -> Doubles {
     Doubles::new(
         dir,
-        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+        StubReviewer::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
     )
 }
 
@@ -973,7 +974,7 @@ fn a_run_writes_one_log_and_twenty_one_runs_leave_twenty() {
     for s in [
         "## Run",
         "## Scope",
-        "## Find calls",
+        "## Review calls",
         "## Findings",
         "## Summary",
         "cancel() passes now=True",
@@ -1015,7 +1016,7 @@ fn scry_log_prints_the_latest_the_one_before_a_list_and_a_path() {
         "{}",
         before.out
     );
-    assert!(before.out.contains("## Find calls"));
+    assert!(before.out.contains("## Review calls"));
 
     let list = scry(dir.path(), &d, &["log", "--list"]);
     assert_eq!(list.code, 0);
@@ -1074,7 +1075,7 @@ fn verbose_streams_the_log_on_stderr_and_leaves_stdout_as_it_was() {
         std::fs::read_to_string(runs_dir(loud_dir.path()).join(&run_logs(loud_dir.path())[0]))
             .unwrap();
     assert_eq!(loud.err, log);
-    assert!(loud.err.contains("## Find calls"));
+    assert!(loud.err.contains("## Review calls"));
 
     let json_dir = changed_project();
     let dj = bug_doubles(json_dir.path());
@@ -1083,7 +1084,7 @@ fn verbose_streams_the_log_on_stderr_and_leaves_stdout_as_it_was() {
     for line in j.out.lines() {
         serde_json::from_str::<serde_json::Value>(line).expect(line);
     }
-    assert!(j.err.contains("## Find calls"), "{}", j.err);
+    assert!(j.err.contains("## Review calls"), "{}", j.err);
 }
 
 #[test]

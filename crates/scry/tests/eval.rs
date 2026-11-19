@@ -1,5 +1,5 @@
 //! The eval: 58 bistro cases (`corpus/scry/`) run through whole passes with
-//! every model call replayed, scored against its passing scores. The find calls replay
+//! every model call replayed, scored against its passing scores. The review calls replay
 //! 1a's sonnet findings (split by the pack's files), the claim checks 1a's
 //! verdicts, and Jev its recording under `corpus/scry/jev/`. The passing scores are
 //! inspect's (V-must >= 16/18 with a hit shown, B >= 6/8, at most 0.5 shown a
@@ -17,8 +17,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use scry::config::scry_config;
-use scry::find::{FindAsk, Finder, Found};
 use scry::pass::{Caps, Outcome, PassDeps, Progress, pass};
+use scry::review::{ReviewAsk, Reviewed, Reviewer};
 use scry::scope::{ScopeWhy, scope_of};
 use scry::store::{ScryStore, store};
 use serde_json::{Value, json};
@@ -78,30 +78,30 @@ fn cases() -> Vec<Case> {
         .collect()
 }
 
-/// The find call replayed: the case's recorded findings whose file is one of
+/// The review call replayed: the case's recorded findings whose file is one of
 /// the pack's files, as one reply (an empty one when none are).
-struct CorpusFinder {
+struct CorpusReviewer {
     findings: Vec<Value>,
 }
 
-impl CorpusFinder {
-    fn for_case(id: &str) -> CorpusFinder {
-        let rec = read_json(&corpus().join("finds").join(format!("{id}.json")));
+impl CorpusReviewer {
+    fn for_case(id: &str) -> CorpusReviewer {
+        let rec = read_json(&corpus().join("reviews").join(format!("{id}.json")));
         let reply: Value = serde_json::from_str(rec["reply"].as_str().unwrap()).unwrap();
-        CorpusFinder {
+        CorpusReviewer {
             findings: reply["findings"].as_array().cloned().unwrap_or_default(),
         }
     }
 }
 
-impl Finder for CorpusFinder {
-    fn find(
+impl Reviewer for CorpusReviewer {
+    fn review(
         &self,
-        ask: &FindAsk,
+        ask: &ReviewAsk,
         model: &str,
         _cap_usd: f64,
         _cancel: &Cancel,
-    ) -> sorcerer_models::Result<Found> {
+    ) -> sorcerer_models::Result<Reviewed> {
         let files: BTreeSet<&Path> = ask.units.iter().map(|u| u.file.as_path()).collect();
         let mine: Vec<&Value> = self
             .findings
@@ -112,9 +112,9 @@ impl Finder for CorpusFinder {
                     .is_some_and(|p| files.contains(Path::new(p)))
             })
             .collect();
-        Ok(Found {
+        Ok(Reviewed {
             reply: json!({"findings": mine, "open": []}).to_string(),
-            errand: errand("find", model, 0.04),
+            errand: errand("review", model, 0.04),
         })
     }
 }
@@ -201,7 +201,7 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     let (project, view) = support::project_with_vendored_grammars(root);
     let cfg = scry_config(&project).unwrap();
     let scope = scope_of(&project, &view, ScopeWhy::Working, false, &cfg).unwrap();
-    let finder = CorpusFinder::for_case(&c.id);
+    let reviewer = CorpusReviewer::for_case(&c.id);
     let mut decider = RecordedDecider::new(corpus().join("jev"));
     if record {
         // the live Jev, its ledger the temp project's
@@ -239,7 +239,7 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     let collect = |s: &str| log.borrow_mut().push_str(s);
     let deps = PassDeps {
         view: &view,
-        finder: &finder,
+        reviewer: &reviewer,
         decider,
         checker: &checker,
         clock: &clock,

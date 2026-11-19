@@ -4,7 +4,7 @@
     python3 -I scripts/port-scry-corpus <notes>/experiments <olifant>/src/Olifant/Inspect/testdata corpus/scry
 
 Writes base/ (git archive of the conventions base HEAD, .olifant dropped), cases/ (the
-labelled cases' .toml and .patch), steering.md (1a's vet.md), labels.json, finds/<case>.json,
+labelled cases' .toml and .patch), steering.md (1a's vet.md), labels.json, reviews/<case>.json,
 checks.json and README.md. corpus/scry/jev/ is not touched: the eval records it.
 """
 
@@ -37,7 +37,7 @@ def main() -> None:
     finds_src = testdata / "inspect-corpus-finds.json"
     checks_src = testdata / "inspect-corpus-checks.json"
 
-    for d in ["base", "cases", "finds"]:
+    for d in ["base", "cases", "reviews"]:
         shutil.rmtree(out / d, ignore_errors=True)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -68,7 +68,7 @@ def main() -> None:
 
     # finds: per case, the per-file replies merged into one reply
     finds = json.loads(finds_src.read_text())
-    (out / "finds").mkdir()
+    (out / "reviews").mkdir()
     for cid in sorted(labels):
         findings, open_ = [], []
         for _file, text in sorted(finds.get(cid, {}).items()):
@@ -77,7 +77,7 @@ def main() -> None:
             open_ += reply.get("open", [])
         assert not open_, cid
         reply = json.dumps({"findings": findings, "open": []}, ensure_ascii=False)
-        (out / "finds" / f"{cid}.json").write_text(
+        (out / "reviews" / f"{cid}.json").write_text(
             json.dumps({"reply": reply, "cost_usd": 0.04}, indent=2, ensure_ascii=False) + "\n"
         )
 
@@ -97,7 +97,7 @@ def main() -> None:
         ("steering.md", f"`{vet}` (sha256 `{sha256(vet)}`)"),
         ("labels.json", f"`{labels_src}` (sha256 `{sha256(labels_src)}`), `patch` dropped"),
         (
-            "finds/<case>.json",
+            "reviews/<case>.json",
             f"`{finds_src}` (sha256 `{sha256(finds_src)}`): 1a's sonnet replies, one per changed file, "
             "merged into one reply per case",
         ),

@@ -1,5 +1,5 @@
 //! Steering: the shipped text, then the project's `.sorcerer/scry.md`. All of
-//! it goes to the finder; each heading under `## Rules` is a rule a finding
+//! it goes to the reviewer; each heading under `## Rules` is a rule a finding
 //! can cite; `## A nitpick is` and `## Worth saying is` replace the two sides
 //! of Jev's nitpick question.
 

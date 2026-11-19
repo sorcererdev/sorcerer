@@ -1,6 +1,6 @@
-//! The live wiring of a pass: the project's view, the find call through a
+//! The live wiring of a pass: the project's view, the review call through a
 //! researcher on the chosen provider, Jev, and the claim checker, each
-//! recording its errands as scry's (`find`, `check`, `decide`).
+//! recording its errands as scry's (`review`, `check`, `decide`).
 
 use std::sync::Arc;
 
@@ -20,8 +20,8 @@ use sorcerer_models::research::Researcher;
 use sorcerer_models::research::claude_code::ClaudeCodeResearcher;
 use sorcerer_models::research::tool_loop::LoopResearcher;
 
-use crate::find::{FindAsk, Finder, Found, ResearchFinder};
 use crate::pass::{PassDeps, Progress, SystemClock};
+use crate::review::ResearchReviewer;
 
 /// The product scry's errands are recorded under.
 pub const PRODUCT: &str = "scry";
@@ -39,31 +39,11 @@ type CheckFn = dyn Fn(&Claim) -> sorcerer_models::Result<Checked> + Send + Sync;
 
 pub struct Live {
     view: Arc<FilesView>,
-    finder: LiveFinder,
+    reviewer: ResearchReviewer,
     jev: Jev,
     checker: Box<CheckFn>,
     clock: SystemClock,
     cancel: Cancel,
-}
-
-/// The find call over a shared researcher.
-struct LiveFinder {
-    researcher: Arc<dyn Researcher>,
-}
-
-impl Finder for LiveFinder {
-    fn find(
-        &self,
-        ask: &FindAsk,
-        model: &str,
-        cap_usd: f64,
-        cancel: &Cancel,
-    ) -> sorcerer_models::Result<Found> {
-        ResearchFinder {
-            researcher: &*self.researcher,
-        }
-        .find(ask, model, cap_usd, cancel)
-    }
 }
 
 fn quiet(_: &Progress) {}
@@ -110,7 +90,7 @@ impl Live {
         );
         Ok(Live {
             view,
-            finder: LiveFinder { researcher },
+            reviewer: ResearchReviewer { researcher },
             jev,
             checker,
             clock: SystemClock,
@@ -121,7 +101,7 @@ impl Live {
     pub fn deps(&self) -> PassDeps<'_> {
         PassDeps {
             view: &*self.view,
-            finder: &self.finder,
+            reviewer: &self.reviewer,
             decider: &self.jev,
             checker: &*self.checker,
             clock: &self.clock,

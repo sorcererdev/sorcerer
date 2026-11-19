@@ -1,4 +1,4 @@
-//! Judging a finding after the find call (olifant's `Inspect/Judge.hs`):
+//! Judging a finding after the review call (olifant's `Inspect/Judge.hs`):
 //! place it (in a unit in scope, or elsewhere), pick the stored findings
 //! worth asking Jev the same-problem question about, say what a match does
 //! (the merge table), ask Jev whether it is a nitpick, and check that its
@@ -13,8 +13,8 @@ use sorcerer_core::unit::{Span, Unit, unit_at};
 use sorcerer_core::view::CodebaseView;
 use sorcerer_models::decide::{Answer, Confidence, Question, Shape, Weighed};
 
-use crate::find::RawFinding;
 use crate::finding::{Evidence, Finding, Place, Status};
+use crate::review::RawFinding;
 use crate::scope::ScopedUnit;
 use crate::steering::Steering;
 use crate::store::ScryStore;

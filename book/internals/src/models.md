@@ -63,7 +63,7 @@ says why.
 ## Researchers
 
 `research.rs`. A researcher is a model that may look things up in the project (read a file,
-grep, glob) under fences and answer with citations. Scry's find call and the claim checker
+grep, glob) under fences and answer with citations. Scry's review call and the claim checker
 both need one. `Researcher::research(Research, &Cancel) -> Researched` takes the product
 and verb (for the ledger), the prompt, a model alias, the tools allowed, a spend cap and a
 timeout. Every implementation appends its errand to the ledger, success or failure; a

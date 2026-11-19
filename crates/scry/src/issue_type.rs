@@ -1,4 +1,4 @@
-//! The issue types of a finding: a name, the sentence the find prompt gives it,
+//! The issue types of a finding: a name, the sentence the review prompt gives it,
 //! whether it is shown by default, and how a finding of it is verified.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

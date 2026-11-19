@@ -17,7 +17,7 @@ pub struct FindingId(pub String);
 pub enum Status {
     /// Shown: passed the checks and the confidence threshold.
     Open,
-    /// Found, not yet checked (a cap held the pass back).
+    /// Reviewed, not yet checked (a cap held the pass back).
     Waiting,
     /// Judged a nitpick: kept, not shown.
     Withheld,

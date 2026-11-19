@@ -546,7 +546,7 @@ fn cost(
         })
         .transpose()?;
     let rows = Ledger::for_project(project)?.read()?.errands;
-    // (finds, checks, find $, check $, total $)
+    // (reviews, checks, review $, check $, total $)
     let mut days: BTreeMap<NaiveDate, (usize, usize, f64, f64, f64)> = BTreeMap::new();
     for e in rows.iter().filter(|e| e.product == "scry") {
         let day = e.at.with_timezone(&offset).date_naive();
@@ -556,7 +556,7 @@ fn cost(
         let d = days.entry(day).or_default();
         let c = e.cost_usd.unwrap_or(0.0);
         match e.verb.as_str() {
-            "find" => {
+            "review" => {
                 d.0 += 1;
                 d.2 += c;
             }
@@ -582,9 +582,9 @@ fn cost(
             .map(|(day, d)| {
                 json!({
                     "day": day.to_string(),
-                    "finds": d.0,
+                    "reviews": d.0,
                     "checks": d.1,
-                    "find_cost": d.2,
+                    "review_cost": d.2,
                     "check_cost": d.3,
                     "total_cost": d.4,
                 })
@@ -609,7 +609,7 @@ fn cost(
             out,
             "{}",
             table(
-                &["day", "finds", "checks", "find $", "check $", "total $"],
+                &["day", "reviews", "checks", "review $", "check $", "total $"],
                 &t
             )
         )?;

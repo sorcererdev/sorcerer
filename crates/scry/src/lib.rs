@@ -4,13 +4,13 @@
 
 pub mod cli;
 pub mod config;
-pub mod find;
 pub mod finding;
 pub mod issue_type;
 pub mod judge;
 pub mod live;
 pub mod log;
 pub mod pass;
+pub mod review;
 pub mod rounds;
 pub mod scope;
 pub mod steering;

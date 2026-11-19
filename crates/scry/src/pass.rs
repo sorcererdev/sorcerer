@@ -1,5 +1,5 @@
 //! The pass (design §6.4, olifant's `Inspect/Pass.hs`): the scope's units
-//! not yet reviewed go to the find call in packs; each finding is placed,
+//! not yet reviewed go to the review call in packs; each finding is placed,
 //! matched against the store, filtered by Jev's nitpick question and
 //! remembered; then each file's waiting findings go through the
 //! verification rounds (`rounds`), within the caps.
@@ -22,14 +22,16 @@ use sorcerer_models::checker::{Checked, Claim};
 use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
 
 use crate::config::{ScryConfig, scry_config};
-use crate::find::{FindAsk, FindUnit, Finder, RawFinding, find_prompt, pack_units, parse_find};
 use crate::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
 use crate::judge::{
     Match, SAME_THRESHOLD, asked_on, candidates, citations, cited_code, confidence_of,
     finding_text, match_stored, nitpick, place, same_problem,
 };
 use crate::log::{Trace, block, count, section, sub, usd};
-use crate::rounds::{Around, Budget, check_estimate, find_estimate, verify};
+use crate::review::{
+    RawFinding, ReviewAsk, ReviewUnit, Reviewer, pack_units, parse_review, review_prompt,
+};
+use crate::rounds::{Around, Budget, check_estimate, review_estimate, verify};
 use crate::scope::{Scope, ScopedUnit};
 use crate::steering::{Steering, steering};
 use crate::store::{ScryStore, store};
@@ -58,15 +60,15 @@ pub type Checker<'a> = &'a (dyn Fn(&Claim) -> sorcerer_models::Result<Checked> +
 /// What a pass is told as it goes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Progress {
-    /// A find call answered with this many findings.
-    Found(usize),
+    /// A review call answered with this many findings.
+    Reviewed(usize),
     /// The store was written.
     Stored,
 }
 
 pub struct PassDeps<'a> {
     pub view: &'a dyn CodebaseView,
-    pub finder: &'a dyn Finder,
+    pub reviewer: &'a dyn Reviewer,
     pub decider: &'a dyn Decider,
     pub checker: Checker<'a>,
     pub clock: &'a dyn Clock,
@@ -86,16 +88,16 @@ pub struct Caps {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Report {
-    /// Units sent to a find call that answered.
+    /// Units sent to a review call that answered.
     pub looked_at: usize,
     /// Findings this pass added to the store.
     pub new: Vec<FindingId>,
     pub spent: f64,
     /// Units a cap held back.
     pub capped: usize,
-    /// One line per find call that failed.
+    /// One line per review call that failed.
     pub failures: Vec<String>,
-    /// Nothing capped and every find call answered.
+    /// Nothing capped and every review call answered.
     pub whole: bool,
     /// A claim check did not fit the caps; its finding waits.
     pub checks_capped: bool,
@@ -125,7 +127,7 @@ impl From<Error> for Halt {
 /// One pass over SCOPE. With FRESH, units already reviewed are sent again.
 /// Holds `state/scry/pass.lock` throughout; writes the store before a
 /// round's claim checks start and at the end, each time laying its changes
-/// over the store as it is then. CAPS hold the find calls and claim checks
+/// over the store as it is then. CAPS hold the review calls and claim checks
 /// back, the day's cap counting what scry spent earlier in the local day.
 pub fn pass(
     project: &Project,
@@ -171,7 +173,7 @@ pub fn pass(
     // Jev's questions are not counted against the caps (design §6.9)
     let paid: Vec<_> = rows
         .iter()
-        .filter(|e| e.verb == "find" || e.verb == "check")
+        .filter(|e| e.verb == "review" || e.verb == "check")
         .cloned()
         .collect();
     let today = spent_in(
@@ -180,20 +182,20 @@ pub fn pass(
         now.with_timezone(&offset).date_naive(),
         offset,
     );
-    let (find_est, check_est) = (
-        find_estimate(&rows, &cfg.review_model),
+    let (review_est, check_est) = (
+        review_estimate(&rows, &cfg.review_model),
         check_estimate(&rows),
     );
     (deps.trace)(&format!(
         "{}- caps: pass {}, day {} (scry spent {} earlier today), budget {}\n\
-         - estimates: find {} ({}), check {}\n\
+         - estimates: review {} ({}), check {}\n\
          - store: {}, {} reviewed before\n",
         section("Pass"),
         caps.pass.map_or("none".into(), usd),
         usd(caps.day),
         usd(today),
         caps.budget.map_or("none".into(), usd),
-        usd(find_est),
+        usd(review_est),
         cfg.review_model,
         usd(check_est),
         count(base.findings.len(), "finding"),
@@ -212,7 +214,7 @@ pub fn pass(
         merged: HashSet::new(),
         new: Vec::new(),
         budget: Budget::new(caps, today),
-        find_estimate: find_est,
+        review_estimate: review_est,
         check_estimate: check_est,
         disk: &findings,
         written: base,
@@ -243,7 +245,7 @@ pub fn pass(
     Ok(Outcome::Ran(report))
 }
 
-/// A unit sent to the find call: its file, name, first line and the
+/// A unit sent to the review call: its file, name, first line and the
 /// fingerprint it was sent at.
 type Sent = (PathBuf, String, u32, Fingerprint);
 
@@ -261,7 +263,7 @@ struct Run<'r, 'd> {
     merged: HashSet<FindingId>,
     new: Vec<FindingId>,
     budget: Budget,
-    find_estimate: f64,
+    review_estimate: f64,
     check_estimate: f64,
     disk: &'r Store<ScryStore>,
     /// The store as this pass last wrote it (at first, as it read it), in
@@ -328,7 +330,7 @@ impl Run<'_, '_> {
                 (u.file.clone(), u.unit.name.clone(), u.unit.span.start),
                 u.unit.fingerprint,
             );
-            units.push(FindUnit {
+            units.push(ReviewUnit {
                 file: u.file.clone(),
                 name: u.unit.name.clone(),
                 lines: u.unit.span,
@@ -338,7 +340,7 @@ impl Run<'_, '_> {
             });
         }
 
-        // the find calls, one a pack, while the caps allow; once one pack
+        // the review calls, one a pack, while the caps allow; once one pack
         // is capped every later one is, and its units are recorded for later
         let mut capped = 0;
         let mut failures = Vec::new();
@@ -347,7 +349,7 @@ impl Run<'_, '_> {
         let mut no_longer: HashSet<String> = HashSet::new();
         let mut held: HashSet<String> = HashSet::new();
         let packs = pack_units(units);
-        self.t(&section("Find calls"));
+        self.t(&section("Review calls"));
         if packs.is_empty() {
             self.t("- nothing to send\n");
         }
@@ -362,10 +364,10 @@ impl Run<'_, '_> {
                 sub(&format!("Pack {}: {}", n + 1, names(&files))),
                 unit_names.join(", ")
             ));
-            if capped > 0 || !self.budget.allows(self.find_estimate) {
+            if capped > 0 || !self.budget.allows(self.review_estimate) {
                 self.t(&format!(
                     "- capped: the estimate {} does not fit (room {}); these units wait for a later run\n",
-                    usd(self.find_estimate),
+                    usd(self.review_estimate),
                     self.budget.room().map_or("unbounded".into(), usd),
                 ));
                 capped += pack.len();
@@ -380,10 +382,10 @@ impl Run<'_, '_> {
             }
             if self.cancel.is_cancelled() {
                 self.t("- cancelled before the call\n");
-                failures.push(format!("find cancelled for {}", names(&files)));
+                failures.push(format!("review cancelled for {}", names(&files)));
                 continue;
             }
-            let ask = FindAsk {
+            let ask = ReviewAsk {
                 diff: diff_of(scope, &files),
                 steering: self.st.text.clone(),
                 reported: Vec::new(),
@@ -406,12 +408,12 @@ impl Run<'_, '_> {
                 } else {
                     open_ids.join(", ")
                 },
-                block(&find_prompt(&ask)),
+                block(&review_prompt(&ask)),
             ));
             let found = self
                 .deps
-                .finder
-                .find(&ask, &self.cfg.review_model, cap, self.cancel);
+                .reviewer
+                .review(&ask, &self.cfg.review_model, cap, self.cancel);
             match &found {
                 Ok(f) => self.t(&format!(
                     "Reply:\n\n{}- errand: {}, {:.1} s, {}\n",
@@ -425,21 +427,21 @@ impl Run<'_, '_> {
             // an unpriced answer is charged its estimate, a timeout the cap
             // it ran under (what its errand records), any other failure nothing
             self.budget.charge(match &found {
-                Ok(f) => f.errand.cost_usd.unwrap_or(self.find_estimate),
+                Ok(f) => f.errand.cost_usd.unwrap_or(self.review_estimate),
                 Err(sorcerer_models::Error::Timeout { .. }) => cap,
                 Err(_) => 0.0,
             });
             let answered_call = found.is_ok();
             let reply = match found {
                 Err(e) => Err(e.to_string()),
-                Ok(f) => parse_find(&f.reply),
+                Ok(f) => parse_review(&f.reply),
             };
             match reply {
                 Err(why) => {
                     if answered_call {
                         self.t(&format!("- parse error: {why}\n"));
                     }
-                    failures.push(format!("find failed for {}: {why}", names(&files)))
+                    failures.push(format!("review failed for {}: {why}", names(&files)))
                 }
                 Ok(r) => {
                     let answers: Vec<String> = r
@@ -468,7 +470,7 @@ impl Run<'_, '_> {
                             answers.join(", ")
                         }
                     ));
-                    (self.deps.progress)(&Progress::Found(r.findings.len()));
+                    (self.deps.progress)(&Progress::Reviewed(r.findings.len()));
                     for u in &ask.units {
                         let key = (u.file.clone(), u.name.clone(), u.lines.start);
                         let fp = prints[&key];
@@ -505,14 +507,14 @@ impl Run<'_, '_> {
             self.judge(raw, scope)?;
         }
 
-        // resolved by the find call's answer
+        // resolved by the review call's answer
         let now = self.now;
         let mut remember = section("Remember");
         for f in &mut self.mine.findings {
             if no_longer.contains(&f.id.0) && matches!(f.status, Status::Open | Status::Waiting) {
                 f.set_status(Status::Resolved, now);
                 remember.push_str(&format!(
-                    "- {} resolved: the find call said it no longer holds\n",
+                    "- {} resolved: the reviewer said it no longer holds\n",
                     f.id.0
                 ));
             }
@@ -540,7 +542,7 @@ impl Run<'_, '_> {
             .collect();
 
         // not found again: an open or waiting finding whose unit this pass
-        // looked at with a new fingerprint, that the find call neither
+        // looked at with a new fingerprint, that the review call neither
         // re-raised, said still holds, nor resolved, is resolved; only when
         // the pass was whole
         let whole = capped == 0 && failures.is_empty();
@@ -564,7 +566,7 @@ impl Run<'_, '_> {
                 if not_found {
                     f.set_status(Status::Resolved, now);
                     remember.push_str(&format!(
-                        "- {} resolved: its unit changed and the find call did not raise it again\n",
+                        "- {} resolved: its unit changed and the reviewer did not raise it again\n",
                         f.id.0
                     ));
                 }
@@ -705,8 +707,8 @@ impl Run<'_, '_> {
         (self.deps.trace)(text);
     }
 
-    /// The open and waiting findings on PACK's units, for the find call to answer.
-    fn open_on(&self, pack: &[FindUnit]) -> Vec<Finding> {
+    /// The open and waiting findings on PACK's units, for the review call to answer.
+    fn open_on(&self, pack: &[ReviewUnit]) -> Vec<Finding> {
         self.mine
             .findings
             .iter()
@@ -1111,7 +1113,7 @@ fn lines_of(text: &str, u: &Unit) -> String {
 }
 
 /// The pack's files, in order, each once.
-fn files_of(pack: &[FindUnit]) -> Vec<PathBuf> {
+fn files_of(pack: &[ReviewUnit]) -> Vec<PathBuf> {
     let mut seen = BTreeSet::new();
     pack.iter()
         .filter(|u| seen.insert(u.file.clone()))

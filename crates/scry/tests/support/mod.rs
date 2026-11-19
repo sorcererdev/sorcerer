@@ -1,5 +1,5 @@
 //! Helpers and doubles shared by scry's integration tests: git fixtures (as
-//! core's), a project on the vendored grammars, and stand-ins for the find
+//! core's), a project on the vendored grammars, and stand-ins for the review
 //! call, the decider and the clock.
 #![allow(dead_code)]
 
@@ -9,8 +9,8 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
-use scry::find::{FindAsk, Finder, Found};
 use scry::pass::Clock;
+use scry::review::{ReviewAsk, Reviewed, Reviewer};
 use sorcerer_core::grammar::GrammarCache;
 use sorcerer_core::language::GrammarSource;
 use sorcerer_core::ledger::Errand;
@@ -106,24 +106,24 @@ pub fn errand(verb: &str, model: &str, cost: f64) -> Errand {
     }
 }
 
-type Hook = Box<dyn Fn(&FindAsk) + Send + Sync>;
+type Hook = Box<dyn Fn(&ReviewAsk) + Send + Sync>;
 
-/// The find call's stand-in: replies by the set of files in the pack (an
+/// The review call's stand-in: replies by the set of files in the pack (an
 /// empty findings list for a pack it has no reply for), and records every ask.
 /// A hook, when set, runs during each call (after the ask is recorded).
-pub struct StubFinder {
+pub struct StubReviewer {
     replies: Vec<(BTreeSet<PathBuf>, String)>,
     pub cost: f64,
-    pub asks: Mutex<Vec<FindAsk>>,
+    pub asks: Mutex<Vec<ReviewAsk>>,
     /// The cap each call was given.
     pub caps: Mutex<Vec<f64>>,
     timeout: bool,
     hook: Option<Hook>,
 }
 
-impl StubFinder {
-    pub fn new() -> StubFinder {
-        StubFinder {
+impl StubReviewer {
+    pub fn new() -> StubReviewer {
+        StubReviewer {
             replies: Vec::new(),
             cost: 0.04,
             asks: Mutex::new(Vec::new()),
@@ -134,43 +134,43 @@ impl StubFinder {
     }
 
     /// Every call times out, as a hung `claude -p` would.
-    pub fn timing_out(mut self) -> StubFinder {
+    pub fn timing_out(mut self) -> StubReviewer {
         self.timeout = true;
         self
     }
 
-    /// Runs HOOK during every find call, as a user acting mid-pass would.
-    pub fn on_find(mut self, hook: impl Fn(&FindAsk) + Send + Sync + 'static) -> StubFinder {
+    /// Runs HOOK during every review call, as a user acting mid-pass would.
+    pub fn on_review(mut self, hook: impl Fn(&ReviewAsk) + Send + Sync + 'static) -> StubReviewer {
         self.hook = Some(Box::new(hook));
         self
     }
 
     /// Replies REPLY to a pack whose files are exactly FILES.
-    pub fn reply(mut self, files: &[&str], reply: &str) -> StubFinder {
+    pub fn reply(mut self, files: &[&str], reply: &str) -> StubReviewer {
         let set = files.iter().map(PathBuf::from).collect();
         self.replies.push((set, reply.to_string()));
         self
     }
 
-    pub fn asks(&self) -> Vec<FindAsk> {
+    pub fn asks(&self) -> Vec<ReviewAsk> {
         self.asks.lock().unwrap().clone()
     }
 }
 
-impl Default for StubFinder {
-    fn default() -> StubFinder {
-        StubFinder::new()
+impl Default for StubReviewer {
+    fn default() -> StubReviewer {
+        StubReviewer::new()
     }
 }
 
-impl Finder for StubFinder {
-    fn find(
+impl Reviewer for StubReviewer {
+    fn review(
         &self,
-        ask: &FindAsk,
+        ask: &ReviewAsk,
         model: &str,
         cap_usd: f64,
         _cancel: &Cancel,
-    ) -> sorcerer_models::Result<Found> {
+    ) -> sorcerer_models::Result<Reviewed> {
         self.asks.lock().unwrap().push(ask.clone());
         self.caps.lock().unwrap().push(cap_usd);
         if self.timeout {
@@ -189,9 +189,9 @@ impl Finder for StubFinder {
             .find(|(f, _)| *f == files)
             .map(|(_, r)| r.clone())
             .unwrap_or_else(|| r#"{"findings": [], "open": []}"#.to_string());
-        Ok(Found {
+        Ok(Reviewed {
             reply,
-            errand: errand("find", model, self.cost),
+            errand: errand("review", model, self.cost),
         })
     }
 }

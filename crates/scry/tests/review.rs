@@ -1,9 +1,9 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
-use scry::find::*;
 use scry::finding::{Finding, FindingId, Place, Scores, Status};
+use scry::review::*;
 use sorcerer_core::Cancel;
 use sorcerer_core::ledger::Errand;
 use sorcerer_core::unit::Span;
@@ -13,11 +13,11 @@ fn sp(a: u32, z: u32) -> Span {
     Span { start: a, end: z }
 }
 
-fn ask0() -> FindAsk {
+fn ask0() -> ReviewAsk {
     let now = Utc::now();
-    FindAsk {
+    ReviewAsk {
         units: vec![
-            FindUnit {
+            ReviewUnit {
                 file: "src/a.py".into(),
                 name: "A.f".into(),
                 lines: sp(3, 5),
@@ -25,7 +25,7 @@ fn ask0() -> FindAsk {
                 text: "def f(self, x):\n    return x\n    # end".into(),
                 in_progress: false,
             },
-            FindUnit {
+            ReviewUnit {
                 file: "src/b.py".into(),
                 name: "g".into(),
                 lines: sp(1, 2),
@@ -63,8 +63,8 @@ fn ask0() -> FindAsk {
     }
 }
 
-fn unit(n: u32) -> FindUnit {
-    FindUnit {
+fn unit(n: u32) -> ReviewUnit {
+    ReviewUnit {
         file: "a.py".into(),
         name: format!("u{n}"),
         lines: sp(1, n),
@@ -76,22 +76,22 @@ fn unit(n: u32) -> FindUnit {
 
 #[test]
 fn the_prompt_matches_inspects_golden() {
-    let golden = std::fs::read_to_string("tests/golden/find-prompt.txt").unwrap();
-    assert_eq!(find_prompt(&ask0()), golden);
+    let golden = std::fs::read_to_string("tests/golden/review-prompt.txt").unwrap();
+    assert_eq!(review_prompt(&ask0()), golden);
 }
 
 #[test]
 fn an_in_progress_unit_is_marked() {
     let mut a = ask0();
     a.units[0].in_progress = true;
-    let p = find_prompt(&a);
+    let p = review_prompt(&a);
     assert!(p.contains("--- src/a.py:3-5 A.f (in `class A:`) (in progress)"));
     assert!(p.contains("Units marked (in progress) are still being written"));
-    assert!(!find_prompt(&ask0()).contains("in progress"));
+    assert!(!review_prompt(&ask0()).contains("in progress"));
 }
 
-fn one(r: &str) -> FindReply {
-    parse_find(r).unwrap()
+fn one(r: &str) -> ReviewReply {
+    parse_review(r).unwrap()
 }
 
 const F: &str = r#"{"kind": "bug", "file": "src/a.py", "lines": [3, 4], "statement": "Wrong."}"#;
@@ -201,7 +201,7 @@ fn open_answers_need_exact_holds_words() {
 #[test]
 fn no_json_is_an_error() {
     assert!(
-        parse_find("I found nothing")
+        parse_review("I found nothing")
             .unwrap_err()
             .contains("no JSON")
     );
@@ -250,17 +250,19 @@ impl Researcher for Stub {
 }
 
 #[test]
-fn research_finder_asks_for_the_find_errand() {
-    let stub = Stub(Mutex::new(None));
+fn research_reviewer_asks_for_the_review_errand() {
+    let stub = Arc::new(Stub(Mutex::new(None)));
     let ask = ask0();
-    let found = ResearchFinder { researcher: &stub }
-        .find(&ask, "sonnet", 0.5, &Cancel::default())
-        .unwrap();
+    let found = ResearchReviewer {
+        researcher: stub.clone(),
+    }
+    .review(&ask, "sonnet", 0.5, &Cancel::default())
+    .unwrap();
     assert_eq!(found.reply, "{}");
     let r = stub.0.lock().unwrap().take().unwrap();
-    assert_eq!((r.product.as_str(), r.verb.as_str()), ("scry", "find"));
+    assert_eq!((r.product.as_str(), r.verb.as_str()), ("scry", "review"));
     assert_eq!(r.tools, vec![Tool::Read, Tool::Grep, Tool::Glob]);
     assert_eq!(r.timeout.as_secs(), 420);
-    assert_eq!(r.prompt, find_prompt(&ask));
+    assert_eq!(r.prompt, review_prompt(&ask));
     assert_eq!((r.model.as_str(), r.cap_usd), ("sonnet", 0.5));
 }

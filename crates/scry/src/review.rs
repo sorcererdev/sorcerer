@@ -1,8 +1,9 @@
-//! The find call: one model run over a pack of changed units, with the
+//! The review call: one model run over a pack of changed units, with the
 //! project's steering, the open findings to answer and the tools to look
 //! things up. Ported from inspect's `Find.hs`, prompt word for word.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -14,8 +15,8 @@ use sorcerer_models::research::{Research, Researcher, Tool};
 use crate::finding::Finding;
 use crate::issue_type::ISSUE_TYPES;
 
-/// Seconds a find call may take.
-pub const FIND_TIMEOUT: Duration = Duration::from_secs(420);
+/// Seconds a review call may take.
+pub const REVIEW_TIMEOUT: Duration = Duration::from_secs(420);
 
 /// Numbered lines a pack may hold (a longer unit goes alone).
 const PACK_LINES: u32 = 600;
@@ -23,7 +24,7 @@ const PACK_LINES: u32 = 600;
 /// A unit to review. `in_progress`: it probably stops before doing its job,
 /// so it is reviewed for what is written, not for what is missing.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FindUnit {
+pub struct ReviewUnit {
     pub file: PathBuf,
     pub name: String,
     pub lines: Span,
@@ -33,8 +34,8 @@ pub struct FindUnit {
 }
 
 #[derive(Debug, Clone)]
-pub struct FindAsk {
-    pub units: Vec<FindUnit>,
+pub struct ReviewAsk {
+    pub units: Vec<ReviewUnit>,
     pub diff: String,
     pub steering: String,
     /// Always empty in v1 (spellbook's slot).
@@ -60,12 +61,12 @@ pub struct OpenAnswer {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct FindReply {
+pub struct ReviewReply {
     pub findings: Vec<RawFinding>,
     pub open: Vec<OpenAnswer>,
 }
 
-fn numbered(u: &FindUnit) -> String {
+fn numbered(u: &ReviewUnit) -> String {
     let mut head = format!(
         "--- {}:{}-{} {}",
         u.file.display(),
@@ -97,7 +98,7 @@ fn open_line(f: &Finding) -> String {
     )
 }
 
-pub fn find_prompt(a: &FindAsk) -> String {
+pub fn review_prompt(a: &ReviewAsk) -> String {
     let open_ask = "Answer every open finding in \"open\": \"still holds\" when the code still has that problem, \"no longer holds\" when the code no longer has it, with one line why. Do not raise an open finding again in \"findings\".\n";
     let mut s = String::new();
     s.push_str("A developer has just saved a change in this repository (the current directory is the tree after the change).\n\n");
@@ -282,26 +283,26 @@ fn open_of(v: &Value) -> Option<OpenAnswer> {
 }
 
 /// Err only when no JSON is there at all.
-pub fn parse_find(text: &str) -> Result<FindReply, String> {
+pub fn parse_review(text: &str) -> Result<ReviewReply, String> {
     match json_in(text) {
-        None => Err("no JSON in the find reply".into()),
-        Some(Value::Array(xs)) => Ok(FindReply {
+        None => Err("no JSON in the review reply".into()),
+        Some(Value::Array(xs)) => Ok(ReviewReply {
             findings: xs.iter().filter_map(finding_of).collect(),
             open: vec![],
         }),
-        Some(Value::Object(o)) => Ok(FindReply {
+        Some(Value::Object(o)) => Ok(ReviewReply {
             findings: list(&o, "findings").iter().filter_map(finding_of).collect(),
             open: list(&o, "open").iter().filter_map(open_of).collect(),
         }),
-        Some(_) => Ok(FindReply::default()),
+        Some(_) => Ok(ReviewReply::default()),
     }
 }
 
 /// Units in order, packed into calls of at most 600 numbered lines; a unit
 /// longer than that goes alone.
-pub fn pack_units(units: Vec<FindUnit>) -> Vec<Vec<FindUnit>> {
-    let size = |u: &FindUnit| u.lines.end.saturating_sub(u.lines.start) + 1;
-    let mut packs: Vec<Vec<FindUnit>> = vec![];
+pub fn pack_units(units: Vec<ReviewUnit>) -> Vec<Vec<ReviewUnit>> {
+    let size = |u: &ReviewUnit| u.lines.end.saturating_sub(u.lines.start) + 1;
+    let mut packs: Vec<Vec<ReviewUnit>> = vec![];
     let mut n = 0;
     for u in units {
         let s = size(&u);
@@ -320,47 +321,48 @@ pub fn pack_units(units: Vec<FindUnit>) -> Vec<Vec<FindUnit>> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Found {
+pub struct Reviewed {
     pub reply: String,
     pub errand: Errand,
 }
 
 /// The seam the eval swaps for recorded replies.
-pub trait Finder: Send + Sync {
-    fn find(
+pub trait Reviewer: Send + Sync {
+    fn review(
         &self,
-        ask: &FindAsk,
+        ask: &ReviewAsk,
         model: &str,
         cap_usd: f64,
         cancel: &Cancel,
-    ) -> sorcerer_models::Result<Found>;
+    ) -> sorcerer_models::Result<Reviewed>;
 }
 
-pub struct ResearchFinder<'a> {
-    pub researcher: &'a dyn Researcher,
+/// The review call over a researcher (Claude Code, or the tool loop over a provider).
+pub struct ResearchReviewer {
+    pub researcher: Arc<dyn Researcher>,
 }
 
-impl Finder for ResearchFinder<'_> {
-    fn find(
+impl Reviewer for ResearchReviewer {
+    fn review(
         &self,
-        ask: &FindAsk,
+        ask: &ReviewAsk,
         model: &str,
         cap_usd: f64,
         cancel: &Cancel,
-    ) -> sorcerer_models::Result<Found> {
+    ) -> sorcerer_models::Result<Reviewed> {
         let r = self.researcher.research(
             Research {
                 product: "scry".into(),
-                verb: "find".into(),
-                prompt: find_prompt(ask),
+                verb: "review".into(),
+                prompt: review_prompt(ask),
                 model: model.into(),
                 tools: vec![Tool::Read, Tool::Grep, Tool::Glob],
                 cap_usd,
-                timeout: FIND_TIMEOUT,
+                timeout: REVIEW_TIMEOUT,
             },
             cancel,
         )?;
-        Ok(Found {
+        Ok(Reviewed {
             reply: r.answer,
             errand: r.errand,
         })

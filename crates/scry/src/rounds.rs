@@ -22,21 +22,21 @@ use crate::pass::status_word;
 use crate::pass::{Caps, PassDeps, Progress};
 use crate::store::ScryStore;
 
-/// A find call on sonnet, a find call on a haiku model, a claim check:
+/// A review call on sonnet, a review call on a haiku model, a claim check:
 /// what olifant's 1a measured, used until the ledger has priced rows.
-pub const FIND_DEFAULT: f64 = 0.04;
-pub const FIND_HAIKU_DEFAULT: f64 = 0.005;
+pub const REVIEW_DEFAULT: f64 = 0.04;
+pub const REVIEW_HAIKU_DEFAULT: f64 = 0.005;
 pub const CHECK_DEFAULT: f64 = 0.016;
 
-/// What the next find call is likely to cost: the mean of the last 20
-/// priced `scry` `find` rows, else $0.04 ($0.005 when MODEL is a haiku).
-pub fn find_estimate(rows: &[Errand], model: &str) -> f64 {
+/// What the next review call is likely to cost: the mean of the last 20
+/// priced `scry` `review` rows, else $0.04 ($0.005 when MODEL is a haiku).
+pub fn review_estimate(rows: &[Errand], model: &str) -> f64 {
     let default = if model.contains("haiku") {
-        FIND_HAIKU_DEFAULT
+        REVIEW_HAIKU_DEFAULT
     } else {
-        FIND_DEFAULT
+        REVIEW_DEFAULT
     };
-    mean_or(rows, "find", default)
+    mean_or(rows, "review", default)
 }
 
 /// What a claim check is likely to cost: the mean of the last 20 priced
@@ -183,7 +183,7 @@ pub(crate) fn verify(
         let mut batch = Vec::new();
         let mut rest = Vec::new();
         for id in cands {
-            let f = find(store, &id);
+            let f = by_id(store, &id);
             let is_new = !around.old_waiting.contains(&id);
             let c = usize::from(shown(f));
             if (is_new && n >= MAX_SHOWN) || (!is_new && o >= MAX_SHOWN) {
@@ -197,7 +197,7 @@ pub(crate) fn verify(
             }
         }
         let confidence_of = |id: &FindingId| {
-            let f = find(store, id);
+            let f = by_id(store, id);
             format!(
                 "{} (confidence {:.2})",
                 id.0,
@@ -230,7 +230,7 @@ pub(crate) fn verify(
         let mut reserved = 0.0;
         let mut held = false;
         for id in &batch {
-            let f = find_mut(store, id);
+            let f = by_id_mut(store, id);
             let raw: Vec<_> = f
                 .evidence
                 .iter()
@@ -346,7 +346,7 @@ pub(crate) fn verify(
                 })
                 .collect();
             let models: Vec<&str> = c.errands.iter().map(|e| e.model.as_str()).collect();
-            let f = find_mut(store, &id);
+            let f = by_id_mut(store, &id);
             f.cost_usd += cost;
             f.set_status(
                 match c.verdict {
@@ -385,7 +385,7 @@ pub(crate) fn verify(
         }
 
         for id in &batch {
-            let f = find(store, id);
+            let f = by_id(store, id);
             if f.status == Status::Open && shown(f) {
                 open_now += 1;
                 if !around.old_waiting.contains(id) {
@@ -430,7 +430,7 @@ fn verdict_word(v: Verdict) -> &'static str {
     }
 }
 
-fn find<'s>(store: &'s ScryStore, id: &FindingId) -> &'s Finding {
+fn by_id<'s>(store: &'s ScryStore, id: &FindingId) -> &'s Finding {
     store
         .findings
         .iter()
@@ -438,7 +438,7 @@ fn find<'s>(store: &'s ScryStore, id: &FindingId) -> &'s Finding {
         .expect("a candidate is in the store")
 }
 
-fn find_mut<'s>(store: &'s mut ScryStore, id: &FindingId) -> &'s mut Finding {
+fn by_id_mut<'s>(store: &'s mut ScryStore, id: &FindingId) -> &'s mut Finding {
     store
         .findings
         .iter_mut()

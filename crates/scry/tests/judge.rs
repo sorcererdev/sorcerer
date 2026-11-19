@@ -3,12 +3,12 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use scry::find::RawFinding;
 use scry::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
 use scry::judge::{
     Match, SAME_THRESHOLD, asked_on, candidates, citations, cited_code, confidence_of,
     finding_text, match_stored, nitpick, place, same_problem,
 };
+use scry::review::RawFinding;
 use scry::scope::ScopedUnit;
 use scry::steering::steering_of;
 use scry::store::ScryStore;

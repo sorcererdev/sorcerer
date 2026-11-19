@@ -47,14 +47,14 @@ src/orders/cancel.py:41  bug  cancel() returns None when the repository has no o
 Each finding is its place, its issue type and its statement, wrapped to your terminal (100 columns
 when the output is not a terminal), then its confidence: one minus Jev's chance that it is a
 nitpick. Under it are the lines it cites and the command that shows it in full. The last line
-counts the findings, the units sent to the finder this run and what the run spent; a run that
+counts the findings, the units sent to the reviewer this run and what the run spent; a run that
 had nothing to look at and nothing to show prints nothing.
 
 With `--json`, each finding is one line on stdout:
 `{"id", "issue_type", "rule", "statement", "file", "lines": [first, last], "unit", "evidence":
 [{"file", "lines"}], "confidence", "verdict", "status"}`. The summary line goes to stderr.
 
-Problems go to stderr, one line each: a find call that failed (`scry: find failed for
+Problems go to stderr, one line each: a review call that failed (`scry: review failed for
 src/a.py: …`; its units are looked at again next run), and units or a claim check a cap held
 back (`scry: the day's cap stopped 2 units; they wait for the next run`).
 
@@ -70,7 +70,7 @@ it) keeps only those statuses (`open`, `waiting`, `withheld`, `refuted`, `unsure
 `{"findings": [{"id", "status", "issue_type", "file", "line", "rule", "statement", "confidence",
 "verdict", "seen"}]}`.
 
-`scry cost` reads the ledger: a row for each of your local days, `day  finds  checks  find $
+`scry cost` reads the ledger: a row for each of your local days, `day  reviews  checks  review $
 check $  total $`, then `waiting on the cap: N units`. Jev's questions are in the total only.
 `--since 2026-11-01` leaves earlier days out; `--json` prints `{"days": [...],
 "waiting_units": N}`. When the finding store does not read, `cost` says so on stderr and
@@ -100,14 +100,14 @@ and exit code do not change. The log holds, in run order:
   language, excluded, fenced, not text, deleted).
 - **Pass** and **Units**: the caps, what scry spent earlier today, the cost estimates, and each
   unit: to send, or already reviewed at its fingerprint.
-- **Find calls**: per pack, its units, the model and cap, the whole prompt and the whole reply,
+- **Review calls**: per pack, its units, the model and cap, the whole prompt and the whole reply,
   the call's cost and time, and what the reply parsed to (or why it did not), or that a cap
   held the pack back.
 - **Findings**: each finding as the model gave it (issue type, place, rule, statement, evidence),
   the rule it resolved to, the unit it was placed in, each same-problem question with Jev's
   P(yes) and what came of it (new, merged, dropped), the nitpick question's P(yes), the
   confidence against `confidence_threshold`, and the id it got.
-- **Remember**: what was resolved (the finder said it no longer holds, or it was not found
+- **Remember**: what was resolved (the reviewer said it no longer holds, or it was not found
   again) or gone.
 - **Verification**: per file and round, the candidates and the room, each finding's citations
   (holding, or which did not), and each claim check: the models, whether it escalated, the
@@ -154,7 +154,7 @@ went through and what it cost.
 |---|---|
 | 0 | nothing open in scope, or scry is off (`[scry] enabled = false`) |
 | 1 | open findings in scope |
-| 2 | scry could not run: no Jev key, no provider, the store does not read, a bad `--since` rev; or nothing is open but a find call failed or a cap held work back |
+| 2 | scry could not run: no Jev key, no provider, the store does not read, a bad `--since` rev; or nothing is open but a review call failed or a cap held work back |
 
 So a pre-commit hook is one line, in `.git/hooks/pre-commit`:
 
@@ -167,7 +167,7 @@ scry || exit $?
 `scry doctor` checks, a row each, what a run needs, and writes nothing:
 
 - `provider`: the model provider scry would use, and why (`[model] provider`, else `claude`
-  on PATH, else `ANTHROPIC_API_KEY`). Scry runs Claude Code itself as the finder when
+  on PATH, else `ANTHROPIC_API_KEY`). Scry runs Claude Code itself as the reviewer when
   the provider is `claude`.
 - `jev`: Jev's key (`JEV_API_KEY`, or `[decide] key_env`). Scry does not run without Jev.
 - `languages`: each language your files use (or `[languages] names`) loads its grammar.
@@ -220,7 +220,7 @@ error that names the key and the file.
 
 ## What it costs
 
-A pass that finds changed units not yet reviewed makes one find call for them, about $0.04
+A pass that finds changed units not yet reviewed makes one review call for them, about $0.04
 on sonnet (about $0.005 with `review_model = "haiku"`, which misses more). Each `bug` or
 `assumption` that survives the nitpick question gets a claim check, about $0.016. A pass with
 nothing new to look at costs nothing. Jev's questions cost about $0.00005 each and are not
@@ -233,7 +233,7 @@ Scry checks the caps before every paid call, against what that call is likely to
 - `budget_per_day`: what scry may spend in your local day, counting the passes before this one.
 - `--budget USD` on the command line: what the run may spend.
 
-A find call that times out (after 420 s) is counted at the cap it ran under, which is never
+A review call that times out (after 420 s) is counted at the cap it ran under, which is never
 more than `budget_per_pass`, even on the command line where no pass cap applies: one hung call does
 not use up the day.
 
@@ -244,7 +244,7 @@ refutes frees its place for the next one.
 
 ## Steering
 
-Steering is the text the finder reads about your project. It has three layers, joined in
+Steering is the text the reviewer reads about your project. It has three layers, joined in
 order: the text shipped with sorcerer, then `.sorcerer/scry.md` in your project, then (once
 spellbook exists) the rules spellbook enforces.
 

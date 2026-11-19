@@ -22,7 +22,7 @@
 - `src/cli.rs`: `main`, `main_with`, `doctor_rows`.
 - `src/main.rs`: the binary, `cli::main` with the real environment.
 - `tests/support/mod.rs`: git fixtures, `project_with_vendored_grammars`, and the doubles
-  `StubFinder`, `StubDecider`, `FixedClock`.
+  `StubReviewer`, `StubDecider`, `FixedClock`.
 - `library/scry.md`: the shipped steering layer.
 
 ## Config
@@ -37,9 +37,9 @@ a name in `ISSUE_TYPES`. The keys are `enabled`, `issue_types`, `review_model`,
 
 ## Issue types
 
-`ISSUE_TYPES` is the table of issue types: a `name`, the `sentence` the find prompt prints after it, whether
+`ISSUE_TYPES` is the table of issue types: a `name`, the `sentence` the review prompt prints after it, whether
 it is `shown` by default, and its `Verify` (`Citations`, or `CitationsThenClaim` where the
-claim checker also runs). The sentences are those of the golden find prompt, word for word.
+claim checker also runs). The sentences are those of the golden review prompt, word for word.
 A new issue type is a new row. `[scry] issue_types` chooses which rows are shown.
 
 ## Steering
@@ -66,7 +66,7 @@ and `cited`, each `StoredCitation` behind it with `confirmed` and `unit_missed` 
 false; `StoredCitation::outcome` words it for the log and `why`): what the claim check cited, or
 for a citation failure the finding's own evidence; `serde(default)` and skipped when empty,
 so a store from before it reads and one with nothing cited is written as before),
-`status`, `seen`, `first`, `last`, `history`, and the `model` and `cost_usd` of the find.
+`status`, `seen`, `first`, `last`, `history`, and the `model` and `cost_usd` of the review.
 Every status change goes through `Finding::set_status`, which appends to `history`.
 
 `Status`, written kebab-case in the file:
@@ -91,15 +91,15 @@ at least four characters. `dismiss` sets `dismissed-here` or `dismissed-everywhe
 is a file's open findings whose issue type is in `[scry] issue_types`, best confidence first, at most
 `MAX_SHOWN`.
 
-## The find call
+## The review call
 
-`src/find.rs` is inspect's find call, ported word for word. A `FindAsk` carries the pack's
-`FindUnit`s (file, name, `lines`, enclosing `header`, `text`, `in_progress`), the diff, the
+`src/review.rs` is inspect's review call, ported word for word. A `ReviewAsk` carries the pack's
+`ReviewUnit`s (file, name, `lines`, enclosing `header`, `text`, `in_progress`), the diff, the
 steering text, `reported` (always empty in v1; spellbook's slot) and the `open` findings to
-re-answer. `find_prompt` renders it; `tests/golden/find-prompt.txt` is inspect's golden, matched
+re-answer. `review_prompt` renders it; `tests/golden/review-prompt.txt` is inspect's golden, matched
 byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first line.
 
-`parse_find` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
+`parse_review` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
 to the last `}`, then the first `[` to the last `]` (the array first when it opens first, so a
 bare array of findings is not mistaken for its first object); the first that decodes wins. A
 finding needs one of the four issue types (the reply's `kind` field), a file, a statement and `lines` (`[a, z]`, one element, or
@@ -108,9 +108,9 @@ answers need `holds` to be exactly `still holds` or `no longer holds`; a numeric
 Only a reply with no JSON at all is an `Err`.
 
 `pack_units` keeps units in order in packs of at most 600 numbered lines; a longer unit goes
-alone. `Finder` is the seam: `find(ask, model, cap_usd, cancel)` returns a `Found` (the reply
-text and its `Errand`). `ResearchFinder` is the live one, one `Research` (product `scry`, verb
-`find`, tools Read/Grep/Glob, `FIND_TIMEOUT` 420 s); the eval swaps in recorded replies
+alone. `Reviewer` is the seam: `review(ask, model, cap_usd, cancel)` returns a `Reviewed` (the reply
+text and its `Errand`). `ResearchReviewer` is the live one, one `Research` (product `scry`, verb
+`review`, tools Read/Grep/Glob, `REVIEW_TIMEOUT` 420 s); the eval swaps in recorded replies
 through the same trait.
 
 ## The scope
@@ -138,7 +138,7 @@ line before the body holding the unit's own name, so a decorator above it is pas
 
 ## Judging a finding
 
-`src/judge.rs` is inspect's `Judge.hs`: what happens to a `RawFinding` after the find call.
+`src/judge.rs` is inspect's `Judge.hs`: what happens to a `RawFinding` after the review call.
 
 `place(raw, scoped, units_now)` gives its `Place` and first status. Among the `ScopedUnit`s of
 its file whose span overlaps its lines, the one holding its first line wins, then the
@@ -188,9 +188,9 @@ finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprin
 
 `src/pass.rs` is inspect's `Pass.hs` (`inspectPass`, `mergeInto`), design §6.4 steps 1–5
 and 8. `pass(project, scope, caps, fresh, deps, cancel)` takes a `Scope` from `scope_of` and
-`PassDeps`: the `CodebaseView`, the `Finder`, the `Decider` (Jev), the claim `Checker`, a
+`PassDeps`: the `CodebaseView`, the `Reviewer`, the `Decider` (Jev), the claim `Checker`, a
 `Clock` (`SystemClock` live, `FixedClock` in tests), a `progress` callback told
-`Progress::Found(n)` after each find call that answered and `Progress::Stored` after the
+`Progress::Reviewed(n)` after each review call that answered and `Progress::Stored` after the
 write, and a `trace` (below). It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, the `new` ids,
 `spent`, `capped` units, one `failures` line per failed call, `whole`, `checks_capped`
 when a claim check did not fit, and `touched`, every finding the pass added or changed: those
@@ -204,14 +204,14 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
 1. **Lock and read.** `state/scry/pass.lock` is taken with `File::lock` (blocking) for the
    whole pass, so two passes never interleave. The store is read once; `Unreadable` is
    `Error::StoreUnreadable` and nothing is touched. The pass works on a copy, `Run::mine`.
-   The ledger is read once too: its `find` and `check` rows give the estimates and, through
+   The ledger is read once too: its `review` and `check` rows give the estimates and, through
    core's `cost::spent_in` in the `Clock`'s offset, what scry spent earlier in the local day,
    which starts the pass's `Budget` (Jev's `decide` rows are not counted, design §6.9).
 2. **What to send, and the gone sweep.** The scope's units whose fingerprint is not in
    `reviewed[file]` (every one with `fresh`). `Run::sweep_gone`: an open, waiting or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
    `gone`.
-3. **Find.** `pack_units` packs them; each pack is a `FindAsk` with its files' diffs
+3. **Review.** `pack_units` packs them; each pack is a `ReviewAsk` with its files' diffs
    (`diff_of`), the steering text, `reported` empty, and the open and waiting findings on its
    units (`Run::open_on`). Before each call `Budget::allows(find_estimate)`; once one pack is
    capped every later one is, and its units' names go to `capped[file]` in the store. The
@@ -219,8 +219,8 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `Budget::room` bounded by `budget_per_pass` (`budget_per_pass` when nothing bounds the room). On the
    command line `Caps.pass` is `None`, so without the bound `room` is the rest of the local
    day and one hung call would be charged all of it. A call that fails, or a reply
-   `parse_find` refuses, is a `failures` line (`find failed for a.py: …`) and its units stay
-   unreviewed; the finder has already put its errand in the ledger. The budget is charged the
+   `parse_review` refuses, is a `failures` line (`review failed for a.py: …`) and its units stay
+   unreviewed; the reviewer has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
    other failure.
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::resolve_rule` cannot
@@ -245,7 +245,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or waiting finding from before the pass
    whose unit was sent at a fingerprint other than its place's, and that nothing merged into,
-   kept (`held`) or resolved, is `resolved` (not found again). The prompt tells the finder not
+   kept (`held`) or resolved, is `resolved` (not found again). The prompt tells the reviewer not
    to raise an open finding again, so `held` is what keeps an unfixed finding open across an
    edit of its unit.
 6. **Verify.** `rounds::verify` for each scoped file that still exists, sharing the pass's
@@ -271,8 +271,8 @@ the pass's thread only (a round's claim checks are traced after they join), so i
 decides reads it: the eval's table is the same with or without it. The calls:
 
 - `pass`: the **Pass** section, the caps, what scry spent earlier today, the estimates.
-- `Run::go`: **Units** (each scope unit, to send or already reviewed), **Find calls** (per
-  pack: units, model, cap, the open ids, `find_prompt(&ask)` and the reply each in
+- `Run::go`: **Units** (each scope unit, to send or already reviewed), **Review calls** (per
+  pack: units, model, cap, the open ids, `review_prompt(&ask)` and the reply each in
   `log::block`, the errand, then the parse or the failure, or the cap that held it back),
   **Findings** (a `sub` heading a raw finding, then `Run::judge`), **Remember** (resolved by
   the reply, not found again, swept gone by `sweep_gone`, dropped as moved) and, after the
@@ -291,7 +291,7 @@ decides reads it: the eval's table is the same with or without it. The calls:
 `claimEstimate`, `spentToday`, the `rounds` loop), design §6.4 steps 6–7 and §6.9.
 
 `find_estimate(rows, model)` and `check_estimate(rows)` are the mean of the last 20 priced
-ledger rows of product `scry` and verb `find` / `check`, else $0.04 a find ($0.005 when the
+ledger rows of product `scry` and verb `review` / `check`, else $0.04 a review ($0.005 when the
 model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)` holds the
 `Caps` (`pass`, `day`, `budget`); `allows(e)` is false when `spent + e` passes `pass` or
 `budget` (when set) or `today + spent + e` passes `day`; `charge` adds a cost; `room` is the
@@ -324,8 +324,7 @@ next round, which takes the rest. The rounds end when a round takes nobody.
   `ClaudeCodeResearcher` (Claude Code reads the files itself); otherwise `LoopResearcher` over
   the provider, the view, the fences and the ledger.
 - The view, a `FilesView` on the user's `GrammarCache`.
-- The finder, `LiveFinder`, which lends the shared researcher to a `ResearchFinder` per call
-  (scry's `find`).
+- The reviewer, `ResearchReviewer`, which holds the shared researcher (scry's `review`).
 - The claim checker, `checker_over(researcher, decider, fences, view, languages, cancel)`: a
   boxed closure that runs `sorcerer_models::checker::check` with
   `CheckerDeps::defaults(.., "scry")` and the project's `languages`, so its errands are scry's
@@ -358,7 +357,7 @@ not require the wiring: `clock_of` asks it for the clock (the tests' `FixedClock
 zone) and falls back to the system clock when `Live::open` fails. `list` sorts by
 `status_rank`, then file and line, and prints through `table` (columns padded to their widest
 cell). `cost` groups the ledger's `scry` errands by local day in the clock's offset
-(`BTreeMap` by date): `find` and `check` are counted and summed, `decide` only added to the
+(`BTreeMap` by date): `review` and `check` are counted and summed, `decide` only added to the
 total; the waiting units are the store's `capped` sets (a store that does not read is a
 `scry:` line on stderr and no waiting line, `waiting_units: null`). `dismiss` is `ScryStore::dismiss`
 inside `Store::update`; `why` re-reads the steering for the rule's text and each cited file for
@@ -385,7 +384,7 @@ creating the state directory: the Nth, `--list` (`table` of name, `run_time` in 
 offset, `result_of`) or `--path`; none is exit 2. `why` prints a verdict's `cited` under
 `Cited by the check:`, a `StoredCitation::label` and `confirmed` or `not found` each. Exit: `[scry] enabled = false` is 0 before any
 pass; `Skipped` or an error is 2; anything shown is
-1; else 2 when a find failed, a unit was capped or a claim check was held back
+1; else 2 when a review failed, a unit was capped or a claim check was held back
 (`Report::checks_capped`), else 0.
 
 `doctor_rows(project, env, cache)` reads only (the store through `Store::at`, the ledger
@@ -399,20 +398,20 @@ exits 2 when any failed.
 
 `crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
 `git_repo` (no commit), `git_project`, `write`, `commit`, `project_with_vendored_grammars`
-(core's vendored grammars, no network), and three doubles. `StubFinder` answers a find by the
-set of files in its pack (an empty findings list otherwise) and records every `FindAsk`.
+(core's vendored grammars, no network), and three doubles. `StubReviewer` answers a review by the
+set of files in its pack (an empty findings list otherwise) and records every `ReviewAsk`.
 `StubDecider` answers each question with the first rule whose kind prefixes the question's and
-whose predicate holds, else a certain no, and records the questions. `StubFinder::on_find` runs a hook during each call (a user acting mid-pass).
+whose predicate holds, else a certain no, and records the questions. `StubReviewer::on_review` runs a hook during each call (a user acting mid-pass).
 `FixedClock` is a clock set by hand (`at`, `now`, `offset` to move it, `in_zone` for the
 user's offset) and implements the pass's `Clock`. `errand(verb, model, cost)` is a ledger row
 as a paid call would append it. The rounds tests (`tests/rounds.rs`) seed waiting findings
-straight into the store with `cancel` already reviewed, so no find call runs, and pass a
+straight into the store with `cancel` already reviewed, so no review call runs, and pass a
 claim checker closure; the pass tests use one that always errs (a waiting finding stays
 waiting).
 
-The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar view, `StubFinder`,
+The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar view, `StubReviewer`,
 `StubDecider`, `FixedClock` and a checker that says right) into `main_with` through
-`impl Wired for &Doubles`, so the finder's asks can be read after two runs.
+`impl Wired for &Doubles`, so the reviewer's asks can be read after two runs.
 
 ## The eval
 
@@ -426,7 +425,7 @@ test job. The corpus is `corpus/scry/` (its `README.md` says where each file cam
   `.sorcerer/scry.md` from `steering.md` (1a's steering) and a config with
   `[languages] names = ["python"]` and `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The
   project's grammars point at core's vendored sources; the scope is `scope_of(Working)`.
-- `finds/<id>.json`, 1a's sonnet findings for the case. `CorpusFinder` answers a pack with the
+- `finds/<id>.json`, 1a's sonnet findings for the case. `CorpusReviewer` answers a pack with the
   findings whose `file` is one of the pack's files (an empty reply otherwise), at $0.04.
 - `checks.json`, 1a's claim-check verdicts keyed by the statement with whitespace collapsed;
   the checker closure answers from it, `CannotTell` for a statement it does not hold.

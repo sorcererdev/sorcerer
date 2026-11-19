@@ -1,5 +1,5 @@
 //! The run log: what a run did, step by step, as Markdown. The pass writes
-//! its part through the `trace` in `PassDeps` (the find calls, each
+//! its part through the `trace` in `PassDeps` (the review calls, each
 //! finding's path, the rounds, what it remembered); the command line adds
 //! the run's head, the scope and the summary, streams it all to stderr with
 //! `-v`, and keeps it under `state/scry/runs/`, the newest [`KEEP`].
