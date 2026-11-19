@@ -1,4 +1,4 @@
-//! Judging a finding after the review call (olifant's `Inspect/Judge.hs`):
+//! Judging a finding after the review call:
 //! place it (in a unit in scope, or elsewhere), pick the stored findings
 //! worth asking Jev the same-problem question about, say what a match does
 //! (the merge table), and ask Jev whether it is a nitpick.
@@ -91,7 +91,7 @@ pub fn finding_text(
     )
 }
 
-/// Jev's same-problem question, worded as inspect measured it.
+/// Jev's same-problem question, in the wording the eval measured.
 pub fn same_problem(a: &str, b: &str, code_a: &str, code_b: &str) -> Question {
     Question {
         kind: "same".into(),

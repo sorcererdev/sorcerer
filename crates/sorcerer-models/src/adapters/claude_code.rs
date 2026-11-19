@@ -1,8 +1,7 @@
 //! A researcher through `claude -p`: the CLI runs the tool loop with its
 //! own Read, Grep and Glob, in the project root. Fences are enforced by
 //! `claude`'s deny rules (a `Read(...)` rule fences Grep and Glob too,
-//! measured in olifant 2026-11-08), not only by the prompt. Ported from
-//! olifant's `runnerArgs` for a code check (`Server/Errand.hs`).
+//! measured 2026-11-08), not only by the prompt.
 
 use std::path::PathBuf;
 
@@ -56,7 +55,7 @@ impl ClaudeCodeResearcher {
             .collect::<Vec<_>>()
             .join(",");
         let patterns = self.fences.patterns();
-        // `**/x` and its root form `x` both, as olifant's measured rules did;
+        // `**/x` and its root form `x` both, as the measured rules did;
         // a symlink out of the root or onto a fenced file is denied by name
         // (claude reads through links; measured 2026-11-17)
         let mut deny: Vec<String> = Vec::new();

@@ -1,9 +1,9 @@
 //! The eval: 58 bistro cases (`corpus/scry/`) run through whole passes with
 //! every model call replayed, scored against its passing scores. The review calls replay
-//! 1a's sonnet findings (split by the pack's files), the claim checks 1a's
-//! verdicts, and Jev its recording under `corpus/scry/jev/`. The passing scores are
-//! inspect's (V-must >= 16/18 with a hit shown, B >= 6/8, at most 0.5 shown a
-//! T or N case on average).
+//! the recorded sonnet findings (split by the pack's files), the claim checks the
+//! recorded verdicts, and Jev its recording under `corpus/scry/jev/`. The passing
+//! scores: V-must >= 16/18 with a hit shown, B >= 6/8, at most 0.5 shown a T or N
+//! case on average.
 //!
 //! `SCRY_EVAL_CASES=b01,vm02` runs only those cases and prints their
 //! findings (the passing scores are then not asserted: a look, not a measure).

@@ -2,8 +2,7 @@
 //! removed, so a formatter's reflow keeps it and a real edit changes it.
 //! Every verdict sorcerer records is "true when the unit hashed to this".
 //!
-//! Olifant's function exactly (`fingerprint` and `reflowed` in
-//! `Server/Unit.hs`): the span's lines trimmed, blank lines dropped, joined
+//! The function: the span's lines trimmed, blank lines dropped, joined
 //! by newlines except where a formatter would have split one line (see
 //! [`reflowed`]), FNV-1a 64 over the UTF-8 bytes, the first seven of its
 //! sixteen hex digits. Comments are kept: changing one changes it.

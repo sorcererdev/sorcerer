@@ -59,7 +59,7 @@ pub struct Checked {
     pub errands: Vec<Errand>,
 }
 
-/// What olifant measured: haiku first, sonnet on doubt, a 0.60 threshold.
+/// What the prose corpus measured: haiku first, sonnet on doubt, a 0.60 threshold.
 pub const FIRST: &str = "haiku";
 pub const STRONG: &str = "sonnet";
 pub const THRESHOLD: f64 = 0.60;

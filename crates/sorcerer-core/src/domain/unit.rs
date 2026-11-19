@@ -1,7 +1,6 @@
 //! Units: the named definitions a person would point at (a function, a
 //! method, a class, an impl), found by the language's queries. The rules
-//! are olifant's (`definitionsWith` in `Language/Captures.hs`, `qualify` in
-//! `Server/Unit.hs`):
+//! are:
 //!
 //! 1. A definition is a capture named `definition.<kind>` (a kind in
 //!    [`UNIT_KINDS`]) or `unit.<anything>` (but `unit.name`), in a match that

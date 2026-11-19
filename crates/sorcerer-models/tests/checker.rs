@@ -141,10 +141,10 @@ fn deps<'a>(w: &'a World, r: &'a Stub, d: Option<&'a dyn Decider>) -> CheckClaim
     CheckClaimDeps::defaults(r, d, &w.fences, &w.view, "scry")
 }
 
-/// olifant's prompt, but for the unit wording (here neutral: the claim
-/// points at no file) and the line asked for alongside a unit.
+/// The measured prompt, the unit worded neutrally (the claim points at no
+/// file) and the line asked for alongside a unit.
 #[test]
-fn the_prompt_is_olifants() {
+fn the_prompt_matches_the_golden() {
     assert_eq!(
         claim_prompt(&claim(), None),
         std::fs::read_to_string(

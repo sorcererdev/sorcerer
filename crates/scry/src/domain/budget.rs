@@ -1,5 +1,5 @@
-//! Caps and charges (design §6.9, olifant's `Inspect/Pass.hs`): what a call
-//! is likely to cost and whether it still fits the caps.
+//! Caps and charges: what a call is likely to cost and whether it still fits
+//! the caps (a pass's, the local day's, a run's budget).
 
 use sorcerer_core::domain::errand::Errand;
 
@@ -12,7 +12,7 @@ pub struct Caps {
 }
 
 /// A review call on sonnet, a review call on a haiku model, a claim check:
-/// what olifant's 1a measured, used until the ledger has priced rows.
+/// what they cost when measured, used until the ledger has priced rows.
 pub const REVIEW_DEFAULT: f64 = 0.04;
 pub const REVIEW_HAIKU_DEFAULT: f64 = 0.005;
 pub const CHECK_DEFAULT: f64 = 0.016;

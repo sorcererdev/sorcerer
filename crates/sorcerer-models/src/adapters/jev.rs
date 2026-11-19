@@ -1,6 +1,5 @@
 //! Jev (typesafe.ai): `POST https://api.typesafe.ai/v1/systemone` with one
-//! `state` map and a `questions` map, the model pinned. Ported from
-//! olifant's `Decide.hs` (`jevBody`, `jevWeighed`, `jevDecider`). A reply
+//! `state` map and a `questions` map, the model pinned. A reply
 //! that fails validation, or a call that fails, is `Unsure` for the whole
 //! batch: a decider never guesses.
 

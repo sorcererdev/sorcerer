@@ -115,7 +115,7 @@ impl Findings {
 }
 
 /// The pass's store (MINE, made from BASE) laid over CURRENT, the store as
-/// it is now (olifant's `mergeInto`): a finding the pass changed takes the
+/// it is now: a finding the pass changed takes the
 /// pass's version only when its status in CURRENT is still what the pass
 /// started from, so a dismissal made meanwhile stands; the pass's new
 /// findings are added; reviewed sets are joined. A new finding whose id

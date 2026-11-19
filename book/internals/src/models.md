@@ -47,7 +47,7 @@ returns within a tenth of a second.
 ### claude
 
 `adapters/claude.rs`. Claude Code on a subscription, with no API key: `claude -p
---output-format json` as a subprocess, the prompt on stdin. The flags are olifant's: no
+--output-format json` as a subprocess, the prompt on stdin. The flags: no
 tools (`--tools ""`), no session saved, no settings files, and the child gets
 `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and no `CLAUDECODE` (so a run started from inside Claude
 Code is not refused as nested). The reply's `result` is the text, `total_cost_usd` the cost
@@ -128,7 +128,7 @@ writes text: a `Question` has a kind (its name in the batch), instructions, a `S
 "none of these fits" is allowed. `ask` sends a batch as one call with one shared state and
 returns a `Weighed` per question: the `Answer` and, for a choice, the distribution.
 
-`adapters/jev.rs` is Jev, ported from olifant's `Decide.hs`. `jev_body` builds the request
+`adapters/jev.rs` is Jev. `jev_body` builds the request
 (context names shared across the batch must agree), the model is pinned (`jev-1.14.0`),
 and 429 and 529 are retried twice. A reply that does not fit a question's shape, or a call
 that fails, makes the whole batch `Unsure`: a decider never guesses, and a pass that gets
@@ -139,15 +139,14 @@ of the question's own Jev body. Given a live `Jev`, it records what is missing.
 
 ## The claim checker
 
-`usecases/check_claim.rs`, `domain/claim.rs` and `domain/claim_prompt.rs`, ported from olifant's plans cascade
-(`Server/Cascade.hs`, `Server/Checker.hs`) with the prompt and guard texts word for word but
-for two departures. `claim_prompt(claim, languages)` names a unit the way the language of the
+`usecases/check_claim.rs`, `domain/claim.rs` and `domain/claim_prompt.rs`: a cascade whose
+prompt and guard texts are the ones a prose corpus measured. `claim_prompt(claim, languages)` names a unit the way the language of the
 claim's files (`claim.about`) does: `unit_sentence` looks each file up with
 `Languages::for_path` and uses its `unit_words` (a claim across languages gets each one's,
 after the files it covers), else `NEUTRAL_UNIT_WORDS`; and it asks for the line beside a unit,
-since a citation can stand on its line. `tests/golden/claim-prompt.txt` was printed by olifant
-itself and differs only there (it renders the neutral wording: its claim points at no file).
-`CheckClaimDeps::languages` is `None` in `defaults`; scry's `checker_over` sets the project's.
+since a citation can stand on its line. `tests/golden/claim-prompt.txt` is the prompt the
+corpus measured, in the neutral wording (its claim points at no file).
+`CheckClaimDeps::languages` is `None` in `defaults`; scry's `claim_checker` sets the project's.
 
 `check_claim(claim, deps, cancel)` checks a statement about code:
 
@@ -156,7 +155,7 @@ itself and differs only there (it renders the neutral wording: its claim points 
    (`why-fits`), is the cited code what the claim is about (`evidence-fits`), and does the
    verdict follow from the reason (`verdict-follows`). The guards see up to three
    citations with twelve lines of code each. If any guard is under the threshold (0.60,
-   where olifant's corpus met every passing score), or unsure, or the first verdict is
+   where the prose corpus met every passing score), or unsure, or the first verdict is
    `cannot_tell`, or the first check failed, the strong model (`sonnet`) checks again and
    its verdict stands (`escalated`).
 2. **Without a decider**, the strong model checks alone.

@@ -1,16 +1,12 @@
-//! The claim checker's texts, ported word for word from olifant at commit
-//! 127570e: the claim prompt (`claimPrompt` through `checkPrompt` in the
-//! `CheckClaim` mode, `evidenceShape`) and its reply parser
-//! (`parseCheckReply`) from `Server/Checker.hs`; the three guards'
-//! instructions and sides (`guardQuestions`, `checkWords`, `verdictWords`)
-//! from `Server/Cascade.hs`. They are what the corpus measured: change
-//! them only against the record.
+//! The claim checker's texts: the claim prompt and its reply parser, and
+//! the three guards' instructions and sides. They are what the prose corpus
+//! measured (`tests/golden/claim-prompt.txt`): change them only against the
+//! record.
 //!
-//! Departures from olifant's words: the claim prompt names a unit the way
-//! the claim's language does (its `unit_words`, else a neutral fallback)
-//! where olifant always said `Class.method`, and it asks for the line too,
-//! since a citation whose unit name does not resolve now stands on its
-//! line (`confirm_one`).
+//! The claim prompt names a unit the way the claim's language does (its
+//! `unit_words`, else a neutral fallback), and it asks for the line too,
+//! since a citation whose unit name does not resolve stands on its line
+//! (`confirm_one`).
 
 use serde_json::Value;
 use sorcerer_core::domain::language::Languages;

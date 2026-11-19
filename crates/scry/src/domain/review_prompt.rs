@@ -1,6 +1,7 @@
 //! The review call as data: the pack of changed units it is asked about, with
 //! the project's steering and the open findings to answer; its prompt and
-//! the parse of its reply. Ported from inspect's `Find.hs`, prompt word for word.
+//! the parse of its reply. The prompt's words are the eval's: changing one
+//! changes what the corpus measured (`tests/golden/review-prompt.txt`).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -173,7 +174,7 @@ fn json_in(t: &str) -> Option<Value> {
         }
     }
     // Whichever opens first goes first, so a bare array of objects is the
-    // array, not its first object (inspect tried braces first and lost it).
+    // array, not its first object (trying braces first loses a bare array).
     let pairs = match (t.find('{'), t.find('[')) {
         (Some(b), Some(a)) if a < b => [('[', ']'), ('{', '}')],
         _ => [('{', '}'), ('[', ']')],

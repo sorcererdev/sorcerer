@@ -1,5 +1,5 @@
 //! FNV-1a 64, the hash behind fingerprints, grammar cache keys and
-//! recording keys. Small, stable across platforms, and the one olifant used.
+//! recording keys. Small and stable across platforms.
 
 const OFFSET: u64 = 14695981039346656037;
 const PRIME: u64 = 1099511628211;

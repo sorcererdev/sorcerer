@@ -1,7 +1,6 @@
 //! The claim checker: a statement about code ("`cancel` returns `None`
 //! when the order is missing") checked by a researcher, the verdict
-//! guarded by Jev. Ported from olifant's plans cascade (`Server/Cascade.hs`,
-//! `Server/Checker.hs`), measured on the prose corpus at a 0.60 threshold:
+//! guarded by Jev, a cascade measured on a prose corpus at a 0.60 threshold:
 //!
 //! 1. With a decider, the first (cheap) model checks; three Jev guards ask
 //!    whether its reason fits the claim, its evidence fits, and its verdict

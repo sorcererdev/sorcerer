@@ -49,8 +49,8 @@ pub struct Scope {
     pub skipped: Vec<(PathBuf, String)>,
 }
 
-/// The definition line, trimmed, of the innermost unit that encloses UNIT
-/// (olifant's `headerOf`); None when nothing encloses it.
+/// The definition line, trimmed, of the innermost unit that encloses UNIT;
+/// None when nothing encloses it.
 pub fn header_of(lines: &[&str], units: &[Unit], unit: &Unit) -> Option<String> {
     let outer = units
         .iter()

@@ -62,7 +62,7 @@ match a project-relative path.
 
 ## Grammars
 
-`adapters/grammar.rs`, ported from olifant's `Language/Grammar.hs`. No grammar is compiled into a
+`adapters/grammar.rs`. No grammar is compiled into a
 binary. `grammar::load(cache, name, source)` returns a `tree_sitter::Language`:
 
 1. `library_path` names the compiled library `<cache>/<name>-<key>.<dylib|so>`. The key is
@@ -96,8 +96,7 @@ its grammar, and its query files compiled by `query::compile`, which refuses any
 or directive the `tree-sitter` crate would silently ignore (only `#eq?`, `#match?`,
 `#any-of?` and their `#not-` forms are evaluated).
 
-`units_of(loaded, text)` parses the text and runs every query file over it. The rules are
-olifant's:
+`units_of(loaded, text)` parses the text and runs every query file over it. The rules:
 
 1. **A definition** is a capture named `definition.<kind>`, for a kind in `UNIT_KINDS`
    (function, method, class, interface, module, type, impl, instance), or `unit.<anything>`
@@ -119,7 +118,7 @@ Units are nested: a changed method also changes its class.
 ## Fingerprints
 
 `domain/fingerprint.rs`. `fingerprint(text, span)` names a unit's text with formatting removed:
-seven hex digits, olifant's function exactly. The span's lines are trimmed (which also
+seven hex digits. The span's lines are trimmed (which also
 drops a `\r`), blank lines are dropped, and `reflowed` joins lines a formatter split (after
 an opening bracket, before a closing one, after a trailing comma). Then FNV-1a 64, first
 seven hex digits.

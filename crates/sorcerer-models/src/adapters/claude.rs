@@ -1,5 +1,5 @@
 //! Claude through `claude -p` (Claude Code on a subscription: no API key).
-//! The flags are olifant's `claudeArgs` (`Model.hs`): JSON out, no tools,
+//! The flags: JSON out, no tools,
 //! no session saved, no settings, CLAUDE.md files off, and `CLAUDECODE`
 //! unset so a run from inside Claude Code is not refused as nested.
 

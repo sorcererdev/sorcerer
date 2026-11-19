@@ -1,4 +1,4 @@
-//! The review_change use case (design §6.4, olifant's `Inspect/Pass.hs`):
+//! The review_change use case:
 //! the request's scope worked out; the scope's units not yet reviewed go to
 //! the review call in packs (`ask`); each finding is placed, matched against
 //! the store, filtered by Jev's nitpick question and remembered (`judge`,
@@ -177,7 +177,7 @@ pub fn review_change(
     let rows = deps.ledger.read()?.errands;
     let now = deps.clock.now();
     let offset = deps.clock.offset();
-    // Jev's questions are not counted against the caps (design §6.9)
+    // Jev's questions are not counted against the caps: a fraction of a cent each
     let paid: Vec<_> = rows
         .iter()
         .filter(|e| e.verb == "review" || e.verb == "check")

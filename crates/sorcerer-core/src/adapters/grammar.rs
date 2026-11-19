@@ -1,7 +1,7 @@
 //! Grammars at run time. No grammar is compiled into a binary: a language
 //! file names `{ git, rev }` (or a local directory), which is fetched once
 //! into the user's cache, compiled with `cc` into a shared library, and
-//! loaded with `dlopen`. Ported from olifant's `Language/Grammar.hs`.
+//! loaded with `dlopen`.
 //!
 //! Layout under the cache directory:
 //!

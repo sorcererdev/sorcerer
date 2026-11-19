@@ -1,7 +1,15 @@
 # Scry
 
-`crates/scry`: the code reviewer, ported from olifant's `inspect`. Library `scry`, binary
-`scry`.
+`crates/scry`: the code reviewer. Library `scry`, binary `scry`.
+
+## Where scry came from
+
+Scry is the successor of a code reviewer the author built and measured in another project.
+Its review prompt, its judging rules (the placement, the same-problem and nitpick questions,
+the merge table, the verification rounds and caps) and the eval's 58 bistro cases with their
+recorded replies were carried over from that measurement, which is why changing a word a model
+reads is checked against the eval rather than taken on taste. The rest of this chapter
+describes scry as it is.
 
 ## Module map
 
@@ -130,10 +138,10 @@ is a file's open findings whose issue type is in `[scry] issue_types`, best conf
 
 ## The review call
 
-`domain/review_prompt.rs` is inspect's review call, ported word for word. A `ReviewAsk` carries the pack's
+`domain/review_prompt.rs` is the review call as data; its words are the eval's. A `ReviewAsk` carries the pack's
 `ReviewUnit`s (file, name, `lines`, enclosing `header`, `text`, `in_progress`), the diff, the
 steering text, `reported` (always empty in v1; spellbook's slot) and the `open` findings to
-re-answer. `review_prompt` renders it; `tests/golden/review-prompt.txt` is inspect's golden, matched
+re-answer. `review_prompt` renders it; `tests/golden/review-prompt.txt` is the golden, matched
 byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first line.
 
 `parse_review` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
@@ -169,14 +177,14 @@ base), view.units(file))`'s `Added` and `Changed`, or every unit with `all` or n
 base whose units do not read counts as none. `ScopedFile::diff` is `view.diff(file, base)`, or
 the file's text when that is empty; `units_now` names every unit now, for the gone sweep.
 
-`header_of` is olifant's `headerOf`: the innermost unit strictly enclosing this one (any
+`header_of` is the innermost unit strictly enclosing this one (any
 kind, another name), and its definition line trimmed. `def_line` finds that line as the first
 line before the body holding the unit's own name, so a decorator above it is passed over.
 
 ## Judging a finding
 
-`domain/judging.rs` is inspect's `Judge.hs` (the checks of citations are
-`usecases/review_change/verify.rs`): what happens to a `RawFinding` after the review call.
+`domain/judging.rs` (the checks of citations are
+`usecases/review_change/verify.rs`) is what happens to a `RawFinding` after the review call.
 
 `place(raw, scoped, units_now)` gives its `Place` and first status. Among the `ScopedUnit`s of
 its file whose span overlaps its lines, the one holding its first line wins, then the
@@ -216,16 +224,15 @@ asked again only when it changes. `cited_code(text, line)` is eight lines either
 
 `citations(view, fences, evidence)` checks each cited range by its first line: a relative path,
 allowed by `Fences::allows` (so not `.env*`, not `.sorcerer/`, not outside the root), readable
-through the view, first line in `1..=lines`. The end line is ignored, as olifant's checker
-clamps it (`Server/Checker.hs` `confirm`): 50-60 of a 59-line file holds. Any failure is
+through the view, first line in `1..=lines`. The end line is ignored, as the claim checker
+clamps it: 50-60 of a 59-line file holds. Any failure is
 `Err("cited code not found")`, no evidence at all `Err("no evidence cited")`; both make the
 finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprint
 (`unit_at`), else seven hex digits of the whole file's FNV-1a.
 
 ## The review_change use case
 
-`usecases/review_change/` is inspect's `Pass.hs` (`inspectPass`, `mergeInto`), design §6.4
-steps 1–5 and 8. `review_change(project, &ReviewRequest, &ReviewDeps)` takes a request (the
+`usecases/review_change/`. `review_change(project, &ReviewRequest, &ReviewDeps)` takes a request (the
 `ScopeRequest`, `all`, `fresh`, the `--budget`, and the caps when the caller sets them; none
 means the command line's, `Caps { pass: None, day: budget_per_day, budget }`) and its ports:
 the `CodebaseView`, the `Reviewer`, the `Decider` (Jev), the `ClaimChecker`, the
@@ -249,7 +256,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `Error::StoreUnreadable` and nothing is touched. The pass works on a copy, `Run::mine`.
    The ledger is read once too, through the `Ledger` port: its `review` and `check` rows give the estimates and, through
    core's `cost::spent_in` in the `Clock`'s offset, what scry spent earlier in the local day,
-   which starts the pass's `Budget` (Jev's `decide` rows are not counted, design §6.9).
+   which starts the pass's `Budget` (Jev's `decide` rows are not counted: a fraction of a cent each).
 2. **What to send, and the gone sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
    `reviewed[file]` (every one with `fresh`). `Run::sweep_gone`: an open, waiting or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
@@ -275,8 +282,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
    statement and evidence (printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
-   one's place, statement and evidence (olifant `d8fc391` scopes the refresh to a finding
-   kept by a later pass). Either way it adds one to `seen` and keeps id, status and
+   one's place, statement and evidence (the refresh is for a finding kept by a later pass). Either way it adds one to `seen` and keeps id, status and
    dismissals; a withheld one is asked
    again when `asked_on` changed, a refuted or unsure one waits again when its evidence prints
    moved. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
@@ -333,8 +339,7 @@ decides reads it: the eval's table is the same with or without it. The calls:
 ## Rounds and the budget
 
 `domain/budget.rs` (caps and estimates), `domain/verification.rs` (the rounds' policy) and
-`usecases/review_change/verify.rs` (the rounds) are inspect's verification rounds and caps (`Pass.hs`: `findEstimate`,
-`claimEstimate`, `spentToday`, the `rounds` loop), design §6.4 steps 6–7 and §6.9.
+`usecases/review_change/verify.rs` (the rounds) are the verification rounds and the caps.
 
 `review_estimate(rows, model)` and `check_estimate(rows)` are the mean of the last 20 priced
 ledger rows of product `scry` and verb `review` / `check`, else $0.04 a review ($0.005 when the
@@ -465,30 +470,29 @@ The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar vie
 
 ## The eval
 
-`crates/scry/tests/eval.rs`, `the_eval_reaches_its_passing_scores`: inspect's 58 bistro cases
+`crates/scry/tests/eval.rs`, `the_eval_reaches_its_passing_scores`: 58 bistro cases
 run through whole passes with every model call replayed, so it costs nothing and runs in CI's
-test job. The corpus is `corpus/scry/` (its `README.md` says where each file came from;
-`scripts/port-scry-corpus` wrote it from olifant's recordings and the notes' cases):
+test job. The corpus is `corpus/scry/` (its `README.md` says what each file is and how it was made):
 
 - `base/`, bistro as plain files; per case the eval copies it to a temp dir, `git init`s and
   commits it, then `git apply`s `cases/<id>.patch` (left uncommitted) and writes
-  `.sorcerer/scry.md` from `steering.md` (1a's steering) and a config with
+  `.sorcerer/scry.md` from `steering.md` (the bistro project's rules) and a config with
   `[languages] names = ["python"]` and `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The
   project's grammars point at core's vendored sources; the request is `ScopeRequest::Working`
   with the caps `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`.
-- `finds/<id>.json`, 1a's sonnet findings for the case. `CorpusReviewer` answers a pack with the
+- `reviews/<id>.json`, the recorded sonnet findings for the case. `CorpusReviewer` answers a pack with the
   findings whose `file` is one of the pack's files (an empty reply otherwise), at $0.04.
-- `checks.json`, 1a's claim-check verdicts keyed by the statement with whitespace collapsed;
+- `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
   the checker closure answers from it, `CannotTell` for a statement it does not hold.
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
-  `question_key` (FNV-1a over the Jev body without the model, the same bytes as olifant's
-  `questionKey`, so a question asked the same way has olifant's key). A question with no file
+  `question_key` (FNV-1a over the Jev body without the model, so a question asked the same
+  way has the same key). A question with no file
   is an error, the pass is `Skipped`, and the eval fails naming the case.
 - `labels.json`, each case's set, the statements that count as a hit, and its changed files.
 
 Shown is the union over a case's changed files of `Findings::shown_in`; a case is a hit when
 a shown statement is one of its `hits`. The eval prints `set | cases | with a hit shown |
-shown a case` and one row a case, then asserts inspect's passing scores: V-must at least 16 of 18 with
+shown a case` and one row a case, then asserts the passing scores: V-must at least 16 of 18 with
 a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on average.
 
 `SCRY_EVAL_LOG=DIR` writes each case's `scope_text` and pass trace to `DIR/<id>.md`.
@@ -498,7 +502,8 @@ run once by hand with `JEV_API_KEY` set:
 `SCRY_RECORD_JEV=1 cargo test -p scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
 
-Replayed on 2026-11-18 (identical over three runs), at inspect's measured numbers:
+Replayed on 2026-11-18 (identical over three runs), at the numbers the original measurement
+gave:
 
 | set | cases | with a hit shown | shown a case |
 |---|---|---|---|
@@ -510,5 +515,5 @@ Replayed on 2026-11-18 (identical over three runs), at inspect's measured number
 
 vm02, vm07 and vm08 each hold two findings Jev calls the same problem within one pass; they
 hit because a merge within one pass keeps the first finding's wording (see the pass, step 4).
-Most Jev answers were recorded live; three were seeded from olifant's recording, whose keys
-are the same (`corpus/scry/README.md` lists them).
+Most Jev answers were recorded live; three were seeded from the original measurement's
+recording, whose keys are the same (`corpus/scry/README.md` lists them).
