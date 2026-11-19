@@ -21,12 +21,14 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::ledger::Ledger;
-use sorcerer_models::decide::jev::Jev;
-use sorcerer_models::decide::{Decider, Question, Shape};
-use sorcerer_models::providers::provider_named;
-use sorcerer_models::research::claude_code::ClaudeCodeResearcher;
-use sorcerer_models::research::tool_loop::LoopResearcher;
-use sorcerer_models::research::{Research, Researcher, Tool};
+use sorcerer_models::adapters::claude_code::ClaudeCodeResearcher;
+use sorcerer_models::adapters::jev::Jev;
+use sorcerer_models::adapters::providers::provider_named;
+use sorcerer_models::adapters::tool_loop::LoopResearcher;
+use sorcerer_models::domain::decide::{Question, Shape};
+use sorcerer_models::domain::research::{Research, Tool};
+use sorcerer_models::ports::decider::Decider;
+use sorcerer_models::ports::researcher::Researcher;
 
 fn main() -> anyhow::Result<()> {
     let env = SystemEnv;

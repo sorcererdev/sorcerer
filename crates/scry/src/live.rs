@@ -14,13 +14,14 @@ use sorcerer_core::domain::language::Languages;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::checker::{Checked, CheckerDeps, Claim, check};
-use sorcerer_models::decide::Decider;
-use sorcerer_models::decide::jev::Jev;
-use sorcerer_models::providers::default_provider_for;
-use sorcerer_models::research::Researcher;
-use sorcerer_models::research::claude_code::ClaudeCodeResearcher;
-use sorcerer_models::research::tool_loop::LoopResearcher;
+use sorcerer_models::adapters::claude_code::ClaudeCodeResearcher;
+use sorcerer_models::adapters::jev::Jev;
+use sorcerer_models::adapters::providers::default_provider_for;
+use sorcerer_models::adapters::tool_loop::LoopResearcher;
+use sorcerer_models::domain::claim::{Checked, Claim};
+use sorcerer_models::ports::decider::Decider;
+use sorcerer_models::ports::researcher::Researcher;
+use sorcerer_models::usecases::check_claim::{CheckClaimDeps, check_claim};
 
 use crate::pass::{PassDeps, Progress, SystemClock};
 use crate::review::ResearchReviewer;
@@ -148,8 +149,8 @@ pub fn checker_over(
 ) -> Box<CheckFn> {
     Box::new(move |claim: &Claim| {
         let mut deps =
-            CheckerDeps::defaults(&*researcher, Some(&*decider), &fences, &*view, PRODUCT);
+            CheckClaimDeps::defaults(&*researcher, Some(&*decider), &fences, &*view, PRODUCT);
         deps.languages = Some(&languages);
-        check(claim, &deps, &cancel)
+        check_claim(claim, &deps, &cancel)
     })
 }

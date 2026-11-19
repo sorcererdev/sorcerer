@@ -3,13 +3,6 @@
 //! A calibrated yes/no costs a fraction of a cent, answers in under a
 //! second, and gives a probability a cut can be put on.
 
-pub mod jev;
-pub mod recorded;
-
-use sorcerer_core::Cancel;
-
-use crate::Result;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shape {
     /// One of these options (name, description).
@@ -74,9 +67,4 @@ impl Weighed {
             distribution: Vec::new(),
         }
     }
-}
-
-pub trait Decider: Send + Sync {
-    /// One call for the batch, one shared state; one answer a question, in order.
-    fn ask(&self, qs: &[Question], cancel: &Cancel) -> Result<Vec<Weighed>>;
 }

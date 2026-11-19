@@ -3,7 +3,7 @@ mod support;
 use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::domain::config::{DecideConfig, ModelConfig};
 use sorcerer_core::domain::project::Project;
-use sorcerer_models::providers::{
+use sorcerer_models::adapters::providers::{
     default_decider, default_provider, default_provider_for, provider_named,
 };
 

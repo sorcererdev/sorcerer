@@ -25,10 +25,11 @@ use serde_json::{Value, json};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::SystemEnv;
 use sorcerer_core::adapters::json_store::Snapshot;
-use sorcerer_models::checker::{Checked, Claim, Verdict};
-use sorcerer_models::decide::jev::question_key;
-use sorcerer_models::decide::recorded::RecordedDecider;
-use sorcerer_models::decide::{Decider, Question, Weighed};
+use sorcerer_models::adapters::jev::question_key;
+use sorcerer_models::adapters::recorded_decider::RecordedDecider;
+use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
+use sorcerer_models::domain::decide::{Question, Weighed};
+use sorcerer_models::ports::decider::Decider;
 use support::{FixedClock, errand, git};
 
 const SETS: [&str; 5] = ["V-must", "B", "T", "N", "V-taste"];

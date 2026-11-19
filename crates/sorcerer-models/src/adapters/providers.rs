@@ -9,10 +9,10 @@ use sorcerer_core::domain::config::{DecideConfig, ModelConfig};
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
-use crate::provider::Provider;
-use crate::provider::anthropic::Anthropic;
-use crate::provider::claude::Claude;
-use crate::provider::openai::OpenAiCompatible;
+use crate::adapters::anthropic::Anthropic;
+use crate::adapters::claude::Claude;
+use crate::adapters::openai::OpenAiCompatible;
+use crate::ports::provider::Provider;
 use crate::{Error, Result};
 
 /// Which provider or decider was chosen, and why (for `doctor`).

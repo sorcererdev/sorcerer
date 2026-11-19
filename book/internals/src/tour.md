@@ -44,16 +44,21 @@ root.
 | `adapters/fences.rs` | `Fences::for_project`, `allows`, `relative`, `fenced_links`: paths resolved first |
 | `adapters/env.rs` | `SystemEnv`, `MapEnv` |
 
-`crates/sorcerer-models/src/`:
+`crates/sorcerer-models/src/` is in four layers: `domain/`, `ports/`, `usecases/` and
+`adapters/` ([Architecture](architecture.md)).
 
 | module | job |
 |---|---|
-| `provider.rs` | the `Provider` trait, HTTP with retries and cancel, prices, `ScriptedProvider` |
-| `provider/{anthropic,claude,openai}.rs` | the three providers |
-| `providers.rs` | choose a provider from config |
-| `research.rs`, `research/*` | researchers: `claude -p`, core's own tool loop and its tools, recorded |
-| `decide.rs`, `decide/*` | the decider: Jev and recorded answers |
-| `checker.rs`, `checker/prompts.rs` | the claim checker, ported from olifant |
+| `domain/model.rs` | a model call as data: messages, completion, reply, usage, prices, its errand |
+| `domain/research.rs`, `domain/decide.rs` | a research errand; a typed question and its answer |
+| `domain/claim.rs`, `domain/claim_prompt.rs` | a claim, its citations and verdict; the checker's prompt and guards |
+| `ports/provider.rs`, `ports/researcher.rs`, `ports/decider.rs` | the three seams |
+| `usecases/check_claim.rs` | the claim checker's cascade |
+| `adapters/{anthropic,claude,openai}.rs`, `adapters/http.rs` | the three providers and their HTTP |
+| `adapters/providers.rs` | choose a provider (and the decider) from config and the environment |
+| `adapters/claude_code.rs`, `adapters/tool_loop.rs`, `adapters/tools.rs` | researchers: `claude -p`, sorcerer's own tool loop and its tools |
+| `adapters/jev.rs` | Jev |
+| `adapters/{scripted_provider,recorded_researcher,recorded_decider}.rs` | the doubles tests use |
 
 Two demos show the core working on a real repository: `examples/units.rs` in core and
 `examples/ask.rs` in models (see the README).

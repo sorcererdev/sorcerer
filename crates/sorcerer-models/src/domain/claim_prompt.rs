@@ -15,8 +15,8 @@
 use serde_json::Value;
 use sorcerer_core::domain::language::Languages;
 
-use super::{Claim, Verdict};
-use crate::decide::{Question, Shape};
+use crate::domain::claim::{Claim, Verdict};
+use crate::domain::decide::{Question, Shape};
 
 const EVIDENCE_SHAPE: &str = r#"{"path": "<path relative to the current directory>", "unit": "<unit name, or null>", "line": <line number, or null>}"#;
 

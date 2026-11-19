@@ -326,7 +326,7 @@ next round, which takes the rest. The rounds end when a round takes nobody.
 - The view, a `FilesView` on the user's `GrammarCache`.
 - The reviewer, `ResearchReviewer`, which holds the shared researcher (scry's `review`).
 - The claim checker, `checker_over(researcher, decider, fences, view, languages, cancel)`: a
-  boxed closure that runs `sorcerer_models::checker::check` with
+  boxed closure that runs `sorcerer_models::usecases::check_claim::check_claim` with
   `CheckerDeps::defaults(.., "scry")` and the project's `languages`, so its errands are scry's
   `check`, Jev guards it, and its prompt names units the way the claim's files' language does.
 - `SystemClock`, a progress callback that prints nothing, and `log::quiet` as the trace (the

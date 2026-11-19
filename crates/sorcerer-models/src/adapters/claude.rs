@@ -12,7 +12,8 @@ use serde_json::Value;
 use sorcerer_core::Cancel;
 use sorcerer_core::domain::config::ProviderConfig;
 
-use super::{Completion, Content, ModelId, Provider, Reply, StopReason, Usage};
+use crate::domain::model::{Completion, Content, ModelId, Reply, StopReason, Usage};
+use crate::ports::provider::Provider;
 use crate::{Error, Result};
 
 pub struct Claude {

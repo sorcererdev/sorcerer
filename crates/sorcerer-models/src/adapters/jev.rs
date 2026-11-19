@@ -15,8 +15,9 @@ use sorcerer_core::domain::fnv::fnv64_hex;
 use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::ledger::Ledger;
 
-use super::{Answer, Confidence, Decider, Question, Shape, Weighed};
-use crate::provider::{Post, post_json};
+use crate::adapters::http::{Post, post_json};
+use crate::domain::decide::{Answer, Confidence, Question, Shape, Weighed};
+use crate::ports::decider::Decider;
 use crate::{Error, Result};
 
 pub const MODEL: &str = "jev-1.14.0";

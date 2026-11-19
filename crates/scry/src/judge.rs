@@ -11,7 +11,7 @@ use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::fnv::fnv64_hex;
 use sorcerer_core::domain::unit::{Span, Unit, unit_at};
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::decide::{Answer, Confidence, Question, Shape, Weighed};
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape, Weighed};
 
 use crate::finding::{Evidence, Finding, Place, Status};
 use crate::review::RawFinding;

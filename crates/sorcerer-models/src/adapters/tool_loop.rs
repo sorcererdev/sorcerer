@@ -13,8 +13,11 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
 
-use super::{Research, Researched, Researcher, tools};
-use crate::provider::{Completion, Content, Message, Provider, Role, StopReason, Usage};
+use crate::adapters::tools;
+use crate::domain::model::{Completion, Content, Message, Role, StopReason, Usage};
+use crate::domain::research::{Research, Researched};
+use crate::ports::provider::Provider;
+use crate::ports::researcher::Researcher;
 use crate::{Error, Result};
 
 const FENCE_PROMPT: &str = include_str!("../../prompts/fence.md");

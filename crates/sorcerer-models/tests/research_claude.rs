@@ -7,8 +7,9 @@ use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
-use sorcerer_models::research::claude_code::ClaudeCodeResearcher;
-use sorcerer_models::research::{Research, Researcher, Tool};
+use sorcerer_models::adapters::claude_code::ClaudeCodeResearcher;
+use sorcerer_models::domain::research::{Research, Tool};
+use sorcerer_models::ports::researcher::Researcher;
 
 fn research(timeout: Duration) -> Research {
     Research {

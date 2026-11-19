@@ -8,9 +8,11 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sorcerer_core::Cancel;
+use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::fnv::fnv64_hex;
 
-use super::{Research, Researched, Researcher, errand_for};
+use crate::domain::research::{Research, Researched};
+use crate::ports::researcher::Researcher;
 use crate::{Error, Result};
 
 pub struct RecordedResearcher {
@@ -72,10 +74,27 @@ impl Researcher for RecordedResearcher {
     }
 }
 
+/// A ledger row for R with only a cost (the recorded double's).
+fn errand_for(r: &Research, cost: Option<f64>) -> Errand {
+    Errand {
+        at: chrono::Utc::now(),
+        product: r.product.clone(),
+        verb: r.verb.clone(),
+        model: r.model.clone(),
+        provider: "recorded".into(),
+        cost_usd: cost,
+        input_tokens: 0,
+        output_tokens: 0,
+        seconds: 0.0,
+        ok: true,
+        note: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::research::{Research, Researched, Researcher, Tool};
+    use crate::domain::research::Tool;
     use sorcerer_core::Cancel;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};

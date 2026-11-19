@@ -15,11 +15,8 @@
 //!    not confirmed makes the verdict `cannot_tell` ("cited code not found").
 //!
 //! The prompt names a unit the way the language of the claim's files does
-//! (`CheckerDeps::languages`, each language's `unit_words`).
+//! (`CheckClaimDeps::languages`, each language's `unit_words`).
 
-pub mod prompts;
-
-use std::path::PathBuf;
 use std::time::Duration;
 
 use sorcerer_core::Cancel;
@@ -30,65 +27,17 @@ use sorcerer_core::domain::language::Languages;
 use sorcerer_core::domain::unit::{Span, Unit};
 use sorcerer_core::ports::view::CodebaseView;
 
-use crate::decide::Decider;
-use crate::research::{Research, Researcher, Tool};
+use crate::domain::claim::{
+    CITATION_MISSED, Checked, Citation, Cited, Claim, ClaimKind, FIRST, RawCitation, STRONG,
+    THRESHOLD, Verdict,
+};
+use crate::domain::claim_prompt::{claim_prompt, guard_questions, parse_reply};
+use crate::domain::research::{Research, Tool};
+use crate::ports::decider::Decider;
+use crate::ports::researcher::Researcher;
 use crate::{Error, Result};
-pub use prompts::RawCitation;
-use prompts::{claim_prompt, guard_questions, parse_reply};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Citation {
-    pub file: PathBuf,
-    pub lines: Span,
-    /// The fingerprint of the cited lines, once confirmed.
-    pub print: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClaimKind {
-    Code,
-    /// Checked against public web sources: a later milestone.
-    Web,
-}
-
-#[derive(Debug, Clone)]
-pub struct Claim {
-    pub statement: String,
-    /// Where the claim points, if anywhere (a hint for the checker).
-    pub about: Vec<Citation>,
-    pub kind: ClaimKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Verdict {
-    Right,
-    Wrong,
-    CannotTell,
-}
-
-/// A citation as the verdict's reply gave it, and whether it was confirmed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Cited {
-    pub raw: RawCitation,
-    pub confirmed: bool,
-    /// Confirmed on its line although the unit it named was not found.
-    pub unit_missed: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct Checked {
-    pub verdict: Verdict,
-    pub why: String,
-    /// The confirmed citations; empty when any did not confirm.
-    pub citations: Vec<Citation>,
-    /// Every citation of the reply the verdict came from, confirmed or not,
-    /// so a `cannot_tell` can say which one failed.
-    pub cited: Vec<Cited>,
-    pub escalated: bool,
-    pub errands: Vec<Errand>,
-}
-
-pub struct CheckerDeps<'a> {
+pub struct CheckClaimDeps<'a> {
     pub researcher: &'a dyn Researcher,
     pub decider: Option<&'a dyn Decider>,
     pub fences: &'a Fences,
@@ -105,21 +54,15 @@ pub struct CheckerDeps<'a> {
     pub timeout: Duration,
 }
 
-/// What olifant measured: haiku first, sonnet on doubt, a 0.60 threshold.
-pub const FIRST: &str = "haiku";
-pub const STRONG: &str = "sonnet";
-pub const THRESHOLD: f64 = 0.60;
-pub const CITATION_MISSED: &str = "cited code not found";
-
-impl<'a> CheckerDeps<'a> {
+impl<'a> CheckClaimDeps<'a> {
     pub fn defaults(
         researcher: &'a dyn Researcher,
         decider: Option<&'a dyn Decider>,
         fences: &'a Fences,
         view: &'a dyn CodebaseView,
         product: &'a str,
-    ) -> CheckerDeps<'a> {
-        CheckerDeps {
+    ) -> CheckClaimDeps<'a> {
+        CheckClaimDeps {
             researcher,
             decider,
             fences,
@@ -145,7 +88,7 @@ struct Attempt {
     cited: Vec<Cited>,
 }
 
-pub fn check(claim: &Claim, deps: &CheckerDeps, cancel: &Cancel) -> Result<Checked> {
+pub fn check_claim(claim: &Claim, deps: &CheckClaimDeps, cancel: &Cancel) -> Result<Checked> {
     if claim.kind == ClaimKind::Web {
         return Err(Error::Reply {
             provider: "checker".into(),
@@ -191,7 +134,7 @@ pub fn check(claim: &Claim, deps: &CheckerDeps, cancel: &Cancel) -> Result<Check
 fn attempt(
     claim: &Claim,
     model: &str,
-    deps: &CheckerDeps,
+    deps: &CheckClaimDeps,
     cancel: &Cancel,
     errands: &mut Vec<Errand>,
 ) -> Result<Attempt> {

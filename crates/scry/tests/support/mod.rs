@@ -17,7 +17,8 @@ use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
-use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
+use sorcerer_models::ports::decider::Decider;
 use tempfile::TempDir;
 
 /// Runs git in DIR, panicking with its stderr on failure.

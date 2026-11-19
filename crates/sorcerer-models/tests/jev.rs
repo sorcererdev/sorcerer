@@ -9,9 +9,10 @@ use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::config::DecideConfig;
 use sorcerer_core::ports::ledger::Ledger;
-use sorcerer_models::decide::jev::{Jev, jev_answers, jev_body, question_key};
-use sorcerer_models::decide::recorded::RecordedDecider;
-use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Shape};
+use sorcerer_models::adapters::jev::{Jev, jev_answers, jev_body, question_key};
+use sorcerer_models::adapters::recorded_decider::RecordedDecider;
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape};
+use sorcerer_models::ports::decider::Decider;
 
 fn noul(kind: &str, ctx: &[(&str, &str)]) -> Question {
     Question {

@@ -7,7 +7,8 @@ use scry::review::*;
 use sorcerer_core::Cancel;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::unit::Span;
-use sorcerer_models::research::{Research, Researched, Researcher, Tool};
+use sorcerer_models::domain::research::{Research, Researched, Tool};
+use sorcerer_models::ports::researcher::Researcher;
 
 fn sp(a: u32, z: u32) -> Span {
     Span { start: a, end: z }

@@ -6,10 +6,11 @@ use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_models::Error;
-use sorcerer_models::provider::anthropic::Anthropic;
-use sorcerer_models::provider::{
-    Completion, Content, Message, ModelId, Provider, Role, StopReason, ToolCall, ToolSpec,
+use sorcerer_models::adapters::anthropic::Anthropic;
+use sorcerer_models::domain::model::{
+    Completion, Content, Message, ModelId, Role, StopReason, ToolCall, ToolSpec,
 };
+use sorcerer_models::ports::provider::Provider;
 
 fn provider(url: &str) -> Anthropic {
     let cfg = ProviderConfig {

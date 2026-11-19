@@ -10,7 +10,8 @@ use serde_json::Value;
 use sorcerer_core::Cancel;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::unit::Span;
-use sorcerer_models::research::{Research, Researcher, Tool};
+use sorcerer_models::domain::research::{Research, Tool};
+use sorcerer_models::ports::researcher::Researcher;
 
 use crate::finding::Finding;
 use crate::issue_type::ISSUE_TYPES;

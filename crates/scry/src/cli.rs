@@ -23,9 +23,9 @@ use sorcerer_core::domain::unit::Span;
 use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::decide::jev::Jev;
-use sorcerer_models::providers::default_decider;
-use sorcerer_models::providers::default_provider_for;
+use sorcerer_models::adapters::jev::Jev;
+use sorcerer_models::adapters::providers::default_decider;
+use sorcerer_models::adapters::providers::default_provider_for;
 
 use crate::config::scry_config;
 use crate::finding::{Finding, Status};

@@ -15,7 +15,7 @@ use scry::store::ScryStore;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::{Fingerprint, fingerprint};
 use sorcerer_core::domain::unit::{Span, Unit, UnitKind};
-use sorcerer_models::decide::{Answer, Confidence, Shape, Weighed};
+use sorcerer_models::domain::decide::{Answer, Confidence, Shape, Weighed};
 use support::{git_project, project_with_vendored_grammars, write};
 
 fn span(start: u32, end: u32) -> Span {

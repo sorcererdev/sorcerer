@@ -20,8 +20,9 @@ use sorcerer_core::domain::unit::Unit;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Cancel, Error, Result};
-use sorcerer_models::checker::{Checked, Claim};
-use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
+use sorcerer_models::domain::claim::{Checked, Claim};
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
+use sorcerer_models::ports::decider::Decider;
 
 use crate::config::{ScryConfig, scry_config};
 use crate::finding::{Evidence, Finding, FindingId, Place, Scores, Status};

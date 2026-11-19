@@ -15,8 +15,9 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
 
-use super::{Research, Researched, Researcher};
-use crate::provider::claude::run_claude;
+use crate::adapters::claude::run_claude;
+use crate::domain::research::{Research, Researched};
+use crate::ports::researcher::Researcher;
 use crate::{Error, Result};
 
 const FENCE_PROMPT: &str = include_str!("../../prompts/fence.md");

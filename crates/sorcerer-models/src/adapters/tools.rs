@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::ports::view::CodebaseView;
 
-use super::Tool;
-use crate::provider::{ToolCall, ToolSpec};
+use crate::domain::model::{ToolCall, ToolSpec};
+use crate::domain::research::Tool;
 
 pub const READ_LINES: usize = 400;
 pub const GREP_HITS: usize = 100;

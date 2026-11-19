@@ -17,9 +17,11 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::checker::{Checked, Claim, ClaimKind, Verdict};
-use sorcerer_models::decide::{Decider, Question, Shape};
-use sorcerer_models::research::{Research, Researched, Researcher};
+use sorcerer_models::domain::claim::{Checked, Claim, ClaimKind, Verdict};
+use sorcerer_models::domain::decide::{Question, Shape};
+use sorcerer_models::domain::research::{Research, Researched};
+use sorcerer_models::ports::decider::Decider;
+use sorcerer_models::ports::researcher::Researcher;
 use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
@@ -529,7 +531,7 @@ fn the_live_claim_check_and_jev_record_as_scry() {
     );
     let claim = Claim {
         statement: "cancel passes now".into(),
-        about: vec![sorcerer_models::checker::Citation {
+        about: vec![sorcerer_models::domain::claim::Citation {
             file: "orders.py".into(),
             lines: sorcerer_core::domain::unit::Span { start: 1, end: 1 },
             print: None,
@@ -1092,7 +1094,7 @@ fn verbose_streams_the_log_on_stderr_and_leaves_stdout_as_it_was() {
 
 #[test]
 fn why_names_the_citation_a_check_could_not_confirm() {
-    use sorcerer_models::checker::{Cited, RawCitation};
+    use sorcerer_models::domain::claim::{Cited, RawCitation};
     let dir = changed_project();
     let mut d = bug_doubles(dir.path());
     d.checker = Box::new(|_: &Claim| {
@@ -1153,7 +1155,7 @@ fn why_names_the_citation_a_check_could_not_confirm() {
 
 #[test]
 fn why_and_the_log_say_a_citation_stood_on_its_line() {
-    use sorcerer_models::checker::{Cited, RawCitation};
+    use sorcerer_models::domain::claim::{Cited, RawCitation};
     let dir = changed_project();
     let mut d = bug_doubles(dir.path());
     d.checker = Box::new(|_: &Claim| {

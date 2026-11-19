@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::{Cancel, Result};
-use sorcerer_models::checker::{Checked, Citation, Claim, ClaimKind, Verdict};
+use sorcerer_models::domain::claim::{Checked, Citation, Claim, ClaimKind, Verdict};
 
 use crate::config::{MAX_SHOWN, ScryConfig};
 use crate::finding::{Finding, FindingId, Status, StoredCitation, StoredVerdict};

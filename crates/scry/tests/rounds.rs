@@ -21,7 +21,7 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::Span;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::checker::{Checked, Claim, Verdict};
+use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
 use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 

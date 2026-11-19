@@ -12,9 +12,11 @@ use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
-use sorcerer_models::provider::{Content, Reply, ScriptedProvider, StopReason, ToolCall, Usage};
-use sorcerer_models::research::tool_loop::LoopResearcher;
-use sorcerer_models::research::{Research, Researcher, Tool};
+use sorcerer_models::adapters::scripted_provider::ScriptedProvider;
+use sorcerer_models::adapters::tool_loop::LoopResearcher;
+use sorcerer_models::domain::model::{Content, Reply, StopReason, ToolCall, Usage};
+use sorcerer_models::domain::research::{Research, Tool};
+use sorcerer_models::ports::researcher::Researcher;
 
 fn tool(name: &str, input: serde_json::Value, cost: f64) -> Reply {
     Reply {

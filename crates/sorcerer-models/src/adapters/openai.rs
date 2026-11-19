@@ -11,10 +11,11 @@ use sorcerer_core::Cancel;
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_core::ports::env::Env;
 
-use super::{
-    Completion, Content, ModelId, Post, Provider, Reply, Role, StopReason, ToolCall, Usage,
-    post_json, price,
+use crate::adapters::http::{Post, post_json};
+use crate::domain::model::{
+    Completion, Content, ModelId, Reply, Role, StopReason, ToolCall, Usage, price,
 };
+use crate::ports::provider::Provider;
 use crate::{Error, Result};
 
 pub struct OpenAiCompatible {
