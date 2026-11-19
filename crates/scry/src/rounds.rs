@@ -14,9 +14,9 @@ use sorcerer_core::{Cancel, Result};
 use sorcerer_models::checker::{Checked, Citation, Claim, ClaimKind, Verdict};
 
 use crate::config::{MAX_SHOWN, ScryConfig};
-use crate::finding::{Finding, Id, Status, StoredCitation, StoredVerdict};
+use crate::finding::{Finding, FindingId, Status, StoredCitation, StoredVerdict};
+use crate::issue_type::{Verify, issue_type};
 use crate::judge::{citations, cites};
-use crate::kind::{Verify, kind};
 use crate::log::{citation, section, sub, usd};
 use crate::pass::status_word;
 use crate::pass::{Caps, PassDeps, Progress};
@@ -127,7 +127,7 @@ pub(crate) struct Around<'a> {
     /// The findings that were waiting before this pass: they take a place
     /// only while the file has room; the pass's own new ones may take up
     /// to `MAX_SHOWN` places.
-    pub old_waiting: &'a HashSet<Id>,
+    pub old_waiting: &'a HashSet<FindingId>,
     pub check_estimate: f64,
     /// Writes the store as the pass has it now.
     pub save: &'a mut dyn FnMut(&ScryStore) -> Result<()>,
@@ -135,7 +135,7 @@ pub(crate) struct Around<'a> {
 
 /// The rounds over FILE's waiting findings, best kept first. Each round
 /// takes those that fit if all passed; their citations are checked first
-/// (a failure is `unsure`); a kind verified by citations alone opens at
+/// (a failure is `unsure`); an issue type verified by citations alone opens at
 /// once and is stored before any claim check starts; the round's claim
 /// checks are reserved against the budget, then run side by side. A
 /// failed check frees its place for the next round; one that does not fit
@@ -150,7 +150,7 @@ pub(crate) fn verify(
     around: &mut Around,
 ) -> Result<Verified> {
     let now = around.now;
-    let shown = |f: &Finding| cfg.issue_types.contains(&f.kind);
+    let shown = |f: &Finding| cfg.issue_types.contains(&f.issue_type);
     let mut open_now = store
         .findings
         .iter()
@@ -163,10 +163,13 @@ pub(crate) fn verify(
         .filter(|f| f.place.file == file && f.status == Status::Waiting)
         .collect();
     waiting.sort_by(|a, b| {
-        let (ka, kb) = (a.scores.keep.unwrap_or(0.0), b.scores.keep.unwrap_or(0.0));
+        let (ka, kb) = (
+            a.scores.confidence.unwrap_or(0.0),
+            b.scores.confidence.unwrap_or(0.0),
+        );
         kb.total_cmp(&ka)
     });
-    let mut cands: Vec<Id> = waiting.into_iter().map(|f| f.id.clone()).collect();
+    let mut cands: Vec<FindingId> = waiting.into_iter().map(|f| f.id.clone()).collect();
     let t = |s: &str| (deps.trace)(s);
     if !cands.is_empty() {
         t(&section(&format!("Verification: {}", file.display())));
@@ -193,15 +196,19 @@ pub(crate) fn verify(
                 batch.push(id);
             }
         }
-        let keep_of = |id: &Id| {
+        let confidence_of = |id: &FindingId| {
             let f = find(store, id);
-            format!("{} (keep {:.2})", id.0, f.scores.keep.unwrap_or(0.0))
+            format!(
+                "{} (confidence {:.2})",
+                id.0,
+                f.scores.confidence.unwrap_or(0.0)
+            )
         };
-        let listed = |ids: &[Id]| {
+        let listed = |ids: &[FindingId]| {
             if ids.is_empty() {
                 "none".to_string()
             } else {
-                ids.iter().map(keep_of).collect::<Vec<_>>().join(", ")
+                ids.iter().map(confidence_of).collect::<Vec<_>>().join(", ")
             }
         };
         t(&format!(
@@ -219,7 +226,7 @@ pub(crate) fn verify(
         }
 
         // citations first; claim checks reserved within the caps
-        let mut to_check: Vec<(Id, Claim)> = Vec::new();
+        let mut to_check: Vec<(FindingId, Claim)> = Vec::new();
         let mut reserved = 0.0;
         let mut held = false;
         for id in &batch {
@@ -278,7 +285,7 @@ pub(crate) fn verify(
                         f.set_status(Status::Open, now);
                         t(&format!(
                             "- {}: a {} needs no claim check → open\n",
-                            id.0, f.kind
+                            id.0, f.issue_type
                         ));
                     } else if budget.allows(reserved + around.check_estimate) {
                         reserved += around.check_estimate;
@@ -303,7 +310,7 @@ pub(crate) fn verify(
 
         // the round's claim checks, side by side
         let checker = deps.checker;
-        let results: Vec<(Id, sorcerer_models::Result<Checked>)> = std::thread::scope(|s| {
+        let results: Vec<(FindingId, sorcerer_models::Result<Checked>)> = std::thread::scope(|s| {
             let handles: Vec<_> = to_check
                 .into_iter()
                 .map(|(id, claim)| s.spawn(move || (id, checker(&claim))))
@@ -395,7 +402,7 @@ pub(crate) fn verify(
 }
 
 fn needs_claim(f: &Finding) -> bool {
-    kind(&f.kind).is_some_and(|k| k.verify == Verify::CitationsThenClaim)
+    issue_type(&f.issue_type).is_some_and(|k| k.verify == Verify::CitationsThenClaim)
 }
 
 /// The finding's statement, pointed at its cited code.
@@ -423,7 +430,7 @@ fn verdict_word(v: Verdict) -> &'static str {
     }
 }
 
-fn find<'s>(store: &'s ScryStore, id: &Id) -> &'s Finding {
+fn find<'s>(store: &'s ScryStore, id: &FindingId) -> &'s Finding {
     store
         .findings
         .iter()
@@ -431,7 +438,7 @@ fn find<'s>(store: &'s ScryStore, id: &Id) -> &'s Finding {
         .expect("a candidate is in the store")
 }
 
-fn find_mut<'s>(store: &'s mut ScryStore, id: &Id) -> &'s mut Finding {
+fn find_mut<'s>(store: &'s mut ScryStore, id: &FindingId) -> &'s mut Finding {
     store
         .findings
         .iter_mut()

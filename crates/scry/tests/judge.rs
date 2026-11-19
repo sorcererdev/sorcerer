@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use scry::find::RawFinding;
-use scry::finding::{Evidence, Finding, Id, Place, Scores, Status};
+use scry::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
 use scry::judge::{
-    Match, SAME_CUT, asked_on, candidates, citations, cited_code, finding_text, keep_of,
-    match_stored, nitpick, place, same_problem,
+    Match, SAME_THRESHOLD, asked_on, candidates, citations, cited_code, confidence_of,
+    finding_text, match_stored, nitpick, place, same_problem,
 };
 use scry::scope::ScopedUnit;
 use scry::steering::steering_of;
@@ -42,7 +42,7 @@ fn scoped(u: &Unit) -> ScopedUnit {
 
 fn raw(lines: Span) -> RawFinding {
     RawFinding {
-        kind: "bug".into(),
+        issue_type: "bug".into(),
         file: "a.py".into(),
         lines,
         statement: "cancel() returns None".into(),
@@ -54,8 +54,8 @@ fn raw(lines: Span) -> RawFinding {
 fn stored(status: Status, file: &str, unit: Option<&str>) -> Finding {
     let now = Utc::now();
     Finding {
-        id: Id("abc123".into()),
-        kind: "bug".into(),
+        id: FindingId("abc123".into()),
+        issue_type: "bug".into(),
         rule: None,
         statement: "s".into(),
         place: Place {
@@ -169,7 +169,7 @@ fn same_problem_question_has_inspects_wording() {
     let values: Vec<&str> = q.context.iter().map(|(_, v)| v.as_str()).collect();
     assert_eq!(values, ["A", "B", "ca", "cb"]);
     assert!(!q.unsure_allowed);
-    assert_eq!(SAME_CUT, 0.5);
+    assert_eq!(SAME_THRESHOLD, 0.5);
 }
 
 #[test]
@@ -240,9 +240,9 @@ fn nitpick_carries_the_cited_rule_or_all_rules() {
 }
 
 #[test]
-fn keep_of_values() {
+fn confidence_of_values() {
     let k = |a: Answer| {
-        keep_of(&Weighed {
+        confidence_of(&Weighed {
             answer: a,
             distribution: vec![],
         })

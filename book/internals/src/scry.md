@@ -6,11 +6,11 @@
 ## Module map
 
 - `src/config.rs`: `ScryConfig`, `scry_config`.
-- `src/kind.rs`: `Kind`, `Verify`, `KINDS`, `kind`.
+- `src/issue_type.rs`: `IssueType`, `Verify`, `ISSUE_TYPES`, `issue_type`.
 - `src/steering.rs`: `Steering`, `steering_of`, `steering`.
 - `src/scope.rs`: `ScopeWhy`, `Scope`, `ScopedUnit`, `ScopedFile`, `scope_of`.
-- `src/judge.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_CUT`, `Match`,
-  `match_stored`, `nitpick`, `keep_of`, `asked_on`, `cited_code`, `citations`.
+- `src/judge.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_THRESHOLD`, `Match`,
+  `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`, `citations`.
 - `src/pass.rs`: `pass`, `PassDeps`, `Clock`, `SystemClock`, `Checker`, `Progress`, `Caps`,
   `Report`, `Outcome`, `merge_into`.
 - `src/rounds.rs`: `find_estimate`, `check_estimate`, `Budget`, `cost_of`, and the
@@ -30,17 +30,17 @@
 `scry_config(&Project)` reads `[scry]` through core's `Config::table`, which is strict about
 unknown keys (`deny_unknown_fields`), then range-checks: `confidence_threshold` in 0..=1,
 `budget_per_pass` and `budget_per_day` not negative (nor NaN), and every entry of `issue_types`
-a name in `KINDS`. The keys are `enabled`, `issue_types`, `review_model`,
+a name in `ISSUE_TYPES`. The keys are `enabled`, `issue_types`, `review_model`,
 `confidence_threshold`, `budget_per_pass`, `budget_per_day` and `exclude`; at most
 `MAX_SHOWN` (3, a constant in `config.rs`) findings are shown in a file. Each failure is an `Error::Config` naming the key and `.sorcerer/config.toml`.
 `ScryConfig::default()` holds the shipped values.
 
-## Kinds
+## Issue types
 
-`KINDS` is the table of kinds: a `name`, the `sentence` the find prompt prints after it, whether
+`ISSUE_TYPES` is the table of issue types: a `name`, the `sentence` the find prompt prints after it, whether
 it is `shown` by default, and its `Verify` (`Citations`, or `CitationsThenClaim` where the
 claim checker also runs). The sentences are those of the golden find prompt, word for word.
-A new kind is a new row. `[scry] issue_types` chooses which rows are shown.
+A new issue type is a new row. `[scry] issue_types` chooses which rows are shown.
 
 ## Steering
 
@@ -57,10 +57,10 @@ whole `## Rules` section, which Jev reads when a finding cites no rule.
 
 ## The finding and its store
 
-`src/finding.rs` holds the record. `Finding` has an `Id` (six hex digits, stable for its
-life), `kind`, optional `rule`, `statement`, a `Place` (file, unit, lines, `unit_start`,
+`src/finding.rs` holds the record. `Finding` has a `FindingId` (six hex digits, stable for its
+life), `issue_type`, optional `rule`, `statement`, a `Place` (file, unit, lines, `unit_start`,
 `Fingerprint`), `Vec<Evidence>` (file, lines, and the `print` of the cited code when verified),
-`Scores` (`keep`, and `asked_on`, what the nitpick judgement was asked about), an optional
+`Scores` (`confidence`, and `asked_on`, what the nitpick judgement was asked about), an optional
 `StoredVerdict` (`right`, `wrong`, `cannot_tell`, or the citation failure, with its reason,
 and `cited`, each `StoredCitation` behind it with `confirmed` and `unit_missed` (skipped when
 false; `StoredCitation::outcome` words it for the log and `why`): what the claim check cited, or
@@ -82,13 +82,13 @@ Every status change goes through `Finding::set_status`, which appends to `histor
 - `resolved`: the code changed and it no longer holds.
 - `gone`: its unit no longer exists.
 
-`src/store.rs` is `ScryStore` (`findings`, plus `inspected`, each file to the set of unit
-fingerprints a pass has looked at, and `capped`, each file to the units a cost cap held back), `Versioned` at version 1, opened by `store(&Project)` at
+`src/store.rs` is `ScryStore` (`findings`, plus `reviewed`, each file to the set of unit
+fingerprints a pass has looked at, and `capped`, each file to the units a cost cap held back), `Versioned` at version 2 (a version-1 file is unreadable and left alone), opened by `store(&Project)` at
 `.sorcerer/state/scry/findings.json` through core's `Store`. A file from a newer scry is
 `Unreadable` and never rewritten. `new_id` hashes time, file, lines and statement with FNV and
 keeps six digits, rehashing with a counter while taken. `get` takes an id or a unique prefix of
 at least four characters. `dismiss` sets `dismissed-here` or `dismissed-everywhere`. `shown_in`
-is a file's open findings whose kind is in `[scry] issue_types`, best `keep` first, at most
+is a file's open findings whose issue type is in `[scry] issue_types`, best confidence first, at most
 `MAX_SHOWN`.
 
 ## The find call
@@ -102,7 +102,7 @@ byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first lin
 `parse_find` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
 to the last `}`, then the first `[` to the last `]` (the array first when it opens first, so a
 bare array of findings is not mistaken for its first object); the first that decodes wins. A
-finding needs one of the four kinds, a file, a statement and `lines` (`[a, z]`, one element, or
+finding needs one of the four issue types (the reply's `kind` field), a file, a statement and `lines` (`[a, z]`, one element, or
 `line`); a bad finding is dropped, a bad evidence entry is dropped and the finding kept. `open`
 answers need `holds` to be exactly `still holds` or `no longer holds`; a numeric id is accepted.
 Only a reply with no JSON at all is an `Err`.
@@ -149,7 +149,7 @@ unit's name, first line and fingerprint.
 `candidates(store, raw)` are the stored findings worth the same-problem question, in store
 order: not `resolved` or `gone`, sharing the file, the rule (the pass resolves the cited rule
 with `Steering::resolve_rule` first), or a cited range in the same file. The pass asks them in
-order and the first with P(yes) at or past `SAME_CUT` (0.5) matches. `finding_text` shows each
+order and the first with P(yes) at or past `SAME_THRESHOLD` (0.5) matches. `finding_text` shows each
 side as `bug at a.py:41; rule: none; cancel() returns None`. The question, `same_problem`:
 
 - kind `same`, instructions "Do these two code review findings describe the same problem?"
@@ -170,7 +170,7 @@ other (or none); dismissed-everywhere drops; resolved and gone are new.
 - context `finding kind`, `finding`, `place` (`file:first`), `cited code`, then `project rule`
   (the cited rule's text) or, citing none, `project rules` (`Steering::rules_section`).
 
-`keep_of` turns the answer into keep = 1 − P(nitpick): `Yes(Unknown)` is 0, `No(Unknown)` and
+`confidence_of` turns the answer into confidence = 1 − P(nitpick): `Yes(Unknown)` is 0, `No(Unknown)` and
 `Unsure` are 1. `asked_on(unit_fp, rule_text, steering)` is seven hex digits of FNV-1a over the
 unit's fingerprint, the rule text the question carried and the two sides; a withheld finding is
 asked again only when it changes. `cited_code(text, line)` is eight lines either side, each
@@ -208,7 +208,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    core's `cost::spent_in` in the `Clock`'s offset, what scry spent earlier in the local day,
    which starts the pass's `Budget` (Jev's `decide` rows are not counted, design §6.9).
 2. **What to send, and the gone sweep.** The scope's units whose fingerprint is not in
-   `inspected[file]` (every one with `fresh`). `Run::sweep_gone`: an open, waiting or withheld
+   `reviewed[file]` (every one with `fresh`). `Run::sweep_gone`: an open, waiting or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
    `gone`.
 3. **Find.** `pack_units` packs them; each pack is a `FindAsk` with its files' diffs
@@ -220,15 +220,15 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    command line `Caps.pass` is `None`, so without the bound `room` is the rest of the local
    day and one hung call would be charged all of it. A call that fails, or a reply
    `parse_find` refuses, is a `failures` line (`find failed for a.py: …`) and its units stay
-   uninspected; the finder has already put its errand in the ledger. The budget is charged the
+   unreviewed; the finder has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
    other failure.
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::resolve_rule` cannot
    resolve is dropped (the finding stays); `place` with the finding's own file's units; an
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
-   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_CUT` wins;
+   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins;
    `match_stored` says merge (`Run::merge`), drop, or new. A new finding gets the `nitpick`
-   question (`Run::keep`): keep at or past `confidence_threshold` is `waiting`, else `withheld`, with
+   question (`Run::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
    statement and evidence (printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
@@ -252,12 +252,12 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `Budget` (below). It runs even when nothing in the file was sent, so a waiting finding
    opens once the file has room.
 7. **Write.** `Run::drop_moved` again (a unit may have changed while the checks ran); the
-   fingerprints of the sent, answered, unmoved units join `inspected` and leave `capped`. Each
+   fingerprints of the sent, answered, unmoved units join `reviewed` and leave `capped`. Each
    write (the one before a round's checks, and this last one) is a `Store::update` applying
    `merge_into(written, mine, current)`, `written` being what the pass last wrote: each finding
    in the store as it is now takes the pass's version only when its status there is still the
    one the pass last saw (so a dismissal made during the pass stands); the pass's new findings
-   are appended; `inspected` sets are joined; `capped` is the pass's when it changed it. A new
+   are appended; `reviewed` sets are joined; `capped` is the pass's when it changed it. A new
    finding whose id another writer took meanwhile gets a fresh one (`free_id`); `merge_into`
    records it in `Run::renames`, applies the map to `mine` on every later write (`written` is
    kept in written ids through `renamed`), and `pass` maps `Report::new` through it.
@@ -271,15 +271,15 @@ the pass's thread only (a round's claim checks are traced after they join), so i
 decides reads it: the eval's table is the same with or without it. The calls:
 
 - `pass`: the **Pass** section, the caps, what scry spent earlier today, the estimates.
-- `Run::go`: **Units** (each scope unit, to send or already inspected), **Find calls** (per
+- `Run::go`: **Units** (each scope unit, to send or already reviewed), **Find calls** (per
   pack: units, model, cap, the open ids, `find_prompt(&ask)` and the reply each in
   `log::block`, the errand, then the parse or the failure, or the cap that held it back),
   **Findings** (a `sub` heading a raw finding, then `Run::judge`), **Remember** (resolved by
   the reply, not found again, swept gone by `sweep_gone`, dropped as moved) and, after the
-  rounds, **Inspected**.
+  rounds, **Reviewed**.
 - `Run::judge` and `Run::merge`: the statement, the rule as cited and as resolved, the
   evidence, the placement, each same-problem question's P(yes) and the outcome, the nitpick
-  question's P(yes) with keep against `confidence_threshold`, and the id and status given.
+  question's P(yes) with the confidence against `confidence_threshold`, and the id and status given.
 - `rounds::verify`: a **Verification** section for a file with waiting findings, then per
   round the room, the candidates and the rest; each finding's citations (`judge::cites`
   names the one that failed); each claim check's models (its errands'), escalation, verdict
@@ -298,12 +298,12 @@ model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)
 least left under any finite cap. `cost_of(errands)` sums a call's priced errands.
 
 `verify(store, file, cfg, budget, deps, cancel, around)` takes the file's waiting findings,
-best `keep` first, in rounds. A round takes the candidates that would fit if all passed: one
+best confidence first, in rounds. A round takes the candidates that would fit if all passed: one
 that was waiting before the pass (`Around::old_waiting`) only while the file's open findings
-of shown kinds are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
+of shown issue types are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
 pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding: `citations`
-(failure → `unsure`, the reason as verdict); a `Verify::Citations` kind opens at once; a
-`CitationsThenClaim` kind's check is reserved against the budget at `check_estimate`, and one
+(failure → `unsure`, the reason as verdict); a `Verify::Citations` issue type opens at once; a
+`CitationsThenClaim` issue type's check is reserved against the budget at `check_estimate`, and one
 that does not fit leaves its finding waiting and stops the rounds (`Verified { capped }`).
 When there are checks to run the store is written (`Around::save`) and `Progress::Stored`
 sent, so what opened shows before the checks finish. The round's checks run side by side on
@@ -349,7 +349,7 @@ A run (`run`): open the project from the directory, `scry_config`, the wiring, t
 subdirectory) or `Working`; `pass` with `Caps { pass: None, day: budget_per_day, budget: --budget }`
 (the day's cap already counts what scry spent earlier today, so leaving `budget` unset is "the
 day's remaining"); then the store is read again and `shown_in_scope` takes every open finding
-of a shown kind whose place's file and unit are a scope unit, best `keep` first, with no
+of a shown issue type whose place's file and unit are a scope unit, best confidence first, with no
 `MAX_SHOWN`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
 one object a line. The summary line is skipped when nothing was shown, looked at or spent.
 
@@ -406,7 +406,7 @@ whose predicate holds, else a certain no, and records the questions. `StubFinder
 `FixedClock` is a clock set by hand (`at`, `now`, `offset` to move it, `in_zone` for the
 user's offset) and implements the pass's `Clock`. `errand(verb, model, cost)` is a ledger row
 as a paid call would append it. The rounds tests (`tests/rounds.rs`) seed waiting findings
-straight into the store with `cancel` already inspected, so no find call runs, and pass a
+straight into the store with `cancel` already reviewed, so no find call runs, and pass a
 claim checker closure; the pass tests use one that always errs (a waiting finding stays
 waiting).
 

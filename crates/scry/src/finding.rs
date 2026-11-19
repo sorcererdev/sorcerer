@@ -10,12 +10,12 @@ use sorcerer_core::unit::Span;
 
 /// Six lowercase hex digits, stable for the record's life.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Id(pub String);
+pub struct FindingId(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Status {
-    /// Shown: passed the checks and the nitpick bar.
+    /// Shown: passed the checks and the confidence threshold.
     Open,
     /// Found, not yet checked (a cap held the pass back).
     Waiting,
@@ -56,7 +56,7 @@ pub struct Evidence {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Scores {
-    pub keep: Option<f64>,
+    pub confidence: Option<f64>,
     /// What the nitpick judgement was asked about (unit, rule text, wording).
     pub asked_on: Option<String>,
 }
@@ -113,8 +113,8 @@ impl StoredCitation {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
-    pub id: Id,
-    pub kind: String,
+    pub id: FindingId,
+    pub issue_type: String,
     pub rule: Option<String>,
     pub statement: String,
     pub place: Place,

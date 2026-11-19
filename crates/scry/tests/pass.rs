@@ -181,8 +181,8 @@ fn a_clean_change_with_an_empty_reply_stores_nothing_and_marks_inspected() {
     assert!(ask.reported.is_empty() && ask.open.is_empty());
     let s = f.store();
     assert!(s.findings.is_empty());
-    let inspected = &s.inspected[Path::new("orders.py")];
-    assert!(inspected.contains(&cancel_print(&f)), "{inspected:?}");
+    let reviewed = &s.reviewed[Path::new("orders.py")];
+    assert!(reviewed.contains(&cancel_print(&f)), "{reviewed:?}");
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn a_convention_with_citations_becomes_open() {
     assert_eq!(g.status, Status::Open);
     assert_eq!(g.rule.as_deref(), Some("Commands return a Result"));
     assert_eq!(g.place.unit.as_deref(), Some("cancel"));
-    assert_eq!(g.scores.keep, Some(1.0));
+    assert_eq!(g.scores.confidence, Some(1.0));
     assert!(g.scores.asked_on.is_some());
     assert!(g.evidence[0].print.is_some(), "{:?}", g.evidence);
     assert_eq!(g.seen, 1);
@@ -240,7 +240,7 @@ fn a_nitpick_is_withheld() {
     let s = f.store();
     let g = only(&s);
     assert_eq!(g.status, Status::Withheld);
-    assert!((g.scores.keep.unwrap() - 0.1).abs() < 1e-9);
+    assert!((g.scores.confidence.unwrap() - 0.1).abs() < 1e-9);
     let asked = decider.asked();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].kind, "nitpick");
@@ -421,7 +421,7 @@ fn still_holds_keeps_the_finding() {
     assert_eq!(finder.asks()[0].open[0].id, id);
     let s = f.store();
     assert_eq!(only(&s).status, Status::Waiting);
-    assert!(s.inspected[Path::new("orders.py")].contains(&cancel_print(&f)));
+    assert!(s.reviewed[Path::new("orders.py")].contains(&cancel_print(&f)));
 }
 
 #[test]
@@ -437,7 +437,7 @@ fn no_longer_holds_resolves_only_a_finding_the_call_was_shown() {
         .unwrap()
         .update(|s| {
             let mut other = s.findings[0].clone();
-            other.id = scry::finding::Id("abcdef".into());
+            other.id = scry::finding::FindingId("abcdef".into());
             other.place.unit = Some("place".into());
             s.findings.push(other);
         })
@@ -517,7 +517,7 @@ fn a_find_reply_with_no_json_is_a_failure_and_leaves_units_uninspected() {
     assert!(r.failures[0].contains("no JSON"), "{:?}", r.failures);
     assert!(!r.whole);
     assert_eq!(r.looked_at, 0);
-    assert!(f.store().inspected.is_empty());
+    assert!(f.store().reviewed.is_empty());
     ran(f.run(&finder, &StubDecider::new(), false));
     assert_eq!(finder.asks().len(), 2);
 }
@@ -559,7 +559,7 @@ fn a_dismissal_during_the_pass_stands() {
     let g = only(&s);
     assert_eq!(g.id, id);
     assert_eq!(g.status, Status::DismissedHere);
-    assert!(!s.inspected.is_empty());
+    assert!(!s.reviewed.is_empty());
 }
 
 #[test]
@@ -700,7 +700,7 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
     has("`notes.txt`: skipped (no language)");
     has(&scry::find::find_prompt(&finder.asks()[0]));
     has(&reply("bug", 2, "cancel ignores the order's state", ""));
-    has("nitpick? P(yes) 0.20 → keep 0.80, cut 0.70 → waiting");
+    has("nitpick? P(yes) 0.20 → confidence 0.80, threshold 0.70 → waiting");
     has(&format!("id {}", r.new[0].0));
     has("cannot_tell");
     has("escalated: yes");

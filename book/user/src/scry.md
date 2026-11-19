@@ -5,13 +5,14 @@ alters, with the diff and your project's rules, and asks a model for problems th
 or introduces: a named code path that does the wrong thing, not a hunch. An empty answer is
 normal.
 
-Each finding has a kind, a place, a short statement and the code it cites. Scry checks the
+Each finding has an issue type, a place, a short statement and the code it cites. Scry checks the
 citations, asks the claim checker whether the claim holds, and asks Jev whether it is a
 nitpick. Only what survives is shown, at most 3 in a file at a time. The rest is kept, not
 lost: a later pass can raise a finding again.
 
 Findings stay in `.sorcerer/state/scry/findings.json` until the code changes or you dismiss
-them. Scry spends money, so it stops at a per-pass and a per-day cap.
+them. The file is versioned: one an older scry wrote (version 1) is not read or
+changed; scry exits 2 naming it, and you move it aside to start over. Scry spends money, so it stops at a per-pass and a per-day cap.
 
 ## Running scry
 
@@ -43,15 +44,15 @@ src/orders/cancel.py:41  bug  cancel() returns None when the repository has no o
 1 finding, 2 units looked at, $0.05
 ```
 
-Each finding is its place, its kind and its statement, wrapped to your terminal (100 columns
-when the output is not a terminal), then Jev's keep score: one minus the chance it is a
+Each finding is its place, its issue type and its statement, wrapped to your terminal (100 columns
+when the output is not a terminal), then its confidence: one minus Jev's chance that it is a
 nitpick. Under it are the lines it cites and the command that shows it in full. The last line
 counts the findings, the units sent to the finder this run and what the run spent; a run that
 had nothing to look at and nothing to show prints nothing.
 
 With `--json`, each finding is one line on stdout:
-`{"id", "kind", "rule", "statement", "file", "lines": [first, last], "unit", "evidence":
-[{"file", "lines"}], "keep", "verdict", "status"}`. The summary line goes to stderr.
+`{"id", "issue_type", "rule", "statement", "file", "lines": [first, last], "unit", "evidence":
+[{"file", "lines"}], "confidence", "verdict", "status"}`. The summary line goes to stderr.
 
 Problems go to stderr, one line each: a find call that failed (`scry: find failed for
 src/a.py: …`; its units are looked at again next run), and units or a claim check a cap held
@@ -62,11 +63,11 @@ A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`, `log`) 
 
 ### Looking at the store
 
-`scry list` prints a table, `status  kind  file  line  rule  statement` (`-` when no rule, the
+`scry list` prints a table, `status  issue type  file  line  rule  statement` (`-` when no rule, the
 statement cut to 80 characters), open findings first, then by file and line. `--status` (repeat
 it) keeps only those statuses (`open`, `waiting`, `withheld`, `refuted`, `unsure`, `elsewhere`,
 `dismissed-here`, `dismissed-everywhere`, `resolved`, `gone`). `--json` prints
-`{"findings": [{"id", "status", "kind", "file", "line", "rule", "statement", "keep",
+`{"findings": [{"id", "status", "issue_type", "file", "line", "rule", "statement", "confidence",
 "verdict", "seen"}]}`.
 
 `scry cost` reads the ledger: a row for each of your local days, `day  finds  checks  find $
@@ -81,8 +82,8 @@ leaves the waiting line out (`waiting_units` is `null`).
 unit and the line it starts on, each cited range with its code (two lines either side; a
 citation outside the project or on a fenced path, such as `.env`, is named but its code is not
 printed), the claim checker's verdict and, under `Cited by the check:`, each citation it
-gave with `confirmed`, `not found`, or `unit not found, confirmed on line N`, the keep
-score, how often
+gave with `confirmed`, `not found`, or `unit not found, confirmed on line N`, the
+confidence, how often
 it was seen and its history. An unknown or ambiguous id exits 2. None of these four needs Jev.
 
 ### Reading what a run did
@@ -98,14 +99,14 @@ and exit code do not change. The log holds, in run order:
 - **Scope**: each file considered, in (with its added or changed units) or skipped and why (no
   language, excluded, fenced, not text, deleted).
 - **Pass** and **Units**: the caps, what scry spent earlier today, the cost estimates, and each
-  unit: to send, or already inspected at its fingerprint.
+  unit: to send, or already reviewed at its fingerprint.
 - **Find calls**: per pack, its units, the model and cap, the whole prompt and the whole reply,
   the call's cost and time, and what the reply parsed to (or why it did not), or that a cap
   held the pack back.
-- **Findings**: each finding as the model gave it (kind, place, rule, statement, evidence),
+- **Findings**: each finding as the model gave it (issue type, place, rule, statement, evidence),
   the rule it resolved to, the unit it was placed in, each same-problem question with Jev's
-  P(yes) and what came of it (new, merged, dropped), the nitpick question's P(yes), the keep
-  score against `confidence_threshold`, and the id it got.
+  P(yes) and what came of it (new, merged, dropped), the nitpick question's P(yes), the
+  confidence against `confidence_threshold`, and the id it got.
 - **Remember**: what was resolved (the finder said it no longer holds, or it was not found
   again) or gone.
 - **Verification**: per file and round, the candidates and the room, each finding's citations
@@ -113,7 +114,7 @@ and exit code do not change. The log holds, in run order:
   verdict and reason, every citation the check gave with `confirmed`, `not found` or `unit not
   found, confirmed on line N`, the cost,
   and the status that followed.
-- **Inspected**: the units marked looked at.
+- **Reviewed**: the units marked looked at.
 - **Summary**: each finding the run added or changed, its status and why it is or is not
   printed; what was spent, by verb; failures; and a last line, `**Result:** 1 finding shown,
   2 units looked at, $0.05, exit 1`.
@@ -128,8 +129,8 @@ A finding the checker could not confirm is `unsure` and not shown. To see why:
 
 ```
 $ scry list --status unsure
-status  kind  file             line  rule  statement
-unsure  bug   src/orders.rs    41    -     cancel returns None when the order is missing
+status  issue type  file             line  rule  statement
+unsure  bug         src/orders.rs    41    -     cancel returns None when the order is missing
 $ scry why 7f3a
 …
 Checked: cannot_tell: cited code not found
@@ -193,9 +194,9 @@ unit is in scope. A renamed file is a new file at its new path. Scry leaves out 
 language covers, files matching `exclude`, fenced files (`.env*`, `.sorcerer/`, your
 `[model] not_evidence`) and files that are not text.
 
-## Kinds
+## Issue types
 
-| kind | means | shown by default |
+| issue type | means | shown by default |
 |---|---|---|
 | `bug` | the code does the wrong thing | yes |
 | `assumption` | the code relies on something about other code that is not so | yes |
@@ -219,7 +220,7 @@ error that names the key and the file.
 
 ## What it costs
 
-A pass that finds changed units not yet inspected makes one find call for them, about $0.04
+A pass that finds changed units not yet reviewed makes one find call for them, about $0.04
 on sonnet (about $0.005 with `review_model = "haiku"`, which misses more). Each `bug` or
 `assumption` that survives the nitpick question gets a claim check, about $0.016. A pass with
 nothing new to look at costs nothing. Jev's questions cost about $0.00005 each and are not
@@ -236,7 +237,7 @@ A find call that times out (after 420 s) is counted at the cap it ran under, whi
 more than `budget_per_pass`, even on the command line where no pass cap applies: one hung call does
 not use up the day.
 
-A unit a cap holds back is not inspected; scry records it and the next pass with room takes
+A unit a cap holds back is not reviewed; scry records it and the next pass with room takes
 it. A finding whose claim check does not fit waits, and is checked on a later pass. Findings
 are checked best first, and only until 3 are open in the file: a claim the checker
 refutes frees its place for the next one.

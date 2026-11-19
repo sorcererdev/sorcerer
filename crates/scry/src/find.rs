@@ -12,7 +12,7 @@ use sorcerer_core::unit::Span;
 use sorcerer_models::research::{Research, Researcher, Tool};
 
 use crate::finding::Finding;
-use crate::kind::KINDS;
+use crate::issue_type::ISSUE_TYPES;
 
 /// Seconds a find call may take.
 pub const FIND_TIMEOUT: Duration = Duration::from_secs(420);
@@ -44,7 +44,7 @@ pub struct FindAsk {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawFinding {
-    pub kind: String,
+    pub issue_type: String,
     pub file: PathBuf,
     pub lines: Span,
     pub statement: String,
@@ -90,7 +90,7 @@ fn open_line(f: &Finding) -> String {
     format!(
         "- id {}: [{}] {}:{}: {}",
         f.id.0,
-        f.kind,
+        f.issue_type,
         f.place.file.display(),
         f.place.lines.start,
         f.statement
@@ -227,7 +227,7 @@ fn list<'a>(o: &'a serde_json::Map<String, Value>, k: &str) -> &'a [Value] {
 fn finding_of(v: &Value) -> Option<RawFinding> {
     let o = v.as_object()?;
     let kind = text_of(o, "kind")?;
-    if !KINDS.iter().any(|k| k.name == kind) {
+    if !ISSUE_TYPES.iter().any(|k| k.name == kind) {
         return None;
     }
     let file = text_of(o, "file")?;
@@ -250,7 +250,7 @@ fn finding_of(v: &Value) -> Option<RawFinding> {
         })
         .collect();
     Some(RawFinding {
-        kind,
+        issue_type: kind,
         file: PathBuf::from(file),
         lines,
         statement,

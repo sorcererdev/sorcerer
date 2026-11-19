@@ -62,7 +62,7 @@ struct RunArgs {
     /// The findings as JSON, one object a line
     #[arg(long)]
     json: bool,
-    /// Look again at units already inspected as they are now
+    /// Look again at units already reviewed as they are now
     #[arg(long)]
     fresh: bool,
     /// The most this run may spend, in dollars (the day's cap still holds)
@@ -491,12 +491,12 @@ fn list(project: &Project, statuses: &[String], json: bool, out: &mut dyn Write)
                 json!({
                     "id": f.id.0,
                     "status": status_name(f.status),
-                    "kind": f.kind,
+                    "issue_type": f.issue_type,
                     "file": f.place.file,
                     "line": f.place.lines.start,
                     "rule": f.rule,
                     "statement": f.statement,
-                    "keep": f.scores.keep,
+                    "confidence": f.scores.confidence,
                     "verdict": f.verdict.as_ref().map(|v| v.verdict.clone()),
                     "seen": f.seen,
                 })
@@ -509,7 +509,7 @@ fn list(project: &Project, statuses: &[String], json: bool, out: &mut dyn Write)
             .map(|f| {
                 vec![
                     status_name(f.status),
-                    f.kind.clone(),
+                    f.issue_type.clone(),
                     f.place.file.display().to_string(),
                     f.place.lines.start.to_string(),
                     f.rule.clone().unwrap_or_else(|| "-".into()),
@@ -521,7 +521,7 @@ fn list(project: &Project, statuses: &[String], json: bool, out: &mut dyn Write)
             out,
             "{}",
             table(
-                &["status", "kind", "file", "line", "rule", "statement"],
+                &["status", "issue type", "file", "line", "rule", "statement"],
                 &rows
             )
         )?;
@@ -667,7 +667,11 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
     };
     let file = f.place.file.display();
     let lines = lines_text(f.place.lines.start, f.place.lines.end);
-    writeln!(out, "# {}: {file}:{lines}\n\n{}\n", f.kind, f.statement)?;
+    writeln!(
+        out,
+        "# {}: {file}:{lines}\n\n{}\n",
+        f.issue_type, f.statement
+    )?;
     if let Some(r) = &f.rule {
         let st = steering(project)?;
         let name = st
@@ -718,8 +722,8 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
             }
         }
     }
-    if let Some(k) = f.scores.keep {
-        writeln!(out, "Keep: {k:.2}")?;
+    if let Some(k) = f.scores.confidence {
+        writeln!(out, "Confidence: {k:.2}")?;
     }
     writeln!(
         out,
@@ -744,7 +748,7 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
 }
 
 /// One pass over the scope the arguments name, then every open finding of
-/// a shown kind placed in a scope unit, best first.
+/// a shown issue type placed in a scope unit, best first.
 fn run(
     a: &RunArgs,
     cwd: &Path,
@@ -869,15 +873,18 @@ fn summary_text(
             "printed".to_string()
         } else {
             let because = match f.status {
-                Status::Open if !cfg.issue_types.contains(&f.kind) => {
-                    format!("its kind {} is not in [scry] issue_types", f.kind)
+                Status::Open if !cfg.issue_types.contains(&f.issue_type) => {
+                    format!(
+                        "its issue type {} is not in [scry] issue_types",
+                        f.issue_type
+                    )
                 }
                 Status::Open if !in_scope => "its unit is not in this run's scope".into(),
                 Status::Open => "open".into(),
                 Status::Waiting => "not checked yet (a cap or a failed check)".into(),
                 Status::Withheld => format!(
-                    "judged a nitpick (keep {:.2} under the cut {:.2})",
-                    f.scores.keep.unwrap_or(0.0),
+                    "judged a nitpick (confidence {:.2} under the threshold {:.2})",
+                    f.scores.confidence.unwrap_or(0.0),
                     cfg.confidence_threshold
                 ),
                 Status::Refuted => "the claim check said it is wrong".into(),
@@ -892,7 +899,7 @@ fn summary_text(
         s.push_str(&format!(
             "- {} {} at {}:{}: {}{verdict}; {why}\n",
             f.id.0,
-            f.kind,
+            f.issue_type,
             f.place.file.display(),
             f.place.lines.start,
             crate::pass::status_word(f.status),
@@ -972,21 +979,24 @@ fn held_back(r: &Report, budget: bool, err: &mut dyn Write) -> Result<()> {
     Ok(())
 }
 
-/// Open findings of KINDS whose place is a unit of SCOPE, best keep first.
-fn shown_in_scope<'s>(s: &'s ScryStore, scope: &Scope, kinds: &[String]) -> Vec<&'s Finding> {
+/// Open findings of ISSUE_TYPES whose place is a unit of SCOPE, best confidence first.
+fn shown_in_scope<'s>(s: &'s ScryStore, scope: &Scope, issue_types: &[String]) -> Vec<&'s Finding> {
     let mut v: Vec<&Finding> = s
         .findings
         .iter()
         .filter(|f| {
             f.status == Status::Open
-                && kinds.contains(&f.kind)
+                && issue_types.contains(&f.issue_type)
                 && scope.units.iter().any(|u| {
                     u.file == f.place.file && f.place.unit.as_deref() == Some(u.unit.name.as_str())
                 })
         })
         .collect();
     v.sort_by(|a, b| {
-        let (ka, kb) = (a.scores.keep.unwrap_or(0.0), b.scores.keep.unwrap_or(0.0));
+        let (ka, kb) = (
+            a.scores.confidence.unwrap_or(0.0),
+            b.scores.confidence.unwrap_or(0.0),
+        );
         kb.total_cmp(&ka)
     });
     v
@@ -1012,18 +1022,18 @@ fn lines_text(a: u32, z: u32) -> String {
     }
 }
 
-/// `file:line  kind  statement  (keep)`, the statement wrapped to WIDTH
+/// `file:line  issue type  statement  (confidence)`, the statement wrapped to WIDTH
 /// under itself, then the evidence and the `scry why` line.
 fn finding_text(f: &Finding, width: usize) -> String {
     let head = format!(
         "{}:{}  {}  ",
         f.place.file.display(),
         f.place.lines.start,
-        f.kind
+        f.issue_type
     );
     let indent = head.chars().count();
     let room = width.saturating_sub(indent).max(30);
-    let tag = format!("({:.2})", f.scores.keep.unwrap_or(0.0));
+    let tag = format!("({:.2})", f.scores.confidence.unwrap_or(0.0));
     let mut lines: Vec<String> = vec![String::new()];
     for word in f.statement.split_whitespace() {
         let last = lines.last_mut().expect("one line at least");
@@ -1067,7 +1077,7 @@ fn finding_text(f: &Finding, width: usize) -> String {
 fn finding_json(f: &Finding) -> serde_json::Value {
     json!({
         "id": f.id.0,
-        "kind": f.kind,
+        "issue_type": f.issue_type,
         "rule": f.rule,
         "statement": f.statement,
         "file": f.place.file,
@@ -1077,7 +1087,7 @@ fn finding_json(f: &Finding) -> serde_json::Value {
             "file": e.file,
             "lines": [e.lines.start, e.lines.end],
         })).collect::<Vec<_>>(),
-        "keep": f.scores.keep,
+        "confidence": f.scores.confidence,
         "verdict": f.verdict.as_ref().map(|v| v.verdict.clone()),
         "status": f.status,
     })

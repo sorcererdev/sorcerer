@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset, Utc};
 use scry::config::ScryConfig;
-use scry::finding::{Evidence, Finding, Id, Place, Scores, Status};
+use scry::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
 use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, pass};
 use scry::rounds::{Budget, check_estimate, find_estimate};
 use scry::scope::{ScopeWhy, scope_of};
@@ -127,14 +127,14 @@ impl Fixture {
             .to_string()
     }
 
-    /// FINDINGS stored, with `cancel` already inspected (nothing to find).
+    /// FINDINGS stored, with `cancel` already reviewed (nothing to find).
     fn seed(&self, findings: Vec<Finding>) {
         let print = self.cancel_print();
         store(&self.project)
             .unwrap()
             .update(|s| {
                 s.findings = findings;
-                s.inspected
+                s.reviewed
                     .entry("orders.py".into())
                     .or_default()
                     .insert(print);
@@ -155,8 +155,8 @@ fn read_store(p: &Project) -> ScryStore {
 fn finding(id: &str, kind: &str, keep: f64, status: Status) -> Finding {
     let t = t0() - chrono::Duration::hours(1);
     Finding {
-        id: Id(id.into()),
-        kind: kind.into(),
+        id: FindingId(id.into()),
+        issue_type: kind.into(),
         rule: None,
         statement: format!("claim {id}"),
         place: Place {
@@ -172,7 +172,7 @@ fn finding(id: &str, kind: &str, keep: f64, status: Status) -> Finding {
             print: None,
         }],
         scores: Scores {
-            keep: Some(keep),
+            confidence: Some(keep),
             asked_on: Some("h".into()),
         },
         verdict: None,
@@ -286,7 +286,7 @@ fn a_day_cap_stops_the_find_and_leaves_units_for_later() {
     assert!(!r.whole);
     assert_eq!(r.looked_at, 0);
     let s = f.store();
-    assert!(s.inspected.is_empty(), "{:?}", s.inspected);
+    assert!(s.reviewed.is_empty(), "{:?}", s.reviewed);
     assert!(s.capped[Path::new("orders.py")].contains("cancel"));
 
     // a later pass with room inspects it and clears the record
@@ -295,7 +295,7 @@ fn a_day_cap_stops_the_find_and_leaves_units_for_later() {
     assert_eq!(r.capped, 0);
     let s = f.store();
     assert!(s.capped.is_empty(), "{:?}", s.capped);
-    assert!(s.inspected[Path::new("orders.py")].contains(&f.cancel_print()));
+    assert!(s.reviewed[Path::new("orders.py")].contains(&f.cancel_print()));
 }
 
 #[test]

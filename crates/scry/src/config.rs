@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use sorcerer_core::{Error, Project, Result};
 
-use crate::kind::kind;
+use crate::issue_type::issue_type;
 
 /// At most this many findings are shown in a file at a time.
 pub const MAX_SHOWN: usize = 3;
@@ -58,7 +58,7 @@ pub fn scry_config(p: &Project) -> Result<ScryConfig> {
             return Err(bad(format!("{key} = {v} must not be negative")));
         }
     }
-    if let Some(k) = c.issue_types.iter().find(|k| kind(k).is_none()) {
+    if let Some(k) = c.issue_types.iter().find(|k| issue_type(k).is_none()) {
         return Err(bad(format!(
             "issue_types: `{k}` is not an issue type (bug, assumption, convention, design)"
         )));

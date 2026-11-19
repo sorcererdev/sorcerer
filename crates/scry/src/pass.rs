@@ -1,5 +1,5 @@
 //! The pass (design §6.4, olifant's `Inspect/Pass.hs`): the scope's units
-//! not yet inspected go to the find call in packs; each finding is placed,
+//! not yet reviewed go to the find call in packs; each finding is placed,
 //! matched against the store, filtered by Jev's nitpick question and
 //! remembered; then each file's waiting findings go through the
 //! verification rounds (`rounds`), within the caps.
@@ -23,10 +23,10 @@ use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
 
 use crate::config::{ScryConfig, scry_config};
 use crate::find::{FindAsk, FindUnit, Finder, RawFinding, find_prompt, pack_units, parse_find};
-use crate::finding::{Evidence, Finding, Id, Place, Scores, Status};
+use crate::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
 use crate::judge::{
-    Match, SAME_CUT, asked_on, candidates, citations, cited_code, finding_text, keep_of,
-    match_stored, nitpick, place, same_problem,
+    Match, SAME_THRESHOLD, asked_on, candidates, citations, cited_code, confidence_of,
+    finding_text, match_stored, nitpick, place, same_problem,
 };
 use crate::log::{Trace, block, count, section, sub, usd};
 use crate::rounds::{Around, Budget, check_estimate, find_estimate, verify};
@@ -89,7 +89,7 @@ pub struct Report {
     /// Units sent to a find call that answered.
     pub looked_at: usize,
     /// Findings this pass added to the store.
-    pub new: Vec<Id>,
+    pub new: Vec<FindingId>,
     pub spent: f64,
     /// Units a cap held back.
     pub capped: usize,
@@ -100,7 +100,7 @@ pub struct Report {
     /// A claim check did not fit the caps; its finding waits.
     pub checks_capped: bool,
     /// Every finding this pass added or changed, in store order.
-    pub touched: Vec<Id>,
+    pub touched: Vec<FindingId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,7 +122,7 @@ impl From<Error> for Halt {
     }
 }
 
-/// One pass over SCOPE. With FRESH, units already inspected are sent again.
+/// One pass over SCOPE. With FRESH, units already reviewed are sent again.
 /// Holds `state/scry/pass.lock` throughout; writes the store before a
 /// round's claim checks start and at the end, each time laying its changes
 /// over the store as it is then. CAPS hold the find calls and claim checks
@@ -187,7 +187,7 @@ pub fn pass(
     (deps.trace)(&format!(
         "{}- caps: pass {}, day {} (scry spent {} earlier today), budget {}\n\
          - estimates: find {} ({}), check {}\n\
-         - store: {}, {} inspected before\n",
+         - store: {}, {} reviewed before\n",
         section("Pass"),
         caps.pass.map_or("none".into(), usd),
         usd(caps.day),
@@ -197,7 +197,7 @@ pub fn pass(
         cfg.review_model,
         usd(check_est),
         count(base.findings.len(), "finding"),
-        count(base.inspected.len(), "file"),
+        count(base.reviewed.len(), "file"),
     ));
     let start = base.clone();
     let mut run = Run {
@@ -226,7 +226,7 @@ pub fn pass(
     let (written, mine, mut renames) = (run.written, run.mine, run.renames);
     findings.update(|current| *current = merge_into(&written, &mine, current, &mut renames))?;
     let mut report = report;
-    let was: HashMap<&Id, &Finding> = start.findings.iter().map(|f| (&f.id, f)).collect();
+    let was: HashMap<&FindingId, &Finding> = start.findings.iter().map(|f| (&f.id, f)).collect();
     report.touched = mine
         .findings
         .iter()
@@ -258,8 +258,8 @@ struct Run<'r, 'd> {
     /// The store as this pass leaves it.
     mine: ScryStore,
     /// Stored findings a finding of this pass merged into.
-    merged: HashSet<Id>,
-    new: Vec<Id>,
+    merged: HashSet<FindingId>,
+    new: Vec<FindingId>,
     budget: Budget,
     find_estimate: f64,
     check_estimate: f64,
@@ -269,13 +269,14 @@ struct Run<'r, 'd> {
     written: ScryStore,
     /// The pass's ids that clashed with findings added meanwhile, to the
     /// ids written in their place.
-    renames: HashMap<Id, Id>,
+    renames: HashMap<FindingId, FindingId>,
 }
 
 impl Run<'_, '_> {
     fn go(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Report, Halt> {
-        let base_ids: HashSet<Id> = self.mine.findings.iter().map(|f| f.id.clone()).collect();
-        let old_waiting: HashSet<Id> = self
+        let base_ids: HashSet<FindingId> =
+            self.mine.findings.iter().map(|f| f.id.clone()).collect();
+        let old_waiting: HashSet<FindingId> = self
             .mine
             .findings
             .iter()
@@ -292,7 +293,7 @@ impl Run<'_, '_> {
                 fresh
                     || !self
                         .mine
-                        .inspected
+                        .reviewed
                         .get(&u.file)
                         .is_some_and(|s| s.contains(u.unit.fingerprint.as_str()))
             })
@@ -305,7 +306,7 @@ impl Run<'_, '_> {
             } else if sending {
                 "to send"
             } else {
-                "already inspected at this fingerprint"
+                "already reviewed at this fingerprint"
             };
             units_text.push_str(&format!(
                 "- `{}` `{}` ({}-{}, fingerprint {}): {what}\n",
@@ -496,7 +497,7 @@ impl Run<'_, '_> {
             self.t(&sub(&format!(
                 "Finding {}: {} at {}:{}-{}",
                 n + 1,
-                raw.kind,
+                raw.issue_type,
                 raw.file.display(),
                 raw.lines.start,
                 raw.lines.end
@@ -524,11 +525,11 @@ impl Run<'_, '_> {
         }
 
         // a unit whose text changed while the pass ran keeps no new findings
-        // and is not inspected
+        // and is not reviewed
         let moved = self.drop_moved(&answered);
         for (file, name) in &moved {
             remember.push_str(&format!(
-                "- `{}` `{}` changed while the pass ran: its new findings are dropped, it is not inspected\n",
+                "- `{}` `{}` changed while the pass ran: its new findings are dropped, it is not reviewed\n",
                 file.display(),
                 name
             ));
@@ -613,10 +614,10 @@ impl Run<'_, '_> {
 
         // checked again: a unit may have changed while the checks ran
         let moved = self.drop_moved(&answered);
-        let mut written = section("Inspected");
+        let mut written = section("Reviewed");
         for (file, name) in &moved {
             written.push_str(&format!(
-                "- `{}` `{}` changed while the checks ran: not inspected\n",
+                "- `{}` `{}` changed while the checks ran: not reviewed\n",
                 file.display(),
                 name
             ));
@@ -626,11 +627,11 @@ impl Run<'_, '_> {
             .filter(|(file, name, _, _)| !moved.contains(&(file.clone(), name.clone())))
         {
             written.push_str(&format!(
-                "- `{}` `{name}` inspected at {fp}\n",
+                "- `{}` `{name}` reviewed at {fp}\n",
                 file.display()
             ));
             self.mine
-                .inspected
+                .reviewed
                 .entry(file.clone())
                 .or_default()
                 .insert(fp.to_string());
@@ -642,8 +643,8 @@ impl Run<'_, '_> {
             }
         }
 
-        if written.trim_end().ends_with("## Inspected") {
-            written.push_str("- no unit newly inspected\n");
+        if written.trim_end().ends_with("## Reviewed") {
+            written.push_str("- no unit newly reviewed\n");
         }
         self.t(&written);
 
@@ -663,8 +664,8 @@ impl Run<'_, '_> {
     /// they were sent; returns those units.
     fn drop_moved(&mut self, answered: &[Sent]) -> HashSet<(PathBuf, String)> {
         let moved = self.moved(answered);
-        let new_ids: HashSet<Id> = self.new.iter().cloned().collect();
-        let dropped: HashSet<Id> = self
+        let new_ids: HashSet<FindingId> = self.new.iter().cloned().collect();
+        let dropped: HashSet<FindingId> = self
             .mine
             .findings
             .iter()
@@ -678,7 +679,7 @@ impl Run<'_, '_> {
 
     /// Open, waiting and withheld findings of a file in scope whose unit is
     /// no longer in it (or whose file was deleted) are gone.
-    fn sweep_gone(&mut self, scope: &Scope) -> Vec<Id> {
+    fn sweep_gone(&mut self, scope: &Scope) -> Vec<FindingId> {
         let now = self.now;
         let mut gone = Vec::new();
         for sf in &scope.files {
@@ -746,8 +747,8 @@ impl Run<'_, '_> {
         Ok(ws)
     }
 
-    /// Jev's nitpick question on RAW: keep, and what it was asked on.
-    fn keep(
+    /// Jev's nitpick question on RAW: its confidence, and what it was asked on.
+    fn confidence(
         &self,
         raw: &RawFinding,
         unit_fp: Option<&Fingerprint>,
@@ -757,7 +758,7 @@ impl Run<'_, '_> {
         let on = asked_on(unit_fp, rule_context(&q), self.st);
         let w = self.ask(std::slice::from_ref(&q))?;
         let w = w.into_iter().next().expect("one answer for one question");
-        Ok((keep_of(&w), on, w))
+        Ok((confidence_of(&w), on, w))
     }
 
     fn judge(&mut self, mut raw: RawFinding, scope: &Scope) -> std::result::Result<(), Halt> {
@@ -815,7 +816,7 @@ impl Run<'_, '_> {
         let mut hit = None;
         if !cands.is_empty() {
             let a = finding_text(
-                &raw.kind,
+                &raw.issue_type,
                 &raw.file,
                 raw.lines.start,
                 raw.rule.as_deref(),
@@ -824,7 +825,7 @@ impl Run<'_, '_> {
             let mut qs = Vec::new();
             for c in &cands {
                 let b = finding_text(
-                    &c.kind,
+                    &c.issue_type,
                     &c.place.file,
                     c.place.lines.start,
                     c.rule.as_deref(),
@@ -838,10 +839,10 @@ impl Run<'_, '_> {
             let mut first = true;
             for (c, w) in cands.iter().zip(&ws) {
                 let p = p_yes(w);
-                let said = if p >= SAME_CUT && first {
+                let said = if p >= SAME_THRESHOLD && first {
                     first = false;
-                    "the same: the first at or past the cut wins"
-                } else if p >= SAME_CUT {
+                    "the same: the first at or past the threshold wins"
+                } else if p >= SAME_THRESHOLD {
                     "the same, but an earlier one won"
                 } else {
                     "not the same"
@@ -851,7 +852,7 @@ impl Run<'_, '_> {
                     c.id.0,
                     status_word(c.status),
                     finding_text(
-                        &c.kind,
+                        &c.issue_type,
                         &c.place.file,
                         c.place.lines.start,
                         c.rule.as_deref(),
@@ -864,7 +865,7 @@ impl Run<'_, '_> {
             hit = cands
                 .into_iter()
                 .zip(ws)
-                .find(|(_, w)| p_yes(w) >= SAME_CUT);
+                .find(|(_, w)| p_yes(w) >= SAME_THRESHOLD);
         } else {
             self.t(
                 "- same-problem question: no stored finding shares its file, rule or cited code\n",
@@ -893,19 +894,20 @@ impl Run<'_, '_> {
                 } else {
                     self.t("- result: new\n");
                 }
-                let (keep, on, w) = self.keep(&raw, pl.fingerprint.as_ref(), &code_a)?;
-                let status = if keep >= self.cfg.confidence_threshold {
+                let (confidence, on, w) =
+                    self.confidence(&raw, pl.fingerprint.as_ref(), &code_a)?;
+                let status = if confidence >= self.cfg.confidence_threshold {
                     Status::Waiting
                 } else {
                     Status::Withheld
                 };
                 let scores = Scores {
-                    keep: Some(keep),
+                    confidence: Some(confidence),
                     asked_on: Some(on),
                 };
                 let id = self.add(&raw, pl, status, scores);
                 self.t(&format!(
-                    "- nitpick? {} → keep {keep:.2}, cut {:.2} → {}\n- id {}, {}\n",
+                    "- nitpick? {} → confidence {confidence:.2}, threshold {:.2} → {}\n- id {}, {}\n",
                     p_text(&w),
                     self.cfg.confidence_threshold,
                     status_word(status),
@@ -917,14 +919,14 @@ impl Run<'_, '_> {
         }
     }
 
-    fn add(&mut self, raw: &RawFinding, pl: Place, status: Status, scores: Scores) -> Id {
+    fn add(&mut self, raw: &RawFinding, pl: Place, status: Status, scores: Scores) -> FindingId {
         let id = self
             .mine
             .new_id(self.now, &pl.file, pl.lines, &raw.statement);
         self.new.push(id.clone());
         self.mine.findings.push(Finding {
             id,
-            kind: raw.kind.clone(),
+            issue_type: raw.issue_type.clone(),
             rule: raw.rule.clone(),
             statement: raw.statement.clone(),
             place: pl,
@@ -946,7 +948,12 @@ impl Run<'_, '_> {
     /// replace the stored ones; id, status and dismissals stay. A withheld one
     /// is asked again when what it was asked on changed; a refuted or unsure
     /// one waits again when its evidence prints moved.
-    fn merge(&mut self, id: &Id, raw: RawFinding, pl: Place) -> std::result::Result<(), Halt> {
+    fn merge(
+        &mut self,
+        id: &FindingId,
+        raw: RawFinding,
+        pl: Place,
+    ) -> std::result::Result<(), Halt> {
         let cited = citations(self.deps.view, self.fences, &raw.evidence);
         let old = self.mine.findings.iter().find(|f| f.id == *id).cloned();
         let Some(mut f) = old else { return Ok(()) };
@@ -968,16 +975,16 @@ impl Run<'_, '_> {
                 let on = asked_on(f.place.fingerprint.as_ref(), rule_context(&q), self.st);
                 if f.scores.asked_on.as_deref() != Some(on.as_str()) {
                     let w = self.ask(std::slice::from_ref(&q))?;
-                    let keep = keep_of(&w[0]);
+                    let confidence = confidence_of(&w[0]);
                     f.scores = Scores {
-                        keep: Some(keep),
+                        confidence: Some(confidence),
                         asked_on: Some(on),
                     };
-                    if keep >= self.cfg.confidence_threshold {
+                    if confidence >= self.cfg.confidence_threshold {
                         f.set_status(Status::Waiting, self.now);
                     }
                     self.t(&format!(
-                        "- withheld, and what it was asked on changed: nitpick? {} → keep {keep:.2}, cut {:.2} → {}\n",
+                        "- withheld, and what it was asked on changed: nitpick? {} → confidence {confidence:.2}, threshold {:.2} → {}\n",
                         p_text(&w[0]),
                         self.cfg.confidence_threshold,
                         status_word(f.status)
@@ -1064,7 +1071,7 @@ fn rule_context(q: &Question) -> &str {
 
 fn raw_of(f: &Finding) -> RawFinding {
     RawFinding {
-        kind: f.kind.clone(),
+        issue_type: f.issue_type.clone(),
         file: f.place.file.clone(),
         lines: f.place.lines,
         statement: f.statement.clone(),
@@ -1134,7 +1141,7 @@ fn diff_of(scope: &Scope, files: &[PathBuf]) -> String {
 /// it is now (olifant's `mergeInto`): a finding the pass changed takes the
 /// pass's version only when its status in CURRENT is still what the pass
 /// started from, so a dismissal made meanwhile stands; the pass's new
-/// findings are added; inspected sets are joined. A new finding whose id
+/// findings are added; reviewed sets are joined. A new finding whose id
 /// was taken meanwhile (by a finding added from elsewhere) takes a fresh
 /// one; RENAMES maps the pass's ids to the ids written, is applied to MINE
 /// first and grows with each such clash. BASE is in written ids.
@@ -1142,10 +1149,10 @@ pub fn merge_into(
     base: &ScryStore,
     mine: &ScryStore,
     current: &ScryStore,
-    renames: &mut HashMap<Id, Id>,
+    renames: &mut HashMap<FindingId, FindingId>,
 ) -> ScryStore {
     let mine = renamed(mine, renames);
-    let by_id = |s: &ScryStore| -> HashMap<Id, Finding> {
+    let by_id = |s: &ScryStore| -> HashMap<FindingId, Finding> {
         s.findings
             .iter()
             .map(|f| (f.id.clone(), f.clone()))
@@ -1158,7 +1165,7 @@ pub fn merge_into(
         .chain(&mine.findings)
         .map(|f| f.id.0.clone())
         .collect();
-    let cur: HashSet<&Id> = current.findings.iter().map(|f| &f.id).collect();
+    let cur: HashSet<&FindingId> = current.findings.iter().map(|f| &f.id).collect();
     let mut findings: Vec<Finding> = current
         .findings
         .iter()
@@ -1178,9 +1185,9 @@ pub fn merge_into(
         }
         findings.push(f);
     }
-    let mut inspected = current.inspected.clone();
-    for (file, set) in &mine.inspected {
-        inspected
+    let mut reviewed = current.reviewed.clone();
+    for (file, set) in &mine.reviewed {
+        reviewed
             .entry(file.clone())
             .or_default()
             .extend(set.iter().cloned());
@@ -1192,13 +1199,13 @@ pub fn merge_into(
     };
     ScryStore {
         findings,
-        inspected,
+        reviewed,
         capped,
     }
 }
 
 /// STORE with its finding ids mapped through RENAMES.
-pub fn renamed(store: &ScryStore, renames: &HashMap<Id, Id>) -> ScryStore {
+pub fn renamed(store: &ScryStore, renames: &HashMap<FindingId, FindingId>) -> ScryStore {
     let mut s = store.clone();
     for f in &mut s.findings {
         if let Some(to) = renames.get(&f.id) {
@@ -1209,10 +1216,10 @@ pub fn renamed(store: &ScryStore, renames: &HashMap<Id, Id>) -> ScryStore {
 }
 
 /// Six hex digits from ID and a counter, not in TAKEN.
-fn free_id(id: &Id, taken: &HashSet<String>) -> Id {
+fn free_id(id: &FindingId, taken: &HashSet<String>) -> FindingId {
     (1..)
         .map(|n: u64| fnv64_hex(format!("{}\0{n}", id.0).as_bytes())[..6].to_string())
         .find(|c| !taken.contains(c))
-        .map(Id)
+        .map(FindingId)
         .expect("an unbounded counter finds a free id")
 }

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use chrono::Utc;
 use scry::find::*;
-use scry::finding::{Finding, Id, Place, Scores, Status};
+use scry::finding::{Finding, FindingId, Place, Scores, Status};
 use sorcerer_core::Cancel;
 use sorcerer_core::ledger::Errand;
 use sorcerer_core::unit::Span;
@@ -38,8 +38,8 @@ fn ask0() -> FindAsk {
         steering: "## Rules\n### A\nno\n".into(),
         reported: vec!["rule r at src/a.py:4".into()],
         open: vec![Finding {
-            id: Id("abc123".into()),
-            kind: "bug".into(),
+            id: FindingId("abc123".into()),
+            issue_type: "bug".into(),
             rule: None,
             statement: "It returns x unchanged.".into(),
             place: Place {
@@ -98,7 +98,7 @@ const F: &str = r#"{"kind": "bug", "file": "src/a.py", "lines": [3, 4], "stateme
 
 fn raw(rule: Option<&str>, evidence: Vec<(PathBuf, Span)>) -> RawFinding {
     RawFinding {
-        kind: "bug".into(),
+        issue_type: "bug".into(),
         file: "src/a.py".into(),
         lines: sp(3, 4),
         statement: "Wrong.".into(),

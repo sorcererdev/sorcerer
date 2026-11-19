@@ -20,7 +20,7 @@ use crate::steering::Steering;
 use crate::store::ScryStore;
 
 /// P(same problem) at or past this merges.
-pub const SAME_CUT: f64 = 0.5;
+pub const SAME_THRESHOLD: f64 = 0.5;
 
 fn width(u: &Unit) -> u32 {
     u.span.end - u.span.start
@@ -155,7 +155,7 @@ fn cited_rule<'s>(st: &'s Steering, raw: &RawFinding) -> Option<&'s str> {
 /// sides. CITED is [`cited_code`] at the finding's first line.
 pub fn nitpick(st: &Steering, raw: &RawFinding, cited: &str) -> Question {
     let mut context = vec![
-        ("finding kind".to_string(), raw.kind.clone()),
+        ("finding kind".to_string(), raw.issue_type.clone()),
         ("finding".to_string(), raw.statement.clone()),
         (
             "place".to_string(),
@@ -180,7 +180,7 @@ pub fn nitpick(st: &Steering, raw: &RawFinding, cited: &str) -> Question {
 }
 
 /// 1 − P(nitpick); an unsure answer keeps the finding (truth is checked after).
-pub fn keep_of(w: &Weighed) -> f64 {
+pub fn confidence_of(w: &Weighed) -> f64 {
     match w.answer {
         Answer::Yes(Confidence::Known(c)) => 1.0 - c,
         Answer::No(Confidence::Known(c)) => c,

@@ -223,20 +223,21 @@ fn json_is_one_object_a_line() {
     let v: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     for k in [
         "id",
-        "kind",
+        "issue_type",
         "rule",
         "statement",
         "file",
         "lines",
         "unit",
         "evidence",
-        "keep",
+        "confidence",
         "verdict",
         "status",
     ] {
         assert!(v.get(k).is_some(), "{k} missing: {v}");
     }
-    assert_eq!(v["kind"], "bug");
+    assert!(v.get("kind").is_none() && v.get("keep").is_none(), "{v}");
+    assert_eq!(v["issue_type"], "bug");
     assert_eq!(v["file"], "orders.py");
     assert_eq!(v["lines"], serde_json::json!([2, 2]));
     assert_eq!(v["unit"], "cancel");
@@ -343,7 +344,7 @@ fn a_bad_since_rev_exits_2_naming_it() {
 #[test]
 fn an_unreadable_store_exits_2_untouched() {
     let dir = changed_project();
-    let bytes = br#"{"version": 2, "data": {}}"#;
+    let bytes = br#"{"version": 3, "data": {}}"#;
     write(
         dir.path(),
         ".sorcerer/state/scry/findings.json",
@@ -448,12 +449,41 @@ fn doctor_lists_each_row() {
 }
 
 #[test]
+fn an_old_store_exits_2_naming_its_version() {
+    let dir = changed_project();
+    let bytes = r#"{"version": 1, "data": {"findings": [], "inspected": {}, "capped": {}}}"#;
+    write(dir.path(), ".sorcerer/state/scry/findings.json", bytes);
+    let d = Doubles::new(
+        dir.path(),
+        StubFinder::new().reply(&["orders.py"], &bug_reply("cancel() passes now=True")),
+    );
+    let r = scry(dir.path(), &d, &[]);
+    assert_eq!(r.code, 2);
+    assert!(r.err.contains("findings.json"), "{}", r.err);
+    assert!(
+        r.err
+            .contains("version 1, and this sorcerer reads version 2"),
+        "{}",
+        r.err
+    );
+    let path = dir.path().join(".sorcerer/state/scry/findings.json");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+    let (project, _) = support::project_with_vendored_grammars(dir.path());
+    let env = MapEnv::default()
+        .on_path("claude")
+        .var_set("JEV_API_KEY", "k");
+    let rows = doctor_rows(&project, &env, &support::test_cache());
+    let store = rows.iter().find(|(m, _)| m == "store").unwrap().1.clone();
+    assert!(store.unwrap_err().contains("version 1"));
+}
+
+#[test]
 fn doctor_rows_load_the_project_languages_and_name_a_bad_store() {
     let dir = changed_project();
     write(
         dir.path(),
         ".sorcerer/state/scry/findings.json",
-        r#"{"version": 2, "data": {}}"#,
+        r#"{"version": 3, "data": {}}"#,
     );
     let (project, _) = support::project_with_vendored_grammars(dir.path());
     let env = MapEnv::default()
@@ -548,15 +578,15 @@ mod stored {
     use super::*;
     use chrono::FixedOffset;
     use scry::store::{
-        Evidence, Finding, Id, Place, Scores, ScryStore, Status, StoredVerdict, store,
+        Evidence, Finding, FindingId, Place, Scores, ScryStore, Status, StoredVerdict, store,
     };
     use sorcerer_core::unit::Span;
 
     pub fn finding(id: &str, kind: &str, status: Status, file: &str, line: u32) -> Finding {
         let t: DateTime<Utc> = "2026-11-18T12:00:00Z".parse().unwrap();
         Finding {
-            id: Id(id.into()),
-            kind: kind.into(),
+            id: FindingId(id.into()),
+            issue_type: kind.into(),
             rule: None,
             statement: format!("statement of {id}"),
             place: Place {
@@ -578,7 +608,7 @@ mod stored {
                 print: None,
             }],
             scores: Scores {
-                keep: Some(0.9),
+                confidence: Some(0.9),
                 asked_on: None,
             },
             verdict: Some(StoredVerdict {
@@ -640,7 +670,7 @@ fn list_prints_the_table_open_first() {
     let r = scry(dir.path(), &d, &["list"]);
     let cut = format!("{}…", "x".repeat(79));
     let want = format!(
-        "status    kind        file       line  rule                      statement\n\
+        "status    issue type  file       line  rule                      statement\n\
          open      assumption  orders.py  1     -                         statement of bbbb01\n\
          open      bug         orders.py  2     Commands return a Result  {cut}\n\
          withheld  convention  a.py       9     -                         statement of cccc03\n"
@@ -678,11 +708,11 @@ fn list_json_has_the_fields() {
     let f = &v["findings"][1];
     assert_eq!(f["id"], "aaaa02");
     assert_eq!(f["status"], "open");
-    assert_eq!(f["kind"], "bug");
+    assert_eq!(f["issue_type"], "bug");
     assert_eq!(f["file"], "orders.py");
     assert_eq!(f["line"], 2);
     assert_eq!(f["rule"], "Commands return a Result");
-    assert_eq!(f["keep"], 0.9);
+    assert_eq!(f["confidence"], 0.9);
     assert_eq!(f["verdict"], "right");
     assert_eq!(f["seen"], 3);
     assert_eq!(v["findings"][0]["rule"], serde_json::Value::Null);
@@ -778,7 +808,7 @@ fn cost_names_an_unreadable_store() {
     write(
         dir.path(),
         ".sorcerer/state/scry/findings.json",
-        r#"{"version": 2, "data": {}}"#,
+        r#"{"version": 3, "data": {}}"#,
     );
     let d = ny_doubles(dir.path());
     let r = scry(dir.path(), &d, &["cost"]);
@@ -898,7 +928,7 @@ fn why_shows_rule_evidence_verdict_and_history() {
          \x20  3 \n\
          \x20  4 \n\n\
          Checked: right: the call passes it\n\
-         Keep: 0.90\n\
+         Confidence: 0.90\n\
          Seen: 3 times since 2026-11-18\n\n\
          History:\n\
          2026-11-18T12:00:00Z  open\n",

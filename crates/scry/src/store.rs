@@ -1,4 +1,4 @@
-//! The finding store: `.sorcerer/state/scry/findings.json`, version 1.
+//! The finding store: `.sorcerer/state/scry/findings.json`, version 2.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -12,20 +12,20 @@ use sorcerer_core::{Project, Result};
 
 use crate::config::{MAX_SHOWN, ScryConfig};
 pub use crate::finding::{
-    Evidence, Finding, Id, Place, Scores, Status, StoredCitation, StoredVerdict,
+    Evidence, Finding, FindingId, Place, Scores, Status, StoredCitation, StoredVerdict,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScryStore {
     pub findings: Vec<Finding>,
     /// Per file, the units a pass has looked at.
-    pub inspected: BTreeMap<PathBuf, BTreeSet<String>>,
+    pub reviewed: BTreeMap<PathBuf, BTreeSet<String>>,
     /// Per file, the units a cost cap held back.
     pub capped: BTreeMap<PathBuf, BTreeSet<String>>,
 }
 
 impl Versioned for ScryStore {
-    const VERSION: u32 = 1;
+    const VERSION: u32 = 2;
 }
 
 pub fn store(p: &Project) -> Result<Store<ScryStore>> {
@@ -34,7 +34,13 @@ pub fn store(p: &Project) -> Result<Store<ScryStore>> {
 
 impl ScryStore {
     /// Six hex digits of the finding's hash; rehashed with a counter while taken.
-    pub fn new_id(&self, at: DateTime<Utc>, file: &Path, lines: Span, statement: &str) -> Id {
+    pub fn new_id(
+        &self,
+        at: DateTime<Utc>,
+        file: &Path,
+        lines: Span,
+        statement: &str,
+    ) -> FindingId {
         let base = format!(
             "{}\0{}\0{}\0{}\0{}",
             at.to_rfc3339(),
@@ -49,7 +55,7 @@ impl ScryStore {
             n += 1;
             id = fnv64_hex(format!("{base}\0{n}").as_bytes())[..6].to_string();
         }
-        Id(id)
+        FindingId(id)
     }
 
     /// By id, or by a unique prefix of at least four characters.
@@ -95,7 +101,7 @@ impl ScryStore {
         Ok(())
     }
 
-    /// The file's open findings of shown kinds, best `keep` first, at most `MAX_SHOWN`.
+    /// The file's open findings of shown issue types, best confidence first, at most `MAX_SHOWN`.
     pub fn shown_in(&self, cfg: &ScryConfig, file: &Path) -> Vec<&Finding> {
         let mut v: Vec<&Finding> = self
             .findings
@@ -103,11 +109,14 @@ impl ScryStore {
             .filter(|f| {
                 f.status == Status::Open
                     && f.place.file == file
-                    && cfg.issue_types.contains(&f.kind)
+                    && cfg.issue_types.contains(&f.issue_type)
             })
             .collect();
         v.sort_by(|a, b| {
-            let (ka, kb) = (a.scores.keep.unwrap_or(0.0), b.scores.keep.unwrap_or(0.0));
+            let (ka, kb) = (
+                a.scores.confidence.unwrap_or(0.0),
+                b.scores.confidence.unwrap_or(0.0),
+            );
             kb.total_cmp(&ka)
         });
         v.truncate(MAX_SHOWN);
@@ -125,11 +134,11 @@ mod tests {
         s.parse().unwrap()
     }
 
-    fn finding(id: &str, kind: &str, keep: f64, status: Status) -> Finding {
+    fn finding(id: &str, issue_type: &str, confidence: f64, status: Status) -> Finding {
         let t = at("2026-11-18T12:00:00Z");
         Finding {
-            id: Id(id.into()),
-            kind: kind.into(),
+            id: FindingId(id.into()),
+            issue_type: issue_type.into(),
             rule: None,
             statement: format!("statement {id}"),
             place: Place {
@@ -145,7 +154,7 @@ mod tests {
                 print: Some("0123abc".into()),
             }],
             scores: Scores {
-                keep: Some(keep),
+                confidence: Some(confidence),
                 asked_on: Some("h".into()),
             },
             verdict: Some(StoredVerdict {
@@ -185,7 +194,7 @@ mod tests {
             data.findings
                 .push(finding(&format!("00000{i}"), "bug", 0.9, *s));
         }
-        data.inspected
+        data.reviewed
             .insert("a.txt".into(), BTreeSet::from(["f".to_string()]));
         data.capped
             .insert("b.txt".into(), BTreeSet::from(["g".to_string()]));
@@ -196,6 +205,29 @@ mod tests {
         }
         let text = std::fs::read_to_string(st.path()).unwrap();
         assert!(text.contains("\"status\": \"dismissed-here\""), "{text}");
+        for word in ["\"issue_type\"", "\"confidence\"", "\"reviewed\""] {
+            assert!(text.contains(word), "{word} missing: {text}");
+        }
+        for word in ["\"kind\"", "\"keep\"", "\"inspected\""] {
+            assert!(!text.contains(word), "{word} still there: {text}");
+        }
+    }
+
+    #[test]
+    fn a_version_one_store_is_unreadable_and_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("findings.json");
+        let bytes = br#"{"version": 1, "data": {"findings": [], "inspected": {}, "capped": {}}}"#;
+        std::fs::write(&path, bytes).unwrap();
+        let st: Store<ScryStore> = Store::at(path.clone());
+        match st.read().unwrap() {
+            Snapshot::Unreadable(why) => {
+                assert_eq!(why, "version 1, and this sorcerer reads version 2")
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(st.update(|_| ()).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
     #[test]
@@ -244,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn shown_in_keeps_the_best_open_of_shown_kinds() {
+    fn shown_in_keeps_the_best_open_of_shown_issue_types() {
         let mut s = ScryStore::default();
         s.findings
             .push(finding("000001", "bug", 0.75, Status::Open));
@@ -271,7 +303,7 @@ mod tests {
     fn a_store_from_a_newer_scry_is_unreadable_and_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("findings.json");
-        let bytes = br#"{"version": 2, "data": {}}"#;
+        let bytes = br#"{"version": 3, "data": {}}"#;
         std::fs::write(&path, bytes).unwrap();
         let st: Store<ScryStore> = Store::at(path.clone());
         assert!(matches!(st.read().unwrap(), Snapshot::Unreadable(_)));
