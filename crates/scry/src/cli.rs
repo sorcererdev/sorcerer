@@ -162,7 +162,15 @@ fn go<W: Wired>(
 ) -> Result<i32> {
     let project = Project::open(cwd)?;
     match cli.cmd {
-        None => run(&cli.run, cwd, &project, &wire(&project)?, out, err, width),
+        None => {
+            // off is not a failure, and needs no wiring (no Jev key, no
+            // provider): a pre-commit hook lets the commit through
+            if !scry_config(&project)?.enabled {
+                writeln!(err, "scry: off ([scry] enabled = false)")?;
+                return Ok(0);
+            }
+            run(&cli.run, cwd, &project, &wire(&project)?, out, err, width)
+        }
         Some(Cmd::Doctor) => Ok(doctor(&project, env, &GrammarCache::user(env), out)?),
         Some(Cmd::List { status, json }) => list(&project, &status, json, out),
         Some(Cmd::Cost { since, json }) => {
@@ -543,11 +551,6 @@ fn run(
         anyhow::bail!("--budget {b}: give a number of dollars, 0 or more");
     }
     let cfg = scry_config(project)?;
-    if !cfg.enabled {
-        // off is not a failure: a pre-commit hook lets the commit through
-        writeln!(err, "scry: off ([scry] enabled = false)")?;
-        return Ok(0);
-    }
     let deps = wired.deps();
     let why = match (&a.since, a.files.is_empty()) {
         (Some(rev), _) => ScopeWhy::Since(rev.clone()),

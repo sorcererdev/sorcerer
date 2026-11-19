@@ -143,7 +143,7 @@ error that names the key and the file.
 
 | key | default | meaning |
 |---|---|---|
-| `enabled` | `true` | turn scry off for the project: `scry` then looks at nothing, says so on stderr and exits 0 |
+| `enabled` | `true` | turn scry off for the project: `scry` then looks at nothing, says so on stderr and exits 0, even with no Jev key or provider |
 | `kinds` | `["bug", "assumption", "convention"]` | the kinds shown |
 | `find_model` | `"sonnet"` | the model that looks for problems |
 | `cut` | `0.7` | the keep line, 0 to 1: a finding is shown only when Jev's keep score (one minus the chance it is a nitpick) is at least this |

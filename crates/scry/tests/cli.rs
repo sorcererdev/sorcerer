@@ -267,6 +267,30 @@ fn scry_off_exits_0_without_a_find() {
 }
 
 #[test]
+fn scry_off_exits_0_before_any_wiring() {
+    let dir = changed_project();
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[scry]\nenabled = false\n",
+    );
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = main_with(
+        args(&[]),
+        dir.path(),
+        &MapEnv::default(),
+        &mut out,
+        &mut err,
+        100,
+        |_: &Project| -> anyhow::Result<&Doubles> { anyhow::bail!("no JEV_API_KEY") },
+    );
+    let err = String::from_utf8(err).unwrap();
+    assert_eq!(code, 0, "{err}");
+    assert!(out.is_empty());
+    assert!(err.contains("enabled = false"), "{err}");
+}
+
+#[test]
 fn a_failed_find_with_nothing_open_exits_2() {
     let dir = changed_project();
     let d = Doubles::new(

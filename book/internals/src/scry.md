@@ -184,7 +184,8 @@ write. It returns `Outcome::Ran(Report)` (`looked_at` units sent and answered, t
 `spent`, `capped` units, one `failures` line per failed call, `whole`, and `checks_capped`
 when a claim check did not fit), or
 `Outcome::Skipped` when `[scry] enabled` is false or Jev did not answer. The command line
-(`cli::run`) checks `enabled` itself before the scope is built and exits 0, so a pre-commit hook
+(`cli::go`) checks `enabled` itself before the wiring (`Live::open`, which needs a Jev key and
+a provider) and exits 0, so a pre-commit hook
 in a project that turned scry off lets the commit through; any other `Skipped` exits 2. The steps, in
 `Run::go`:
 
