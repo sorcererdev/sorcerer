@@ -5,7 +5,7 @@
 
 Writes base/ (git archive of the conventions base HEAD, .olifant dropped), cases/ (the
 labelled cases' .toml and .patch), steering.md (1a's vet.md), labels.json, finds/<case>.json,
-checks.json and README.md. corpus/scry/jev/ is not touched: the gate records it.
+checks.json and README.md. corpus/scry/jev/ is not touched: the eval records it.
 """
 
 import hashlib
@@ -107,18 +107,18 @@ def main() -> None:
         ),
         (
             "jev/<key>.json",
-            "Jev's answers, one file per question. 43 recorded live by the gate (`SCRY_RECORD_JEV=1`, "
+            "Jev's answers, one file per question. 43 recorded live by the eval (`SCRY_RECORD_JEV=1`, "
             "2026-11-18); 3 (`246641af322a93f4`, `28d40b419ee79956`, `aa472c0c767b131a`) seeded from "
             f"`{testdata / 'inspect-corpus-jev.json'}` (same keys), `{{choice, confidence}}` converted to "
             "`{noul: P(yes), type: noul}`, for the questions the same-pass merge rule asks; "
-            "`5988dcc32dcd0b79` and `8d40d48fd13b0094` are live answers the gate no longer asks",
+            "`5988dcc32dcd0b79` and `8d40d48fd13b0094` are live answers the eval no longer asks",
         ),
     ]
     readme = [
         "# The scry corpus",
         "",
-        "Inspect's 1b replay gate, ported: 58 bistro cases (18 V-must, 8 B, 18 T, 8 N, 6 V-taste) and",
-        "the recordings `crates/scry/tests/gate.rs` replays. Written by `scripts/port-scry-corpus`;",
+        "Inspect's 1b eval, ported: 58 bistro cases (18 V-must, 8 B, 18 T, 8 N, 6 V-taste) and",
+        "the recordings `crates/scry/tests/eval.rs` replays. Written by `scripts/port-scry-corpus`;",
         "the notes directory is not under git, so each source is pinned by its sha256.",
         "",
         "| path | from |",

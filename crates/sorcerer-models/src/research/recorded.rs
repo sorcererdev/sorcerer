@@ -1,4 +1,4 @@
-//! Recorded research for tests and the replay gate: answers from
+//! Recorded research for tests and the eval: answers from
 //! `<dir>/<key>.json` (`{"answer": …, "cost_usd": …}`), keyed by the model
 //! and the prompt. A missing recording is an error, unless a live
 //! researcher is given to record it.

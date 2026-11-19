@@ -325,7 +325,7 @@ pub struct Found {
     pub errand: Errand,
 }
 
-/// The seam the corpus gate swaps for recorded replies.
+/// The seam the eval swaps for recorded replies.
 pub trait Finder: Send + Sync {
     fn find(
         &self,

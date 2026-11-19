@@ -1,4 +1,4 @@
-//! Recorded answers for tests and the replay gate: one file per question,
+//! Recorded answers for tests and the eval: one file per question,
 //! `<dir>/<question_key>.json`, holding Jev's answer object for it. A miss
 //! is an error, unless a live Jev is given to record it.
 

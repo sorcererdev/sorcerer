@@ -141,7 +141,7 @@ itself and differs only there (it renders the neutral wording: its claim points 
    (`why-fits`), is the cited code what the claim is about (`evidence-fits`), and does the
    verdict follow from the reason (`verdict-follows`). The guards see up to three
    citations with twelve lines of code each. If any guard is under the threshold (0.60,
-   where olifant's corpus met every bar), or unsure, or the first verdict is
+   where olifant's corpus met every passing score), or unsure, or the first verdict is
    `cannot_tell`, or the first check failed, the strong model (`sonnet`) checks again and
    its verdict stands (`escalated`).
 2. **Without a decider**, the strong model checks alone.

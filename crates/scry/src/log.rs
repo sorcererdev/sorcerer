@@ -15,7 +15,7 @@ use crate::scope::{Scope, ScopeWhy};
 /// Where a pass writes its trace.
 pub type Trace<'a> = &'a dyn Fn(&str);
 
-/// The trace that writes nothing (the gate, and tests that do not read it).
+/// The trace that writes nothing (the eval, and tests that do not read it).
 pub fn quiet(_: &str) {}
 
 /// How many run logs are kept.

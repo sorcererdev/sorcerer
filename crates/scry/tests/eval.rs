@@ -1,13 +1,13 @@
-//! The replay gate: inspect's 58 bistro cases (`corpus/scry/`), each run
-//! through a whole pass with every model call replayed. The find calls replay
+//! The eval: 58 bistro cases (`corpus/scry/`) run through whole passes with
+//! every model call replayed, scored against its passing scores. The find calls replay
 //! 1a's sonnet findings (split by the pack's files), the claim checks 1a's
-//! verdicts, and Jev its recording under `corpus/scry/jev/`. The bars are
+//! verdicts, and Jev its recording under `corpus/scry/jev/`. The passing scores are
 //! inspect's (V-must >= 16/18 with a hit shown, B >= 6/8, at most 0.5 shown a
 //! T or N case on average).
 //!
-//! `SCRY_GATE_CASES=b01,vm02` runs only those cases and prints their
-//! findings (the bars are then not asserted: a look, not a measure).
-//! `SCRY_GATE_LOG=DIR` writes each case's scope and pass trace (the run
+//! `SCRY_EVAL_CASES=b01,vm02` runs only those cases and prints their
+//! findings (the passing scores are then not asserted: a look, not a measure).
+//! `SCRY_EVAL_LOG=DIR` writes each case's scope and pass trace (the run
 //! log's middle, as `scry -v` would stream it) to `DIR/<id>.md`.
 //! `SCRY_RECORD_JEV=1` (with `JEV_API_KEY`) asks Jev what is not recorded:
 //! an outward call, run by hand, never in CI.
@@ -119,7 +119,7 @@ impl Finder for CorpusFinder {
     }
 }
 
-/// In a look (`SCRY_GATE_CASES`), prints each question Jev is asked: its
+/// In a look (`SCRY_EVAL_CASES`), prints each question Jev is asked: its
 /// kind, its recording's key, P(yes) and the finding it is about.
 struct Looking<'a> {
     inner: &'a dyn Decider,
@@ -229,10 +229,10 @@ fn run_case(c: &Case, checks: &BTreeMap<String, String>, record: bool, look: boo
     let decider: &dyn Decider = if look { &looking } else { &decider };
     let clock = FixedClock::at("2026-11-18T23:00:00Z".parse().unwrap());
     let progress = |_: &Progress| {};
-    // SCRY_GATE_LOG=DIR writes each case's scope and pass trace to DIR/<id>.md
-    let log_dir = std::env::var_os("SCRY_GATE_LOG").map(PathBuf::from);
+    // SCRY_EVAL_LOG=DIR writes each case's scope and pass trace to DIR/<id>.md
+    let log_dir = std::env::var_os("SCRY_EVAL_LOG").map(PathBuf::from);
     let log = std::cell::RefCell::new(format!(
-        "# scry gate case {}\n{}",
+        "# scry eval case {}\n{}",
         c.id,
         scry::log::scope_text(&scope)
     ));
@@ -336,8 +336,8 @@ fn table(rows: &[Row]) -> (String, BTreeMap<&'static str, (usize, usize, f64)>) 
 }
 
 #[test]
-fn the_replay_gate_clears_inspects_bars() {
-    let only: Option<Vec<String>> = std::env::var("SCRY_GATE_CASES")
+fn the_eval_reaches_its_passing_scores() {
+    let only: Option<Vec<String>> = std::env::var("SCRY_EVAL_CASES")
         .ok()
         .filter(|v| !v.is_empty())
         .map(|v| v.split(',').map(str::to_string).collect());
@@ -363,7 +363,16 @@ fn the_replay_gate_clears_inspects_bars() {
     let (_, b, _) = by["B"];
     let (_, _, t) = by["T"];
     let (_, _, n) = by["N"];
-    assert!(v >= 16, "V-must with a hit shown: {v} of 18, the bar is 16");
-    assert!(b >= 6, "B with a hit shown: {b} of 8, the bar is 6");
-    assert!(t <= 0.5 && n <= 0.5, "noise bar missed: T {t}, N {n}");
+    assert!(
+        v >= 16,
+        "V-must with a hit shown: {v} of 18, the passing score is 16"
+    );
+    assert!(
+        b >= 6,
+        "B with a hit shown: {b} of 8, the passing score is 6"
+    );
+    assert!(
+        t <= 0.5 && n <= 0.5,
+        "noise passing score missed: T {t}, N {n}"
+    );
 }

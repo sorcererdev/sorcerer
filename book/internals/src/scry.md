@@ -108,7 +108,7 @@ Only a reply with no JSON at all is an `Err`.
 `pack_units` keeps units in order in packs of at most 600 numbered lines; a longer unit goes
 alone. `Finder` is the seam: `find(ask, model, cap_usd, cancel)` returns a `Found` (the reply
 text and its `Errand`). `ResearchFinder` is the live one, one `Research` (product `scry`, verb
-`find`, tools Read/Grep/Glob, `FIND_TIMEOUT` 420 s); the corpus gate swaps in recorded replies
+`find`, tools Read/Grep/Glob, `FIND_TIMEOUT` 420 s); the eval swaps in recorded replies
 through the same trait.
 
 ## The scope
@@ -263,10 +263,10 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
 ## The trace
 
 `PassDeps::trace` is a `log::Trace`, `&dyn Fn(&str)`, handed Markdown as the pass goes; it is
-`log::quiet` in the live wiring, the gate and the tests that do not read it. It is called on
+`log::quiet` in the live wiring, the eval and the tests that do not read it. It is called on
 the pass's thread only (a round's claim checks are traced after they join), so it needs no
 `Sync`, and the command line's can write to a stderr that is not `Send`. Nothing the pass
-decides reads it: the replay gate's table is the same with or without it. The calls:
+decides reads it: the eval's table is the same with or without it. The calls:
 
 - `pass`: the **Pass** section, the caps, what scry spent earlier today, the estimates.
 - `Run::go`: **Units** (each scope unit, to send or already inspected), **Find calls** (per
@@ -412,14 +412,14 @@ The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar vie
 `StubDecider`, `FixedClock` and a checker that says right) into `main_with` through
 `impl Wired for &Doubles`, so the finder's asks can be read after two runs.
 
-## The replay gate
+## The eval
 
-`crates/scry/tests/gate.rs`, `the_replay_gate_clears_inspects_bars`: inspect's 58 bistro cases
+`crates/scry/tests/eval.rs`, `the_eval_reaches_its_passing_scores`: inspect's 58 bistro cases
 run through whole passes with every model call replayed, so it costs nothing and runs in CI's
 test job. The corpus is `corpus/scry/` (its `README.md` says where each file came from;
 `scripts/port-scry-corpus` wrote it from olifant's recordings and the notes' cases):
 
-- `base/`, bistro as plain files; per case the gate copies it to a temp dir, `git init`s and
+- `base/`, bistro as plain files; per case the eval copies it to a temp dir, `git init`s and
   commits it, then `git apply`s `cases/<id>.patch` (left uncommitted) and writes
   `.sorcerer/scry.md` from `steering.md` (1a's steering) and a config with
   `[languages] names = ["python"]` and `[scry] pass_cost = 5.0, day_cost = 1000.0`. The
@@ -431,19 +431,19 @@ test job. The corpus is `corpus/scry/` (its `README.md` says where each file cam
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
   `question_key` (FNV-1a over the Jev body without the model, the same bytes as olifant's
   `questionKey`, so a question asked the same way has olifant's key). A question with no file
-  is an error, the pass is `Skipped`, and the gate fails naming the case.
+  is an error, the pass is `Skipped`, and the eval fails naming the case.
 - `labels.json`, each case's set, the statements that count as a hit, and its changed files.
 
 Shown is the union over a case's changed files of `ScryStore::shown_in`; a case is a hit when
-a shown statement is one of its `hits`. The gate prints `set | cases | with a hit shown |
-shown a case` and one row a case, then asserts inspect's bars: V-must at least 16 of 18 with
+a shown statement is one of its `hits`. The eval prints `set | cases | with a hit shown |
+shown a case` and one row a case, then asserts inspect's passing scores: V-must at least 16 of 18 with
 a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on average.
 
-`SCRY_GATE_LOG=DIR` writes each case's `scope_text` and pass trace to `DIR/<id>.md`.
-`SCRY_GATE_CASES=b01,vm02` runs only those cases, prints every stored finding and every
-question Jev is asked (kind, key, P(yes), the findings), and asserts no bar. To re-record Jev,
+`SCRY_EVAL_LOG=DIR` writes each case's `scope_text` and pass trace to `DIR/<id>.md`.
+`SCRY_EVAL_CASES=b01,vm02` runs only those cases, prints every stored finding and every
+question Jev is asked (kind, key, P(yes), the findings), and asserts no passing score. To re-record Jev,
 run once by hand with `JEV_API_KEY` set:
-`SCRY_RECORD_JEV=1 cargo test -p scry --test gate -- --nocapture`; only missing answers are
+`SCRY_RECORD_JEV=1 cargo test -p scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
 
 Replayed on 2026-11-18 (identical over three runs), at inspect's measured numbers:
