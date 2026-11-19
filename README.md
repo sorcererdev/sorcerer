@@ -4,7 +4,15 @@ A suite of small tools that read your code alongside you: **scry** (a reviewer i
 margin), **conjure** (one reviewed AI-written step), **spellbook** (conventions). They
 share one core and compose through files in `.sorcerer/`.
 
-**Status: M0, the core.** The libraries scry needs are here; scry itself arrives in M1.
+**Status: M1, scry.** The core and the first tool are here; conjure, spellbook and plans
+come later.
+
+## Try scry
+
+`cargo install --path crates/scry`, then in a git repository run `scry`: it reviews what your
+working tree changed against HEAD, prints the findings that survive a claim check and a nitpick
+screen, and exits 1 when any are open. `scry doctor` says whether it can run here; the user
+book's Scry chapter has the rest.
 
 ## Try the core
 
