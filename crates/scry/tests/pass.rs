@@ -322,6 +322,39 @@ fn the_same_problem_merges_into_the_stored_id() {
 }
 
 #[test]
+fn a_duplicate_within_one_pass_keeps_the_first_wording() {
+    let f = Fixture::new();
+    let finding = |line: u32, statement: &str| {
+        serde_json::json!({
+            "kind": "bug",
+            "file": "orders.py",
+            "lines": [line, line],
+            "statement": statement,
+            "rule": "",
+            "evidence": [{"file": "orders.py", "lines": [line, line]}],
+        })
+    };
+    let reply = serde_json::json!({
+        "findings": [
+            finding(2, "cancel() returns None."),
+            finding(1, "cancel() gives back None, not the order."),
+        ],
+        "open": [],
+    })
+    .to_string();
+    let finder = StubFinder::new().reply(&["orders.py"], &reply);
+    let decider = StubDecider::new().on("same", |_| true, StubDecider::p_yes(0.8));
+    let r = ran(f.run(&finder, &decider, false));
+    let s = f.store();
+    let g = only(&s);
+    assert_eq!(r.new, std::slice::from_ref(&g.id));
+    assert_eq!(g.seen, 2);
+    assert_eq!(g.statement, "cancel() returns None.");
+    assert_eq!(g.place.lines.start, 2);
+    assert_eq!(g.evidence[0].lines.start, 2);
+}
+
+#[test]
 fn dismissed_everywhere_drops_the_new_finding() {
     let f = Fixture::new();
     ran(f.run(

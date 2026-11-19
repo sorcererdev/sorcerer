@@ -105,7 +105,14 @@ def main() -> None:
             "checks.json",
             f"`{checks_src}` (sha256 `{sha256(checks_src)}`): 1a's claim-check verdicts by statement",
         ),
-        ("jev/<key>.json", "Jev's answers, recorded by the gate itself (`SCRY_RECORD_JEV=1`), one file per question"),
+        (
+            "jev/<key>.json",
+            "Jev's answers, one file per question. 43 recorded live by the gate (`SCRY_RECORD_JEV=1`, "
+            "2026-11-18); 3 (`246641af322a93f4`, `28d40b419ee79956`, `aa472c0c767b131a`) seeded from "
+            f"`{testdata / 'inspect-corpus-jev.json'}` (same keys), `{{choice, confidence}}` converted to "
+            "`{noul: P(yes), type: noul}`, for the questions the same-pass merge rule asks; "
+            "`5988dcc32dcd0b79` and `8d40d48fd13b0094` are live answers the gate no longer asks",
+        ),
     ]
     readme = [
         "# The scry corpus",

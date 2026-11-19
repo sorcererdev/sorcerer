@@ -211,8 +211,12 @@ when a claim check did not fit), or
    `ask` batch of `same_problem` questions and the first at P ≥ `SAME_CUT` wins;
    `match_stored` says merge (`Run::merge`), drop, or new. A new finding gets the `nitpick`
    question (`Run::keep`): keep at or past `cut` is `waiting`, else `withheld`, with
-   `asked_on`. A merge replaces place, statement and evidence (printed by `citations` when
-   they hold), adds one to `seen`, keeps id, status and dismissals; a withheld one is asked
+   `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
+   statement and evidence (printed by `citations` when they hold); a merge into a finding
+   this pass found (two findings of one pass that are the same problem) keeps the first
+   one's place, statement and evidence (olifant `d8fc391` scopes the refresh to a finding
+   kept by a later pass). Either way it adds one to `seen` and keeps id, status and
+   dismissals; a withheld one is asked
    again when `asked_on` changed, a refuted or unsure one waits again when its evidence prints
    moved. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
    with nothing written (`Halt::Silent`).
@@ -374,17 +378,17 @@ run once by hand with `JEV_API_KEY` set:
 `SCRY_RECORD_JEV=1 cargo test -p scry --test gate -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
 
-Replayed on 2026-11-18 (identical over three runs):
+Replayed on 2026-11-18 (identical over three runs), at inspect's measured numbers:
 
 | set | cases | with a hit shown | shown a case |
 |---|---|---|---|
-| V-must | 18 | 15 | 1.222 |
+| V-must | 18 | 18 | 1.333 |
 | B | 8 | 6 | 0.875 |
 | T | 18 | 0 | 0.000 |
 | N | 8 | 0 | 0.125 |
 | V-taste | 6 | 0 | 0.000 |
 
-The V-must bar fails: vm02, vm07 and vm08 each hold two findings that Jev calls the same
-problem within one pass, and the merge gives the stored finding the later finding's wording,
-so the labelled statement is no longer shown. Olifant's inspect measured 18/18 before it took
-up that merge rule (olifant `d8fc391`); its gate run today misses vm02 and vm08 the same way.
+vm02, vm07 and vm08 each hold two findings Jev calls the same problem within one pass; they
+hit because a merge within one pass keeps the first finding's wording (see the pass, step 4).
+Most Jev answers were recorded live; three were seeded from olifant's recording, whose keys
+are the same (`corpus/scry/README.md` lists them).

@@ -631,9 +631,13 @@ impl Run<'_, '_> {
         let old = self.mine.findings.iter().find(|f| f.id == *id).cloned();
         let Some(mut f) = old else { return Ok(()) };
         let old_prints: Vec<Option<String>> = f.evidence.iter().map(|e| e.print.clone()).collect();
-        f.place = pl;
-        f.statement = raw.statement;
-        f.evidence = cited.clone().unwrap_or_else(|_| bare(&raw.evidence));
+        // a finding stored by an earlier pass takes this pass's place, wording
+        // and evidence; one this pass found keeps the first of its duplicates'
+        if !self.new.contains(&f.id) {
+            f.place = pl;
+            f.statement = raw.statement;
+            f.evidence = cited.clone().unwrap_or_else(|_| bare(&raw.evidence));
+        }
         f.seen += 1;
         f.last = self.now;
         match f.status {
