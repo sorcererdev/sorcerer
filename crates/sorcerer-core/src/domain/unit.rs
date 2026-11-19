@@ -17,8 +17,8 @@
 
 use tree_sitter::{Node, Parser, QueryCursor, StreamingIterator};
 
-use crate::fingerprint::{Fingerprint, fingerprint};
-use crate::language::Loaded;
+use crate::domain::fingerprint::{Fingerprint, fingerprint};
+use crate::domain::language::Loaded;
 use crate::{Error, Result};
 
 /// The `definition.<kind>` captures that are units.

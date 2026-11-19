@@ -12,12 +12,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use sorcerer_core::env::{Env, SystemEnv};
-use sorcerer_core::fences::Fences;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::ledger::Ledger;
-use sorcerer_core::view::FilesView;
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::env::SystemEnv;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::env::Env;
+use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_models::decide::jev::Jev;
 use sorcerer_models::decide::{Decider, Question, Shape};
 use sorcerer_models::providers::provider_named;
@@ -28,7 +31,7 @@ use sorcerer_models::research::{Research, Researcher, Tool};
 fn main() -> anyhow::Result<()> {
     let env = SystemEnv;
     let project = Arc::new(Project::open(&std::env::current_dir()?)?);
-    let ledger = Ledger::for_project(&project)?;
+    let ledger: Arc<dyn Ledger> = Arc::new(JsonlLedger::for_project(&project)?);
     let before = ledger.read()?.errands.len();
     let cancel = Cancel::default();
 

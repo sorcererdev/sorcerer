@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::{Error, Project, Result};
+use crate::domain::project::Project;
+use crate::{Error, Result};
 
 pub trait Versioned: Serialize + DeserializeOwned + Default {
     const VERSION: u32;
@@ -250,7 +251,7 @@ mod tests {
                 std::process::Command::new(std::env::current_exe().unwrap())
                     .args([
                         "--exact",
-                        "store::tests::child_increments",
+                        "adapters::json_store::tests::child_increments",
                         "--test-threads",
                         "1",
                     ])

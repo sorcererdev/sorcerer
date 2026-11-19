@@ -2,26 +2,16 @@
 //! units and fingerprints, facts, stores, the ledger, cost and fences.
 //! Synchronous, plain Rust, and no model calls: those live in
 //! `sorcerer-models`.
+//!
+//! `domain/` is data and rules with no I/O; `ports/` are the traits a
+//! product talks through (the codebase view, the ledger, the environment);
+//! `adapters/` read the disk, git and the network behind them.
 
+pub mod adapters;
 pub mod cancel;
-pub mod compare;
-pub mod config;
-pub mod cost;
-pub mod env;
+pub mod domain;
 pub mod error;
-pub mod facts;
-pub mod fences;
-pub mod fingerprint;
-pub mod fnv;
-pub mod grammar;
-pub mod language;
-pub mod ledger;
-pub mod project;
-pub mod query;
-pub mod store;
-pub mod unit;
-pub mod view;
+pub mod ports;
 
 pub use cancel::Cancel;
 pub use error::{Error, Result};
-pub use project::Project;

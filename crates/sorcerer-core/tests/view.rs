@@ -3,8 +3,9 @@ mod support;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use sorcerer_core::Project;
-use sorcerer_core::view::{CodebaseView, FilesView};
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::view::CodebaseView;
 
 fn view(d: &Path) -> FilesView {
     let mut p = Project::open(d).unwrap();
@@ -178,7 +179,7 @@ fn units_at_head_are_the_committed_units() {
         "def f():\n    return 1\n\ndef g():\n    pass\n",
     );
     let v = view(d.path());
-    let names = |us: Vec<sorcerer_core::unit::Unit>| -> Vec<String> {
+    let names = |us: Vec<sorcerer_core::domain::unit::Unit>| -> Vec<String> {
         us.into_iter().map(|u| u.name).collect()
     };
     assert_eq!(
@@ -201,4 +202,14 @@ fn changed_since_lists_both_sides_of_a_rename() {
         view(d.path()).changed_since("HEAD").unwrap(),
         vec![PathBuf::from("src/a.py"), PathBuf::from("src/b.py")]
     );
+}
+
+#[test]
+fn exists_says_whether_a_path_is_in_the_working_tree() {
+    let d = project();
+    std::fs::write(d.path().join("logo.png"), [0u8, 159, 146, 150]).unwrap();
+    let v = view(d.path());
+    assert!(v.exists(Path::new("src/a.py")));
+    assert!(v.exists(Path::new("logo.png")));
+    assert!(!v.exists(Path::new("src/gone.py")));
 }

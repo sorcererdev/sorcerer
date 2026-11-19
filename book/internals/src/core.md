@@ -1,10 +1,15 @@
 # The core
 
-`crates/sorcerer-core`: one module a concern.
+`crates/sorcerer-core`: one module a concern, in three layers. `domain/` holds data and
+rules and does no I/O; `ports/` holds the traits products talk through (`CodebaseView`,
+`Ledger`, `Env`); `adapters/` implements them over the disk, git and the network, and holds
+the I/O half of a domain type as an inherent `impl` (`Project::open` in
+`adapters/project.rs`, `Fences::for_project` in `adapters/fences.rs`, `Languages::load` in
+`adapters/grammar.rs`), so callers keep the method names.
 
 ## Config
 
-`config.rs`. One file, `.sorcerer/config.toml`, parsed once by `Config::parse`. Core owns
+`domain/config.rs`. One file, `.sorcerer/config.toml`, parsed once by `Config::parse`. Core owns
 three tables and reads them strictly (an unknown key is an error naming it):
 
 - `[model]` (`ModelConfig`): the provider to use, the user's `not_evidence` globs, and one
@@ -19,13 +24,13 @@ its table with `config.table::<ScryConfig>("scry")`; its struct carries
 top-level table no tool knows (`KNOWN_TABLES`) is probably a typo too, but another tool
 might own it, so it is a warning in `Config::warnings`, not an error.
 
-The environment is a seam (`env.rs`): `Env` answers variables and executables on PATH.
-`SystemEnv` is the real one, `MapEnv` a fixed one for tests. `Cancel` (`cancel.rs`) is
+The environment is a seam (`ports/env.rs`): `Env` answers variables and executables on
+PATH. `SystemEnv` is the real one, `MapEnv` a fixed one for tests (`adapters/env.rs`). `Cancel` (`cancel.rs`) is
 the flag every long call checks.
 
 ## Project
 
-`project.rs`. `Project::open(dir)` walks up from `dir`. The first directory holding
+`domain/project.rs` holds `Project`; `adapters/project.rs` opens one. `Project::open(dir)` walks up from `dir`. The first directory holding
 `.sorcerer/` is the root, and its `config.toml` is read if present. With no `.sorcerer/`
 anywhere above, the git root is the project and the config is `Config::default()`: that is
 the out-of-the-box case, and every product must work in it. With neither, the error says
@@ -34,13 +39,9 @@ so in one sentence.
 `Project::state_dir()` creates `.sorcerer/state/` on first use and writes a `.gitignore`
 of `*` into it, so nothing a tool remembers is ever committed.
 
-`default_provider` and `default_decider` choose what runs a model when the config does not
-say, and why, for `doctor` to print: `claude` when it is on PATH, else `anthropic` when
-`ANTHROPIC_API_KEY` is set; Jev when `JEV_API_KEY` is set.
-
 ## Languages
 
-`language.rs`. A language is layers of TOML merged in order, then query files:
+`domain/language.rs`. A language is layers of TOML merged in order, then query files:
 
 1. **shipped**: `library/languages/<name>/{language.toml, queries/*.scm}`, embedded in the
    binary with `include_dir!` (`SHIPPED`);
@@ -61,11 +62,11 @@ match a project-relative path.
 
 ## Grammars
 
-`grammar.rs`, ported from olifant's `Language/Grammar.hs`. No grammar is compiled into a
+`adapters/grammar.rs`, ported from olifant's `Language/Grammar.hs`. No grammar is compiled into a
 binary. `grammar::load(cache, name, source)` returns a `tree_sitter::Language`:
 
 1. `library_path` names the compiled library `<cache>/<name>-<key>.<dylib|so>`. The key is
-   FNV-1a 64 (`fnv.rs`) over the source's identity (the git rev, or a local directory's
+   FNV-1a 64 (`domain/fnv.rs`) over the source's identity (the git rev, or a local directory's
    path with `parser.c`'s and `scanner.c`'s sizes and times), the tree-sitter runtime's
    ABI, the OS and the arch. A changed key is a new file.
 2. `build_if_absent` fetches a git source into `<cache>/src/<name>-<rev7>/` (`git fetch
@@ -90,7 +91,7 @@ shipped pins, and `Languages::override_grammar` points a language at them.
 
 ## Units
 
-`unit.rs` and `query.rs`. `Languages::load(name, cache)` gives a `Loaded`: the language,
+`domain/unit.rs` and `domain/query.rs`. `Languages::load(name, cache)` gives a `Loaded`: the language,
 its grammar, and its query files compiled by `query::compile`, which refuses any predicate
 or directive the `tree-sitter` crate would silently ignore (only `#eq?`, `#match?`,
 `#any-of?` and their `#not-` forms are evaluated).
@@ -117,7 +118,7 @@ Units are nested: a changed method also changes its class.
 
 ## Fingerprints
 
-`fingerprint.rs`. `fingerprint(text, span)` names a unit's text with formatting removed:
+`domain/fingerprint.rs`. `fingerprint(text, span)` names a unit's text with formatting removed:
 seven hex digits, olifant's function exactly. The span's lines are trimmed (which also
 drops a `\r`), blank lines are dropped, and `reflowed` joins lines a formatter split (after
 an opening bracket, before a closing one, after a trailing comma). Then FNV-1a 64, first
@@ -127,13 +128,13 @@ So re-indenting, CRLF line endings, blank lines and a formatter's line splitting
 any token changes it, and so does a comment. Every verdict sorcerer records is "true when
 the unit hashed to this". `Fingerprint` serialises as its seven-character string.
 
-`compare.rs`: `compare_units(before, after)` pairs units by name and by which of that name
+`domain/compare.rs`: `compare_units(before, after)` pairs units by name and by which of that name
 they are (the second `Order` impl with the second), and says `Same`, `Changed`, `Added` or
 `Removed`. Scry's scope is the `Added` and `Changed` units of a file against `HEAD`.
 
 ## Facts
 
-`facts.rs`. `facts_of(loaded, text, unit)` tells what the code says about a unit without a
+`domain/facts.rs`. `facts_of(loaded, text, unit)` tells what the code says about a unit without a
 model: the lines of parse errors inside it, the lines of comments saying `TODO` or `FIXME`,
 and whether its body is empty (absent, or only comments and placeholders). All of it is
 decided by node kinds tree-sitter grammars share: a kind containing `comment`, the
@@ -143,9 +144,9 @@ does.
 
 ## The codebase view
 
-`view.rs`. Products and the researcher's tools never touch the file system directly: they
+`ports/view.rs`. Products and the researcher's tools never touch the file system directly: they
 ask a `CodebaseView` for a file's `text`, its `text_at(rev)`, its `units` (now, or
-`units_at(rev)`), a unit's `facts`, a `grep`, a `glob`, or the files `changed_since(rev)`
+`units_at(rev)`), a unit's `facts`, a `grep`, a `glob`, whether a path `exists`, or the files `changed_since(rev)`
 (a rename is listed as both paths, `--no-renames`, so the old path reads as deleted). The trait exists because a
 separate sorcerer tool will serve a codebase as a graph over an API; when a product needs
 it, that service is one more implementation of this trait.
@@ -155,7 +156,7 @@ working tree (`git diff --no-color --no-ext-diff`, empty for an unchanged or unt
 file), and `merge_base(rev)` is the commit where HEAD and REV last agree, so a product can
 review a branch against where it left its base. An unknown REV is an `Error::Git` naming it.
 
-`FilesView` is the one implementation today: the working tree (walked with the `ignore`
+`FilesView` (`adapters/files_view.rs`) is the one implementation today: the working tree (walked with the `ignore`
 crate, so `.gitignore` holds), git subprocesses for `text_at` and `changed_since`, and
 tree-sitter through `Languages::load` for units and facts.
 
@@ -169,7 +170,7 @@ It prints each unit's lines, fingerprint, kind and name, then what changed again
 
 ## Stores
 
-`store.rs`. A product's state is a `Store<T>`: one JSON file under
+`adapters/json_store.rs`. A product's state is a `Store<T>`: one JSON file under
 `.sorcerer/state/<product>/`, shaped `{"version": N, "data": …}`, where `T: Versioned`
 names its `VERSION`.
 
@@ -189,24 +190,25 @@ every finding the user dismissed.
 
 ## The ledger and cost
 
-`ledger.rs`. Every paid call of every product is an `Errand` (when, product, verb, model,
+Every paid call of every product is an `Errand` (`domain/errand.rs`) (when, product, verb, model,
 provider, cost, tokens, seconds, whether it succeeded, a note) appended as one JSON line to
-`.sorcerer/state/ledger.jsonl` by `Ledger::append`. Each line is one write to a file opened
+`.sorcerer/state/ledger.jsonl` through the `Ledger` port (`ports/ledger.rs`), whose
+implementation is `JsonlLedger` (`adapters/jsonl_ledger.rs`). Each line is one write to a file opened
 for appending, so two processes never interleave lines. `Ledger::read` skips a line that
 does not parse and counts it.
 
-`cost.rs`. `cost::spent(ledger, product, since)` sums a product's spend from a local day on;
-every cap (a pass's, a day's) reads it. An errand with no known cost counts zero, and a call
+`domain/cost.rs`. `spent_in(errands, product, since, offset)` sums a product's spend from a
+local day on; every cap (a pass's, a day's) reads it. An errand with no known cost counts zero, and a call
 that timed out after starting is recorded with its cap as its cost, since it was probably
 paid for.
 
 ## Fences
 
-`fences.rs`. `Fences::for_project(project)` lists what a researcher may never read or send
+`domain/fences.rs` matches; `adapters/fences.rs` resolves. `Fences::for_project(project)` lists what a researcher may never read or send
 to a model: `.env*` anywhere, `.sorcerer/` (other findings, the ledger), `.git/`, anything
 outside the root, and the user's `[model] not_evidence` globs. `allows(path)` resolves the
 path first (symlinks and `..`, through the nearest existing ancestor for a file not yet
-written) and then matches, ignoring case. A path that cannot be resolved for certain (a
+written) and then matches with `allows_relative`, ignoring case. A path that cannot be resolved for certain (a
 `..` past a missing directory, a dangling symlink) is fenced.
 
 The researcher's tools check every path they read, and every citation is checked before

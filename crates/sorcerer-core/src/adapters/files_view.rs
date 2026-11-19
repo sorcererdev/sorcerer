@@ -1,7 +1,5 @@
-//! The questions a product asks about a codebase, behind one trait so that
-//! a service (the graph tool the design names in §3) can answer them later.
-//! `FilesView` answers them from the working tree, git and tree-sitter.
-//! Every path is relative to the project root.
+//! `FilesView` answers the view's questions from the working tree, git and
+//! tree-sitter.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,46 +10,12 @@ use grep_regex::RegexMatcher;
 use grep_searcher::Searcher;
 use grep_searcher::sinks::UTF8;
 
-use crate::facts::{Facts, facts_of};
-use crate::grammar::GrammarCache;
-use crate::unit::{Unit, units_of};
-use crate::{Error, Project, Result};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GrepHit {
-    pub path: PathBuf,
-    /// 1-based.
-    pub line: u32,
-    /// The line without its line ending.
-    pub text: String,
-}
-
-pub trait CodebaseView: Send + Sync {
-    /// The file's text now. Not UTF-8 is [`Error::NotText`].
-    fn text(&self, path: &Path) -> Result<String>;
-    /// The file's text at REV; None when it did not exist there.
-    fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>>;
-    /// The file's units now; empty when no language covers it.
-    fn units(&self, path: &Path) -> Result<Vec<Unit>>;
-    /// The file's units at REV; empty when it did not exist there or no
-    /// language covers it.
-    fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>>;
-    fn facts(&self, path: &Path, unit: &Unit) -> Result<Facts>;
-    /// Lines matching PATTERN (a regex), in files matching GLOB when given.
-    fn grep(&self, pattern: &str, glob: Option<&str>) -> Result<Vec<GrepHit>>;
-    /// Files matching PATTERN, sorted.
-    fn glob(&self, pattern: &str) -> Result<Vec<PathBuf>>;
-    /// Files that differ from REV in the working tree, plus untracked files
-    /// git does not ignore, sorted. A rename is both paths: the old one
-    /// deleted, the new one added.
-    fn changed_since(&self, rev: &str) -> Result<Vec<PathBuf>>;
-    /// The file's change against REV in the working tree, as `git diff` prints
-    /// it; empty when there is none (also for an untracked file).
-    fn diff(&self, path: &Path, rev: &str) -> Result<String>;
-    /// The commit id where HEAD and REV last agree. An unknown REV is
-    /// [`Error::Git`] naming it.
-    fn merge_base(&self, rev: &str) -> Result<String>;
-}
+use crate::adapters::grammar::GrammarCache;
+use crate::domain::facts::{Facts, facts_of};
+use crate::domain::project::Project;
+use crate::domain::unit::{Unit, units_of};
+use crate::ports::view::{CodebaseView, GrepHit};
+use crate::{Error, Result};
 
 pub struct FilesView {
     project: Arc<Project>,
@@ -116,6 +80,10 @@ fn glob_matcher(pattern: &str) -> Result<globset::GlobMatcher> {
 }
 
 impl CodebaseView for FilesView {
+    fn exists(&self, path: &Path) -> bool {
+        self.project.root.join(path).metadata().is_ok()
+    }
+
     fn text(&self, path: &Path) -> Result<String> {
         let full = self.project.root.join(path);
         let bytes = std::fs::read(&full).map_err(|e| Error::io(&full, e))?;

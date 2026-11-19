@@ -10,8 +10,8 @@
 
 use std::fmt;
 
-use crate::fnv::fnv64_hex;
-use crate::unit::Span;
+use crate::domain::fnv::fnv64_hex;
+use crate::domain::unit::Span;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Fingerprint([u8; 7]);
@@ -128,7 +128,7 @@ pub fn reflowed(lines: &[&str]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unit::Span;
+    use crate::domain::unit::Span;
 
     fn fp(text: &str, start: u32, end: u32) -> Fingerprint {
         fingerprint(text, Span { start, end })

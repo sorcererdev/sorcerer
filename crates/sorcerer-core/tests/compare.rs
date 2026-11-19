@@ -1,9 +1,9 @@
 mod support;
 
-use sorcerer_core::compare::{UnitChange, compare_units};
-use sorcerer_core::unit::units_of;
+use sorcerer_core::domain::compare::{UnitChange, compare_units};
+use sorcerer_core::domain::unit::units_of;
 
-fn units(lang: &str, text: &str) -> Vec<sorcerer_core::unit::Unit> {
+fn units(lang: &str, text: &str) -> Vec<sorcerer_core::domain::unit::Unit> {
     let l = support::languages_with_vendored_grammars()
         .load(lang, &support::test_cache())
         .unwrap();

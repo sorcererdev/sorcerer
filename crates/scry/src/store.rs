@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sorcerer_core::fnv::fnv64_hex;
-use sorcerer_core::store::{Store, Versioned};
-use sorcerer_core::unit::Span;
-use sorcerer_core::{Project, Result};
+use sorcerer_core::Result;
+use sorcerer_core::adapters::json_store::{Store, Versioned};
+use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Span;
 
 use crate::config::{MAX_SHOWN, ScryConfig};
 pub use crate::finding::{
@@ -127,8 +128,8 @@ impl ScryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sorcerer_core::fingerprint::Fingerprint;
-    use sorcerer_core::store::Snapshot;
+    use sorcerer_core::adapters::json_store::Snapshot;
+    use sorcerer_core::domain::fingerprint::Fingerprint;
 
     fn at(s: &str) -> DateTime<Utc> {
         s.parse().unwrap()

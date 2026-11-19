@@ -5,11 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::ledger::Ledger;
-use sorcerer_core::view::FilesView;
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_models::provider::{Content, Reply, ScriptedProvider, StopReason, ToolCall, Usage};
 use sorcerer_models::research::tool_loop::LoopResearcher;
 use sorcerer_models::research::{Research, Researcher, Tool};
@@ -69,7 +71,7 @@ fn setup(replies: Vec<Reply>) -> Setup {
         provider.clone(),
         view,
         Fences::for_project(&project).unwrap(),
-        Ledger::for_project(&project).unwrap(),
+        Arc::new(JsonlLedger::for_project(&project).unwrap()),
     );
     Setup {
         _dir: d,
@@ -271,7 +273,7 @@ fn one_errand_sums_the_turns_and_is_in_the_ledger() {
         (out.errand.provider.as_str(), out.errand.product.as_str()),
         ("scripted", "scry")
     );
-    let rows = Ledger::for_project(&s.project)
+    let rows = JsonlLedger::for_project(&s.project)
         .unwrap()
         .read()
         .unwrap()
@@ -287,7 +289,7 @@ fn a_provider_failure_is_recorded_and_returned() {
             .research(research(1.0), &Cancel::default())
             .is_err()
     );
-    let rows = Ledger::for_project(&s.project)
+    let rows = JsonlLedger::for_project(&s.project)
         .unwrap()
         .read()
         .unwrap()

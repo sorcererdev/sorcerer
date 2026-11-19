@@ -1,75 +1,25 @@
-//! Fences: the paths a researcher may never read or send to a model.
-//! Secrets (`.env*` anywhere), sorcerer's own state (`.sorcerer/`, which
-//! holds other findings and the ledger), git's internals, anything outside
-//! the root (a symlink out, `..`), and the user's `[model] not_evidence`
-//! globs. A path is resolved (symlinks, `..`) before it is matched, and
-//! matching ignores case. When a path cannot be resolved for certain, it is
-//! fenced.
+//! The fences' disk side: a project's resolved root, and paths resolved
+//! (symlinks, `..`) before they are matched. When a path cannot be resolved
+//! for certain, it is fenced.
 
 use std::path::{Component, Path, PathBuf};
 
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-
-use crate::{Error, Project, Result};
-
-/// Fenced in every project.
-pub const ALWAYS: &[&str] = &["**/.env*", ".sorcerer/**", ".git/**"];
-
-#[derive(Debug, Clone)]
-pub struct Fences {
-    root: PathBuf,
-    globs: GlobSet,
-    patterns: Vec<String>,
-}
+use crate::domain::fences::Fences;
+use crate::domain::project::Project;
+use crate::{Error, Result};
 
 impl Fences {
     pub fn for_project(p: &Project) -> Result<Fences> {
         let root = p.root.canonicalize().map_err(|e| Error::io(&p.root, e))?;
-        let patterns: Vec<String> = ALWAYS
-            .iter()
-            .map(|s| s.to_string())
-            .chain(
-                p.config
-                    .model
-                    .not_evidence
-                    .iter()
-                    .flat_map(|g| directory_style(g)),
-            )
-            .collect();
-        let mut set = GlobSetBuilder::new();
-        for pat in &patterns {
-            let g = GlobBuilder::new(pat)
-                .case_insensitive(true)
-                .literal_separator(false)
-                .build()
-                .map_err(|e| Error::Config {
-                    file: PathBuf::from(".sorcerer/config.toml"),
-                    why: format!("[model] not_evidence: {e}"),
-                })?;
-            set.add(g);
-        }
-        let globs = set.build().map_err(|e| Error::Config {
-            file: PathBuf::from(".sorcerer/config.toml"),
-            why: e.to_string(),
-        })?;
-        Ok(Fences {
-            root,
-            globs,
-            patterns,
-        })
+        Fences::new(root, &p.config.model.not_evidence)
     }
 
     /// Whether PATH (relative to the root, or absolute) may be read and sent.
     pub fn allows(&self, path: &Path) -> bool {
         match self.relative(path) {
-            Some(rel) => !rel.as_os_str().is_empty() && !self.globs.is_match(&rel),
+            Some(rel) => self.allows_relative(&rel),
             None => false,
         }
-    }
-
-    /// The patterns, for prompts and `claude`'s deny rules.
-    pub fn patterns(&self) -> Vec<String> {
-        self.patterns.clone()
     }
 
     /// Symlinks in the project (outside `.git/`) that lead out of the root
@@ -93,10 +43,6 @@ impl Fences {
             .collect()
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     /// PATH inside the root after resolving symlinks and `..`; None when it
     /// is outside, or cannot be resolved for certain.
     pub fn relative(&self, path: &Path) -> Option<PathBuf> {
@@ -111,16 +57,6 @@ impl Fences {
             .ok()
             .map(Path::to_path_buf)
     }
-}
-
-/// A `not_evidence` entry with no glob characters names a directory or a
-/// file (`docs/plans`, `notes/`): it fences the path and everything under it.
-fn directory_style(g: &str) -> Vec<String> {
-    if g.contains(['*', '?', '[', '{']) {
-        return vec![g.to_string()];
-    }
-    let bare = g.trim_end_matches('/');
-    vec![bare.to_string(), format!("{bare}/**")]
 }
 
 /// FULL with every symlink and `..` resolved. A path that does not exist

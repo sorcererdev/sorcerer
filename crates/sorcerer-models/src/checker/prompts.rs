@@ -13,7 +13,7 @@
 //! line (`confirm_one`).
 
 use serde_json::Value;
-use sorcerer_core::language::Languages;
+use sorcerer_core::domain::language::Languages;
 
 use super::{Claim, Verdict};
 use crate::decide::{Question, Shape};

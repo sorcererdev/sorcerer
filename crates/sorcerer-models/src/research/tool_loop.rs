@@ -8,9 +8,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use sorcerer_core::Cancel;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::ledger::{Errand, Ledger};
-use sorcerer_core::view::CodebaseView;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_core::ports::view::CodebaseView;
 
 use super::{Research, Researched, Researcher, tools};
 use crate::provider::{Completion, Content, Message, Provider, Role, StopReason, Usage};
@@ -24,7 +25,7 @@ pub struct LoopResearcher {
     provider: Arc<dyn Provider>,
     view: Arc<dyn CodebaseView>,
     fences: Fences,
-    ledger: Ledger,
+    ledger: Arc<dyn Ledger>,
     max_turns: u32,
 }
 
@@ -33,7 +34,7 @@ impl LoopResearcher {
         provider: Arc<dyn Provider>,
         view: Arc<dyn CodebaseView>,
         fences: Fences,
-        ledger: Ledger,
+        ledger: Arc<dyn Ledger>,
     ) -> LoopResearcher {
         LoopResearcher {
             provider,

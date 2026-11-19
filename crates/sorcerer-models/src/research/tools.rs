@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use sorcerer_core::fences::Fences;
-use sorcerer_core::view::CodebaseView;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::ports::view::CodebaseView;
 
 use super::Tool;
 use crate::provider::{ToolCall, ToolSpec};

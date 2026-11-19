@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use sorcerer_core::env::SystemEnv;
+use sorcerer_core::adapters::env::SystemEnv;
 
 fn main() {
     let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());

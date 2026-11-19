@@ -1,8 +1,11 @@
 mod support;
 
-use sorcerer_core::Project;
-use sorcerer_core::env::MapEnv;
-use sorcerer_models::providers::{default_provider_for, provider_named};
+use sorcerer_core::adapters::env::MapEnv;
+use sorcerer_core::domain::config::{DecideConfig, ModelConfig};
+use sorcerer_core::domain::project::Project;
+use sorcerer_models::providers::{
+    default_decider, default_provider, default_provider_for, provider_named,
+};
 
 #[test]
 fn claude_on_path_is_the_default() {
@@ -60,4 +63,42 @@ fn nothing_available_says_what_to_do() {
             .contains("put claude on PATH or set ANTHROPIC_API_KEY"),
         "{e}"
     );
+}
+
+#[test]
+fn the_default_provider_prefers_claude_on_path() {
+    let m = ModelConfig::default();
+    let both = MapEnv::default()
+        .on_path("claude")
+        .var_set("ANTHROPIC_API_KEY", "k");
+    assert_eq!(default_provider(&m, &both).unwrap().name, "claude");
+    let key = MapEnv::default().var_set("ANTHROPIC_API_KEY", "k");
+    let c = default_provider(&m, &key).unwrap();
+    assert_eq!(
+        (c.name.as_str(), c.why.as_str()),
+        ("anthropic", "ANTHROPIC_API_KEY is set")
+    );
+    assert!(default_provider(&m, &MapEnv::default()).is_none());
+    let set = ModelConfig {
+        provider: Some("local".into()),
+        ..Default::default()
+    };
+    assert_eq!(default_provider(&set, &both).unwrap().why, "set in [model]");
+}
+
+#[test]
+fn jev_is_the_decider_when_its_key_is_set() {
+    let d = DecideConfig::default();
+    assert_eq!(
+        default_decider(&d, &MapEnv::default().var_set("JEV_API_KEY", "k"))
+            .unwrap()
+            .name,
+        "jev"
+    );
+    assert!(default_decider(&d, &MapEnv::default()).is_none());
+    let own = DecideConfig {
+        key_env: Some("MY_JEV".into()),
+        ..Default::default()
+    };
+    assert!(default_decider(&own, &MapEnv::default().var_set("MY_JEV", "k")).is_some());
 }

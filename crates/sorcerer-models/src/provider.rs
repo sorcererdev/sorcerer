@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sorcerer_core::Cancel;
-use sorcerer_core::ledger::Errand;
+use sorcerer_core::domain::errand::Errand;
 
 use crate::{Error, Result};
 

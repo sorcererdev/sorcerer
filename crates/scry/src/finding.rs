@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sorcerer_core::fingerprint::Fingerprint;
-use sorcerer_core::unit::Span;
+use sorcerer_core::domain::fingerprint::Fingerprint;
+use sorcerer_core::domain::unit::Span;
 
 /// Six lowercase hex digits, stable for the record's life.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

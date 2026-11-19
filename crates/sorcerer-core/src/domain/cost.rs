@@ -1,18 +1,11 @@
 //! What a product has spent, from the ledger. Every cap reads this.
 
-use chrono::{FixedOffset, Local, NaiveDate, Offset};
+use chrono::{FixedOffset, NaiveDate};
 
-use crate::Result;
-use crate::ledger::{Errand, Ledger};
+use crate::domain::errand::Errand;
 
-/// Dollars PRODUCT spent from the local day SINCE on.
-pub fn spent(ledger: &Ledger, product: &str, since: NaiveDate) -> Result<f64> {
-    let offset = Local::now().offset().fix();
-    Ok(spent_in(&ledger.read()?.errands, product, since, offset))
-}
-
-/// [`spent`] over ERRANDS, with the local day taken in OFFSET. An errand
-/// with no cost counts zero.
+/// Dollars PRODUCT spent over ERRANDS from the local day SINCE on, with the
+/// local day taken in OFFSET. An errand with no cost counts zero.
 pub fn spent_in(errands: &[Errand], product: &str, since: NaiveDate, offset: FixedOffset) -> f64 {
     errands
         .iter()
@@ -24,7 +17,6 @@ pub fn spent_in(errands: &[Errand], product: &str, since: NaiveDate, offset: Fix
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ledger::Errand;
 
     fn errand(at: &str, product: &str, cost: Option<f64>) -> Errand {
         Errand {

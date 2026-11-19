@@ -1,12 +1,14 @@
 mod support;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
 use sorcerer_core::Cancel;
-use sorcerer_core::config::DecideConfig;
-use sorcerer_core::env::MapEnv;
-use sorcerer_core::ledger::Ledger;
+use sorcerer_core::adapters::env::MapEnv;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::config::DecideConfig;
+use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_models::decide::jev::{Jev, jev_answers, jev_body, question_key};
 use sorcerer_models::decide::recorded::RecordedDecider;
 use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Shape};
@@ -121,7 +123,7 @@ fn a_choice_reads_its_distribution_and_unsure_is_unsure() {
     assert_eq!(w[0].answer, Answer::Unsure);
 }
 
-fn jev(url: &str, ledger: Option<Ledger>) -> Jev {
+fn jev(url: &str, ledger: Option<Arc<dyn Ledger>>) -> Jev {
     Jev::from_env(
         &DecideConfig::default(),
         &MapEnv::default().var_set("JEV_API_KEY", "jk"),
@@ -147,8 +149,8 @@ fn jev_posts_with_the_bearer_key_and_the_pinned_model_and_records_the_call() {
         )
         .create();
     let d = tempfile::TempDir::new().unwrap();
-    let ledger = Ledger::at(d.path().join("l.jsonl"));
-    let w = jev(&s.url(), Some(ledger.clone()))
+    let ledger = JsonlLedger::at(d.path().join("l.jsonl"));
+    let w = jev(&s.url(), Some(Arc::new(ledger.clone())))
         .ask(&[noul("a", &[])], &Cancel::default())
         .unwrap();
     m.assert();
@@ -187,8 +189,8 @@ fn a_failed_call_is_unsure_for_the_batch_and_recorded_not_ok() {
     let mut s = mockito::Server::new();
     s.mock("POST", "/v1/systemone").with_status(500).create();
     let d = tempfile::TempDir::new().unwrap();
-    let ledger = Ledger::at(d.path().join("l.jsonl"));
-    let w = jev(&s.url(), Some(ledger.clone()))
+    let ledger = JsonlLedger::at(d.path().join("l.jsonl"));
+    let w = jev(&s.url(), Some(Arc::new(ledger.clone())))
         .ask(&[noul("a", &[]), noul("b", &[])], &Cancel::default())
         .unwrap();
     assert!(w.iter().all(|x| x.answer == Answer::Unsure));

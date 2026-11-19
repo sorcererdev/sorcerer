@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use sorcerer_core::Cancel;
-use sorcerer_core::ledger::Errand;
+use sorcerer_core::domain::errand::Errand;
 
 use crate::Result;
 

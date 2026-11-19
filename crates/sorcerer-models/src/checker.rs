@@ -23,12 +23,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use sorcerer_core::Cancel;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::fingerprint::fingerprint;
-use sorcerer_core::language::Languages;
-use sorcerer_core::ledger::Errand;
-use sorcerer_core::unit::{Span, Unit};
-use sorcerer_core::view::CodebaseView;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::fingerprint::fingerprint;
+use sorcerer_core::domain::language::Languages;
+use sorcerer_core::domain::unit::{Span, Unit};
+use sorcerer_core::ports::view::CodebaseView;
 
 use crate::decide::Decider;
 use crate::research::{Research, Researcher, Tool};
@@ -360,8 +360,8 @@ fn guard_evidence(raw: &[RawCitation], view: &dyn CodebaseView, fences: &Fences)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sorcerer_core::fingerprint::Fingerprint;
-    use sorcerer_core::unit::UnitKind;
+    use sorcerer_core::domain::fingerprint::Fingerprint;
+    use sorcerer_core::domain::unit::UnitKind;
 
     fn unit(name: &str, start: u32) -> Unit {
         Unit {

@@ -8,8 +8,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
-use sorcerer_core::fences::Fences;
-use sorcerer_core::ledger::Errand;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::{Cancel, Result};
 use sorcerer_models::checker::{Checked, Citation, Claim, ClaimKind, Verdict};
 

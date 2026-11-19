@@ -1,7 +1,7 @@
 mod support;
 
-use sorcerer_core::facts::{Facts, facts_of};
-use sorcerer_core::unit::units_of;
+use sorcerer_core::domain::facts::{Facts, facts_of};
+use sorcerer_core::domain::unit::units_of;
 
 fn facts(lang: &str, text: &str, unit: &str) -> Facts {
     let l = support::languages_with_vendored_grammars()

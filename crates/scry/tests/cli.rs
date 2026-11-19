@@ -9,11 +9,14 @@ use chrono::{DateTime, Utc};
 use scry::cli::{doctor_rows, main_with};
 use scry::live::{Live, Wired, checker_over, jev_for};
 use scry::pass::{PassDeps, Progress};
-use sorcerer_core::env::MapEnv;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::ledger::Ledger;
-use sorcerer_core::view::{CodebaseView, FilesView};
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::env::MapEnv;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::checker::{Checked, Claim, ClaimKind, Verdict};
 use sorcerer_models::decide::{Decider, Question, Shape};
 use sorcerer_models::research::{Research, Researched, Researcher};
@@ -528,7 +531,7 @@ fn the_live_claim_check_and_jev_record_as_scry() {
         statement: "cancel passes now".into(),
         about: vec![sorcerer_models::checker::Citation {
             file: "orders.py".into(),
-            lines: sorcerer_core::unit::Span { start: 1, end: 1 },
+            lines: sorcerer_core::domain::unit::Span { start: 1, end: 1 },
             print: None,
         }],
         kind: ClaimKind::Code,
@@ -561,7 +564,7 @@ fn the_live_claim_check_and_jev_record_as_scry() {
         unsure_allowed: false,
     };
     let _ = jev.ask(&[q], &Cancel::default());
-    let rows = Ledger::for_project(&project).unwrap().read().unwrap();
+    let rows = JsonlLedger::for_project(&project).unwrap().read().unwrap();
     assert!(!rows.errands.is_empty());
     assert!(
         rows.errands
@@ -580,7 +583,7 @@ mod stored {
     use scry::store::{
         Evidence, Finding, FindingId, Place, Scores, ScryStore, Status, StoredVerdict, store,
     };
-    use sorcerer_core::unit::Span;
+    use sorcerer_core::domain::unit::Span;
 
     pub fn finding(id: &str, issue_type: &str, status: Status, file: &str, line: u32) -> Finding {
         let t: DateTime<Utc> = "2026-11-18T12:00:00Z".parse().unwrap();
@@ -720,7 +723,7 @@ fn list_json_has_the_fields() {
 
 fn ledger_at(dir: &Path, rows: &[(&str, &str, &str, Option<f64>)]) {
     let p = Project::open(dir).unwrap();
-    let ledger = Ledger::for_project(&p).unwrap();
+    let ledger = JsonlLedger::for_project(&p).unwrap();
     for (at, product, verb, cost) in rows {
         let mut e = support::errand(verb, "sonnet", 0.0);
         e.at = at.parse().unwrap();
@@ -865,7 +868,7 @@ fn dismiss_unknown_exits_2() {
 fn why_prints_the_whole_cited_range() {
     let dir = changed_project();
     let mut f = stored::finding("aaaa02", "bug", scry::finding::Status::Open, "orders.py", 2);
-    f.evidence[0].lines = sorcerer_core::unit::Span { start: 5, end: 6 };
+    f.evidence[0].lines = sorcerer_core::domain::unit::Span { start: 5, end: 6 };
     stored::put(dir.path(), vec![f]);
     let d = plain_doubles(dir.path());
     let r = scry(dir.path(), &d, &["why", "aaaa"]);
@@ -888,7 +891,7 @@ fn why_does_not_print_a_fenced_or_outside_citation() {
     let mut outside = f.evidence[0].clone();
     outside.file = "../outside.txt".into();
     f.evidence[0].file = ".env".into();
-    f.evidence[0].lines = sorcerer_core::unit::Span { start: 1, end: 1 };
+    f.evidence[0].lines = sorcerer_core::domain::unit::Span { start: 1, end: 1 };
     f.evidence.push(outside);
     stored::put(dir.path(), vec![f]);
     let d = plain_doubles(dir.path());

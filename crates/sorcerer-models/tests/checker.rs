@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use sorcerer_core::fences::Fences;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::language::{GrammarSource, Languages};
-use sorcerer_core::unit::Span;
-use sorcerer_core::view::FilesView;
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::language::{GrammarSource, Languages};
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Span;
 use sorcerer_models::checker::prompts::claim_prompt;
 use sorcerer_models::checker::{CheckerDeps, Citation, Claim, ClaimKind, Verdict, check};
 use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
@@ -26,7 +27,7 @@ impl Researcher for Stub {
     fn research(&self, r: Research, _: &Cancel) -> sorcerer_models::Result<Researched> {
         self.asked.lock().unwrap().push(r.model.clone());
         self.prompts.lock().unwrap().push(r.prompt.clone());
-        let mut errand = sorcerer_core::ledger::Errand {
+        let mut errand = sorcerer_core::domain::errand::Errand {
             at: chrono::Utc::now(),
             product: r.product.clone(),
             verb: r.verb.clone(),

@@ -1,13 +1,9 @@
-//! The process environment as a seam: variables and executables on PATH.
-//! `SystemEnv` reads the real one; `MapEnv` is a fixed one for tests.
+//! `SystemEnv` reads the real environment; `MapEnv` is a fixed one for tests.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub trait Env: Send + Sync {
-    fn var(&self, key: &str) -> Option<String>;
-    fn which(&self, exe: &str) -> Option<PathBuf>;
-}
+use crate::ports::env::Env;
 
 /// The real environment.
 pub struct SystemEnv;

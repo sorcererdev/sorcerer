@@ -12,11 +12,15 @@ use scry::pass::{Caps, Outcome, PassDeps, Progress, Report, pass};
 use scry::rounds::{Budget, check_estimate, review_estimate};
 use scry::scope::{ScopeWhy, scope_of};
 use scry::store::{ScryStore, store};
-use sorcerer_core::ledger::{Errand, Ledger};
-use sorcerer_core::store::Snapshot;
-use sorcerer_core::unit::Span;
-use sorcerer_core::view::{CodebaseView, FilesView};
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::json_store::Snapshot;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Span;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::checker::{Checked, Claim, Verdict};
 use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
@@ -112,8 +116,8 @@ impl Fixture {
         read_store(&self.project)
     }
 
-    fn ledger(&self) -> Ledger {
-        Ledger::for_project(&self.project).unwrap()
+    fn ledger(&self) -> JsonlLedger {
+        JsonlLedger::for_project(&self.project).unwrap()
     }
 
     /// The fingerprint of `cancel` as it is now.

@@ -2,9 +2,11 @@ mod support;
 
 use std::time::Duration;
 
-use sorcerer_core::config::ProviderConfig;
-use sorcerer_core::ledger::Ledger;
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::config::ProviderConfig;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_models::research::claude_code::ClaudeCodeResearcher;
 use sorcerer_models::research::{Research, Researcher, Tool};
 
@@ -90,7 +92,11 @@ fn its_errand_is_in_the_ledger() {
     let out = r
         .research(research(Duration::from_secs(5)), &Cancel::default())
         .unwrap();
-    let rows = Ledger::for_project(&p).unwrap().read().unwrap().errands;
+    let rows = JsonlLedger::for_project(&p)
+        .unwrap()
+        .read()
+        .unwrap()
+        .errands;
     assert_eq!(rows, vec![out.errand.clone()]);
     let e = &rows[0];
     assert_eq!(
@@ -114,7 +120,11 @@ fn a_timeout_is_charged_the_cap_and_not_ok() {
         r.research(research(Duration::from_millis(300)), &Cancel::default())
             .is_err()
     );
-    let rows = Ledger::for_project(&p).unwrap().read().unwrap().errands;
+    let rows = JsonlLedger::for_project(&p)
+        .unwrap()
+        .read()
+        .unwrap()
+        .errands;
     assert_eq!(rows.len(), 1);
     assert_eq!((rows[0].cost_usd, rows[0].ok), (Some(0.25), false));
     assert!(rows[0].note.as_deref().unwrap().contains("timed out"));

@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use sorcerer_core::Cancel;
-use sorcerer_core::config::ProviderConfig;
-use sorcerer_core::env::Env;
+use sorcerer_core::domain::config::ProviderConfig;
+use sorcerer_core::ports::env::Env;
 
 use super::{
     Completion, Content, ModelId, Post, Provider, Reply, Role, StopReason, ToolCall, Usage,

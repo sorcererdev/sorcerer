@@ -6,11 +6,11 @@
 
 use std::path::{Path, PathBuf};
 
-use sorcerer_core::fences::Fences;
-use sorcerer_core::fingerprint::Fingerprint;
-use sorcerer_core::fnv::fnv64_hex;
-use sorcerer_core::unit::{Span, Unit, unit_at};
-use sorcerer_core::view::CodebaseView;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::fingerprint::Fingerprint;
+use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::domain::unit::{Span, Unit, unit_at};
+use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::decide::{Answer, Confidence, Question, Shape, Weighed};
 
 use crate::finding::{Evidence, Finding, Place, Status};

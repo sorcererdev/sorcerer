@@ -57,8 +57,11 @@ key to set. A model name with `/` or `:` (`qwen3:32b`) passes through.
 
 `providers.rs`. `provider_named(project, name, env)` builds the provider of a
 `[model.providers.<name>]` table by its `kind` (which defaults to the name).
-`default_provider_for(project, env)` uses core's `default_provider` to pick the name and
-says why.
+`default_provider` and `default_decider` choose what runs a model when the config does not
+say, and why (a `ProviderChoice`, for `doctor` to print): `[model] provider` if set, else
+`claude` when it is on PATH, else `anthropic` when `ANTHROPIC_API_KEY` is set; Jev when
+`JEV_API_KEY` (or `[decide] key_env`) is set. `default_provider_for(project, env)` uses
+`default_provider` to pick the name and builds the provider.
 
 ## Researchers
 

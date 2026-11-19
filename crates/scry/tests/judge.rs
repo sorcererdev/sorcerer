@@ -12,9 +12,9 @@ use scry::review::RawFinding;
 use scry::scope::ScopedUnit;
 use scry::steering::steering_of;
 use scry::store::ScryStore;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::fingerprint::{Fingerprint, fingerprint};
-use sorcerer_core::unit::{Span, Unit, UnitKind};
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::fingerprint::{Fingerprint, fingerprint};
+use sorcerer_core::domain::unit::{Span, Unit, UnitKind};
 use sorcerer_models::decide::{Answer, Confidence, Shape, Weighed};
 use support::{git_project, project_with_vendored_grammars, write};
 

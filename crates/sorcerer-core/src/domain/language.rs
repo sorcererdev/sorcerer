@@ -16,7 +16,6 @@ use std::sync::{Arc, Mutex};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use include_dir::{Dir, include_dir};
 
-use crate::grammar::{self, GrammarCache};
 use crate::{Error, Result};
 
 /// The shipped languages, embedded in the binary.
@@ -66,7 +65,7 @@ pub struct Language {
 pub struct Languages {
     by_name: BTreeMap<String, Language>,
     globs: Vec<(String, GlobSet)>,
-    loaded: Arc<Mutex<HashMap<String, Arc<Loaded>>>>,
+    pub(crate) loaded: Arc<Mutex<HashMap<String, Arc<Loaded>>>>,
 }
 
 /// A language ready to parse: its grammar loaded and its queries compiled.
@@ -86,16 +85,14 @@ impl std::fmt::Debug for Loaded {
 }
 
 /// One layer as read: its table (grammar paths made absolute) and queries.
-struct Layer {
-    table: toml::Table,
-    queries: BTreeMap<String, String>,
+pub(crate) struct Layer {
+    pub(crate) table: toml::Table,
+    pub(crate) queries: BTreeMap<String, String>,
 }
 
 impl Languages {
-    /// The shipped languages, layered with the project's under
-    /// `<root>/.sorcerer/languages/`. Every name in EXTRA (`[languages]
-    /// names`) must have a layer somewhere.
-    pub fn assemble(root: &Path, extra: &[String]) -> Result<Languages> {
+    /// The shipped layers, one per language, from the embedded library.
+    pub(crate) fn shipped_layers() -> Result<BTreeMap<String, Vec<(&'static str, Layer)>>> {
         let mut layers: BTreeMap<String, Vec<(&str, Layer)>> = BTreeMap::new();
         for dir in SHIPPED.dirs() {
             let name = dir.path().to_string_lossy().into_owned();
@@ -104,16 +101,15 @@ impl Languages {
                 .or_default()
                 .push(("shipped", shipped_layer(&name, dir)?));
         }
-        let project = root.join(".sorcerer/languages");
-        if let Ok(entries) = std::fs::read_dir(&project) {
-            for e in entries.flatten().filter(|e| e.path().is_dir()) {
-                let name = e.file_name().to_string_lossy().into_owned();
-                layers
-                    .entry(name.clone())
-                    .or_default()
-                    .push(("project", project_layer(&name, &e.path())?));
-            }
-        }
+        Ok(layers)
+    }
+
+    /// LAYERS merged per language, in order. Every name in EXTRA
+    /// (`[languages] names`) must have a layer.
+    pub(crate) fn from_layers(
+        layers: BTreeMap<String, Vec<(&str, Layer)>>,
+        extra: &[String],
+    ) -> Result<Languages> {
         if let Some(missing) = extra.iter().find(|n| !layers.contains_key(*n)) {
             return Err(Error::Language {
                 name: missing.clone(),
@@ -152,35 +148,6 @@ impl Languages {
             .and_then(|(n, _)| self.by_name.get(n))
     }
 
-    /// NAME loaded: its grammar fetched, built and loaded through CACHE, and
-    /// its queries compiled. Once per name per `Languages`.
-    pub fn load(&self, name: &str, cache: &GrammarCache) -> Result<Arc<Loaded>> {
-        let mut loaded = self.loaded.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(l) = loaded.get(name) {
-            return Ok(l.clone());
-        }
-        let language = self
-            .get(name)
-            .ok_or_else(|| Error::Language {
-                name: name.into(),
-                why: "no such language".into(),
-            })?
-            .clone();
-        let grammar = grammar::load(cache, name, &language.grammar)?;
-        let queries = language
-            .queries
-            .iter()
-            .map(|(file, text)| Ok((file.clone(), crate::query::compile(&grammar, file, text)?)))
-            .collect::<Result<Vec<_>>>()?;
-        let l = Arc::new(Loaded {
-            language,
-            grammar,
-            queries,
-        });
-        loaded.insert(name.to_string(), l.clone());
-        Ok(l)
-    }
-
     /// Points NAME's grammar at SOURCE (vendored sources in tests, an
     /// offline mirror). Does nothing when there is no such language.
     pub fn override_grammar(&mut self, name: &str, source: GrammarSource) {
@@ -199,7 +166,7 @@ impl Languages {
     }
 }
 
-fn parse_toml(name: &str, text: &str) -> Result<toml::Table> {
+pub(crate) fn parse_toml(name: &str, text: &str) -> Result<toml::Table> {
     toml::from_str(text).map_err(|e| Error::Language {
         name: name.into(),
         why: e.message().to_string(),
@@ -219,33 +186,6 @@ fn shipped_layer(name: &str, dir: &Dir<'_>) -> Result<Layer> {
         {
             let file = f.path().file_name().unwrap().to_string_lossy().into_owned();
             queries.insert(file, f.contents_utf8().unwrap_or_default().to_string());
-        }
-    }
-    Ok(Layer { table, queries })
-}
-
-fn project_layer(name: &str, dir: &Path) -> Result<Layer> {
-    let file = dir.join("language.toml");
-    let mut table = match std::fs::read_to_string(&file) {
-        Ok(text) => parse_toml(name, &text)?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
-        Err(e) => return Err(Error::io(file, e)),
-    };
-    // A local grammar's path is relative to this layer's directory.
-    if let Some(toml::Value::Table(g)) = table.get_mut("grammar")
-        && let Some(toml::Value::String(p)) = g.get("path")
-    {
-        let abs = dir.join(p).to_string_lossy().into_owned();
-        g.insert("path".into(), toml::Value::String(abs));
-    }
-    let mut queries = BTreeMap::new();
-    if let Ok(entries) = std::fs::read_dir(dir.join("queries")) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == "scm") {
-                let text = std::fs::read_to_string(&p).map_err(|err| Error::io(&p, err))?;
-                queries.insert(e.file_name().to_string_lossy().into_owned(), text);
-            }
         }
     }
     Ok(Layer { table, queries })

@@ -12,12 +12,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, bail};
-use sorcerer_core::Project;
-use sorcerer_core::compare::{UnitChange, compare_units};
-use sorcerer_core::env::SystemEnv;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::unit::units_of;
-use sorcerer_core::view::{CodebaseView, FilesView};
+use sorcerer_core::adapters::env::SystemEnv;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::domain::compare::{UnitChange, compare_units};
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::units_of;
+use sorcerer_core::ports::view::CodebaseView;
 
 fn main() -> anyhow::Result<()> {
     let Some(arg) = std::env::args().nth(1) else {

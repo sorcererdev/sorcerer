@@ -2,8 +2,8 @@ mod support;
 
 use std::path::Path;
 
-use sorcerer_core::Project;
-use sorcerer_core::language::{GrammarSource, Languages};
+use sorcerer_core::domain::language::{GrammarSource, Languages};
+use sorcerer_core::domain::project::Project;
 
 fn open(d: &Path) -> Project {
     Project::open(d).unwrap()

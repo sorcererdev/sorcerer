@@ -1,7 +1,8 @@
 //! `[scry]` in `.sorcerer/config.toml`, read strictly and range-checked.
 
 use serde::{Deserialize, Serialize};
-use sorcerer_core::{Error, Project, Result};
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::{Error, Result};
 
 use crate::issue_type::issue_type;
 

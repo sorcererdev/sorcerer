@@ -3,8 +3,8 @@ mod support;
 use std::path::Path;
 
 use sorcerer_core::Error;
-use sorcerer_core::grammar::{self, GrammarCache};
-use sorcerer_core::language::GrammarSource;
+use sorcerer_core::adapters::grammar::{self, GrammarCache};
+use sorcerer_core::domain::language::GrammarSource;
 
 fn local(name: &str) -> GrammarSource {
     GrammarSource::Local(support::vendored(name))

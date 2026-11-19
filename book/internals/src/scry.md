@@ -388,7 +388,7 @@ pass; `Skipped` or an error is 2; anything shown is
 (`Report::checks_capped`), else 0.
 
 `doctor_rows(project, env, cache)` reads only (the store through `Store::at`, the ledger
-through `Ledger::at`, so nothing creates `.sorcerer/state`): `provider` (`default_provider_for`),
+through `JsonlLedger::at`, so nothing creates `.sorcerer/state`): `provider` (`default_provider_for`),
 `jev` (`Jev::from_env` without a ledger), `languages` (`[languages] names`, else the
 languages whose `files` cover a file `glob("**")` lists, each `Languages::load`ed through the
 cache), `steering`, `store` and `ledger`. `doctor` prints them `name  ok|FAIL  detail` and

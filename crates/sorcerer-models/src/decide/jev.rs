@@ -4,14 +4,16 @@
 //! that fails validation, or a call that fails, is `Unsure` for the whole
 //! batch: a decider never guesses.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 use sorcerer_core::Cancel;
-use sorcerer_core::config::DecideConfig;
-use sorcerer_core::env::Env;
-use sorcerer_core::fnv::fnv64_hex;
-use sorcerer_core::ledger::{Errand, Ledger};
+use sorcerer_core::domain::config::DecideConfig;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::ports::env::Env;
+use sorcerer_core::ports::ledger::Ledger;
 
 use super::{Answer, Confidence, Decider, Question, Shape, Weighed};
 use crate::provider::{Post, post_json};
@@ -153,14 +155,18 @@ pub struct Jev {
     model: String,
     key: String,
     url: String,
-    ledger: Option<Ledger>,
+    ledger: Option<Arc<dyn Ledger>>,
     product: String,
     backoff: Duration,
 }
 
 impl Jev {
     /// Jev with its key from `[decide] key_env` (default `JEV_API_KEY`).
-    pub fn from_env(cfg: &DecideConfig, env: &dyn Env, ledger: Option<Ledger>) -> Result<Jev> {
+    pub fn from_env(
+        cfg: &DecideConfig,
+        env: &dyn Env,
+        ledger: Option<Arc<dyn Ledger>>,
+    ) -> Result<Jev> {
         let var = cfg.key_env.clone().unwrap_or_else(|| "JEV_API_KEY".into());
         let key = env.var(&var).ok_or(Error::NoKey {
             provider: "jev".into(),

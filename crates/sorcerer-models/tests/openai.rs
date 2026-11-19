@@ -3,8 +3,8 @@ use std::time::Duration;
 use mockito::Matcher;
 use serde_json::json;
 use sorcerer_core::Cancel;
-use sorcerer_core::config::ProviderConfig;
-use sorcerer_core::env::MapEnv;
+use sorcerer_core::adapters::env::MapEnv;
+use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_models::provider::openai::OpenAiCompatible;
 use sorcerer_models::provider::{
     Completion, Content, Message, ModelId, Provider, Role, StopReason, ToolCall, ToolSpec,

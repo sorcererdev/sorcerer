@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sorcerer_core::Cancel;
-use sorcerer_core::fnv::fnv64_hex;
+use sorcerer_core::domain::fnv::fnv64_hex;
 
 use super::{Research, Researched, Researcher, errand_for};
 use crate::{Error, Result};

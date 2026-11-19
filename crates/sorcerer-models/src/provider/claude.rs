@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sorcerer_core::Cancel;
-use sorcerer_core::config::ProviderConfig;
+use sorcerer_core::domain::config::ProviderConfig;
 
 use super::{Completion, Content, ModelId, Provider, Reply, StopReason, Usage};
 use crate::{Error, Result};

@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 use sorcerer_core::Cancel;
-use sorcerer_core::ledger::Errand;
-use sorcerer_core::unit::Span;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::unit::Span;
 use sorcerer_models::research::{Research, Researcher, Tool};
 
 use crate::finding::Finding;

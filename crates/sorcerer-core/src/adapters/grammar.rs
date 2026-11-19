@@ -14,15 +14,15 @@
 //! a reader never sees half a checkout or half a library, and two processes
 //! building the same grammar at once race harmlessly.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::env::Env;
-use crate::fnv::fnv64_hex;
-use crate::language::GrammarSource;
+use crate::domain::fnv::fnv64_hex;
+use crate::domain::language::{GrammarSource, Languages, Layer, Loaded};
+use crate::ports::env::Env;
 use crate::{Error, Result};
 
 /// Where grammars are fetched and built: per user, not per project.
@@ -300,4 +300,86 @@ fn open_library(name: &str, lib: &Path) -> Result<tree_sitter::Language> {
         });
     }
     Ok(language)
+}
+
+/// The languages' disk side: the project's layers and loading a grammar.
+impl Languages {
+    /// The shipped languages, layered with the project's under
+    /// `<root>/.sorcerer/languages/`. Every name in EXTRA (`[languages]
+    /// names`) must have a layer somewhere.
+    pub fn assemble(root: &Path, extra: &[String]) -> Result<Languages> {
+        let mut layers = Languages::shipped_layers()?;
+        let project = root.join(".sorcerer/languages");
+        if let Ok(entries) = std::fs::read_dir(&project) {
+            for e in entries.flatten().filter(|e| e.path().is_dir()) {
+                let name = e.file_name().to_string_lossy().into_owned();
+                layers
+                    .entry(name.clone())
+                    .or_default()
+                    .push(("project", project_layer(&name, &e.path())?));
+            }
+        }
+        Languages::from_layers(layers, extra)
+    }
+
+    /// NAME loaded: its grammar fetched, built and loaded through CACHE, and
+    /// its queries compiled. Once per name per `Languages`.
+    pub fn load(&self, name: &str, cache: &GrammarCache) -> Result<Arc<Loaded>> {
+        let mut loaded = self.loaded.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(l) = loaded.get(name) {
+            return Ok(l.clone());
+        }
+        let language = self
+            .get(name)
+            .ok_or_else(|| Error::Language {
+                name: name.into(),
+                why: "no such language".into(),
+            })?
+            .clone();
+        let grammar = load(cache, name, &language.grammar)?;
+        let queries = language
+            .queries
+            .iter()
+            .map(|(file, text)| {
+                Ok((
+                    file.clone(),
+                    crate::domain::query::compile(&grammar, file, text)?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let l = Arc::new(Loaded {
+            language,
+            grammar,
+            queries,
+        });
+        loaded.insert(name.to_string(), l.clone());
+        Ok(l)
+    }
+}
+
+fn project_layer(name: &str, dir: &Path) -> Result<Layer> {
+    let file = dir.join("language.toml");
+    let mut table = match std::fs::read_to_string(&file) {
+        Ok(text) => crate::domain::language::parse_toml(name, &text)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
+        Err(e) => return Err(Error::io(file, e)),
+    };
+    // A local grammar's path is relative to this layer's directory.
+    if let Some(toml::Value::Table(g)) = table.get_mut("grammar")
+        && let Some(toml::Value::String(p)) = g.get("path")
+    {
+        let abs = dir.join(p).to_string_lossy().into_owned();
+        g.insert("path".into(), toml::Value::String(abs));
+    }
+    let mut queries = BTreeMap::new();
+    if let Ok(entries) = std::fs::read_dir(dir.join("queries")) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x == "scm") {
+                let text = std::fs::read_to_string(&p).map_err(|err| Error::io(&p, err))?;
+                queries.insert(e.file_name().to_string_lossy().into_owned(), text);
+            }
+        }
+    }
+    Ok(Layer { table, queries })
 }

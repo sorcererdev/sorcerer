@@ -11,11 +11,12 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use scry::pass::Clock;
 use scry::review::{ReviewAsk, Reviewed, Reviewer};
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::language::GrammarSource;
-use sorcerer_core::ledger::Errand;
-use sorcerer_core::view::FilesView;
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::language::GrammarSource;
+use sorcerer_core::domain::project::Project;
 use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
 use tempfile::TempDir;
 

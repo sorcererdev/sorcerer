@@ -3,7 +3,8 @@
 //! can cite; `## A nitpick is` and `## Worth saying is` replace the two sides
 //! of Jev's nitpick question.
 
-use sorcerer_core::{Error, Project, Result};
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::{Error, Result};
 
 const SHIPPED: &str = include_str!("../../../library/scry.md");
 

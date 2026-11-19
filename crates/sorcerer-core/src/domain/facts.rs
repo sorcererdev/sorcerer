@@ -3,8 +3,8 @@
 
 use tree_sitter::{Node, Parser, TreeCursor};
 
-use crate::language::Loaded;
-use crate::unit::{Span, Unit, lines_of};
+use crate::domain::language::Loaded;
+use crate::domain::unit::{Span, Unit, lines_of};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

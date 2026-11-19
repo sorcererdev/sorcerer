@@ -3,8 +3,8 @@ mod support;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 
-use sorcerer_core::Project;
-use sorcerer_core::fences::Fences;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::project::Project;
 
 fn fences(d: &Path) -> Fences {
     Fences::for_project(&Project::open(d).unwrap()).unwrap()

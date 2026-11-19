@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::unit::Unit;
+use crate::domain::unit::Unit;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnitChange {

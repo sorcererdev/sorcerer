@@ -1,64 +1,39 @@
-//! The ledger: `.sorcerer/state/ledger.jsonl`, one JSON line per paid
-//! call (an errand) of every product. Append-only; caps and `cost`
-//! commands read it.
+//! The ledger as `.sorcerer/state/ledger.jsonl`, one JSON line per errand.
 
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-
-use crate::{Error, Project, Result};
-
-/// One paid model call.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Errand {
-    pub at: DateTime<Utc>,
-    /// `scry`, `conjure`, …
-    pub product: String,
-    /// `find`, `check`, `decide`, …
-    pub verb: String,
-    pub model: String,
-    pub provider: String,
-    pub cost_usd: Option<f64>,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub seconds: f64,
-    pub ok: bool,
-    pub note: Option<String>,
-}
+use crate::domain::errand::{Errand, LedgerRows};
+use crate::domain::project::Project;
+use crate::ports::ledger::Ledger;
+use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
-pub struct Ledger {
+pub struct JsonlLedger {
     path: PathBuf,
 }
 
-#[derive(Debug, Default)]
-pub struct LedgerRows {
-    pub errands: Vec<Errand>,
-    /// Lines that did not parse (a crash mid-write, a hand edit).
-    pub skipped: usize,
-}
-
-impl Ledger {
+impl JsonlLedger {
     /// The project's ledger, `<state>/ledger.jsonl`.
-    pub fn for_project(p: &Project) -> Result<Ledger> {
-        Ok(Ledger {
+    pub fn for_project(p: &Project) -> Result<JsonlLedger> {
+        Ok(JsonlLedger {
             path: p.state_dir()?.join("ledger.jsonl"),
         })
     }
 
-    pub fn at(path: PathBuf) -> Ledger {
-        Ledger { path }
+    pub fn at(path: PathBuf) -> JsonlLedger {
+        JsonlLedger { path }
     }
+}
 
-    pub fn path(&self) -> &std::path::Path {
+impl Ledger for JsonlLedger {
+    fn path(&self) -> &Path {
         &self.path
     }
 
     /// Appends one line in one write, so lines from two processes never interleave.
-    pub fn append(&self, e: &Errand) -> Result<()> {
+    fn append(&self, e: &Errand) -> Result<()> {
         let mut line = serde_json::to_vec(e).map_err(|err| Error::Config {
             file: self.path.clone(),
             why: err.to_string(),
@@ -72,7 +47,7 @@ impl Ledger {
         f.write_all(&line).map_err(|err| Error::io(&self.path, err))
     }
 
-    pub fn read(&self) -> Result<LedgerRows> {
+    fn read(&self) -> Result<LedgerRows> {
         let text = match std::fs::read_to_string(&self.path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(LedgerRows::default()),
@@ -97,7 +72,7 @@ mod tests {
         Errand {
             at: at.parse().unwrap(),
             product: product.into(),
-            verb: "find".into(),
+            verb: "review".into(),
             model: "sonnet".into(),
             provider: "claude".into(),
             cost_usd: cost,
@@ -112,7 +87,7 @@ mod tests {
     #[test]
     fn append_then_read_round_trips() {
         let d = tempfile::TempDir::new().unwrap();
-        let l = Ledger::at(d.path().join("ledger.jsonl"));
+        let l = JsonlLedger::at(d.path().join("ledger.jsonl"));
         let e = errand("2026-11-17T10:00:00Z", "scry", Some(0.04));
         l.append(&e).unwrap();
         l.append(&e).unwrap();
@@ -125,7 +100,7 @@ mod tests {
     fn a_missing_ledger_is_empty() {
         let d = tempfile::TempDir::new().unwrap();
         assert!(
-            Ledger::at(d.path().join("none.jsonl"))
+            JsonlLedger::at(d.path().join("none.jsonl"))
                 .read()
                 .unwrap()
                 .errands
@@ -136,7 +111,7 @@ mod tests {
     #[test]
     fn a_malformed_line_is_skipped_and_counted() {
         let d = tempfile::TempDir::new().unwrap();
-        let l = Ledger::at(d.path().join("ledger.jsonl"));
+        let l = JsonlLedger::at(d.path().join("ledger.jsonl"));
         l.append(&errand("2026-11-17T10:00:00Z", "scry", None))
             .unwrap();
         std::fs::OpenOptions::new()
@@ -152,7 +127,7 @@ mod tests {
     #[test]
     fn two_threads_appending_give_whole_lines() {
         let d = tempfile::TempDir::new().unwrap();
-        let l = Ledger::at(d.path().join("ledger.jsonl"));
+        let l = JsonlLedger::at(d.path().join("ledger.jsonl"));
         std::thread::scope(|s| {
             for _ in 0..2 {
                 s.spawn(|| {

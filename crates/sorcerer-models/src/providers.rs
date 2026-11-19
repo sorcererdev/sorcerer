@@ -1,19 +1,56 @@
 //! Choosing a provider: by name from `[model.providers.<name>]` (its `kind`
-//! defaults to the name), or the project's default (core's
-//! `default_provider`: `[model] provider`, else `claude` on PATH, else
-//! `anthropic` with a key).
+//! defaults to the name), or the project's default (`default_provider`:
+//! `[model] provider`, else `claude` on PATH, else `anthropic` with a key);
+//! and the decider (`default_decider`: Jev when its key is set).
 
 use std::sync::Arc;
 
-use sorcerer_core::Project;
-use sorcerer_core::env::Env;
-use sorcerer_core::project::{ProviderChoice, default_provider};
+use sorcerer_core::domain::config::{DecideConfig, ModelConfig};
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::env::Env;
 
 use crate::provider::Provider;
 use crate::provider::anthropic::Anthropic;
 use crate::provider::claude::Claude;
 use crate::provider::openai::OpenAiCompatible;
 use crate::{Error, Result};
+
+/// Which provider or decider was chosen, and why (for `doctor`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderChoice {
+    pub name: String,
+    pub why: String,
+}
+
+fn choice(name: &str, why: &str) -> Option<ProviderChoice> {
+    Some(ProviderChoice {
+        name: name.to_string(),
+        why: why.to_string(),
+    })
+}
+
+/// The provider to use: `[model] provider` if set; else `claude` when it is
+/// on PATH (a subscription); else `anthropic` when `ANTHROPIC_API_KEY` is
+/// set; else none.
+pub fn default_provider(cfg: &ModelConfig, env: &dyn Env) -> Option<ProviderChoice> {
+    if let Some(p) = &cfg.provider {
+        return choice(p, "set in [model]");
+    }
+    if env.which("claude").is_some() {
+        return choice("claude", "claude is on PATH");
+    }
+    if env.var("ANTHROPIC_API_KEY").is_some() {
+        return choice("anthropic", "ANTHROPIC_API_KEY is set");
+    }
+    None
+}
+
+/// The decider: Jev when its key (`[decide] key_env`, default `JEV_API_KEY`) is set.
+pub fn default_decider(cfg: &DecideConfig, env: &dyn Env) -> Option<ProviderChoice> {
+    let var = cfg.key_env.as_deref().unwrap_or("JEV_API_KEY");
+    env.var(var)
+        .and_then(|_| choice("jev", &format!("{var} is set")))
+}
 
 pub fn provider_named(project: &Project, name: &str, env: &dyn Env) -> Result<Arc<dyn Provider>> {
     let cfg = project

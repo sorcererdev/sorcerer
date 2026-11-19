@@ -5,13 +5,15 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use sorcerer_core::env::Env;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::language::Languages;
-use sorcerer_core::ledger::Ledger;
-use sorcerer_core::view::{CodebaseView, FilesView};
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::language::Languages;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::env::Env;
+use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::checker::{Checked, CheckerDeps, Claim, check};
 use sorcerer_models::decide::Decider;
 use sorcerer_models::decide::jev::Jev;
@@ -76,7 +78,7 @@ impl Live {
                 provider,
                 view.clone() as Arc<dyn CodebaseView>,
                 fences.clone(),
-                Ledger::for_project(project)?,
+                Arc::new(JsonlLedger::for_project(project)?),
             ))
         };
         let cancel = Cancel::default();
@@ -127,7 +129,7 @@ pub fn jev_for(project: &Project, env: &dyn Env) -> Result<Jev> {
     let jev = Jev::from_env(
         &project.config.decide,
         env,
-        Some(Ledger::for_project(project)?),
+        Some(Arc::new(JsonlLedger::for_project(project)?)),
     )
     .context("scry does not run without Jev")?;
     Ok(jev.for_product(PRODUCT))

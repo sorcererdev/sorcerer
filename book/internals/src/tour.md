@@ -15,25 +15,34 @@ Core is synchronous and makes no model calls. Everything that spends money lives
 
 ## The modules
 
-`crates/sorcerer-core/src/`:
+`crates/sorcerer-core/src/` is in three layers (see [Architecture](architecture.md)):
+`domain/` is data and rules with no I/O, `ports/` the traits products talk through, and
+`adapters/` the disk, git and the network behind them. `cancel.rs` and `error.rs` sit at the
+root.
 
 | module | job |
 |---|---|
-| `config.rs` | `.sorcerer/config.toml`: core's tables strict, products' tables kept |
-| `env.rs`, `cancel.rs` | the environment as a seam; the cancel flag |
-| `project.rs` | find the root; defaults for provider and decider |
-| `language.rs` | languages as shipped and project layers; `Languages::load` |
-| `grammar.rs` | fetch, compile and load grammars at run time |
-| `query.rs` | compile query files, refusing unsupported predicates |
-| `unit.rs` | units from the queries; `unit_at` |
-| `fingerprint.rs` | formatter-proof fingerprints |
-| `compare.rs` | units before and after a change |
-| `facts.rs` | parse errors, TODOs, empty bodies |
-| `view.rs` | `CodebaseView` and `FilesView` |
-| `store.rs` | versioned state under a lock |
-| `ledger.rs`, `cost.rs` | every paid call; spend per day |
-| `fences.rs` | what a model may never read |
-| `fnv.rs` | the one hash |
+| `domain/config.rs` | `.sorcerer/config.toml` parsed: core's tables strict, products' tables kept |
+| `domain/project.rs` | the project: root, config, languages, state directory |
+| `domain/language.rs` | languages as shipped and project layers, merged |
+| `domain/query.rs` | compile query files, refusing unsupported predicates |
+| `domain/unit.rs` | units from the queries; `unit_at` |
+| `domain/fingerprint.rs` | formatter-proof fingerprints |
+| `domain/compare.rs` | units before and after a change |
+| `domain/facts.rs` | parse errors, TODOs, empty bodies |
+| `domain/errand.rs`, `domain/cost.rs` | one paid call; spend per day |
+| `domain/fences.rs` | what a model may never read, matched on a resolved path |
+| `domain/fnv.rs` | the one hash |
+| `ports/view.rs` | `CodebaseView`: the questions a product asks about a codebase |
+| `ports/ledger.rs` | `Ledger`: append and read errands |
+| `ports/env.rs` | `Env`: variables and executables on PATH |
+| `adapters/project.rs` | `Project::open`: find the root, read the config and languages |
+| `adapters/grammar.rs` | fetch, compile and load grammars at run time; `Languages::assemble`, `Languages::load` |
+| `adapters/files_view.rs` | `FilesView`: the working tree, git and tree-sitter |
+| `adapters/json_store.rs` | versioned state under a lock |
+| `adapters/jsonl_ledger.rs` | `JsonlLedger`: the ledger as `ledger.jsonl` |
+| `adapters/fences.rs` | `Fences::for_project`, `allows`, `relative`, `fenced_links`: paths resolved first |
+| `adapters/env.rs` | `SystemEnv`, `MapEnv` |
 
 `crates/sorcerer-models/src/`:
 

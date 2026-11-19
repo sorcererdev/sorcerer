@@ -9,15 +9,17 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
-use sorcerer_core::cost::spent_in;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::fingerprint::Fingerprint;
-use sorcerer_core::fnv::fnv64_hex;
-use sorcerer_core::ledger::Ledger;
-use sorcerer_core::store::{Snapshot, Store};
-use sorcerer_core::unit::Unit;
-use sorcerer_core::view::CodebaseView;
-use sorcerer_core::{Cancel, Error, Project, Result};
+use sorcerer_core::adapters::json_store::{Snapshot, Store};
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::cost::spent_in;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::fingerprint::Fingerprint;
+use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Unit;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_core::{Cancel, Error, Result};
 use sorcerer_models::checker::{Checked, Claim};
 use sorcerer_models::decide::{Answer, Confidence, Decider, Question, Weighed};
 
@@ -167,7 +169,7 @@ pub fn pass(
             });
         }
     };
-    let rows = Ledger::for_project(project)?.read()?.errands;
+    let rows = JsonlLedger::for_project(project)?.read()?.errands;
     let now = deps.clock.now();
     let offset = deps.clock.offset();
     // Jev's questions are not counted against the caps (design §6.9)
@@ -1086,7 +1088,7 @@ fn raw_of(f: &Finding) -> RawFinding {
     }
 }
 
-fn bare(evidence: &[(PathBuf, sorcerer_core::unit::Span)]) -> Vec<Evidence> {
+fn bare(evidence: &[(PathBuf, sorcerer_core::domain::unit::Span)]) -> Vec<Evidence> {
     evidence
         .iter()
         .map(|(file, lines)| Evidence {

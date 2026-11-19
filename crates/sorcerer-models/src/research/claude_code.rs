@@ -7,10 +7,13 @@
 use std::path::PathBuf;
 
 use serde_json::json;
-use sorcerer_core::config::ProviderConfig;
-use sorcerer_core::fences::Fences;
-use sorcerer_core::ledger::{Errand, Ledger};
-use sorcerer_core::{Cancel, Project};
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::config::ProviderConfig;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::ports::ledger::Ledger;
 
 use super::{Research, Researched, Researcher};
 use crate::provider::claude::run_claude;
@@ -22,7 +25,7 @@ pub struct ClaudeCodeResearcher {
     runner: PathBuf,
     root: PathBuf,
     fences: Fences,
-    ledger: Ledger,
+    ledger: JsonlLedger,
     envs: Vec<(String, String)>,
 }
 
@@ -32,7 +35,7 @@ impl ClaudeCodeResearcher {
             runner: cfg.runner.clone().unwrap_or_else(|| "claude".into()),
             root: project.root.clone(),
             fences: Fences::for_project(project)?,
-            ledger: Ledger::for_project(project)?,
+            ledger: JsonlLedger::for_project(project)?,
             envs: Vec::new(),
         })
     }

@@ -5,8 +5,8 @@ use chrono::Utc;
 use scry::finding::{Finding, FindingId, Place, Scores, Status};
 use scry::review::*;
 use sorcerer_core::Cancel;
-use sorcerer_core::ledger::Errand;
-use sorcerer_core::unit::Span;
+use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::unit::Span;
 use sorcerer_models::research::{Research, Researched, Researcher, Tool};
 
 fn sp(a: u32, z: u32) -> Span {

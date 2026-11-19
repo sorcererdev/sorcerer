@@ -14,15 +14,17 @@ use anyhow::Result;
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, Utc};
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
-use sorcerer_core::Project;
-use sorcerer_core::env::Env;
-use sorcerer_core::grammar::GrammarCache;
-use sorcerer_core::ledger::Ledger;
-use sorcerer_core::project::default_decider;
-use sorcerer_core::store::{Snapshot, Store};
-use sorcerer_core::unit::Span;
-use sorcerer_core::view::{CodebaseView, FilesView};
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::json_store::{Snapshot, Store};
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Span;
+use sorcerer_core::ports::env::Env;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::decide::jev::Jev;
+use sorcerer_models::providers::default_decider;
 use sorcerer_models::providers::default_provider_for;
 
 use crate::config::scry_config;
@@ -545,7 +547,7 @@ fn cost(
                 .map_err(|_| anyhow::anyhow!("--since {s}: give a day as YYYY-MM-DD"))
         })
         .transpose()?;
-    let rows = Ledger::for_project(project)?.read()?.errands;
+    let rows = JsonlLedger::for_project(project)?.read()?.errands;
     // (reviews, checks, review $, check $, total $)
     let mut days: BTreeMap<NaiveDate, (usize, usize, f64, f64, f64)> = BTreeMap::new();
     for e in rows.iter().filter(|e| e.product == "scry") {
@@ -693,7 +695,7 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
     if !f.evidence.is_empty() {
         // a citation the checks never saw may name any path: read only
         // what the fences allow, inside the root
-        let fences = sorcerer_core::fences::Fences::for_project(project)?;
+        let fences = sorcerer_core::domain::fences::Fences::for_project(project)?;
         writeln!(out, "Evidence:")?;
         for e in &f.evidence {
             writeln!(
@@ -782,7 +784,7 @@ fn run(
         budget: a.budget,
     };
     let ledger_rows = || {
-        Ledger::for_project(project)
+        JsonlLedger::for_project(project)
             .and_then(|l| l.read())
             .map(|r| r.errands)
             .unwrap_or_default()
@@ -852,7 +854,7 @@ fn summary_text(
     shown: &[&Finding],
     scope: &Scope,
     cfg: &crate::config::ScryConfig,
-    new_rows: &[sorcerer_core::ledger::Errand],
+    new_rows: &[sorcerer_core::domain::errand::Errand],
     code: i32,
 ) -> String {
     let mut s = section("Summary");
@@ -1163,7 +1165,7 @@ pub fn doctor_rows(
             Err(e) => Err(e.to_string()),
         }
     };
-    let ledger_row = match Ledger::at(project.state.join("ledger.jsonl")).read() {
+    let ledger_row = match JsonlLedger::at(project.state.join("ledger.jsonl")).read() {
         Ok(rows) => {
             let scry = rows.errands.iter().filter(|e| e.product == "scry").count();
             let mut s = format!(

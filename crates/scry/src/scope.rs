@@ -5,11 +5,12 @@
 use std::path::PathBuf;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use sorcerer_core::compare::{UnitChange, compare_units};
-use sorcerer_core::fences::Fences;
-use sorcerer_core::unit::Unit;
-use sorcerer_core::view::CodebaseView;
-use sorcerer_core::{Error, Project, Result};
+use sorcerer_core::domain::compare::{UnitChange, compare_units};
+use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::unit::Unit;
+use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_core::{Error, Result};
 
 use crate::config::ScryConfig;
 
