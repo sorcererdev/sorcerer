@@ -8,9 +8,14 @@
 //!    follows. A guard under the threshold, an unsure guard, a
 //!    `cannot_tell`, or a failed first check sends it to the strong model.
 //! 2. Without a decider, the strong model checks alone.
-//! 3. Every citation is confirmed: inside the root, not fenced, the unit
-//!    named found in the file, or the line inside it. One that is not makes
-//!    the verdict `cannot_tell` ("cited code not found").
+//! 3. Every citation is confirmed: inside the root, not fenced, and the
+//!    unit named found in the file, or, when the name does not resolve or
+//!    none is given, the line inside it (a citation that stood on its line
+//!    although its unit was not found is marked `unit_missed`). One that is
+//!    not confirmed makes the verdict `cannot_tell` ("cited code not found").
+//!
+//! The prompt names a unit the way the language of the claim's files does
+//! (`CheckerDeps::languages`, each language's `unit_words`).
 
 pub mod prompts;
 
@@ -20,6 +25,7 @@ use std::time::Duration;
 use sorcerer_core::Cancel;
 use sorcerer_core::fences::Fences;
 use sorcerer_core::fingerprint::fingerprint;
+use sorcerer_core::language::Languages;
 use sorcerer_core::ledger::Errand;
 use sorcerer_core::unit::{Span, Unit};
 use sorcerer_core::view::CodebaseView;
@@ -65,6 +71,8 @@ pub enum Verdict {
 pub struct Cited {
     pub raw: RawCitation,
     pub confirmed: bool,
+    /// Confirmed on its line although the unit it named was not found.
+    pub unit_missed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +93,9 @@ pub struct CheckerDeps<'a> {
     pub decider: Option<&'a dyn Decider>,
     pub fences: &'a Fences,
     pub view: &'a dyn CodebaseView,
+    /// The project's languages, so the prompt names a unit the way the
+    /// claim's files do; without them, in neutral words.
+    pub languages: Option<&'a Languages>,
     /// The product the errands are recorded under.
     pub product: &'a str,
     pub first: &'a str,
@@ -113,6 +124,7 @@ impl<'a> CheckerDeps<'a> {
             decider,
             fences,
             view,
+            languages: None,
             product,
             first: FIRST,
             strong: STRONG,
@@ -186,7 +198,7 @@ fn attempt(
     let r = Research {
         product: deps.product.into(),
         verb: "check".into(),
-        prompt: claim_prompt(claim),
+        prompt: claim_prompt(claim, deps.languages),
         model: model.into(),
         tools: vec![Tool::Read, Tool::Grep, Tool::Glob],
         cap_usd: deps.cap_usd,
@@ -198,7 +210,7 @@ fn attempt(
         provider: model.into(),
         why,
     })?;
-    let each: Vec<Option<Citation>> = reply
+    let each: Vec<Option<Confirmed>> = reply
         .citations
         .iter()
         .map(|c| confirm_one(c, deps.view, deps.fences))
@@ -210,10 +222,12 @@ fn attempt(
         .map(|(c, ok)| Cited {
             raw: c.clone(),
             confirmed: ok.is_some(),
+            unit_missed: ok.as_ref().is_some_and(|k| k.unit_missed),
         })
         .collect();
+    let each = each.into_iter().map(|k| k.map(|k| k.citation));
     // every citation confirmed, or the verdict is cannot_tell
-    Ok(match each.into_iter().collect::<Option<Vec<Citation>>>() {
+    Ok(match each.collect::<Option<Vec<Citation>>>() {
         Some(citations) => Attempt {
             verdict: reply.verdict,
             why: reply.why,
@@ -231,7 +245,18 @@ fn attempt(
     })
 }
 
-fn confirm_one(c: &RawCitation, view: &dyn CodebaseView, fences: &Fences) -> Option<Citation> {
+/// A confirmed citation, and whether it stood on its line because the unit
+/// it named was not found.
+struct Confirmed {
+    citation: Citation,
+    unit_missed: bool,
+}
+
+/// C confirmed: inside the root, not fenced, readable; then the named
+/// unit's span, else (no unit, or one the file does not define) the cited
+/// line if it is inside the file, else, with neither unit nor line, the
+/// whole file. A unit not found and no usable line fails.
+fn confirm_one(c: &RawCitation, view: &dyn CodebaseView, fences: &Fences) -> Option<Confirmed> {
     let path = std::path::Path::new(&c.path);
     if !fences.allows(path) {
         return None;
@@ -239,25 +264,40 @@ fn confirm_one(c: &RawCitation, view: &dyn CodebaseView, fences: &Fences) -> Opt
     let rel = fences.relative(path)?;
     let text = view.text(&rel).ok()?;
     let rows = text.lines().count().max(1) as u32;
-    let lines = match (&c.unit, c.line) {
-        (Some(u), _) => unit_named(&view.units(&rel).ok()?, u)?.span,
-        (None, Some(l)) if (1..=rows).contains(&l) => Span { start: l, end: l },
-        (None, Some(_)) => return None,
-        (None, None) => Span {
-            start: 1,
-            end: rows,
-        },
+    let named = c.unit.as_deref().and_then(|u| {
+        view.units(&rel)
+            .ok()
+            .and_then(|us| unit_named(&us, u).map(|x| x.span))
+    });
+    let on_line = c
+        .line
+        .filter(|l| (1..=rows).contains(l))
+        .map(|l| Span { start: l, end: l });
+    let (lines, unit_missed) = match (named, &c.unit, c.line) {
+        (Some(span), _, _) => (span, false),
+        (None, Some(_), _) => (on_line?, true),
+        (None, None, Some(_)) => (on_line?, false),
+        (None, None, None) => (
+            Span {
+                start: 1,
+                end: rows,
+            },
+            false,
+        ),
     };
-    Some(Citation {
-        print: Some(fingerprint(&text, lines).to_string()),
-        file: rel,
-        lines,
+    Some(Confirmed {
+        citation: Citation {
+            print: Some(fingerprint(&text, lines).to_string()),
+            file: rel,
+            lines,
+        },
+        unit_missed,
     })
 }
 
 /// The unit called NAME: the exact qualified name (the earliest of several),
-/// or a bare name that is the last part of exactly one qualified name. The
-/// prompt asks for `Class.method` while a language may join with `::`, so
+/// or a bare name that is the last part of exactly one qualified name. A
+/// model may join a method with `.` or `::` whatever its language does, so
 /// the two separators are read alike.
 fn unit_named<'u>(units: &'u [Unit], name: &str) -> Option<&'u Unit> {
     let plain = |s: &str| s.replace("::", ".");

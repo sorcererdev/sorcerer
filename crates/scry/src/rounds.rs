@@ -238,6 +238,7 @@ pub(crate) fn verify(
                             unit: None,
                             line: Some(lines.start),
                             confirmed: cites(deps.view, around.fences, file, *lines),
+                            unit_missed: false,
                         })
                         .collect();
                     let each: Vec<String> = cited.iter().map(citation).collect();
@@ -334,6 +335,7 @@ pub(crate) fn verify(
                     unit: x.raw.unit.clone(),
                     line: x.raw.line,
                     confirmed: x.confirmed,
+                    unit_missed: x.unit_missed,
                 })
                 .collect();
             let models: Vec<&str> = c.errands.iter().map(|e| e.model.as_str()).collect();

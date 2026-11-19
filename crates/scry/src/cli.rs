@@ -714,12 +714,7 @@ fn why(project: &Project, id: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         if !v.cited.is_empty() {
             writeln!(out, "Cited by the check:")?;
             for c in &v.cited {
-                let said = if c.confirmed {
-                    "confirmed"
-                } else {
-                    "not found"
-                };
-                writeln!(out, "{}: {said}", c.label())?;
+                writeln!(out, "{}: {}", c.label(), c.outcome())?;
             }
         }
     }

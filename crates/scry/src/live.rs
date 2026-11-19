@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use sorcerer_core::env::Env;
 use sorcerer_core::fences::Fences;
 use sorcerer_core::grammar::GrammarCache;
+use sorcerer_core::language::Languages;
 use sorcerer_core::ledger::Ledger;
 use sorcerer_core::view::{CodebaseView, FilesView};
 use sorcerer_core::{Cancel, Project};
@@ -104,6 +105,7 @@ impl Live {
             Arc::new(jev.clone()),
             fences,
             view.clone(),
+            project.languages.clone(),
             cancel.clone(),
         );
         Ok(Live {
@@ -152,16 +154,20 @@ pub fn jev_for(project: &Project, env: &dyn Env) -> Result<Jev> {
 }
 
 /// The claim checker as the pass calls it: `check` with the shipped
-/// defaults, its errands recorded as scry's `check`, Jev guarding.
+/// defaults, its errands recorded as scry's `check`, Jev guarding, a unit
+/// named the way the project's LANGUAGES name the claim's files' units.
 pub fn checker_over(
     researcher: Arc<dyn Researcher>,
     decider: Arc<dyn Decider>,
     fences: Fences,
     view: Arc<dyn CodebaseView>,
+    languages: Languages,
     cancel: Cancel,
 ) -> Box<CheckFn> {
     Box::new(move |claim: &Claim| {
-        let deps = CheckerDeps::defaults(&*researcher, Some(&*decider), &fences, &*view, PRODUCT);
+        let mut deps =
+            CheckerDeps::defaults(&*researcher, Some(&*decider), &fences, &*view, PRODUCT);
+        deps.languages = Some(&languages);
         check(claim, &deps, &cancel)
     })
 }

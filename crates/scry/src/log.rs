@@ -58,7 +58,8 @@ pub fn count(n: usize, what: &str) -> String {
     format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }
 
-/// `` `path` `unit` line N: confirmed `` (or `not found`).
+/// `` `path` `unit` line N: confirmed `` (or `not found`, or `unit not found,
+/// confirmed on line N`).
 pub fn citation(c: &StoredCitation) -> String {
     let mut s = format!("`{}`", c.path);
     if let Some(u) = &c.unit {
@@ -67,12 +68,7 @@ pub fn citation(c: &StoredCitation) -> String {
     if let Some(l) = c.line {
         s.push_str(&format!(" line {l}"));
     }
-    let said = if c.confirmed {
-        "confirmed"
-    } else {
-        "not found"
-    };
-    format!("{s}: {said}")
+    format!("{s}: {}", c.outcome())
 }
 
 /// The scope's section: why the pass runs, the base, each file in scope

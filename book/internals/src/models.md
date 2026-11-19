@@ -125,9 +125,14 @@ of the question's own Jev body. Given a live `Jev`, it records what is missing.
 ## The claim checker
 
 `checker.rs` and `checker/prompts.rs`, ported from olifant's plans cascade
-(`Server/Cascade.hs`, `Server/Checker.hs`) with the prompt and guard texts word for word.
-`tests/golden/claim-prompt.txt` was printed by olifant itself, so the port is checked
-against the original.
+(`Server/Cascade.hs`, `Server/Checker.hs`) with the prompt and guard texts word for word but
+for two departures. `claim_prompt(claim, languages)` names a unit the way the language of the
+claim's files (`claim.about`) does: `unit_sentence` looks each file up with
+`Languages::for_path` and uses its `unit_words` (a claim across languages gets each one's,
+after the files it covers), else `NEUTRAL_UNIT_WORDS`; and it asks for the line beside a unit,
+since a citation can stand on its line. `tests/golden/claim-prompt.txt` was printed by olifant
+itself and differs only there (it renders the neutral wording: its claim points at no file).
+`CheckerDeps::languages` is `None` in `defaults`; scry's `checker_over` sets the project's.
 
 `check(claim, deps, cancel)` checks a statement about code:
 
@@ -140,16 +145,22 @@ against the original.
    `cannot_tell`, or the first check failed, the strong model (`sonnet`) checks again and
    its verdict stands (`escalated`).
 2. **Without a decider**, the strong model checks alone.
-3. **Citations are confirmed**: inside the root, not fenced, and the named unit found in
-   the file (or the cited line inside it). `unit_named` reads `.` and `::` alike, since the
-   prompt asks for `Class.method` while a language may name it `Type::method`, and takes a
-   bare name that ends exactly one qualified name. One that is not found makes the verdict
-   `cannot_tell` ("cited code not found"). Each confirmed citation carries the
-   fingerprint of its lines, so a later change to the cited code shows.
+3. **Citations are confirmed** (`confirm_one`): inside the root, not fenced and readable,
+   then the named unit's span; when the unit does not resolve (or none is named), the cited
+   line if it is inside the file, and a citation that stood on its line although its unit
+   was not found is marked `unit_missed`; with neither unit nor line, the whole file. A unit
+   not found with no usable line, a fenced or outside path, an unreadable file or a line past
+   the end does not confirm, and makes the verdict `cannot_tell` ("cited code not found").
+   `unit_named` reads `.` and `::` alike, since a model may join a method either way whatever
+   the prompt said, and takes a bare name that ends exactly one qualified name. Each
+   confirmed citation carries the fingerprint of its lines, so a later change to the cited
+   code shows. `guard_evidence` agrees: it shows the guards the cited line when it is inside
+   the file, else the unit's start.
 
 `Checked` carries the confirmed `citations` (empty when any failed) and `cited`: every
-`RawCitation` of the reply the verdict came from, each a `Cited` with `confirmed`, so a
-`cannot_tell` can say which citation did not confirm. When the check escalated, `cited` is the
+`RawCitation` of the reply the verdict came from, each a `Cited` with `confirmed` and
+`unit_missed`, so a `cannot_tell` can say which citation did not confirm and a kept verdict
+which stood on a line because its unit name did not resolve. When the check escalated, `cited` is the
 strong model's; the first model's citations are not kept.
 
 Scry's verify step runs it on `bug` and `assumption` findings.
