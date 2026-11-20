@@ -53,11 +53,33 @@ enum AfterCitedLines {
 }
 
 /// One round's findings after their cited lines were checked.
+#[derive(Default)]
 struct RoundChecked {
     /// The paid claim checks to run, one per finding.
     paid_checks: Vec<(FindingId, Claim)>,
+    /// The money set aside so far for those checks.
+    set_aside: f64,
     /// Whether a finding's paid check did not fit the budget.
     budget_ran_out: bool,
+}
+
+impl RoundChecked {
+    /// This round's record with one more finding's outcome added. A paid
+    /// check also sets its estimated cost aside.
+    fn with(self, id: &FindingId, after: AfterCitedLines, check_estimate: f64) -> RoundChecked {
+        match after {
+            AfterCitedLines::NeedsPaidCheck(claim) => RoundChecked {
+                paid_checks: [self.paid_checks, vec![(id.clone(), claim)]].concat(),
+                set_aside: self.set_aside + check_estimate,
+                ..self
+            },
+            AfterCitedLines::BudgetRanOut => RoundChecked {
+                budget_ran_out: true,
+                ..self
+            },
+            AfterCitedLines::Unsure | AfterCitedLines::OpenedWithoutCheck => self,
+        }
+    }
 }
 
 impl Pass<'_, '_> {
@@ -69,12 +91,14 @@ impl Pass<'_, '_> {
         scope: &Scope,
         waiting_before_this_run: &HashSet<FindingId>,
     ) -> std::result::Result<bool, Halt> {
-        let mut budget_ran_out = false;
-        for sf in scope.files.iter().filter(|sf| !sf.deleted) {
-            let ended = self.verify_findings_in_file(&sf.file, waiting_before_this_run)?;
-            budget_ran_out |= ended == RoundsEnded::BudgetRanOut;
-        }
-        Ok(budget_ran_out)
+        scope
+            .files
+            .iter()
+            .filter(|sf| !sf.deleted)
+            .try_fold(false, |budget_ran_out, sf| {
+                let ended = self.verify_findings_in_file(&sf.file, waiting_before_this_run)?;
+                Ok(budget_ran_out || ended == RoundsEnded::BudgetRanOut)
+            })
     }
 
     /// Verifies one file's waiting findings, a few at a time, until the
@@ -89,7 +113,7 @@ impl Pass<'_, '_> {
     /// 4. saves what opened so far, so it shows right away;
     /// 5. runs the paid checks at the same time and records each answer
     ///    (right: open, wrong: refuted, can't tell: unsure);
-    /// 6. counts how many are shown now.
+    /// 6. counts how many are shown now, and goes again with the rest.
     ///
     /// Example: `orders.py` shows 1 finding and has 4 waiting. Round 1 picks
     /// the best 2 (2 free slots); one is confirmed and opens, one is wrong.
@@ -99,39 +123,49 @@ impl Pass<'_, '_> {
         file: &Path,
         waiting_before_this_run: &HashSet<FindingId>,
     ) -> std::result::Result<RoundsEnded, Halt> {
-        let mut slots =
+        let slots =
             ShownSlots::for_file(&self.working_copy, file, self.cfg, waiting_before_this_run);
-        let mut waiting = self.waiting_most_confident_first(file);
+        let waiting = self.waiting_most_confident_first(file);
         if !waiting.is_empty() {
             self.log(&verification_heading_text(file));
         }
-        let mut round = 0;
-        while !waiting.is_empty() && !self.cancel.is_cancelled() {
-            round += 1;
-            let (this_round, later) = slots.pick_what_fits(waiting, &self.working_copy);
-            self.log(&round_text(
-                round,
-                &slots,
-                &this_round,
-                &later,
-                &self.working_copy,
-            ));
-            if this_round.is_empty() {
-                self.log(NOBODY_FITS_TEXT);
-                break;
-            }
-            let checked = self.check_cited_lines(&this_round);
-            if !checked.paid_checks.is_empty() {
-                self.show_what_opened_so_far()?;
-            }
-            self.run_paid_checks(checked.paid_checks);
-            slots.count_newly_shown(&this_round, &self.working_copy);
-            if checked.budget_ran_out {
-                return Ok(RoundsEnded::BudgetRanOut);
-            }
-            waiting = later;
+        self.verify_round(1, slots, waiting)
+    }
+
+    /// One round over the file's WAITING findings, then the next round with
+    /// the ones left over, until none are left, none fit, the budget runs
+    /// out or the user cancels.
+    fn verify_round(
+        &mut self,
+        round: usize,
+        slots: ShownSlots,
+        waiting: Vec<FindingId>,
+    ) -> std::result::Result<RoundsEnded, Halt> {
+        if waiting.is_empty() || self.cancel.is_cancelled() {
+            return Ok(RoundsEnded::AllDone);
         }
-        Ok(RoundsEnded::AllDone)
+        let (this_round, later) = slots.pick_for_this_round(waiting, &self.working_copy);
+        self.log(&round_text(
+            round,
+            &slots,
+            &this_round,
+            &later,
+            &self.working_copy,
+        ));
+        if this_round.is_empty() {
+            self.log(NOBODY_FITS_TEXT);
+            return Ok(RoundsEnded::AllDone);
+        }
+        let checked = self.check_cited_lines(&this_round);
+        if !checked.paid_checks.is_empty() {
+            self.show_what_opened_so_far()?;
+        }
+        self.run_paid_checks(checked.paid_checks);
+        if checked.budget_ran_out {
+            return Ok(RoundsEnded::BudgetRanOut);
+        }
+        let slots = slots.after_round(&this_round, &self.working_copy);
+        self.verify_round(round + 1, slots, later)
     }
 
     /// The file's waiting findings, the most confident first.
@@ -153,27 +187,16 @@ impl Pass<'_, '_> {
     /// $0.016. The first bug gets its check; the second one does not fit,
     /// so it keeps waiting and `budget_ran_out` is true.
     fn check_cited_lines(&mut self, round: &[FindingId]) -> RoundChecked {
-        let mut checked = RoundChecked {
-            paid_checks: Vec::new(),
-            budget_ran_out: false,
-        };
-        let mut set_aside = 0.0;
-        for id in round {
-            match self.check_cited_lines_of(id, &mut set_aside) {
-                AfterCitedLines::NeedsPaidCheck(claim) => {
-                    checked.paid_checks.push((id.clone(), claim));
-                }
-                AfterCitedLines::BudgetRanOut => checked.budget_ran_out = true,
-                AfterCitedLines::Unsure | AfterCitedLines::OpenedWithoutCheck => {}
-            }
-        }
-        checked
+        round.iter().fold(RoundChecked::default(), |checked, id| {
+            let after = self.check_cited_lines_of(id, checked.set_aside);
+            checked.with(id, after, self.check_estimate)
+        })
     }
 
     /// Checks one finding's cited lines. When they are there, a convention
-    /// opens at once, and a bug's paid check is added to SET_ASIDE (the money
-    /// this round has promised so far) if the budget still covers it.
-    fn check_cited_lines_of(&mut self, id: &FindingId, set_aside: &mut f64) -> AfterCitedLines {
+    /// opens at once, and a bug needs a paid check if the budget still
+    /// covers it on top of the money this round has already set aside.
+    fn check_cited_lines_of(&mut self, id: &FindingId, set_aside: f64) -> AfterCitedLines {
         let now = self.now;
         let ranges = cited_ranges(by_id(&self.working_copy, id));
         match citations(self.deps.view, self.fences, &ranges) {
@@ -198,8 +221,7 @@ impl Pass<'_, '_> {
                     let issue_type = f.issue_type.clone();
                     self.log(&no_claim_check_text(id, &issue_type));
                     AfterCitedLines::OpenedWithoutCheck
-                } else if self.budget.allows(*set_aside + self.check_estimate) {
-                    *set_aside += self.check_estimate;
+                } else if self.budget.allows(set_aside + self.check_estimate) {
                     AfterCitedLines::NeedsPaidCheck(claim_of(f))
                 } else {
                     self.log(&check_held_back_text(id, self.check_estimate));
@@ -264,6 +286,7 @@ impl Pass<'_, '_> {
 /// Example: `orders.py` already shows 2 findings, so `shown` is 2. One old
 /// waiting finding can still take the last slot. This run's new findings
 /// can take up to 3, counted in `shown_new`.
+#[derive(Clone, Copy)]
 struct ShownSlots<'a> {
     /// Findings the file shows now (only issue types the project shows).
     shown: usize,
@@ -294,44 +317,63 @@ impl<'a> ShownSlots<'a> {
         }
     }
 
-    /// Splits WAITING into the findings this round takes (as many as would
-    /// still fit if every one of them opened) and those left for later.
-    fn pick_what_fits(
+    /// Picks this round's findings from WAITING (most confident first): each
+    /// one is taken while a slot would still be free if every finding taken
+    /// so far turned out true. The rest are left for a later round, where a
+    /// slot freed by a pick that turned out wrong may take them.
+    ///
+    /// Example: `orders.py` shows 2 findings, so 1 slot is free. Waiting are
+    /// an old finding (0.9) and two new ones (0.8, 0.7). The old one takes
+    /// the free slot; both new ones are taken too, since this run's own
+    /// findings may use up to 3 slots. If the old one turns out wrong, its
+    /// slot is free again next round.
+    fn pick_for_this_round(
         &self,
         waiting: Vec<FindingId>,
         findings: &Findings,
     ) -> (Vec<FindingId>, Vec<FindingId>) {
-        let (mut shown, mut shown_new) = (self.shown, self.shown_new);
-        let mut this_round = Vec::new();
-        let mut later = Vec::new();
-        for id in waiting {
-            let is_new = self.is_new(&id);
-            let slots_taken = if is_new { shown_new } else { shown };
-            if slots_taken >= MAX_SHOWN {
-                later.push(id);
-                continue;
+        let mut if_all_turn_out_true = *self;
+        waiting.into_iter().partition(|id| {
+            let has_room = if_all_turn_out_true.has_room_for(id);
+            if has_room {
+                if_all_turn_out_true = if_all_turn_out_true.taken_by(by_id(findings, id));
             }
-            let takes_a_slot = usize::from(project_shows(self.cfg, by_id(findings, &id)));
-            shown += takes_a_slot;
-            if is_new {
-                shown_new += takes_a_slot;
-            }
-            this_round.push(id);
-        }
-        (this_round, later)
+            has_room
+        })
     }
 
-    /// Counts the round's findings that opened and are shown.
-    fn count_newly_shown(&mut self, round: &[FindingId], findings: &Findings) {
-        for id in round {
-            let f = by_id(findings, id);
-            if f.status == Status::Open && project_shows(self.cfg, f) {
-                self.shown += 1;
-                if self.is_new(id) {
-                    self.shown_new += 1;
-                }
-            }
+    /// Whether a slot is free for the finding: an old one needs one of the
+    /// file's 3; one this run discovered may use up to 3 of its own.
+    fn has_room_for(&self, id: &FindingId) -> bool {
+        let taken = if self.is_new(id) {
+            self.shown_new
+        } else {
+            self.shown
+        };
+        taken < MAX_SHOWN
+    }
+
+    /// These slots with F shown in one of them (an issue type the project
+    /// does not show takes no slot).
+    fn taken_by(self, f: &Finding) -> ShownSlots<'a> {
+        if !project_shows(self.cfg, f) {
+            return self;
         }
+        ShownSlots {
+            shown: self.shown + 1,
+            shown_new: self.shown_new + usize::from(self.is_new(&f.id)),
+            ..self
+        }
+    }
+
+    /// These slots after a round: each of its findings that opened (and
+    /// is shown) takes one.
+    fn after_round(self, round: &[FindingId], findings: &Findings) -> ShownSlots<'a> {
+        round
+            .iter()
+            .map(|id| by_id(findings, id))
+            .filter(|f| f.status == Status::Open)
+            .fold(self, ShownSlots::taken_by)
     }
 
     /// Whether this run discovered the finding (it was not waiting before).

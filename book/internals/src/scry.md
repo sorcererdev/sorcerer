@@ -390,7 +390,7 @@ least left under any finite cap. `cost_of(errands)` sums a call's priced errands
 
 `Pass::verify_findings_in_file(file, waiting_before_this_run)` takes the file's waiting findings,
 best confidence first (`waiting_most_confident_first`), in rounds. A round takes the candidates that would fit if all passed
-(`ShownSlots::pick_what_fits`, from the file's `ShownSlots`: how many findings it shows and how many of those this run discovered): one
+(`ShownSlots::pick_for_this_round`: most confident first, each taken while a slot would be free if every pick so far turned out true; from the file's `ShownSlots`: how many findings it shows and how many of those this run discovered): one
 that was waiting before the pass (`waiting_before_this_run`) only while the file's open findings
 of shown issue types are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
 pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding (`check_cited_lines`, over `check_cited_lines_of`): `citations`
@@ -402,7 +402,7 @@ sent, so what opened shows before the checks finish. The round's checks run side
 `std::thread::scope` (`run_paid_checks` over `claim_checks_side_by_side`), each recorded in the order started (`record_paid_check`), each a `Claim` of the statement about its evidence: `Right` opens,
 `Wrong` is `refuted`, `CannotTell` is `unsure` (verdict, reason and `Checked::cited` stored, the cost
 charged and added to the finding's `cost_usd`); an `Err` leaves it waiting, its place free for the
-next round, which takes the rest; `ShownSlots::count_newly_shown` counts what opened. The rounds end when a round takes nobody.
+next round, which takes the rest; `ShownSlots::after_round` returns the slots with what opened counted, and `verify_round` calls itself for the next round with what is left. The rounds end when a round takes nobody.
 
 ## Wiring
 
