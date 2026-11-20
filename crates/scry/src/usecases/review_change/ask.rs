@@ -41,6 +41,15 @@ pub(super) struct ReviewResults {
     pub failures: Vec<String>,
 }
 
+impl ReviewResults {
+    /// Whether every unit that needed a review got one: no unit was held
+    /// back by a spending limit and no review call failed. Only then can a
+    /// finding the reviewer did not raise again be resolved.
+    pub(super) fn every_unit_was_reviewed(&self) -> bool {
+        self.capped == 0 && self.failures.is_empty()
+    }
+}
+
 /// The fingerprint each unit was sent at, by its file, name and first line.
 /// A `ReviewUnit` (the prompt's data) carries no fingerprint, so it is kept
 /// here until the reply is recorded.
@@ -63,7 +72,7 @@ impl Pass<'_, '_> {
             self.log(&batch_heading_text(n, &batch));
             if self.must_hold_back(&asked) {
                 self.hold_back_for_a_later_run(&batch, &mut asked);
-            } else if self.cancel.is_cancelled() {
+            } else if self.deps.cancel.is_cancelled() {
                 self.fail_as_cancelled(&batch, &mut asked);
             } else {
                 self.review_one_batch(scope, batch, &sent, &mut asked);
@@ -145,7 +154,7 @@ impl Pass<'_, '_> {
         let found = self
             .deps
             .reviewer
-            .review(&ask, &self.cfg.review_model, cap, self.cancel);
+            .review(&ask, &self.cfg.review_model, cap, self.deps.cancel);
         self.log(&reply_text(&found));
         self.budget.charge(self.cost_of_call(&found, cap));
         let files = files_of(&ask.units);
@@ -172,7 +181,7 @@ impl Pass<'_, '_> {
         asked: &mut ReviewResults,
     ) {
         self.log(&parsed_text(ask, &reply));
-        self.report(Progress::Reviewed(reply.findings.len()));
+        self.tell_progress(Progress::Reviewed(reply.findings.len()));
         asked.record_reply(ask, reply, sent);
     }
 

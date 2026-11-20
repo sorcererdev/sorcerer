@@ -5,7 +5,7 @@
 //! with an example); `merge` folds a finding into a stored one that Jev
 //! says is the same problem. Jev is asked two questions here: "is this the
 //! same problem as that one?" and "is this a nitpick?". Any question Jev
-//! cannot answer stops the whole pass (`Halt::Silent`): scry does not guess.
+//! cannot answer stops the whole pass (`Halt::JevDidNotAnswer`): scry does not guess.
 //!
 //! The run log's text is built last in the file.
 
@@ -239,10 +239,10 @@ impl Pass<'_, '_> {
         let ws = self
             .deps
             .decider
-            .ask(qs, self.cancel)
-            .map_err(|_| Halt::Silent)?;
+            .ask(qs, self.deps.cancel)
+            .map_err(|_| Halt::JevDidNotAnswer)?;
         if ws.len() != qs.len() || ws.iter().any(|w| w.answer == Answer::Unsure) {
-            return Err(Halt::Silent);
+            return Err(Halt::JevDidNotAnswer);
         }
         Ok(ws)
     }

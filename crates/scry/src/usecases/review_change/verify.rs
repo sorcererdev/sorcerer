@@ -195,7 +195,7 @@ impl Pass<'_, '_> {
         slots: DisplaySlots,
         prioritized: PrioritizedFindings,
     ) -> std::result::Result<RoundsEnded, Halt> {
-        if prioritized.is_empty() || self.cancel.is_cancelled() {
+        if prioritized.is_empty() || self.deps.cancel.is_cancelled() {
             return Ok(RoundsEnded::AllDone);
         }
         let (to_verify, later) = slots.pick_for_this_round(prioritized, &self.working_copy);
@@ -283,7 +283,7 @@ impl Pass<'_, '_> {
     /// the checks still run.
     fn save_before_paid_checks(&mut self) -> std::result::Result<(), Halt> {
         self.save_working_copy()?;
-        self.report(Progress::Stored);
+        self.tell_progress(Progress::Stored);
         Ok(())
     }
 

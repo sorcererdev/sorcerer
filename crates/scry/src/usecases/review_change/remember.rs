@@ -21,7 +21,7 @@ use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
 use super::ask::ReviewResults;
-use super::{Pass, SentUnit};
+use super::{Pass, SentUnit, ids_of};
 use crate::domain::finding::{FindingId, Place, Status};
 use crate::domain::log_text::section;
 use crate::domain::scope::Scope;
@@ -29,18 +29,13 @@ use crate::domain::scope::Scope;
 impl Pass<'_, '_> {
     /// The Remember section: resolved by the reviewer's answer, gone, moved
     /// while the pass ran, and (only when the pass was WHOLE) not found again.
-    pub(super) fn remember(
-        &mut self,
-        asked: &ReviewResults,
-        gone: &[FindingId],
-        base_ids: &HashSet<FindingId>,
-        whole: bool,
-    ) {
+    pub(super) fn remember(&mut self, asked: &ReviewResults, gone: &[FindingId]) {
+        let stored_before = ids_of(&self.stored_before);
         let resolved = self.resolve_what_no_longer_holds(&asked.no_longer_hold);
         let moved = self.drop_moved(&asked.answered);
-        let not_found_again = if whole {
+        let not_found_again = if asked.every_unit_was_reviewed() {
             let kept = not_moved(&asked.answered, &moved);
-            Some(self.resolve_not_found_again(&kept, asked, base_ids))
+            Some(self.resolve_not_found_again(&kept, asked, &stored_before))
         } else {
             None
         };
@@ -71,7 +66,7 @@ impl Pass<'_, '_> {
         &mut self,
         kept: &[&SentUnit],
         asked: &ReviewResults,
-        base_ids: &HashSet<FindingId>,
+        stored_before: &HashSet<FindingId>,
     ) -> Vec<FindingId> {
         let at: HashMap<(&Path, &str), Fingerprint> = kept
             .iter()
@@ -85,7 +80,7 @@ impl Pass<'_, '_> {
                 .unit
                 .as_deref()
                 .and_then(|u| at.get(&(f.place.file.as_path(), u)));
-            let not_found = base_ids.contains(&f.id)
+            let not_found = stored_before.contains(&f.id)
                 && matches!(f.status, Status::Open | Status::Unverified)
                 && !self.merged.contains(&f.id)
                 && !asked.no_longer_hold.contains(&f.id.0)

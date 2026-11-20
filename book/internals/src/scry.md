@@ -280,9 +280,10 @@ carries the `scope` so the caller prints what was in it. The command line
 a provider) and exits 0, so a pre-commit hook
 in a project that turned scry off lets the commit through; any other `Skipped` exits 2.
 `review_change` itself reads as the frame of the pass: lock, `findings_on_disk`,
-`SpentSoFar::read`, the Pass section (`pass_text`), `Pass::new`, `Pass::go`, its halts (`Halt::Silent`
-is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unlock. The steps, in
-`Pass::go` (`mod.rs`), each in its own file:
+`SpentSoFar::read`, the Pass section (`pass_text`), `Pass::new`, `Pass::run`, its halts (`Halt::JevDidNotAnswer`
+is `Skipped`, `Halt::Failed` the error), `Progress::Stored`, unlock. `Pass::run` consumes the pass and ends
+by saving it and making the report (`Pass::report`). The steps, in
+`Pass::run` (`mod.rs`), each in its own file:
 
 1. **Lock and read.** `FindingStore::hold` takes `state/scry/pass.lock` with `File::lock`
    (blocking) for the whole pass, so two passes never interleave. The store is read once (`findings_on_disk`); `Unreadable` is
@@ -308,7 +309,7 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    other failure. In the code, `Pass::send` is that story in order: `units_not_yet_reviewed`,
    `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
    `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
-   `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Pass::report`, `ReviewResults::record_reply`)).
+   `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Pass::tell_progress`, `ReviewResults::record_reply`)).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (`with_cited_rule_looked_up`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
    `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
@@ -322,7 +323,7 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    dismissals; a withheld one is asked
    again when `asked_on` changed (`asked_again_if_changed`), a refuted or unsure one is unverified again when its evidence prints
    moved (`unverified_again_if_evidence_moved`); each returns the finding rather than changing it in place, and `Finding::seen_again` counts the sighting. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
-   with nothing written (`Halt::Silent`).
+   with nothing written (`Halt::JevDidNotAnswer`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
    unverified) are `resolved` (`resolve_what_no_longer_holds`); those it said *still holds* go into `still_hold`.
@@ -347,8 +348,8 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    are appended; `reviewed` sets are joined; `capped` is the pass's when it changed it. A new
    finding whose id another writer took meanwhile gets a fresh one (`free_id`); `merge_into`
    records it in `Pass::renamed_ids`, applies the map to `working_copy` on every later write (`last_written` is
-   kept in written ids through `renamed`). The last write is `Pass::finish`, which also fills `touched`
-   and maps `ReviewReport::new` and `touched` through the renames (`apply_renames`).
+   kept in written ids through `renamed`). The last write ends `Pass::run`; `Pass::report` then fills `touched`
+   (`touched_since` the pass's `stored_before`) and gives `ReviewReport::new` and `touched` as written (`as_written`). Whether every unit was reviewed is `ReviewResults::every_unit_was_reviewed`.
 
 ## The run log
 
