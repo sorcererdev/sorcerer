@@ -1,0 +1,438 @@
+//! The host over an in-memory connection, with a product that records what reaches it.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
+
+use lsp_server::{Connection, Message, Notification, Request, RequestId, Response, ResponseError};
+use lsp_types::{MessageType, ServerCapabilities};
+use serde_json::{Value, json};
+use sorcerer_lsp::{Answer, Client, Product, serve, serve::unknown_method, uri_of};
+
+const WAIT: Duration = Duration::from_secs(5);
+const QUIET: Duration = Duration::from_millis(200);
+
+/// What reached the product, in order, and the client it was given.
+#[derive(Default)]
+struct Seen {
+    events: Vec<String>,
+    client: Option<Client>,
+    root: Option<PathBuf>,
+}
+
+struct Recording {
+    seen: Arc<Mutex<Seen>>,
+}
+
+impl Recording {
+    fn note(&self, event: String) {
+        self.seen.lock().unwrap().events.push(event);
+    }
+}
+
+impl Product for Recording {
+    fn capabilities() -> ServerCapabilities {
+        ServerCapabilities::default()
+    }
+    fn opened(&mut self, path: &Path) {
+        let open = self.client().is_open(path);
+        self.note(format!("opened {} (open: {open})", path.display()));
+    }
+    fn closed(&mut self, path: &Path) {
+        let open = self.client().is_open(path);
+        self.note(format!("closed {} (open: {open})", path.display()));
+    }
+    fn saved(&mut self, path: &Path) {
+        self.note(format!("saved {}", path.display()));
+    }
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
+        match method {
+            "test/echo" => Ok(params),
+            _ => Err(unknown_method(method)),
+        }
+    }
+    fn shutdown(&mut self) {
+        self.note("shutdown".into());
+    }
+}
+
+impl Recording {
+    fn client(&self) -> Client {
+        self.seen.lock().unwrap().client.clone().unwrap()
+    }
+}
+
+/// The editor's end of a server running on a thread.
+struct Editor {
+    connection: Connection,
+    seen: Arc<Mutex<Seen>>,
+    server: Option<JoinHandle<anyhow::Result<()>>>,
+}
+
+impl Editor {
+    fn start(capabilities: Value) -> Editor {
+        let (server_end, editor_end) = Connection::memory();
+        let seen = Arc::new(Mutex::new(Seen::default()));
+        let for_server = Arc::clone(&seen);
+        let server = std::thread::spawn(move || {
+            serve(server_end, move |client, root| {
+                let mut seen = for_server.lock().unwrap();
+                seen.client = Some(client);
+                seen.root = root;
+                Recording {
+                    seen: Arc::clone(&for_server),
+                }
+            })
+        });
+        let editor = Editor {
+            connection: editor_end,
+            seen,
+            server: Some(server),
+        };
+        editor.request(
+            1,
+            "initialize",
+            json!({ "capabilities": capabilities, "rootUri": "file:///work/shop" }),
+        );
+        editor.notify("initialized", json!({}));
+        editor
+    }
+
+    fn plain() -> Editor {
+        Editor::start(json!({}))
+    }
+
+    fn request(&self, id: i32, method: &str, params: Value) {
+        let request = Request::new(RequestId::from(id), method.into(), params);
+        self.connection
+            .sender
+            .send(Message::Request(request))
+            .unwrap();
+    }
+
+    fn notify(&self, method: &str, params: Value) {
+        let note = Notification::new(method.into(), params);
+        self.connection
+            .sender
+            .send(Message::Notification(note))
+            .unwrap();
+    }
+
+    fn document(&self, method: &str, uri: &str) {
+        self.notify(method, json!({ "textDocument": { "uri": uri } }));
+    }
+
+    fn reply(&self, id: RequestId, result: Result<Value, ResponseError>) {
+        let response = Response {
+            id,
+            response_result: result,
+        };
+        self.connection
+            .sender
+            .send(Message::Response(response))
+            .unwrap();
+    }
+
+    /// The next message from the server, or `None` within the wait.
+    fn next(&self, within: Duration) -> Option<Message> {
+        self.connection.receiver.recv_timeout(within).ok()
+    }
+
+    /// The response to request `id`, skipping anything else.
+    fn response(&self, id: i32) -> Response {
+        loop {
+            match self.next(WAIT).expect("a response") {
+                Message::Response(r) if r.id == RequestId::from(id) => return r,
+                _ => {}
+            }
+        }
+    }
+
+    fn client(&self) -> Client {
+        let deadline = std::time::Instant::now() + WAIT;
+        loop {
+            if let Some(client) = self.seen.lock().unwrap().client.clone() {
+                return client;
+            }
+            assert!(std::time::Instant::now() < deadline, "no client");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn events(&self) -> Vec<String> {
+        self.seen.lock().unwrap().events.clone()
+    }
+
+    /// Waits until the product has seen `count` events.
+    fn wait_for_events(&self, count: usize) -> Vec<String> {
+        let deadline = std::time::Instant::now() + WAIT;
+        loop {
+            let events = self.events();
+            if events.len() >= count || std::time::Instant::now() > deadline {
+                return events;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn stop(mut self) {
+        self.request(99, "shutdown", Value::Null);
+        self.response(99);
+        self.notify("exit", Value::Null);
+        self.server.take().unwrap().join().unwrap().unwrap();
+    }
+}
+
+#[test]
+fn the_handshake_announces_open_close_and_save_only() {
+    let editor = Editor::plain();
+    let Some(Message::Response(r)) = editor.next(WAIT) else {
+        panic!("no initialize response")
+    };
+    let sync = &r.response_result.unwrap()["capabilities"]["textDocumentSync"];
+    assert_eq!(sync["openClose"], json!(true));
+    assert!(sync.get("change").is_none(), "{sync}");
+    assert_eq!(sync["save"], json!({ "includeText": false }));
+    editor.client();
+    assert_eq!(
+        editor.seen.lock().unwrap().root.as_deref(),
+        Some(Path::new("/work/shop"))
+    );
+    editor.stop();
+}
+
+#[test]
+fn the_first_workspace_folder_is_the_root() {
+    let (server_end, editor_end) = Connection::memory();
+    let root = Arc::new(Mutex::new(None));
+    let for_server = Arc::clone(&root);
+    let server = std::thread::spawn(move || {
+        serve(server_end, move |_client, given| {
+            *for_server.lock().unwrap() = Some(given);
+            Recording {
+                seen: Arc::default(),
+            }
+        })
+    });
+    let request = Request::new(
+        RequestId::from(1),
+        "initialize".into(),
+        json!({ "capabilities": {}, "rootUri": "file:///a",
+                "workspaceFolders": [{ "uri": "file:///b", "name": "b" }] }),
+    );
+    editor_end.sender.send(request.into()).unwrap();
+    editor_end
+        .sender
+        .send(Notification::new("initialized".into(), json!({})).into())
+        .unwrap();
+    editor_end
+        .sender
+        .send(Notification::new("exit".into(), Value::Null).into())
+        .unwrap();
+    server.join().unwrap().unwrap();
+    assert_eq!(*root.lock().unwrap(), Some(Some(PathBuf::from("/b"))));
+}
+
+#[test]
+fn open_save_close_reach_the_product_and_the_open_set() {
+    let editor = Editor::plain();
+    editor.document("textDocument/didOpen", "file:///work/shop/a.txt");
+    editor.document("textDocument/didSave", "file:///work/shop/a.txt");
+    editor.document("textDocument/didClose", "file:///work/shop/a.txt");
+    assert_eq!(
+        editor.wait_for_events(3),
+        vec![
+            "opened /work/shop/a.txt (open: true)",
+            "saved /work/shop/a.txt",
+            "closed /work/shop/a.txt (open: false)",
+        ]
+    );
+    assert!(editor.client().open_paths().is_empty());
+    editor.stop();
+}
+
+#[test]
+fn a_save_of_a_non_file_uri_is_dropped() {
+    let editor = Editor::plain();
+    editor.document("textDocument/didOpen", "untitled:Untitled-1");
+    editor.document(
+        "textDocument/didSave",
+        "fugitive:///work/shop/.git//0/a.txt",
+    );
+    editor.document("textDocument/didSave", "file:///work/shop/a.txt");
+    assert_eq!(editor.wait_for_events(1), vec!["saved /work/shop/a.txt"]);
+    editor.stop();
+}
+
+#[test]
+fn a_request_is_answered_and_an_unknown_method_refused() {
+    let editor = Editor::plain();
+    editor.request(2, "test/echo", json!({ "x": 1 }));
+    assert_eq!(
+        editor.response(2).response_result.unwrap(),
+        json!({ "x": 1 })
+    );
+    editor.request(3, "test/nothing", Value::Null);
+    assert_eq!(editor.response(3).response_result.unwrap_err().code, -32601);
+    editor.stop();
+}
+
+/// Every notification with this method the server sends within the quiet wait.
+fn notifications(editor: &Editor, method: &str) -> Vec<Value> {
+    std::iter::from_fn(|| editor.next(QUIET))
+        .filter_map(|m| match m {
+            Message::Notification(n) if n.method == method => Some(n.params),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn say_once_says_a_key_once() {
+    let editor = Editor::plain();
+    let client = editor.client();
+    assert!(client.say_once("day", MessageType::WARNING, "spent"));
+    assert!(!client.say_once("day", MessageType::WARNING, "spent again"));
+    let shown = notifications(&editor, "window/showMessage");
+    assert_eq!(shown, vec![json!({ "type": 2, "message": "spent" })]);
+    editor.stop();
+}
+
+#[test]
+fn publish_and_log_reach_the_editor() {
+    let editor = Editor::plain();
+    let client = editor.client();
+    client.publish(Path::new("/work/shop/a b.txt"), Vec::new());
+    let published = notifications(&editor, "textDocument/publishDiagnostics");
+    assert_eq!(
+        published,
+        vec![json!({ "uri": uri_of(Path::new("/work/shop/a b.txt")).as_str(), "diagnostics": [] })]
+    );
+    client.log("hello");
+    assert_eq!(
+        notifications(&editor, "window/logMessage"),
+        vec![json!({ "type": 4, "message": "hello" })]
+    );
+    editor.stop();
+}
+
+/// Asks a question and hands back the request the editor saw and where the answer lands.
+fn asked(editor: &Editor) -> (Request, Arc<Mutex<Option<Answer>>>) {
+    let answer = Arc::new(Mutex::new(None));
+    let landed = Arc::clone(&answer);
+    editor
+        .client()
+        .ask("Trust?", &["Trust", "Not now"], move |a| {
+            *landed.lock().unwrap() = Some(a);
+        });
+    loop {
+        match editor.next(WAIT).expect("a question") {
+            Message::Request(r) if r.method == "window/showMessageRequest" => return (r, answer),
+            _ => {}
+        }
+    }
+}
+
+fn answer_within(answer: &Arc<Mutex<Option<Answer>>>) -> Option<Answer> {
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        if let Some(a) = answer.lock().unwrap().clone() {
+            return Some(a);
+        }
+        if std::time::Instant::now() > deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn ask_delivers_the_picked_answer() {
+    let editor = Editor::plain();
+    let (request, answer) = asked(&editor);
+    assert_eq!(request.params["message"], json!("Trust?"));
+    assert_eq!(
+        request.params["actions"],
+        json!([{ "title": "Trust" }, { "title": "Not now" }])
+    );
+    editor.reply(request.id, Ok(json!({ "title": "Trust" })));
+    assert_eq!(answer_within(&answer), Some(Answer::Picked("Trust".into())));
+    editor.stop();
+}
+
+#[test]
+fn ask_delivers_closed_on_null() {
+    let editor = Editor::plain();
+    let (request, answer) = asked(&editor);
+    editor.reply(request.id, Ok(Value::Null));
+    assert_eq!(answer_within(&answer), Some(Answer::Closed));
+    editor.stop();
+}
+
+#[test]
+fn ask_delivers_unsupported_on_an_error_reply() {
+    let editor = Editor::plain();
+    let (request, answer) = asked(&editor);
+    editor.reply(
+        request.id,
+        Err(ResponseError {
+            code: -32601,
+            message: "no".into(),
+            data: None,
+        }),
+    );
+    assert_eq!(answer_within(&answer), Some(Answer::Unsupported));
+    editor.stop();
+}
+
+#[test]
+fn work_done_is_silent_without_client_support() {
+    let editor = Editor::plain();
+    let line = editor.client().work_done("scry", "reviewing 1 unit");
+    line.report("reviewing 2 units");
+    line.end(None);
+    let sent: Vec<Message> = std::iter::from_fn(|| editor.next(QUIET)).collect();
+    assert!(
+        sent.iter().all(|m| matches!(m, Message::Response(_))),
+        "{sent:?}"
+    );
+    editor.stop();
+}
+
+#[test]
+fn work_done_creates_begins_and_ends_with_it() {
+    let editor = Editor::start(json!({ "window": { "workDoneProgress": true } }));
+    let line = editor.client().work_done("scry", "reviewing 1 unit");
+    let create = loop {
+        if let Message::Request(r) = editor.next(WAIT).expect("a create request") {
+            break r;
+        }
+    };
+    assert_eq!(create.method, "window/workDoneProgress/create");
+    assert!(
+        notifications(&editor, "$/progress").is_empty(),
+        "nothing before the editor made the token"
+    );
+    editor.reply(create.id, Ok(Value::Null));
+    line.end(None);
+    let progress = notifications(&editor, "$/progress");
+    let token = &create.params["token"];
+    assert_eq!(
+        progress,
+        vec![
+            json!({ "token": token, "value": { "kind": "begin", "title": "scry", "message": "reviewing 1 unit" } }),
+            json!({ "token": token, "value": { "kind": "end" } }),
+        ]
+    );
+    editor.stop();
+}
+
+#[test]
+fn shutdown_then_exit_ends_serve() {
+    let editor = Editor::plain();
+    editor.request(7, "shutdown", Value::Null);
+    assert_eq!(editor.response(7).response_result.unwrap(), Value::Null);
+    assert_eq!(editor.wait_for_events(1), vec!["shutdown"]);
+    editor.stop();
+}

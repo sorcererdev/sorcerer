@@ -69,6 +69,13 @@ method names and the domain file stays pure.
 
 [Scry](scry.md) says what each file holds.
 
+**sorcerer-lsp** is a flat crate: `src/{lib,serve,client,jobs,uri}.rs`, with no layer
+directories. All of it is adapter code (a connection, threads, the protocol's types), and
+nothing in it is a product's domain, so splitting it into layers would leave every layer but
+one empty; `scripts/layers` checks only layer directories and passes it as it is. A product's
+server lives in that product's `adapters/` and calls its use cases.
+[The language-server host](lsp.md) says what it owns.
+
 ## Adding a feature
 
 1. Write the use case: a module under `usecases/` taking a request and the ports it needs,

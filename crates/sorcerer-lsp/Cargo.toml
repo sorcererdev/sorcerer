@@ -1,0 +1,22 @@
+[package]
+name = "sorcerer-lsp"
+description = "Sorcerer's language-server host: the connection, delayed jobs and the senders a product's server uses"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsp-server.workspace = true
+lsp-types.workspace = true
+url.workspace = true
+crossbeam-channel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

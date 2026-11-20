@@ -6,6 +6,7 @@ Sorcerer is a Cargo workspace. The libraries are:
 |---|---|---|
 | `sorcerer-core` | project, config, languages, grammars, units, facts, store, ledger, fences, cost | nothing of ours |
 | `sorcerer-models` | providers, researchers, the decider (Jev), the claim checker | `sorcerer-core` |
+| `sorcerer-lsp` | the language-server host: handshake, main loop, delayed jobs, the client's senders | nothing of ours |
 
 Products (scry first) depend on both and never on each other. A product that needs
 another's results reads a versioned file under `.sorcerer/state/`.
