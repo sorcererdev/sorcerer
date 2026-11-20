@@ -5,7 +5,7 @@
 //!    (`hold_back_for_a_later_run`), fails it as cancelled
 //!    (`fail_as_cancelled`), or has a call review it (`review_one_batch`:
 //!    `ask_for` the batch, under `cap_for_one_call`, charged `cost_of_call`,
-//!    the reply parsed and recorded in `Asked` by `take_reply`).
+//!    the reply parsed and recorded in `ReviewResults` by `take_reply`).
 //!
 //! The run log's text is built last in the file.
 
@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
-use super::{Progress, Run, Sent};
+use super::{Pass, Progress, SentUnit};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
@@ -26,11 +26,11 @@ use crate::ports::reviewer::Reviewed;
 
 /// What the review calls gave.
 #[derive(Default)]
-pub(super) struct Asked {
+pub(super) struct ReviewResults {
     /// The units sent to a call that answered.
-    pub answered: Vec<Sent>,
+    pub answered: Vec<SentUnit>,
     /// The findings the calls reported.
-    pub raws: Vec<RawFinding>,
+    pub raw_findings: Vec<RawFinding>,
     /// The open findings a call said no longer hold.
     pub no_longer_hold: HashSet<String>,
     /// The open findings a call said still hold.
@@ -49,18 +49,18 @@ type SentFingerprints = HashMap<(PathBuf, String, u32), Fingerprint>;
 /// What a review call returns: the reply and its errand, or why it failed.
 type CallResult = sorcerer_models::Result<Reviewed>;
 
-impl Run<'_, '_> {
+impl Pass<'_, '_> {
     /// Sends the scope's unreviewed units to the reviewer, batch by batch,
     /// within the caps; what the calls gave.
-    pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> Asked {
+    pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> ReviewResults {
         let to_send = self.units_not_yet_reviewed(scope, fresh);
-        self.t(&units_text(scope, &to_send, fresh));
+        self.log(&units_text(scope, &to_send, fresh));
         let sent = sent_fingerprints(&to_send);
         let batches = self.batches_of(&to_send);
-        self.t(&review_calls_heading_text(batches.is_empty()));
-        let mut asked = Asked::default();
+        self.log(&review_calls_heading_text(batches.is_empty()));
+        let mut asked = ReviewResults::default();
         for (n, batch) in batches.into_iter().enumerate() {
-            self.t(&batch_heading_text(n, &batch));
+            self.log(&batch_heading_text(n, &batch));
             if self.must_hold_back(&asked) {
                 self.hold_back_for_a_later_run(&batch, &mut asked);
             } else if self.cancel.is_cancelled() {
@@ -76,7 +76,7 @@ impl Run<'_, '_> {
     /// (unless FRESH).
     fn units_not_yet_reviewed<'s>(&self, scope: &'s Scope, fresh: bool) -> Vec<&'s ScopedUnit> {
         let reviewed = |u: &ScopedUnit| {
-            self.mine
+            self.working_copy
                 .reviewed
                 .get(&u.file)
                 .is_some_and(|s| s.contains(u.unit.fingerprint.as_str()))
@@ -107,16 +107,16 @@ impl Run<'_, '_> {
 
     /// Whether the next batch waits for a later run: the caps leave no room
     /// for a call's estimate. Once one batch is held back every later one is.
-    fn must_hold_back(&self, asked: &Asked) -> bool {
+    fn must_hold_back(&self, asked: &ReviewResults) -> bool {
         asked.capped > 0 || !self.budget.allows(self.review_estimate)
     }
 
     /// Records BATCH's units as held back by a cap, for a later run.
-    fn hold_back_for_a_later_run(&mut self, batch: &[ReviewUnit], asked: &mut Asked) {
-        self.t(&held_back_text(self.review_estimate, self.budget.room()));
+    fn hold_back_for_a_later_run(&mut self, batch: &[ReviewUnit], asked: &mut ReviewResults) {
+        self.log(&held_back_text(self.review_estimate, self.budget.room()));
         asked.capped += batch.len();
         for u in batch {
-            self.mine
+            self.working_copy
                 .capped
                 .entry(u.file.clone())
                 .or_default()
@@ -125,8 +125,8 @@ impl Run<'_, '_> {
     }
 
     /// Records BATCH as a failed call: the pass was cancelled before it.
-    fn fail_as_cancelled(&mut self, batch: &[ReviewUnit], asked: &mut Asked) {
-        self.t(CANCELLED_TEXT);
+    fn fail_as_cancelled(&mut self, batch: &[ReviewUnit], asked: &mut ReviewResults) {
+        self.log(CANCELLED_TEXT);
         asked.record_cancelled(&files_of(batch));
     }
 
@@ -137,16 +137,16 @@ impl Run<'_, '_> {
         scope: &Scope,
         batch: Vec<ReviewUnit>,
         sent: &SentFingerprints,
-        asked: &mut Asked,
+        asked: &mut ReviewResults,
     ) {
         let ask = self.ask_for(scope, batch);
         let cap = self.cap_for_one_call();
-        self.t(&ask_text(&self.cfg.review_model, cap, &ask));
+        self.log(&ask_text(&self.cfg.review_model, cap, &ask));
         let found = self
             .deps
             .reviewer
             .review(&ask, &self.cfg.review_model, cap, self.cancel);
-        self.t(&reply_text(&found));
+        self.log(&reply_text(&found));
         self.budget.charge(self.cost_of_call(&found, cap));
         let files = files_of(&ask.units);
         let answer = match found {
@@ -155,7 +155,7 @@ impl Run<'_, '_> {
         };
         match parse_review(&answer.reply) {
             Err(why) => {
-                self.t(&parse_error_text(&why));
+                self.log(&parse_error_text(&why));
                 asked.record_failure(&files, why);
             }
             Ok(reply) => self.take_reply(&ask, reply, sent, asked),
@@ -169,9 +169,9 @@ impl Run<'_, '_> {
         ask: &ReviewAsk,
         reply: ReviewReply,
         sent: &SentFingerprints,
-        asked: &mut Asked,
+        asked: &mut ReviewResults,
     ) {
-        self.t(&parsed_text(ask, &reply));
+        self.log(&parsed_text(ask, &reply));
         self.report(Progress::Reviewed(reply.findings.len()));
         asked.record_reply(ask, reply, sent);
     }
@@ -181,7 +181,7 @@ impl Run<'_, '_> {
     fn ask_for(&self, scope: &Scope, batch: Vec<ReviewUnit>) -> ReviewAsk {
         ReviewAsk {
             diff: diff_of(scope, &files_of(&batch)),
-            steering: self.st.steering_text(),
+            steering: self.steering.steering_text(),
             // spellbook's slot: what was reported before; always empty in v1
             reported: Vec::new(),
             open: self.open_on(&batch),
@@ -191,7 +191,7 @@ impl Run<'_, '_> {
 
     /// The open and waiting findings on BATCH's units, for the review call to answer.
     fn open_on(&self, batch: &[ReviewUnit]) -> Vec<Finding> {
-        self.mine
+        self.working_copy
             .findings
             .iter()
             .filter(|f| matches!(f.status, Status::Open | Status::Waiting))
@@ -224,7 +224,7 @@ impl Run<'_, '_> {
     }
 }
 
-impl Asked {
+impl ReviewResults {
     /// Records a call's REPLY to ASK: its units as answered at the
     /// fingerprints they were SENT at, its answers on the open findings it
     /// was shown, and its findings.
@@ -233,7 +233,11 @@ impl Asked {
             let key = (u.file.clone(), u.name.clone(), u.lines.start);
             // every unit of a batch came from to_send, so its key is in SENT
             let fingerprint = sent[&key];
-            self.answered.push((key.0, key.1, key.2, fingerprint));
+            self.answered.push(SentUnit {
+                file: key.0,
+                name: key.1,
+                fingerprint,
+            });
         }
         // an answer counts only for a finding this call was shown
         let shown: HashSet<&str> = ask.open.iter().map(|f| f.id.0.as_str()).collect();
@@ -248,7 +252,7 @@ impl Asked {
                 self.no_longer_hold.insert(o.id);
             }
         }
-        self.raws.extend(reply.findings);
+        self.raw_findings.extend(reply.findings);
     }
 
     fn record_failure(&mut self, files: &[PathBuf], why: String) {

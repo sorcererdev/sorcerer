@@ -13,7 +13,7 @@ use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Cancel, Result};
 use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
 
-use super::{Halt, Progress, ReviewDeps, Run};
+use super::{Halt, Pass, Progress, ReviewDeps};
 use crate::domain::budget::{Budget, cost_of};
 use crate::domain::config::{MAX_SHOWN, ScryConfig};
 use crate::domain::finding::{
@@ -23,7 +23,7 @@ use crate::domain::findings::{Findings, merge_into, renamed};
 use crate::domain::log_text::{citation, section, sub, usd};
 use crate::domain::verification::{claim_of, needs_claim, verdict_word};
 
-impl Run<'_, '_> {
+impl Pass<'_, '_> {
     /// The rounds over each file in SCOPE that was not deleted; whether a
     /// claim check was held back by the caps. OLD_WAITING are the findings
     /// that were waiting before this pass.
@@ -34,9 +34,9 @@ impl Run<'_, '_> {
     ) -> std::result::Result<bool, Halt> {
         let mut checks_capped = false;
         for sf in scope.files.iter().filter(|sf| !sf.deleted) {
-            let Run {
-                mine,
-                written,
+            let Pass {
+                working_copy,
+                last_written,
                 disk,
                 budget,
                 cfg,
@@ -45,12 +45,14 @@ impl Run<'_, '_> {
                 fences,
                 now,
                 check_estimate,
-                renames,
+                renamed_ids,
                 ..
             } = self;
             let mut save = |s: &Findings| -> Result<()> {
-                disk.update(&mut |current| *current = merge_into(written, s, current, renames))?;
-                *written = renamed(s, renames);
+                disk.update(&mut |current| {
+                    *current = merge_into(last_written, s, current, renamed_ids)
+                })?;
+                *last_written = renamed(s, renamed_ids);
                 Ok(())
             };
             let mut around = Around {
@@ -60,7 +62,15 @@ impl Run<'_, '_> {
                 check_estimate: *check_estimate,
                 save: &mut save,
             };
-            let v = verify(mine, &sf.file, cfg, budget, deps, cancel, &mut around)?;
+            let v = verify(
+                working_copy,
+                &sf.file,
+                cfg,
+                budget,
+                deps,
+                cancel,
+                &mut around,
+            )?;
             checks_capped |= v.capped;
         }
 
@@ -124,9 +134,9 @@ fn verify(
         kb.total_cmp(&ka)
     });
     let mut cands: Vec<FindingId> = waiting.into_iter().map(|f| f.id.clone()).collect();
-    let t = |s: &str| deps.log.put(s);
+    let log = |s: &str| deps.log.put(s);
     if !cands.is_empty() {
-        t(&section(&format!("Verification: {}", file.display())));
+        log(&section(&format!("Verification: {}", file.display())));
     }
     let mut round = 0;
 
@@ -165,7 +175,7 @@ fn verify(
                 ids.iter().map(confidence_of).collect::<Vec<_>>().join(", ")
             }
         };
-        t(&format!(
+        log(&format!(
             "{}- room: {open_now} open of {} shown in the file; {new_passed} of the pass's own opened, of {}\n\
              - candidates: {}\n- left for a later round: {}\n",
             sub(&format!("Round {round}")),
@@ -175,7 +185,7 @@ fn verify(
             listed(&rest),
         ));
         if batch.is_empty() {
-            t("- nobody fits: the rounds end\n");
+            log("- nobody fits: the rounds end\n");
             break;
         }
 
@@ -203,7 +213,7 @@ fn verify(
                         })
                         .collect();
                     let each: Vec<String> = cited.iter().map(citation).collect();
-                    t(&format!(
+                    log(&format!(
                         "- {}: citations fail: {why}{}{} → unsure\n",
                         id.0,
                         if each.is_empty() { "" } else { "; " },
@@ -229,7 +239,7 @@ fn verify(
                             )
                         })
                         .collect();
-                    t(&format!(
+                    log(&format!(
                         "- {}: citations hold: {}\n",
                         id.0,
                         each.join(", ")
@@ -237,7 +247,7 @@ fn verify(
                     f.evidence = ev;
                     if !needs_claim(f) {
                         f.set_status(Status::Open, now);
-                        t(&format!(
+                        log(&format!(
                             "- {}: a {} needs no claim check → open\n",
                             id.0, f.issue_type
                         ));
@@ -245,7 +255,7 @@ fn verify(
                         reserved += around.check_estimate;
                         to_check.push((id.clone(), claim_of(f)));
                     } else {
-                        t(&format!(
+                        log(&format!(
                             "- {}: claim check held back: {} more does not fit the caps; it waits\n",
                             id.0,
                             usd(around.check_estimate)
@@ -279,7 +289,7 @@ fn verify(
             let c = match r {
                 Ok(c) => c,
                 Err(e) => {
-                    t(&format!(
+                    log(&format!(
                         "- {} claim check failed: {e} → it stays waiting\n",
                         id.0
                     ));
@@ -330,7 +340,7 @@ fn verify(
             for x in &cited {
                 text.push_str(&format!("  - cited {}\n", citation(x)));
             }
-            t(&text);
+            log(&text);
             f.verdict = Some(StoredVerdict {
                 verdict: verdict_word(c.verdict).into(),
                 why: c.why,

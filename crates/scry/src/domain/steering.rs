@@ -279,20 +279,24 @@ text = "Time comes from the clock port."
         let raw = parsed(FULL);
         assert_eq!(raw.context, "Bistro is ports and adapters.");
         assert_eq!(raw.include, [PathBuf::from("docs/conventions.md")]);
-        let st = steering(raw, vec![]);
-        let ids: Vec<&str> = st.rules.iter().map(|r| r.id.as_str()).collect();
+        let project_steering = steering(raw, vec![]);
+        let ids: Vec<&str> = project_steering
+            .rules
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect();
         assert_eq!(ids, ["ports", "clock"]);
         assert_eq!(
-            st.rule("ports").unwrap().text,
+            project_steering.rule("ports").unwrap().text,
             "Commands go through ports (must)\nA command never touches the database."
         );
-        assert_eq!(st.lookup("`Ports`"), Some("ports"));
-        assert_eq!(st.lookup(" \"clock\" "), Some("clock"));
-        assert_eq!(st.lookup("[ports]"), Some("ports"));
-        assert_eq!(st.lookup("ports-x"), None);
-        assert_eq!(st.lookup("Commands go through ports"), None);
-        assert_eq!(st.lookup(""), None);
-        assert!(st.rule("Ports").is_none());
+        assert_eq!(project_steering.lookup("`Ports`"), Some("ports"));
+        assert_eq!(project_steering.lookup(" \"clock\" "), Some("clock"));
+        assert_eq!(project_steering.lookup("[ports]"), Some("ports"));
+        assert_eq!(project_steering.lookup("ports-x"), None);
+        assert_eq!(project_steering.lookup("Commands go through ports"), None);
+        assert_eq!(project_steering.lookup(""), None);
+        assert!(project_steering.rule("Ports").is_none());
     }
 
     #[test]
@@ -351,15 +355,15 @@ text = "Time comes from the clock port."
 
     #[test]
     fn empty_steering_renders_none() {
-        let st = Steering::default();
-        assert_eq!(st.steering_text(), "(none)");
-        assert_eq!(st.rules_text(), "(none)");
+        let project_steering = Steering::default();
+        assert_eq!(project_steering.steering_text(), "(none)");
+        assert_eq!(project_steering.rules_text(), "(none)");
         assert_eq!(steering(parsed(""), vec![]), Steering::default());
     }
 
     #[test]
     fn steering_text_renders_context_includes_then_rules() {
-        let st = steering(
+        let project_steering = steering(
             parsed(FULL),
             vec![Include {
                 path: "docs/conventions.md".into(),
@@ -367,14 +371,17 @@ text = "Time comes from the clock port."
             }],
         );
         assert_eq!(
-            st.steering_text(),
+            project_steering.steering_text(),
             "Bistro is ports and adapters.\n\n\
              <include path=\"docs/conventions.md\">\nA command never panics.\n</include>\n\n\
              Rules (cite one by its id):\n\
              - ports: Commands go through ports (must)\n  A command never touches the database.\n\
              - clock: Time comes from the clock port."
         );
-        assert_eq!(st.size(), st.steering_text().len());
+        assert_eq!(
+            project_steering.size(),
+            project_steering.steering_text().len()
+        );
         let blank = Steering {
             rules: vec![Rule {
                 id: "a".into(),
@@ -387,7 +394,7 @@ text = "Time comes from the clock port."
 
     #[test]
     fn over_cap_names_the_largest_part() {
-        let st = Steering {
+        let project_steering = Steering {
             context: "c".into(),
             includes: vec![Include {
                 path: "docs/big.md".into(),
@@ -395,8 +402,8 @@ text = "Time comes from the clock port."
             }],
             rules: vec![],
         };
-        let why = st.over_cap().unwrap();
-        assert!(why.contains(&st.size().to_string()), "{why}");
+        let why = project_steering.over_cap().unwrap();
+        assert!(why.contains(&project_steering.size().to_string()), "{why}");
         assert!(why.contains("32768"), "{why}");
         assert!(why.contains("include docs/big.md"), "{why}");
         assert!(steering(parsed(FULL), vec![]).over_cap().is_none());

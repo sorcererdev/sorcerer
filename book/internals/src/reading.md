@@ -37,7 +37,7 @@ batches` marks where a helper belongs.
 without it.
 
 ```rust
-self.t(&held_back_text(self.review_estimate, self.budget.room()));
+self.log(&held_back_text(self.review_estimate, self.budget.room()));
 fn held_back_text(estimate: f64, room: Option<f64>) -> String { format!(…) }
 ```
 
@@ -45,7 +45,7 @@ fn held_back_text(estimate: f64, room: Option<f64>) -> String { format!(…) }
 does not leave it. No helper file of unrelated odds and ends.
 
 ```rust
-pub(super) fn send(…) -> Asked { … self.units_not_yet_reviewed(…) … }
+pub(super) fn send(…) -> ReviewResults { … self.units_not_yet_reviewed(…) … }
 fn units_not_yet_reviewed(…) { … }   // directly below, private
 ```
 
@@ -57,7 +57,7 @@ impl Scoping<'_> { fn look_at(&self, file: PathBuf) -> Result<FileInScope> { …
 ```
 
 **7. Names.** The established word first; a made-up word only where none exists. No abbreviation a
-newcomer cannot expand (`st`, `fp`, `raws`, `t`). A name says what the thing is for, not how it
+newcomer cannot expand (`rq`, `cnt`, `res`). A name says what the thing is for, not how it
 is made.
 
 ```rust
@@ -101,11 +101,11 @@ rule yields nitpicks, its text is what gets fixed.
 
 ## Before and after: the review calls
 
-`Run::send` in `crates/scry/src/usecases/review_change/ask.rs` sends a pass's units to the
+`Pass::send` in `crates/scry/src/usecases/review_change/ask.rs` sends a pass's units to the
 reviewer. It was one function of more than two hundred lines; its first forty read:
 
 ```rust
-pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
+pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<ReviewResults, Halt> {
     // the units to send, batched
     let to_send: Vec<&ScopedUnit> = scope
         .units
@@ -113,7 +113,7 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result
         .filter(|u| {
             fresh
                 || !self
-                    .mine
+                    .working_copy
                     .reviewed
                     .get(&u.file)
                     .is_some_and(|s| s.contains(u.unit.fingerprint.as_str()))
@@ -141,8 +141,8 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result
     if scope.units.is_empty() {
         units_text.push_str("- no unit in scope\n");
     }
-    self.t(&units_text);
-    let mut prints: HashMap<(PathBuf, String, u32), Fingerprint> = HashMap::new();
+    self.log(&units_text);
+    let mut fingerprints: HashMap<(PathBuf, String, u32), Fingerprint> = HashMap::new();
     let mut units = Vec::new();
     for u in &to_send {
     …
@@ -153,15 +153,15 @@ fingerprints, before learning what the function is for. After, `send` is the sto
 step is a helper below it:
 
 ```rust
-pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> Asked {
+pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> ReviewResults {
     let to_send = self.units_not_yet_reviewed(scope, fresh);
-    self.t(&units_text(scope, &to_send, fresh));
+    self.log(&units_text(scope, &to_send, fresh));
     let sent = sent_fingerprints(&to_send);
     let batches = self.batches_of(&to_send);
-    self.t(&review_calls_heading_text(batches.is_empty()));
-    let mut asked = Asked::default();
+    self.log(&review_calls_heading_text(batches.is_empty()));
+    let mut asked = ReviewResults::default();
     for (n, batch) in batches.into_iter().enumerate() {
-        self.t(&batch_heading_text(n, &batch));
+        self.log(&batch_heading_text(n, &batch));
         if self.must_hold_back(&asked) {
             self.hold_back_for_a_later_run(&batch, &mut asked);
         } else if self.cancel.is_cancelled() {
@@ -174,8 +174,7 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> Asked {
 }
 ```
 
-`self.t(…)` writes to the run log; `t`, `st` and `raws` keep their short names until the rename
-table is ruled on, though rule 7 bans them.
+`self.log(…)` writes to the run log.
 
 The rules the old comments recorded now sit on the helpers that keep them: `must_hold_back`
 (once one batch is held back every later one is), `cap_for_one_call` (never more than a pass

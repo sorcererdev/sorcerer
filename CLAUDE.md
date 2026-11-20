@@ -32,7 +32,7 @@ kept current in the same branch as the code. A chapter that disagrees with the c
    does not leave it. No helper file of unrelated odds and ends.
 6. **Arguments that travel together become a small struct with methods.**
 7. **Names.** The established word first; a made-up word only where none exists. No abbreviation a
-   newcomer cannot expand (`st`, `fp`, `raws`, `t`). A name says what the thing is for, not how it
+   newcomer cannot expand (`rq`, `cnt`, `res`). A name says what the thing is for, not how it
    is made (`units_not_yet_reviewed`, not `filter_units`).
 8. **Doc comments.** One plain sentence of intent on every function whose name does not already
    say it all. A module's opening comment lists its steps in order, using the helpers' names. A

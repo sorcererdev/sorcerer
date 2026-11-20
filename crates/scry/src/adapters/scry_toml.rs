@@ -94,15 +94,15 @@ impl Settings for ScryToml {
                 text,
             });
         }
-        let st = Steering {
+        let steering = Steering {
             context: raw.context,
             includes,
             rules: raw.rules,
         };
-        if let Some(why) = st.over_cap() {
+        if let Some(why) = steering.over_cap() {
             return Err(Error::Config { file, why });
         }
-        Ok(st)
+        Ok(steering)
     }
 
     fn steering_source(&self) -> Option<PathBuf> {
@@ -165,8 +165,8 @@ mod tests {
             ("docs/a.md", b"A\n"),
             ("docs/b.md", b"B\n"),
         ]);
-        let st = s.steering().unwrap();
-        let got: Vec<(&Path, &str)> = st
+        let steering = s.steering().unwrap();
+        let got: Vec<(&Path, &str)> = steering
             .includes
             .iter()
             .map(|i| (i.path.as_path(), i.text.as_str()))

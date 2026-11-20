@@ -51,8 +51,8 @@ pub fn explain_finding(
     let rule = match &f.rule {
         None => None,
         Some(r) => {
-            let st = settings.steering()?;
-            let text = st.rule(r).map(|rule| rule.text.trim().to_string());
+            let steering = settings.steering()?;
+            let text = steering.rule(r).map(|rule| rule.text.trim().to_string());
             Some((r.clone(), text))
         }
     };

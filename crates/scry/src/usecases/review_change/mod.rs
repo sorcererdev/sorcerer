@@ -162,7 +162,7 @@ pub fn review_change(
         budget: req.budget,
     });
     let caps = &caps;
-    let st = deps.settings.steering()?;
+    let steering = deps.settings.steering()?;
     let fences = Fences::for_project(project)?;
     let held = deps.store.hold()?;
     let base = match deps.store.read()? {
@@ -210,42 +210,44 @@ pub fn review_change(
         count(base.reviewed.len(), "file"),
     ));
     let start = base.clone();
-    let mut run = Run {
+    let mut run = Pass {
         cfg: &cfg,
-        st: &st,
+        steering: &steering,
         fences: &fences,
         deps,
         cancel: deps.cancel,
         now,
-        texts: HashMap::new(),
-        mine: base.clone(),
+        file_texts: HashMap::new(),
+        working_copy: base.clone(),
         merged: HashSet::new(),
         new: Vec::new(),
         budget: Budget::new(caps, today),
         review_estimate: review_est,
         check_estimate: check_est,
         disk: deps.store,
-        written: base,
-        renames: HashMap::new(),
+        last_written: base,
+        renamed_ids: HashMap::new(),
     };
     let report = match run.go(&scope, req.fresh) {
         Ok(r) => r,
         Err(Halt::Silent) => return Ok(ReviewOutcome::Skipped("Jev did not answer".into())),
         Err(Halt::Failed(e)) => return Err(e),
     };
-    let (written, mine, mut renames) = (run.written, run.mine, run.renames);
-    deps.store
-        .update(&mut |current| *current = merge_into(&written, &mine, current, &mut renames))?;
+    let (last_written, working_copy, mut renamed_ids) =
+        (run.last_written, run.working_copy, run.renamed_ids);
+    deps.store.update(&mut |current| {
+        *current = merge_into(&last_written, &working_copy, current, &mut renamed_ids)
+    })?;
     let mut report = report;
     let was: HashMap<&FindingId, &Finding> = start.findings.iter().map(|f| (&f.id, f)).collect();
-    report.touched = mine
+    report.touched = working_copy
         .findings
         .iter()
         .filter(|f| was.get(&f.id) != Some(f))
         .map(|f| f.id.clone())
         .collect();
     for id in report.new.iter_mut().chain(report.touched.iter_mut()) {
-        if let Some(to) = renames.get(id) {
+        if let Some(to) = renamed_ids.get(id) {
             *id = to.clone();
         }
     }
@@ -254,20 +256,25 @@ pub fn review_change(
     Ok(ReviewOutcome::Ran(report))
 }
 
-/// A unit sent to the review call: its file, name, first line and the
+/// A unit sent to the review call: its file, name and the
 /// fingerprint it was sent at.
-type Sent = (PathBuf, String, u32, Fingerprint);
+#[derive(Debug, Clone)]
+struct SentUnit {
+    file: PathBuf,
+    name: String,
+    fingerprint: Fingerprint,
+}
 
-struct Run<'r, 'd> {
+struct Pass<'r, 'd> {
     cfg: &'r ScryConfig,
-    st: &'r Steering,
+    steering: &'r Steering,
     fences: &'r Fences,
     deps: &'r ReviewDeps<'d>,
     cancel: &'r Cancel,
     now: DateTime<Utc>,
-    texts: HashMap<PathBuf, String>,
+    file_texts: HashMap<PathBuf, String>,
     /// The store as this pass leaves it.
-    mine: Findings,
+    working_copy: Findings,
     /// Stored findings a finding of this pass merged into.
     merged: HashSet<FindingId>,
     new: Vec<FindingId>,
@@ -277,18 +284,22 @@ struct Run<'r, 'd> {
     disk: &'r dyn FindingStore,
     /// The store as this pass last wrote it (at first, as it read it), in
     /// written ids.
-    written: Findings,
+    last_written: Findings,
     /// The pass's ids that clashed with findings added meanwhile, to the
     /// ids written in their place.
-    renames: HashMap<FindingId, FindingId>,
+    renamed_ids: HashMap<FindingId, FindingId>,
 }
 
-impl Run<'_, '_> {
+impl Pass<'_, '_> {
     fn go(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<ReviewReport, Halt> {
-        let base_ids: HashSet<FindingId> =
-            self.mine.findings.iter().map(|f| f.id.clone()).collect();
+        let base_ids: HashSet<FindingId> = self
+            .working_copy
+            .findings
+            .iter()
+            .map(|f| f.id.clone())
+            .collect();
         let old_waiting: HashSet<FindingId> = self
-            .mine
+            .working_copy
             .findings
             .iter()
             .filter(|f| f.status == Status::Waiting)
@@ -296,7 +307,7 @@ impl Run<'_, '_> {
             .collect();
         let gone = self.sweep_gone(scope);
         let mut asked = self.send(scope, fresh);
-        self.judge_all(std::mem::take(&mut asked.raws), scope)?;
+        self.judge_all(std::mem::take(&mut asked.raw_findings), scope)?;
         let whole = asked.capped == 0 && asked.failures.is_empty();
         self.remember(&asked, &gone, &base_ids, whole);
         let checks_capped = self.verify_files(scope, &old_waiting)?;
@@ -314,7 +325,7 @@ impl Run<'_, '_> {
         })
     }
 
-    fn t(&self, text: &str) {
+    fn log(&self, text: &str) {
         self.deps.log.put(text);
     }
 
@@ -325,7 +336,7 @@ impl Run<'_, '_> {
 
     /// The file's text, read once a pass; empty when fenced or unreadable.
     fn text(&mut self, file: &Path) -> String {
-        if let Some(t) = self.texts.get(file) {
+        if let Some(t) = self.file_texts.get(file) {
             return t.clone();
         }
         let t = if self.fences.allows(file) {
@@ -333,7 +344,7 @@ impl Run<'_, '_> {
         } else {
             String::new()
         };
-        self.texts.insert(file.to_path_buf(), t.clone());
+        self.file_texts.insert(file.to_path_buf(), t.clone());
         t
     }
 }
