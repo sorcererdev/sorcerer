@@ -1,7 +1,9 @@
-//! The run log: each step's inputs and decisions, as Markdown text a use
-//! case puts as it goes. Called on the use case's thread only.
+//! The run log: what each step of a review was given and decided, as
+//! Markdown text the review adds as it goes. Only the review's own thread
+//! writes to it.
 
 pub trait RunLog {
+    /// Adds the text to the end of the log.
     fn put(&self, text: &str);
 }
 
@@ -12,7 +14,7 @@ impl RunLog for Quiet {
     fn put(&self, _: &str) {}
 }
 
-/// A closure is a log (the tests', and the eval's collector).
+/// A closure can stand in as a log, as the tests and the eval's collector do.
 impl<F: Fn(&str)> RunLog for F {
     fn put(&self, text: &str) {
         self(text)

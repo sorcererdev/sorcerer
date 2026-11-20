@@ -34,7 +34,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 - `issue_type.rs`: `IssueType`, `Verify`, `ISSUE_TYPES`, `issue_type`.
 - `finding.rs`: `Finding`, `FindingId`, `Status`, `Place`, `Evidence`, `Scores`,
   `StoredVerdict`, `StoredCitation`, `Dismissal` (`Here`, `Everywhere`), `status_word`.
-- `findings.rs`: `Findings` (`new_id`, `get`, `dismiss`, `shown_in`, `shown_in_scope`),
+- `findings.rs`: `Findings` (`new_id`, `get`, `find` (the same, or why not), `dismiss`, `shown_in`, `shown_in_scope`),
   `merge_into`, `renamed`.
 - `steering.rs`: `Steering`, `Rule`, `Include`, `RawSteering`, `parse_steering`,
   `STEERING_CAP`.

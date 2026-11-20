@@ -68,7 +68,14 @@ impl Findings {
     /// finds `ffee11`, while `"abcd"` (two match) and `"ff"` (too short)
     /// find nothing.
     pub fn get(&self, id: &str) -> Option<&Finding> {
-        self.position_of(id).ok().map(|i| &self.findings[i])
+        self.find(id).ok()
+    }
+
+    /// The finding [`Findings::get`] would find, or why there is none, in
+    /// words the user is shown: `no finding ff` or `abcd matches more than
+    /// one finding`.
+    pub fn find(&self, id: &str) -> std::result::Result<&Finding, String> {
+        self.position_of(id).map(|i| &self.findings[i])
     }
 
     /// Where the finding [`Findings::get`] would find is in the list, or

@@ -6,13 +6,16 @@ use sorcerer_core::domain::errand::Errand;
 
 use crate::domain::review_prompt::ReviewAsk;
 
+/// A review call's result: the model's reply, and the ledger row that
+/// records what the call cost.
 #[derive(Debug, Clone)]
 pub struct Reviewed {
     pub reply: String,
     pub errand: Errand,
 }
 
-/// The seam the eval swaps for recorded replies.
+/// Makes a review call on `model`, spending at most `cap_usd`. The eval
+/// stands in recorded replies here.
 pub trait Reviewer: Send + Sync {
     fn review(
         &self,
