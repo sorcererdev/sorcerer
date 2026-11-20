@@ -256,17 +256,12 @@ pub fn review_change(
     Ok(ReviewOutcome::Ran(report))
 }
 
-/// A unit sent to the review call: its file, name, first line and the
+/// A unit sent to the review call: its file, name and the
 /// fingerprint it was sent at.
 #[derive(Debug, Clone)]
 struct SentUnit {
     file: PathBuf,
     name: String,
-    #[expect(
-        dead_code,
-        reason = "part of the unit's key; nothing reads it back yet"
-    )]
-    first_line: u32,
     fingerprint: Fingerprint,
 }
 

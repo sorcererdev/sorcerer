@@ -236,7 +236,6 @@ impl ReviewResults {
             self.answered.push(SentUnit {
                 file: key.0,
                 name: key.1,
-                first_line: key.2,
                 fingerprint,
             });
         }
