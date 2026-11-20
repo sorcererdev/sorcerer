@@ -23,7 +23,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   `judge.rs`: each finding placed, matched, merged or added (`Pass::judge_all`, `judge`,
   `merge`, `add`); `remember.rs`: resolved, gone, moved, not found again, the reviewed marks
   (`Pass::remember`, `sweep_gone`, `drop_moved`, `mark_reviewed`); `verify.rs`: the
-  verification rounds (`Pass::verify_files`, `verify`) and `citations`, `cites`.
+  verification rounds (`Pass::verify_files`, `verify_file`, `Room`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
   `DayCost`).
@@ -270,21 +270,24 @@ the `CodebaseView`, the `Reviewer`, the `Decider` (Jev), the `ClaimChecker`, the
 in tests), the `RunLog` (below), a `progress` callback told `Progress::Reviewed(n)` after each
 review call that answered and `Progress::Stored` after the write, and the `Cancel`. It reads
 `[scry]` and returns `Skipped` when it is off, works out the scope (`scope_of`, logged with
-`scope_text`), then returns `ReviewOutcome::Ran(ReviewReport)` (`looked_at` units sent and answered, the `new` ids,
+`scope_text`) and the caps (`caps_for`), then returns `ReviewOutcome::Ran(ReviewReport)` (`looked_at` units sent and answered, the `new` ids,
 `spent`, `capped` units, one `failures` line per failed call, `whole`, `checks_capped`
 when a claim check did not fit, and `touched`, every finding the pass added or changed: those
-of `Pass::working_copy` not equal to the store as read, mapped through the renames), or
+of `Pass::working_copy` not equal to the store as read (`touched_since`), mapped through the renames), or
 `ReviewOutcome::Skipped` when `[scry] enabled` is false or Jev did not answer; the report
 carries the `scope` so the caller prints what was in it. The command line
 (`cli::go`) checks `enabled` itself before the wiring (`LiveWiring::open`, which needs a Jev key and
 a provider) and exits 0, so a pre-commit hook
-in a project that turned scry off lets the commit through; any other `Skipped` exits 2. The steps, in
+in a project that turned scry off lets the commit through; any other `Skipped` exits 2.
+`review_change` itself reads as the frame of the pass: lock, `findings_on_disk`,
+`SpentSoFar::read`, the Pass section (`pass_text`), `Pass::new`, `Pass::go`, its halts (`Halt::Silent`
+is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unlock. The steps, in
 `Pass::go` (`mod.rs`), each in its own file:
 
 1. **Lock and read.** `FindingStore::hold` takes `state/scry/pass.lock` with `File::lock`
-   (blocking) for the whole pass, so two passes never interleave. The store is read once; `Unreadable` is
+   (blocking) for the whole pass, so two passes never interleave. The store is read once (`findings_on_disk`); `Unreadable` is
    `Error::StoreUnreadable` and nothing is touched. The pass works on a copy, `Pass::working_copy`.
-   The ledger is read once too, through the `Ledger` port: its `review` and `check` rows give the estimates and, through
+   The ledger is read once too (`SpentSoFar::read`, which also fixes the pass's `now`), through the `Ledger` port: its `review` and `check` rows give the estimates and, through
    core's `cost::spent_in` in the `Clock`'s offset, what scry spent earlier in the local day,
    which starts the pass's `Budget` (Jev's `decide` rows are not counted: a fraction of a cent each).
 2. **What to send, and the gone sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
@@ -307,34 +310,36 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
    `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Pass::report`, `ReviewResults::record_reply`)).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
-   is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an
-   `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
-   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins;
-   `match_stored` says merge (`Pass::merge`), drop, or new. A new finding gets the `nitpick`
-   question (`Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
+   is dropped (`resolve_cited_rule`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
+   `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
+   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins
+   (`same_problem_as_stored`); `match_stored` says merge (`Pass::merge`), drop, or new. A new finding gets the `nitpick`
+   question (`add_unless_a_nitpick`, over `Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
-   statement and evidence (printed by `citations` when they hold); a merge into a finding
+   statement and evidence (`take_this_passs_version`; printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
    one's place, statement and evidence (the refresh is for a finding kept by a later pass). Either way it adds one to `seen` and keeps id, status and
    dismissals; a withheld one is asked
-   again when `asked_on` changed, a refuted or unsure one waits again when its evidence prints
-   moved. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
+   again when `asked_on` changed (`ask_withheld_again_if_changed`), a refuted or unsure one waits again when its evidence prints
+   moved (`wait_again_if_evidence_moved`). Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
    with nothing written (`Halt::Silent`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
-   waiting) are `resolved`; those it said *still holds* go into `still_hold`.
+   waiting) are `resolved` (`resolve_what_no_longer_holds`); those it said *still holds* go into `still_hold`.
    `Pass::drop_moved` (over `Pass::moved`, which reads each sent file's units again): a unit
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or waiting finding from before the pass
    whose unit was sent at a fingerprint other than its place's, and that nothing merged into,
-   kept (`still_hold`) or resolved, is `resolved` (not found again). The prompt tells the reviewer not
+   kept (`still_hold`) or resolved, is `resolved` (not found again: `resolve_not_found_again`, over the
+   answered units `not_moved`). The prompt tells the reviewer not
    to raise an open finding again, so `still_hold` is what keeps an unfixed finding open across an
    edit of its unit.
-6. **Verify.** `rounds::verify` for each scoped file that still exists, sharing the pass's
+6. **Verify.** `Pass::verify_file` for each scoped file that still exists, sharing the pass's
    `Budget` (below). It runs even when nothing in the file was sent, so a waiting finding
    opens once the file has room.
 7. **Write.** `Pass::drop_moved` again (a unit may have changed while the checks ran); the
-   fingerprints of the sent, answered, unmoved units join `reviewed` and leave `capped`. Each
+   fingerprints of the sent, answered, unmoved units join `reviewed` and leave `capped`
+   (`Pass::mark_reviewed`, `mark_one_reviewed`). Each
    write (the one before a round's checks, and this last one) is a `FindingStore::update` applying
    `merge_into(last_written, working_copy, current)`, `last_written` being what the pass last wrote: each finding
    in the store as it is now takes the pass's version only when its status there is still the
@@ -342,7 +347,8 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    are appended; `reviewed` sets are joined; `capped` is the pass's when it changed it. A new
    finding whose id another writer took meanwhile gets a fresh one (`free_id`); `merge_into`
    records it in `Pass::renamed_ids`, applies the map to `working_copy` on every later write (`last_written` is
-   kept in written ids through `renamed`), and `review_change` maps `ReviewReport::new` through it.
+   kept in written ids through `renamed`). The last write is `Pass::finish`, which also fills `touched`
+   and maps `ReviewReport::new` and `touched` through the renames (`apply_renames`).
 
 ## The run log
 
@@ -354,18 +360,18 @@ the pass's thread only (a round's claim checks are traced after they join), so i
 `Sync`, and the command line's can write to a stderr that is not `Send`. Nothing the pass
 decides reads it: the eval's table is the same with or without it. The calls:
 
-- `review_change`: the **Scope** section (`scope_text`), then the **Pass** section, the caps, what scry spent earlier today, the estimates.
+- `review_change`: the **Scope** section (`scope_text`), then the **Pass** section (`pass_text`), the caps, what scry spent earlier today, the estimates.
 - `Pass::send`: **Units** (each scope unit, to send or already reviewed), **Review calls** (per
   batch: units, model, cap, the open ids, `review_prompt(&ask)` and the reply each in
   `block`, the errand, then the parse or the failure, or the cap that held it back; each piece
   built by one of `ask.rs`'s `…_text` functions, last in the file);
   `Pass::judge_all`: **Findings** (a `sub` heading a raw finding, then `Pass::judge`);
   `Pass::remember`: **Remember** (resolved by the reply, not found again, swept gone by
-  `sweep_gone`, dropped as moved); and after the rounds `Pass::mark_reviewed`: **Reviewed**.
+  `sweep_gone`, dropped as moved; `remember_text`); and after the rounds `Pass::mark_reviewed`: **Reviewed** (`reviewed_text`).
 - `Pass::judge` and `Pass::merge`: the statement, the rule as cited and as resolved, the
   evidence, the placement, each same-problem question's P(yes) and the outcome, the nitpick
   question's P(yes) with the confidence against `confidence_threshold`, and the id and status given.
-- `verify`: a **Verification** section for a file with waiting findings, then per
+- `Pass::verify_file`: a **Verification** section for a file with waiting findings, then per
   round the room, the candidates and the rest; each finding's citations (`cites`
   names the one that failed); each claim check's models (its errands'), escalation, verdict
   and reason, cost, resulting status, and every `Checked::cited` through `citation`.
@@ -382,20 +388,21 @@ model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)
 `budget` (when set) or `today + spent + e` passes `day`; `charge` adds a cost; `room` is the
 least left under any finite cap. `cost_of(errands)` sums a call's priced errands.
 
-`verify(store, file, cfg, budget, deps, cancel, around)` takes the file's waiting findings,
-best confidence first, in rounds. A round takes the candidates that would fit if all passed: one
-that was waiting before the pass (`Around::old_waiting`) only while the file's open findings
+`Pass::verify_file(file, old_waiting)` takes the file's waiting findings,
+best confidence first (`waiting_best_first`), in rounds. A round takes the candidates that would fit if all passed
+(`Room::split`, from the file's `Room`: its open findings and how many the pass's own opened): one
+that was waiting before the pass (`old_waiting`) only while the file's open findings
 of shown issue types are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
-pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding: `citations`
+pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding (`check_citations`): `citations`
 (failure → `unsure`, the reason as verdict); a `Verify::Citations` issue type opens at once; a
 `CitationsThenClaim` issue type's check is reserved against the budget at `check_estimate`, and one
-that does not fit leaves its finding waiting and stops the rounds (`Verified { capped }`).
-When there are checks to run the store is written (`Around::save`) and `Progress::Stored`
+that does not fit leaves its finding waiting and stops the rounds (`Citations::HeldBack`; `verify_file` returns true).
+When there are checks to run the store is written (`Pass::save_working_copy`) and `Progress::Stored`
 sent, so what opened shows before the checks finish. The round's checks run side by side on
-`std::thread::scope`, each a `Claim` of the statement about its evidence: `Right` opens,
+`std::thread::scope` (`claim_checks_side_by_side`), each recorded in the order started (`record_check`), each a `Claim` of the statement about its evidence: `Right` opens,
 `Wrong` is `refuted`, `CannotTell` is `unsure` (verdict, reason and `Checked::cited` stored, the cost
 charged and added to the finding's `cost_usd`); an `Err` leaves it waiting, its place free for the
-next round, which takes the rest. The rounds end when a round takes nobody.
+next round, which takes the rest; `Room::count_opened` counts what opened. The rounds end when a round takes nobody.
 
 ## Wiring
 

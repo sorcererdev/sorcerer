@@ -1,9 +1,21 @@
-//! The review_change use case:
-//! the request's scope worked out; the scope's units not yet reviewed go to
-//! the review call in batches (`ask`); each finding is placed, matched against
-//! the store, filtered by Jev's nitpick question and remembered (`judge`,
-//! `remember`); then each file's waiting findings go through the
-//! verification rounds (`verify`), within the caps.
+//! The review_change use case. `review_change`:
+//! 1. reads the config (scry off: skipped) and works out the scope
+//!    (`scope_of`), logged;
+//! 2. sets the caps (`caps_for`) and reads the steering and the fences;
+//! 3. takes the store's pass lock, then reads the findings on disk
+//!    (`findings_on_disk`) and what scry spent so far (`SpentSoFar::read`),
+//!    logged (`pass_text`);
+//! 4. runs the pass (`Pass::new`, `Pass::go`): the scope's units not yet
+//!    reviewed go to the review call in batches (`ask`); each finding is
+//!    placed, matched against the store, filtered by Jev's nitpick question
+//!    and remembered (`judge`, `remember`); then each file's waiting
+//!    findings go through the verification rounds (`verify`), within the
+//!    caps;
+//! 5. stops on a halt (Jev silent: skipped; an error: returned), else lays
+//!    the pass over the store as it is now (`Pass::finish`), tells `Stored`
+//!    and lets the lock go.
+//!
+//! The run log's text is built last in the file.
 
 mod ask;
 mod judge;
@@ -28,7 +40,7 @@ use sorcerer_models::ports::decider::Decider;
 use crate::domain::budget::{Budget, Caps, check_estimate, review_estimate};
 use crate::domain::config::ScryConfig;
 use crate::domain::finding::{Finding, FindingId, Status};
-use crate::domain::findings::{Findings, merge_into};
+use crate::domain::findings::{Findings, merge_into, renamed};
 use crate::domain::log_text::{count, scope_text, section, usd};
 use crate::domain::scope::{Scope, ScopeRequest};
 use crate::domain::steering::Steering;
@@ -142,7 +154,6 @@ impl From<Error> for Halt {
 /// the end, each time laying its changes over the store as it is then. The
 /// caps hold the review calls and claim checks back, the day's cap counting
 /// what scry spent earlier in the local day.
-#[expect(clippy::too_many_lines, reason = "readability stage 2")]
 pub fn review_change(
     project: &Project,
     req: &ReviewRequest,
@@ -156,104 +167,83 @@ pub fn review_change(
     }
     let scope = scope_of(project, deps.view, req.scope.clone(), req.all, &cfg)?;
     deps.log.put(&scope_text(&scope));
-    let caps = req.caps.clone().unwrap_or(Caps {
-        pass: None,
-        day: cfg.budget_per_day,
-        budget: req.budget,
-    });
-    let caps = &caps;
+    let caps = caps_for(req, &cfg);
     let steering = deps.settings.steering()?;
     let fences = Fences::for_project(project)?;
+
     let held = deps.store.hold()?;
-    let base = match deps.store.read()? {
-        Snapshot::Absent => Findings::default(),
-        Snapshot::Current(s) => s,
-        Snapshot::Unreadable(why) => {
-            return Err(Error::StoreUnreadable {
-                path: deps.store.path().to_path_buf(),
-                why,
-            });
-        }
-    };
-    let rows = deps.ledger.read()?.errands;
-    let now = deps.clock.now();
-    let offset = deps.clock.offset();
-    // Jev's questions are not counted against the caps: a fraction of a cent each
-    let paid: Vec<_> = rows
-        .iter()
-        .filter(|e| e.verb == "review" || e.verb == "check")
-        .cloned()
-        .collect();
-    let today = spent_in(
-        &paid,
-        "scry",
-        now.with_timezone(&offset).date_naive(),
-        offset,
-    );
-    let (review_est, check_est) = (
-        review_estimate(&rows, &cfg.review_model),
-        check_estimate(&rows),
-    );
-    deps.log.put(&format!(
-        "{}- caps: pass {}, day {} (scry spent {} earlier today), budget {}\n\
-         - estimates: review {} ({}), check {}\n\
-         - store: {}, {} reviewed before\n",
-        section("Pass"),
-        caps.pass.map_or("none".into(), usd),
-        usd(caps.day),
-        usd(today),
-        caps.budget.map_or("none".into(), usd),
-        usd(review_est),
-        cfg.review_model,
-        usd(check_est),
-        count(base.findings.len(), "finding"),
-        count(base.reviewed.len(), "file"),
-    ));
-    let start = base.clone();
-    let mut run = Pass {
-        cfg: &cfg,
-        steering: &steering,
-        fences: &fences,
-        deps,
-        cancel: deps.cancel,
-        now,
-        file_texts: HashMap::new(),
-        working_copy: base.clone(),
-        merged: HashSet::new(),
-        new: Vec::new(),
-        budget: Budget::new(caps, today),
-        review_estimate: review_est,
-        check_estimate: check_est,
-        disk: deps.store,
-        last_written: base,
-        renamed_ids: HashMap::new(),
-    };
-    let report = match run.go(&scope, req.fresh) {
-        Ok(r) => r,
+    let start = findings_on_disk(deps.store)?;
+    let spent = SpentSoFar::read(deps.ledger, deps.clock, &cfg)?;
+    deps.log
+        .put(&pass_text(&caps, &spent, &cfg.review_model, &start));
+    let mut pass = Pass::new(&cfg, &steering, &fences, deps, &caps, &spent, start.clone());
+    let report = match pass.go(&scope, req.fresh) {
+        Ok(report) => report,
         Err(Halt::Silent) => return Ok(ReviewOutcome::Skipped("Jev did not answer".into())),
         Err(Halt::Failed(e)) => return Err(e),
     };
-    let (last_written, working_copy, mut renamed_ids) =
-        (run.last_written, run.working_copy, run.renamed_ids);
-    deps.store.update(&mut |current| {
-        *current = merge_into(&last_written, &working_copy, current, &mut renamed_ids)
-    })?;
-    let mut report = report;
-    let was: HashMap<&FindingId, &Finding> = start.findings.iter().map(|f| (&f.id, f)).collect();
-    report.touched = working_copy
-        .findings
-        .iter()
-        .filter(|f| was.get(&f.id) != Some(f))
-        .map(|f| f.id.clone())
-        .collect();
-    for id in report.new.iter_mut().chain(report.touched.iter_mut()) {
-        if let Some(to) = renamed_ids.get(id) {
-            *id = to.clone();
-        }
-    }
+    let report = pass.finish(report, &start)?;
     (deps.progress)(&Progress::Stored);
     drop(held);
     Ok(ReviewOutcome::Ran(report))
+}
+
+/// REQ's caps exactly when it gives them; else the command line's: no pass
+/// cap, the day's `[scry] budget_per_day` and REQ's budget.
+fn caps_for(req: &ReviewRequest, cfg: &ScryConfig) -> Caps {
+    req.caps.clone().unwrap_or(Caps {
+        pass: None,
+        day: cfg.budget_per_day,
+        budget: req.budget,
+    })
+}
+
+/// The findings in STORE: none when there is no store yet; an unreadable
+/// store is an error, so the pass never writes over it.
+fn findings_on_disk(store: &dyn FindingStore) -> Result<Findings> {
+    match store.read()? {
+        Snapshot::Absent => Ok(Findings::default()),
+        Snapshot::Current(s) => Ok(s),
+        Snapshot::Unreadable(why) => Err(Error::StoreUnreadable {
+            path: store.path().to_path_buf(),
+            why,
+        }),
+    }
+}
+
+/// What scry spent earlier in the local day, and what a review call and a
+/// claim check are estimated to cost, as of the moment the pass starts.
+struct SpentSoFar {
+    as_of: DateTime<Utc>,
+    today: f64,
+    review_estimate: f64,
+    check_estimate: f64,
+}
+
+impl SpentSoFar {
+    /// Reads the ledger's errands as of the clock's now.
+    fn read(ledger: &dyn Ledger, clock: &dyn Clock, cfg: &ScryConfig) -> Result<SpentSoFar> {
+        let rows = ledger.read()?.errands;
+        let now = clock.now();
+        let offset = clock.offset();
+        // Jev's questions are not counted against the caps: a fraction of a cent each
+        let paid: Vec<_> = rows
+            .iter()
+            .filter(|e| e.verb == "review" || e.verb == "check")
+            .cloned()
+            .collect();
+        Ok(SpentSoFar {
+            as_of: now,
+            today: spent_in(
+                &paid,
+                "scry",
+                now.with_timezone(&offset).date_naive(),
+                offset,
+            ),
+            review_estimate: review_estimate(&rows, &cfg.review_model),
+            check_estimate: check_estimate(&rows),
+        })
+    }
 }
 
 /// A unit sent to the review call: its file, name and the
@@ -290,21 +280,40 @@ struct Pass<'r, 'd> {
     renamed_ids: HashMap<FindingId, FindingId>,
 }
 
-impl Pass<'_, '_> {
+impl<'r, 'd> Pass<'r, 'd> {
+    /// A pass that starts from START, within CAPS, having SPENT so far.
+    fn new(
+        cfg: &'r ScryConfig,
+        steering: &'r Steering,
+        fences: &'r Fences,
+        deps: &'r ReviewDeps<'d>,
+        caps: &Caps,
+        spent: &SpentSoFar,
+        start: Findings,
+    ) -> Pass<'r, 'd> {
+        Pass {
+            cfg,
+            steering,
+            fences,
+            deps,
+            cancel: deps.cancel,
+            now: spent.as_of,
+            file_texts: HashMap::new(),
+            working_copy: start.clone(),
+            merged: HashSet::new(),
+            new: Vec::new(),
+            budget: Budget::new(caps, spent.today),
+            review_estimate: spent.review_estimate,
+            check_estimate: spent.check_estimate,
+            disk: deps.store,
+            last_written: start,
+            renamed_ids: HashMap::new(),
+        }
+    }
+
     fn go(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<ReviewReport, Halt> {
-        let base_ids: HashSet<FindingId> = self
-            .working_copy
-            .findings
-            .iter()
-            .map(|f| f.id.clone())
-            .collect();
-        let old_waiting: HashSet<FindingId> = self
-            .working_copy
-            .findings
-            .iter()
-            .filter(|f| f.status == Status::Waiting)
-            .map(|f| f.id.clone())
-            .collect();
+        let base_ids = ids_of(&self.working_copy);
+        let old_waiting = waiting_ids(&self.working_copy);
         let gone = self.sweep_gone(scope);
         let mut asked = self.send(scope, fresh);
         self.judge_all(std::mem::take(&mut asked.raw_findings), scope)?;
@@ -323,6 +332,32 @@ impl Pass<'_, '_> {
             touched: Vec::new(),
             scope: scope.clone(),
         })
+    }
+
+    /// Lays the working copy over the store as it is now; REPORT with the
+    /// findings this pass added or changed since START, each under the id
+    /// it was written as.
+    fn finish(mut self, mut report: ReviewReport, start: &Findings) -> Result<ReviewReport> {
+        self.save_working_copy()?;
+        report.touched = touched_since(start, &self.working_copy);
+        apply_renames(&mut report.new, &self.renamed_ids);
+        apply_renames(&mut report.touched, &self.renamed_ids);
+        Ok(report)
+    }
+
+    /// Lays the working copy over the store as it is now; `last_written`
+    /// becomes the working copy, in written ids.
+    fn save_working_copy(&mut self) -> Result<()> {
+        self.disk.update(&mut |current| {
+            *current = merge_into(
+                &self.last_written,
+                &self.working_copy,
+                current,
+                &mut self.renamed_ids,
+            );
+        })?;
+        self.last_written = renamed(&self.working_copy, &self.renamed_ids);
+        Ok(())
     }
 
     fn log(&self, text: &str) {
@@ -347,4 +382,58 @@ impl Pass<'_, '_> {
         self.file_texts.insert(file.to_path_buf(), t.clone());
         t
     }
+}
+
+fn ids_of(findings: &Findings) -> HashSet<FindingId> {
+    findings.findings.iter().map(|f| f.id.clone()).collect()
+}
+
+fn waiting_ids(findings: &Findings) -> HashSet<FindingId> {
+    findings
+        .findings
+        .iter()
+        .filter(|f| f.status == Status::Waiting)
+        .map(|f| f.id.clone())
+        .collect()
+}
+
+/// The findings in NOW that are not as they were in START, in store order.
+fn touched_since(start: &Findings, now: &Findings) -> Vec<FindingId> {
+    let was: HashMap<&FindingId, &Finding> = start.findings.iter().map(|f| (&f.id, f)).collect();
+    now.findings
+        .iter()
+        .filter(|f| was.get(&f.id) != Some(f))
+        .map(|f| f.id.clone())
+        .collect()
+}
+
+/// Each of IDS that clashed with a finding added meanwhile, as written.
+fn apply_renames(ids: &mut [FindingId], renamed_ids: &HashMap<FindingId, FindingId>) {
+    for id in ids {
+        if let Some(to) = renamed_ids.get(id) {
+            *id = to.clone();
+        }
+    }
+}
+
+// The run log's text
+
+/// The `Pass` section: the caps, what scry spent earlier today, the
+/// estimates and the store as the pass found it.
+fn pass_text(caps: &Caps, spent: &SpentSoFar, review_model: &str, start: &Findings) -> String {
+    format!(
+        "{}- caps: pass {}, day {} (scry spent {} earlier today), budget {}\n\
+         - estimates: review {} ({}), check {}\n\
+         - store: {}, {} reviewed before\n",
+        section("Pass"),
+        caps.pass.map_or("none".into(), usd),
+        usd(caps.day),
+        usd(spent.today),
+        caps.budget.map_or("none".into(), usd),
+        usd(spent.review_estimate),
+        review_model,
+        usd(spent.check_estimate),
+        count(start.findings.len(), "finding"),
+        count(start.reviewed.len(), "file"),
+    )
 }

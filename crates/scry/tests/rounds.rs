@@ -559,3 +559,150 @@ fn a_timed_out_review_is_charged_at_most_the_budget_per_pass() {
     assert!(r.spent <= budget_per_pass, "charged {}", r.spent);
     assert!(r.spent > 0.0);
 }
+
+/// A pass over F with REVIEWER and CHECKER under CAPS: its report, its run
+/// log and its progress events.
+fn run_logged(
+    f: &Fixture,
+    reviewer: &StubReviewer,
+    checker: &CheckFn<'_>,
+    caps: &Caps,
+) -> (ReviewReport, String, Vec<Progress>) {
+    let log = Mutex::new(String::new());
+    let trace = |s: &str| log.lock().unwrap().push_str(s);
+    let progress = Mutex::new(Vec::new());
+    let on_progress = |p: &Progress| progress.lock().unwrap().push(p.clone());
+    let decider = StubDecider::new();
+    let ports = support::Ports::of(&f.project);
+    let cancel = Cancel::default();
+    let clock = FixedClock::at(t0());
+    let deps = ReviewDeps {
+        view: &f.view,
+        reviewer,
+        decider: &decider,
+        checker,
+        store: &ports.store,
+        ledger: &ports.ledger,
+        settings: &ports.settings,
+        clock: &clock,
+        log: &trace,
+        progress: &on_progress,
+        cancel: &cancel,
+    };
+    let req = ReviewRequest {
+        caps: Some(caps.clone()),
+        ..ReviewRequest::of(ScopeRequest::Working)
+    };
+    let report = match review_change(&f.project, &req, &deps).unwrap() {
+        ReviewOutcome::Ran(r) => r,
+        ReviewOutcome::Skipped(why) => panic!("skipped: {why}"),
+    };
+    (
+        report,
+        log.into_inner().unwrap(),
+        progress.into_inner().unwrap(),
+    )
+}
+
+/// The run log's sections from the first `## Verification:` heading to
+/// the last one's end.
+fn verification_text(log: &str) -> &str {
+    let start = log
+        .find("\n## Verification: ")
+        .unwrap_or_else(|| panic!("no Verification section in:\n{log}"));
+    let last = log.rfind("\n## Verification: ").unwrap();
+    let end = log[last + 1..]
+        .find("\n## ")
+        .map_or(log.len(), |e| last + 1 + e);
+    &log[start..end]
+}
+
+#[test]
+fn the_run_log_of_the_rounds_is_as_recorded() {
+    use sorcerer_models::domain::claim::{Cited, RawCitation};
+    let f = Fixture::new();
+    // five findings waiting before the pass, `cancel` not yet reviewed
+    let mut unsure = finding("00000a", "bug", 0.95, Status::Waiting);
+    unsure.evidence.push(Evidence {
+        file: "orders.py".into(),
+        lines: Span { start: 99, end: 99 },
+        print: None,
+    });
+    let seeded = vec![
+        unsure,
+        finding("00000b", "convention", 0.92, Status::Waiting),
+        finding("00000c", "bug", 0.90, Status::Waiting),
+        finding("00000d", "bug", 0.80, Status::Waiting),
+        finding("00000e", "bug", 0.70, Status::Waiting),
+    ];
+    support::update_store(&f.project, |s| s.findings = seeded).unwrap();
+    // and one the pass finds
+    let reply = serde_json::json!({
+        "findings": [{
+            "issue_type": "bug",
+            "file": "orders.py",
+            "lines": [2, 2],
+            "statement": "cancel forgets the order",
+            "rule": "",
+            "evidence": [{"file": "orders.py", "lines": [2, 2]}],
+        }],
+        "open": [],
+    })
+    .to_string();
+    let reviewer = StubReviewer::new().reply(&["orders.py"], &reply);
+    let checker = |c: &Claim| -> sorcerer_models::Result<Checked> {
+        match c.statement.as_str() {
+            "cancel forgets the order" => Ok(Checked {
+                cited: vec![Cited {
+                    raw: RawCitation {
+                        path: "orders.py".into(),
+                        unit: Some("cancel".into()),
+                        line: Some(2),
+                    },
+                    confirmed: true,
+                    unit_missed: false,
+                }],
+                ..checked(Verdict::Right)
+            }),
+            "claim 00000d" => Ok(checked(Verdict::Wrong)),
+            _ => failing(c),
+        }
+    };
+    // the review ($0.04) and three checks fit; a fourth's estimate does not
+    let caps = Caps {
+        pass: Some(0.07),
+        day: f64::INFINITY,
+        budget: None,
+    };
+    let (r, log, progress) = run_logged(&f, &reviewer, &checker, &caps);
+    let golden_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/run-log-verify.md");
+    let text = verification_text(&log);
+    if std::env::var_os("SCRY_BLESS").is_some() {
+        std::fs::write(&golden_path, text).unwrap();
+    }
+    let golden = std::fs::read_to_string(&golden_path).unwrap();
+    assert_eq!(
+        text, golden,
+        "the run log drifted; SCRY_BLESS=1 rewrites the golden file"
+    );
+
+    assert!(r.checks_capped);
+    assert_eq!(r.new.len(), 1);
+    assert_eq!(
+        progress,
+        [
+            Progress::Reviewed(1),
+            Progress::Stored,
+            Progress::Stored,
+            Progress::Stored,
+            Progress::Stored,
+        ]
+    );
+    let s = f.store();
+    assert_eq!(status_of(&s, &r.new[0].0), Status::Open);
+    assert_eq!(status_of(&s, "00000a"), Status::Unsure);
+    assert_eq!(status_of(&s, "00000b"), Status::Open);
+    assert_eq!(status_of(&s, "00000c"), Status::Waiting);
+    assert_eq!(status_of(&s, "00000d"), Status::Refuted);
+    assert_eq!(status_of(&s, "00000e"), Status::Waiting);
+}

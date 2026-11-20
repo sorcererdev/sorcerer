@@ -86,8 +86,8 @@ standard: a function of sixty lines that mixes levels still breaks rule 1. An ex
 written down where it is made:
 
 ```rust
-#[expect(clippy::too_many_lines, reason = "readability stage 2")]
-fn verify(…)
+#[expect(clippy::too_many_lines, reason = "readability stage 3")]
+fn research(…)
 ```
 
 `expect`, not `allow`: when the function is shortened and the mark is left behind, the build
