@@ -138,6 +138,15 @@ impl Finding {
         self.status = s;
         self.history.push((at, s));
     }
+
+    /// The finding, counted as seen once more, last at `at`.
+    pub fn seen_again(self, at: DateTime<Utc>) -> Finding {
+        Finding {
+            seen: self.seen + 1,
+            last: at,
+            ..self
+        }
+    }
 }
 
 /// A status as the store writes it (`open`, `dismissed-here`, …).

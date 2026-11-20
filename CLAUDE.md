@@ -34,9 +34,20 @@ kept current in the same branch as the code. A chapter that disagrees with the c
 7. **Names.** The established word first; a made-up word only where none exists. No abbreviation a
    newcomer cannot expand (`rq`, `cnt`, `res`). A name says what the thing is for, not how it
    is made (`units_not_yet_reviewed`, not `filter_units`).
-8. **Doc comments.** One plain sentence of intent on every function whose name does not already
-   say it all. A module's opening comment lists its steps in order, using the helpers' names. A
-   comment inside a body explains a *why* the code cannot (a rule, a trap), never a *what*.
+8. **Doc comments in plain words, with an example.** A newcomer can follow them: full sentences,
+   the real numbers ("at most 3 findings per file"), what a return value means, a short worked
+   example where the behaviour is not obvious. No CAPITALISED argument names, no jargon. A comment
+   inside a body explains a *why* the code cannot (a rule, a trap), never a *what*.
+9. **What the code relies on is a type.** An order, or a step's result that is the next step's only
+   input, is a type whose constructor guarantees it (`PrioritizedFindings`). A meaningful `bool`
+   is an enum (`RoundsEnded::BudgetRanOut`).
+10. **Immutable by default, where it stays readable.** Return new values over `&mut self`; a fold
+    over a loop with a flag; recursion with what is left over a reassigning loop. Keep a local
+    `mut` when the immutable form reads worse; the pass's working copy stays mutable.
+
+**The method:** write the function's story as numbered plain comments in its body, then refactor
+until each comment is obvious from the code, then move the story into the doc comment and drop
+the inline ones the code now says.
 
 What the rules do not ask for: a wrapper that only renames one call; a helper named after
 mechanics (`process_item`, `handle_reply_2`); a split so fine that the detail is more than two

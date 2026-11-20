@@ -42,7 +42,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 - `review_prompt.rs`: `ReviewUnit`, `ReviewAsk`, `RawFinding`, `ReviewReply`, `review_prompt`,
   `parse_review`, `batch_units`, `REVIEW_TIMEOUT`.
 - `judging.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_THRESHOLD`,
-  `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
+  `Placement`, `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
 - `budget.rs`: `Caps`, `Budget`, `review_estimate`, `check_estimate`, `cost_of`.
 - `verification.rs`: `needs_claim`, `claim_of`, `verdict_word`.
 - `log_text.rs`: the run log's text: `section`, `sub`, `block`, `usd`, `count`, `citation`,
@@ -215,9 +215,9 @@ line before the body holding the unit's own name, so a decorator above it is pas
 `domain/judging.rs` (the checks of citations are
 `usecases/review_change/verify.rs`) is what happens to a `RawFinding` after the review call.
 
-`place(raw, scoped, units_now)` gives its `Place` and first status. Among the `ScopedUnit`s of
+`place(raw, reviewed, units_now)` gives a `Placement`. Among the `ScopedUnit`s of
 its file whose span overlaps its lines, the one holding its first line wins, then the
-narrowest; that is `Open`. With none it is `Elsewhere`, placed in the narrowest unit of
+narrowest; that is `Placement::InReviewedUnit`. With none it is `Placement::Elsewhere`, placed in the narrowest unit of
 `units_now` (the file's units now) holding its first line, if any. The place carries that
 unit's name, first line and fingerprint.
 
@@ -233,7 +233,7 @@ side as `bug at a.py:41; rule: none; cancel() returns None`. The question, `same
   different code"; unsure not allowed.
 - context `finding A`, `finding B`, `code at A`, `code at B` (each `cited_code`).
 
-`match_stored(stored, new_unit)` is the merge table: open, unverified, withheld, refuted, unsure
+`match_stored(stored, new_unit)` is the merge table (`Match::MergeInto`, `Drop`, `AddAsNew`): open, unverified, withheld, refuted, unsure
 and elsewhere merge; dismissed-here drops in the unit it was dismissed in and is new in any
 other (or none); dismissed-everywhere drops; resolved and gone are new.
 
@@ -310,18 +310,18 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
    `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Pass::report`, `ReviewResults::record_reply`)).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
-   is dropped (`resolve_cited_rule`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
+   is dropped (`with_cited_rule_looked_up`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
    `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
    `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins
-   (`same_problem_as_stored`); `match_stored` says merge (`Pass::merge`), drop, or new. A new finding gets the `nitpick`
-   question (`add_unverified_or_withheld`, over `Pass::confidence`): confidence at or past `confidence_threshold` is `unverified`, else `withheld`, with
+   (`same_problem_as_stored`); `WhatToDo::given` (over `match_stored`) says merge (`Pass::merge`), drop, or add as new. A new finding gets the `nitpick`
+   question (`add_unverified_or_withheld`, over `ask_nitpick`, which returns a `NitpickAnswer`): confidence at or past `confidence_threshold` is `unverified`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
-   statement and evidence (`take_this_passs_version`; printed by `citations` when they hold); a merge into a finding
+   statement and evidence (`with_this_runs_version`; printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
    one's place, statement and evidence (the refresh is for a finding kept by a later pass). Either way it adds one to `seen` and keeps id, status and
    dismissals; a withheld one is asked
-   again when `asked_on` changed (`ask_withheld_again_if_changed`), a refuted or unsure one is unverified again when its evidence prints
-   moved (`wait_again_if_evidence_moved`). Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
+   again when `asked_on` changed (`asked_again_if_changed`), a refuted or unsure one is unverified again when its evidence prints
+   moved (`unverified_again_if_evidence_moved`); each returns the finding rather than changing it in place, and `Finding::seen_again` counts the sighting. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
    with nothing written (`Halt::Silent`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
