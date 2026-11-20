@@ -1,5 +1,6 @@
-//! The finding store as `.sorcerer/state/scry/findings.json`, version 2,
-//! over core's versioned store; the pass lock is `pass.lock` beside it.
+//! The finding store as a JSON file, `.sorcerer/state/scry/findings.json`
+//! (format version 2), read and written through core's versioned store.
+//! Beside it, `pass.lock` makes passes take turns.
 
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -20,14 +21,16 @@ pub struct JsonFindingStore {
 }
 
 impl JsonFindingStore {
-    /// The project's store (its state directory is created).
-    pub fn for_project(p: &Project) -> Result<JsonFindingStore> {
+    /// The project's store. Its state directory is created if it is not
+    /// there yet.
+    pub fn for_project(project: &Project) -> Result<JsonFindingStore> {
         Ok(JsonFindingStore {
-            store: Store::in_project(p, "scry/findings.json")?,
+            store: Store::in_project(project, "scry/findings.json")?,
         })
     }
 
-    /// The store at PATH, creating nothing until it is written.
+    /// The store in this file, creating nothing until it is written (so
+    /// `scry doctor` can look without changing anything).
     pub fn at(path: PathBuf) -> JsonFindingStore {
         JsonFindingStore {
             store: Store::at(path),
@@ -35,9 +38,10 @@ impl JsonFindingStore {
     }
 }
 
-struct Lock(#[allow(dead_code)] File);
+/// The open, locked `pass.lock`: the lock lasts as long as this value.
+struct PassLock(#[allow(dead_code)] File);
 
-impl Held for Lock {}
+impl Held for PassLock {}
 
 impl FindingStore for JsonFindingStore {
     fn read(&self) -> Result<Snapshot<Findings>> {
@@ -48,6 +52,9 @@ impl FindingStore for JsonFindingStore {
         self.store.update(|s| f(s))
     }
 
+    /// Waits until no other pass holds `pass.lock`, then holds it until the
+    /// returned value is dropped, so two passes never work on the store at
+    /// once. The file itself stays; only the lock on it comes and goes.
     fn hold(&self) -> Result<Box<dyn Held>> {
         let dir = self.path().parent().unwrap_or(Path::new("."));
         std::fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
@@ -59,7 +66,7 @@ impl FindingStore for JsonFindingStore {
             .open(&lock_path)
             .map_err(|e| Error::io(&lock_path, e))?;
         lock.lock().map_err(|e| Error::io(&lock_path, e))?;
-        Ok(Box::new(Lock(lock)))
+        Ok(Box::new(PassLock(lock)))
     }
 
     fn path(&self) -> &Path {

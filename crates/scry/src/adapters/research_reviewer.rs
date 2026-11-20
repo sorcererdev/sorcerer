@@ -1,5 +1,6 @@
-//! The reviewer over a researcher: Claude Code, or sorcerer's tool loop
-//! over any provider (the wiring chooses).
+//! The reviewer: a review call made as research, by Claude Code or by
+//! sorcerer's own tool loop over another provider (the wiring chooses).
+//! The researcher may read, grep and glob the project to back a finding.
 
 use std::sync::Arc;
 
@@ -10,7 +11,7 @@ use sorcerer_models::ports::researcher::Researcher;
 use crate::domain::review_prompt::{REVIEW_TIMEOUT, ReviewAsk, review_prompt};
 use crate::ports::reviewer::{Reviewed, Reviewer};
 
-/// The review call over a researcher (Claude Code, or the tool loop over a provider).
+/// Makes review calls through a researcher.
 pub struct ResearchReviewer {
     pub researcher: Arc<dyn Researcher>,
 }
@@ -23,7 +24,7 @@ impl Reviewer for ResearchReviewer {
         cap_usd: f64,
         cancel: &Cancel,
     ) -> sorcerer_models::Result<Reviewed> {
-        let r = self.researcher.research(
+        let researched = self.researcher.research(
             Research {
                 product: "scry".into(),
                 verb: "review".into(),
@@ -36,8 +37,8 @@ impl Reviewer for ResearchReviewer {
             cancel,
         )?;
         Ok(Reviewed {
-            reply: r.answer,
-            errand: r.errand,
+            reply: researched.answer,
+            errand: researched.errand,
         })
     }
 }
