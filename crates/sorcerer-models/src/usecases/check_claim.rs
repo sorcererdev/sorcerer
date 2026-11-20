@@ -27,8 +27,8 @@ use sorcerer_core::domain::unit::{Span, Unit};
 use sorcerer_core::ports::view::CodebaseView;
 
 use crate::domain::claim::{
-    CITATION_MISSED, Checked, Citation, Cited, Claim, ClaimKind, FIRST, RawCitation, STRONG,
-    THRESHOLD, Verdict,
+    CITATION_MISSED, Checked, Citation, CitationCheck, Cited, Claim, ClaimKind, Escalation,
+    FIRST_MODEL, GUARD_THRESHOLD, RawCitation, STRONG_MODEL, Verdict,
 };
 use crate::domain::claim_prompt::{claim_prompt, guard_questions, parse_reply};
 use crate::domain::research::{Research, Tool};
@@ -68,9 +68,9 @@ impl<'a> CheckClaimDeps<'a> {
             view,
             languages: None,
             product,
-            first: FIRST,
-            strong: STRONG,
-            threshold: THRESHOLD,
+            first: FIRST_MODEL,
+            strong: STRONG_MODEL,
+            threshold: GUARD_THRESHOLD,
             cap_usd: 0.10,
             timeout: Duration::from_secs(180),
         }
@@ -95,17 +95,17 @@ pub fn check_claim(claim: &Claim, deps: &CheckClaimDeps, cancel: &Cancel) -> Res
         });
     }
     let mut errands = Vec::new();
-    let done = |a: Attempt, escalated: bool, errands: Vec<Errand>| Checked {
+    let done = |a: Attempt, escalation: Escalation, errands: Vec<Errand>| Checked {
         verdict: a.verdict,
         why: a.why,
         citations: a.citations,
         cited: a.cited,
-        escalated,
+        escalation,
         errands,
     };
     let Some(decider) = deps.decider else {
         let a = attempt(claim, deps.strong, deps, cancel, &mut errands)?;
-        return Ok(done(a, false, errands));
+        return Ok(done(a, Escalation::No, errands));
     };
     if let Ok(a) = attempt(claim, deps.first, deps, cancel, &mut errands)
         && a.verdict != Verdict::CannotTell
@@ -120,14 +120,14 @@ pub fn check_claim(claim: &Claim, deps: &CheckClaimDeps, cancel: &Cancel) -> Res
                 .iter()
                 .all(|w| w.answer.p_yes().unwrap_or(0.0) >= deps.threshold)
         {
-            return Ok(done(a, false, errands));
+            return Ok(done(a, Escalation::No, errands));
         }
     }
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
     let a = attempt(claim, deps.strong, deps, cancel, &mut errands)?;
-    Ok(done(a, true, errands))
+    Ok(done(a, Escalation::ToTheStrongModel, errands))
 }
 
 fn attempt(
@@ -163,8 +163,11 @@ fn attempt(
         .zip(&each)
         .map(|(c, ok)| Cited {
             raw: c.clone(),
-            confirmed: ok.is_some(),
-            unit_missed: ok.as_ref().is_some_and(|k| k.unit_missed),
+            check: match ok {
+                None => CitationCheck::NotConfirmed,
+                Some(k) if k.unit_missed => CitationCheck::ConfirmedOnTheLineOnly,
+                Some(_) => CitationCheck::Confirmed,
+            },
         })
         .collect();
     let each = each.into_iter().map(|k| k.map(|k| k.citation));

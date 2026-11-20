@@ -44,7 +44,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_models::adapters::jev::question_key;
 use sorcerer_models::adapters::recorded_decider::RecordedDecider;
-use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
+use sorcerer_models::domain::claim::{Checked, Claim, Escalation, Verdict};
 use sorcerer_models::domain::decide::{Question, Weighed};
 use sorcerer_models::ports::decider::Decider;
 use support::{FixedClock, errand, git};
@@ -589,7 +589,7 @@ fn replayed(known: Option<&str>) -> Checked {
         why: "1a's claim check".into(),
         citations: Vec::new(),
         cited: Vec::new(),
-        escalated: false,
+        escalation: Escalation::No,
         errands: Vec::new(),
     }
 }
@@ -994,7 +994,7 @@ fn stub_live(_: &Corpus, _: &Arc<Project>, _: &Arc<FilesView>) -> Live {
             why: "stub".into(),
             citations: Vec::new(),
             cited: Vec::new(),
-            escalated: false,
+            escalation: Escalation::No,
             errands: vec![errand("check", "haiku", 0.01)],
         })
     };

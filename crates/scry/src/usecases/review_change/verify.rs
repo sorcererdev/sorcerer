@@ -17,7 +17,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fnv::fnv64_hex;
 use sorcerer_core::domain::unit::{Span, unit_at};
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
+use sorcerer_models::domain::claim::{Checked, CitationCheck, Claim, Escalation, Verdict};
 
 use super::{Halt, Pass, Progress};
 use crate::domain::budget::cost_of;
@@ -462,8 +462,8 @@ fn stored_citations(checked: &Checked) -> Vec<StoredCitation> {
             path: x.raw.path.clone(),
             unit: x.raw.unit.clone(),
             line: x.raw.line,
-            confirmed: x.confirmed,
-            unit_missed: x.unit_missed,
+            confirmed: x.check != CitationCheck::NotConfirmed,
+            unit_missed: x.check == CitationCheck::ConfirmedOnTheLineOnly,
         })
         .collect()
 }
@@ -683,7 +683,10 @@ fn check_text(
         } else {
             models.join(", ")
         },
-        if checked.escalated { "yes" } else { "no" },
+        match checked.escalation {
+            Escalation::No => "no",
+            Escalation::ToTheStrongModel => "yes",
+        },
         verdict_word(checked.verdict),
         checked.why,
         usd(cost),

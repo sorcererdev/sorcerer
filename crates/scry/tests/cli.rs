@@ -20,8 +20,8 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::domain::claim::{Checked, Claim, ClaimKind, Verdict};
-use sorcerer_models::domain::decide::{Question, Shape};
+use sorcerer_models::domain::claim::{Checked, Claim, ClaimKind, Escalation, Verdict};
+use sorcerer_models::domain::decide::{Question, Shape, UnsureAnswer};
 use sorcerer_models::domain::research::{Research, Researched};
 use sorcerer_models::ports::decider::Decider;
 use sorcerer_models::ports::researcher::Researcher;
@@ -92,7 +92,7 @@ impl Doubles {
                     why: "it does".into(),
                     citations: Vec::new(),
                     cited: Vec::new(),
-                    escalated: false,
+                    escalation: Escalation::No,
                     errands: Vec::new(),
                 })
             }),
@@ -583,7 +583,7 @@ fn the_live_claim_check_and_jev_record_as_scry() {
             no: "no".into(),
         },
         context: Vec::new(),
-        unsure_allowed: false,
+        unsure: UnsureAnswer::NotAllowed,
     };
     let _ = jev.ask(&[q], &Cancel::default());
     let rows = JsonlLedger::for_project(&project).unwrap().read().unwrap();
@@ -1124,7 +1124,7 @@ fn verbose_streams_the_log_on_stderr_and_leaves_stdout_as_it_was() {
 
 #[test]
 fn why_names_the_citation_a_check_could_not_confirm() {
-    use sorcerer_models::domain::claim::{Cited, RawCitation};
+    use sorcerer_models::domain::claim::{CitationCheck, Cited, RawCitation};
     let dir = changed_project();
     let mut d = bug_doubles(dir.path());
     d.checker = Box::new(|_: &Claim| {
@@ -1139,8 +1139,7 @@ fn why_names_the_citation_a_check_could_not_confirm() {
                         unit: Some("cancel".into()),
                         line: Some(2),
                     },
-                    confirmed: true,
-                    unit_missed: false,
+                    check: CitationCheck::Confirmed,
                 },
                 Cited {
                     raw: RawCitation {
@@ -1148,11 +1147,10 @@ fn why_names_the_citation_a_check_could_not_confirm() {
                         unit: Some("Order.refund".into()),
                         line: None,
                     },
-                    confirmed: false,
-                    unit_missed: false,
+                    check: CitationCheck::NotConfirmed,
                 },
             ],
-            escalated: false,
+            escalation: Escalation::No,
             errands: Vec::new(),
         })
     });
@@ -1185,7 +1183,7 @@ fn why_names_the_citation_a_check_could_not_confirm() {
 
 #[test]
 fn why_and_the_log_say_a_citation_stood_on_its_line() {
-    use sorcerer_models::domain::claim::{Cited, RawCitation};
+    use sorcerer_models::domain::claim::{CitationCheck, Cited, RawCitation};
     let dir = changed_project();
     let mut d = bug_doubles(dir.path());
     d.checker = Box::new(|_: &Claim| {
@@ -1199,10 +1197,9 @@ fn why_and_the_log_say_a_citation_stood_on_its_line() {
                     unit: Some("Orders::cancel".into()),
                     line: Some(2),
                 },
-                confirmed: true,
-                unit_missed: true,
+                check: CitationCheck::ConfirmedOnTheLineOnly,
             }],
-            escalated: false,
+            escalation: Escalation::No,
             errands: Vec::new(),
         })
     });
@@ -1422,7 +1419,7 @@ fn the_run_log_summary_is_as_recorded() {
             why: "it checks the state first".into(),
             citations: Vec::new(),
             cited: Vec::new(),
-            escalated: false,
+            escalation: Escalation::No,
             errands: vec![support::errand("check", "haiku", 0.01)],
         }),
         "cancel loses the refund" => Ok(Checked {
@@ -1430,7 +1427,7 @@ fn the_run_log_summary_is_as_recorded() {
             why: "the refund is not in view".into(),
             citations: Vec::new(),
             cited: Vec::new(),
-            escalated: true,
+            escalation: Escalation::ToTheStrongModel,
             errands: vec![support::errand("check", "sonnet", 0.01)],
         }),
         _ => Err(sorcerer_models::Error::Reply {

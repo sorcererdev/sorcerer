@@ -17,7 +17,7 @@ use scry::usecases::review_change::verify::citations;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::{Fingerprint, fingerprint};
 use sorcerer_core::domain::unit::{Span, Unit, UnitKind};
-use sorcerer_models::domain::decide::{Answer, Confidence, Shape, Weighed};
+use sorcerer_models::domain::decide::{Answer, Confidence, Shape, UnsureAnswer, Weighed};
 use support::{git_project, project_with_vendored_grammars, write};
 
 fn span(start: u32, end: u32) -> Span {
@@ -178,7 +178,7 @@ fn same_problem_question_has_inspects_wording() {
     assert_eq!(names, ["finding A", "finding B", "code at A", "code at B"]);
     let values: Vec<&str> = q.context.iter().map(|(_, v)| v.as_str()).collect();
     assert_eq!(values, ["A", "B", "ca", "cb"]);
-    assert!(!q.unsure_allowed);
+    assert_eq!(q.unsure, UnsureAnswer::NotAllowed);
     assert_eq!(SAME_THRESHOLD, 0.5);
 }
 
@@ -249,7 +249,7 @@ fn nitpick_carries_the_cited_rules_text_or_all_rules() {
             ),
         ]
     );
-    assert!(!q.unsure_allowed);
+    assert_eq!(q.unsure, UnsureAnswer::NotAllowed);
 
     r.rule = None;
     let q = nitpick(&st, &r, "code");
