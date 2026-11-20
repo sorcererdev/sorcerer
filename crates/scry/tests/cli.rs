@@ -487,7 +487,12 @@ fn an_old_store_exits_2_naming_its_version() {
         .on_path("claude")
         .var_set("JEV_API_KEY", "k");
     let rows = doctor_rows(&project, &env, &support::test_cache());
-    let store = rows.iter().find(|(m, _)| m == "store").unwrap().1.clone();
+    let store = rows
+        .iter()
+        .find(|row| row.name == "store")
+        .unwrap()
+        .result
+        .clone();
     assert!(store.unwrap_err().contains("version 1"));
 }
 
@@ -504,7 +509,13 @@ fn doctor_rows_load_the_project_languages_and_name_a_bad_store() {
         .on_path("claude")
         .var_set("JEV_API_KEY", "k");
     let rows = doctor_rows(&project, &env, &support::test_cache());
-    let get = |n: &str| rows.iter().find(|(m, _)| m == n).unwrap().1.clone();
+    let get = |n: &str| {
+        rows.iter()
+            .find(|row| row.name == n)
+            .unwrap()
+            .result
+            .clone()
+    };
     assert_eq!(get("languages"), Ok("python load".to_string()));
     let store = get("store").unwrap_err();
     assert!(store.contains("findings.json"), "{store}");

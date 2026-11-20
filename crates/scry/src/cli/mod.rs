@@ -31,7 +31,7 @@ use sorcerer_core::ports::env::Env;
 use crate::adapters::wiring::{LiveWiring, Wiring};
 use crate::domain::config::scry_config;
 use crate::domain::finding::Dismissal;
-pub use doctor::doctor_rows;
+pub use doctor::{DoctorRow, doctor_rows};
 use format::Output;
 use log::LogRequest;
 
