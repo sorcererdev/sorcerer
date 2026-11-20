@@ -127,6 +127,7 @@ pub fn price(prices: &BTreeMap<String, [f64; 2]>, model: &str, usage: &Usage) ->
     Some((usage.input_tokens as f64 * i + usage.output_tokens as f64 * o) / 1_000_000.0)
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;

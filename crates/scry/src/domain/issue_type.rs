@@ -48,6 +48,7 @@ pub fn issue_type(name: &str) -> Option<&'static IssueType> {
     ISSUE_TYPES.iter().find(|k| k.name == name)
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;

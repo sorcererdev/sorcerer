@@ -150,6 +150,7 @@ fn unknown_field(msg: &str) -> Option<String> {
     Some(rest[..rest.find('`')?].to_string())
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;

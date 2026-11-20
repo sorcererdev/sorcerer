@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_lines)]
 mod support;
 
 use std::path::{Path, PathBuf};
@@ -761,4 +762,278 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
     let v = only(&s).verdict.clone().unwrap();
     assert_eq!(v.cited.len(), 2);
     assert!(!v.cited[1].confirmed && v.cited[1].unit.as_deref() == Some("Order.refund"));
+}
+
+/// A unit of N lines named NAME: its definition and N - 1 numbered lines.
+fn long_unit(name: &str, n: u32) -> String {
+    let mut text = format!("def {name}():\n");
+    for i in 1..n {
+        text.push_str(&format!("    x{i} = {i}\n"));
+    }
+    text
+}
+
+/// What a pass gave: its outcome, its run log and its progress events.
+struct Logged {
+    outcome: sorcerer_core::Result<ReviewOutcome>,
+    log: String,
+    progress: Vec<Progress>,
+}
+
+/// One pass over the working tree of PROJECT under a pass cap of PASS_CAP
+/// (none: unbounded), the claim checks failing, CANCEL as given.
+fn pass_logged(
+    project: &Arc<Project>,
+    view: &FilesView,
+    reviewer: &StubReviewer,
+    pass_cap: Option<f64>,
+    cancel: &Cancel,
+) -> Logged {
+    use std::sync::Mutex;
+    let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
+        Err(sorcerer_models::Error::Reply {
+            provider: "stub".into(),
+            why: "no claim check in these tests".into(),
+        })
+    };
+    let log = Mutex::new(String::new());
+    let trace = |s: &str| log.lock().unwrap().push_str(s);
+    let progress = Mutex::new(Vec::new());
+    let on_progress = |p: &Progress| progress.lock().unwrap().push(p.clone());
+    let clock = FixedClock::at(t0());
+    let ports = support::Ports::of(project);
+    let decider = StubDecider::new();
+    let deps = ReviewDeps {
+        view,
+        reviewer,
+        decider: &decider,
+        checker: &checker,
+        store: &ports.store,
+        ledger: &ports.ledger,
+        settings: &ports.settings,
+        clock: &clock,
+        log: &trace,
+        progress: &on_progress,
+        cancel,
+    };
+    let req = ReviewRequest {
+        caps: Some(Caps {
+            pass: pass_cap,
+            day: f64::INFINITY,
+            budget: None,
+        }),
+        ..ReviewRequest::of(ScopeRequest::Working)
+    };
+    let outcome = review_change(project, &req, &deps);
+    Logged {
+        outcome,
+        log: log.into_inner().unwrap(),
+        progress: progress.into_inner().unwrap(),
+    }
+}
+
+/// The run log from its `Units` heading to the end of its `Review calls`
+/// section.
+fn review_calls_text(log: &str) -> &str {
+    let start = log.find("\n## Units\n").expect("a Units section");
+    let calls = start
+        + log[start..]
+            .find("\n## Review calls\n")
+            .expect("a Review calls section");
+    let end = log[calls + 1..]
+        .find("\n## ")
+        .map_or(log.len(), |e| calls + 1 + e);
+    &log[start..end]
+}
+
+/// Three files of one unit each (400, 400 and 300 lines, so one batch
+/// each) and a small one, committed, then each changed.
+fn three_batches() -> Fixture {
+    let dir = git_project();
+    write(dir.path(), ".sorcerer/scry.toml", STEERING);
+    write(dir.path(), "a.py", &long_unit("alpha", 400));
+    write(dir.path(), "b.py", &long_unit("beta", 400));
+    write(dir.path(), "c.py", &long_unit("gamma", 300));
+    write(dir.path(), "d.py", "def delta():\n    return 1\n");
+    commit(dir.path(), "four files");
+    for (file, from) in [
+        ("a.py", "x1 = 1"),
+        ("b.py", "x1 = 1"),
+        ("c.py", "x1 = 1"),
+        ("d.py", "return 1"),
+    ] {
+        let p = dir.path().join(file);
+        let text = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(p, text.replacen(from, &format!("{from} + 0"), 1)).unwrap();
+    }
+    let (project, view) = support::project_with_vendored_grammars(dir.path());
+    Fixture { dir, project, view }
+}
+
+/// Changes the second line of each of the three long files, so their units
+/// are sent again (d.py's is left as reviewed).
+fn change_the_long_units_again(f: &Fixture) {
+    for file in ["a.py", "b.py", "c.py"] {
+        let p = f.root().join(file);
+        let text = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(p, text.replacen("x1 = 1 + 0", "x1 = 1 + 1", 1)).unwrap();
+    }
+}
+
+fn reply_on(file: &str, line: u32, statement: &str, open: serde_json::Value) -> String {
+    serde_json::json!({
+        "findings": [{
+            "issue_type": "bug",
+            "file": file,
+            "lines": [line, line],
+            "statement": statement,
+            "rule": "",
+            "evidence": [{"file": file, "lines": [line, line]}],
+        }],
+        "open": open,
+    })
+    .to_string()
+}
+
+#[test]
+fn the_run_log_of_the_review_calls_is_as_recorded() {
+    let f = three_batches();
+    // the first pass leaves a waiting finding on alpha and every unit reviewed
+    let first = StubReviewer::new().reply(
+        &["a.py"],
+        &reply_on(
+            "a.py",
+            2,
+            "alpha's first line is off by one",
+            serde_json::json!([]),
+        ),
+    );
+    ran(
+        pass_logged(&f.project, &f.view, &first, None, &Cancel::default())
+            .outcome
+            .unwrap(),
+    );
+    let open_id = only(&f.store()).id.0.clone();
+    change_the_long_units_again(&f);
+
+    let answers = serde_json::json!([
+        {"id": open_id, "holds": "still holds", "why": "unchanged"},
+        {"id": "zzzzzz", "holds": "no longer holds", "why": "not shown"},
+    ]);
+    let reviewer = StubReviewer::new()
+        .reply(
+            &["a.py"],
+            &reply_on("a.py", 3, "alpha's second line is off by one", answers),
+        )
+        .reply(&["b.py"], "I could not find anything to say in JSON.");
+    // room for two calls at $0.04, not a third
+    let pass = pass_logged(
+        &f.project,
+        &f.view,
+        &reviewer,
+        Some(0.10),
+        &Cancel::default(),
+    );
+    let golden_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/run-log-send.md");
+    let text = review_calls_text(&pass.log);
+    if std::env::var_os("SCRY_BLESS").is_some() {
+        std::fs::write(&golden_path, text).unwrap();
+    }
+    let golden = std::fs::read_to_string(&golden_path).unwrap();
+    assert_eq!(
+        text, golden,
+        "the run log drifted; SCRY_BLESS=1 rewrites the golden file"
+    );
+
+    let r = ran(pass.outcome.unwrap());
+    assert_eq!(r.capped, 1);
+    assert_eq!(r.failures.len(), 1);
+    assert!(
+        r.failures[0].starts_with("review failed for b.py: "),
+        "{:?}",
+        r.failures
+    );
+    assert!(!r.whole);
+    assert_eq!(reviewer.asks().len(), 2);
+    let s = f.store();
+    let units_of =
+        |m: &std::collections::BTreeMap<PathBuf, std::collections::BTreeSet<String>>,
+         file: &str| m.get(Path::new(file)).cloned().unwrap_or_default();
+    assert_eq!(
+        units_of(&s.capped, "c.py").into_iter().collect::<Vec<_>>(),
+        ["gamma"]
+    );
+    assert!(units_of(&s.capped, "a.py").is_empty() && units_of(&s.capped, "b.py").is_empty());
+    let alpha_now = f
+        .view
+        .units(Path::new("a.py"))
+        .unwrap()
+        .into_iter()
+        .find(|u| u.name == "alpha")
+        .unwrap()
+        .fingerprint
+        .to_string();
+    assert!(units_of(&s.reviewed, "a.py").contains(&alpha_now));
+    assert_eq!(pass.progress.first(), Some(&Progress::Reviewed(1)));
+    assert_eq!(
+        pass.progress
+            .iter()
+            .filter(|p| matches!(p, Progress::Reviewed(_)))
+            .count(),
+        1
+    );
+    assert_eq!(pass.progress.last(), Some(&Progress::Stored));
+}
+
+#[test]
+fn after_one_batch_is_held_back_every_later_one_is() {
+    let f = three_batches();
+    let reviewer = StubReviewer::new();
+    // room for one call at $0.04, not two
+    let pass = pass_logged(
+        &f.project,
+        &f.view,
+        &reviewer,
+        Some(0.05),
+        &Cancel::default(),
+    );
+    let r = ran(pass.outcome.unwrap());
+    assert_eq!(reviewer.asks().len(), 1);
+    assert_eq!(
+        r.capped, 3,
+        "b.py's unit, and c.py's and d.py's batched together"
+    );
+    let s = f.store();
+    let capped: Vec<String> = s
+        .capped
+        .iter()
+        .flat_map(|(f, us)| us.iter().map(move |u| format!("{}:{u}", f.display())))
+        .collect();
+    assert_eq!(capped, ["b.py:beta", "c.py:gamma", "d.py:delta"]);
+    assert_eq!(
+        pass.log.matches("these units wait for a later run").count(),
+        2
+    );
+}
+
+#[test]
+fn a_cancel_before_the_pass_fails_every_batch_and_asks_nothing() {
+    let f = three_batches();
+    let reviewer = StubReviewer::new();
+    let cancel = Cancel::default();
+    cancel.cancel();
+    let pass = pass_logged(&f.project, &f.view, &reviewer, None, &cancel);
+    let r = ran(pass.outcome.unwrap());
+    assert!(reviewer.asks().is_empty());
+    assert_eq!(r.capped, 0);
+    assert_eq!(
+        r.failures,
+        [
+            "review cancelled for a.py",
+            "review cancelled for b.py",
+            "review cancelled for c.py, d.py",
+        ]
+    );
+    assert_eq!(pass.log.matches("- cancelled before the call\n").count(), 3);
+    assert!(f.store().capped.is_empty());
 }

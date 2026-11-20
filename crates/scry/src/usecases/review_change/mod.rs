@@ -1,6 +1,6 @@
 //! The review_change use case:
 //! the request's scope worked out; the scope's units not yet reviewed go to
-//! the review call in packs (`ask`); each finding is placed, matched against
+//! the review call in batches (`ask`); each finding is placed, matched against
 //! the store, filtered by Jev's nitpick question and remembered (`judge`,
 //! `remember`); then each file's waiting findings go through the
 //! verification rounds (`verify`), within the caps.
@@ -142,6 +142,7 @@ impl From<Error> for Halt {
 /// the end, each time laying its changes over the store as it is then. The
 /// caps hold the review calls and claim checks back, the day's cap counting
 /// what scry spent earlier in the local day.
+#[expect(clippy::too_many_lines, reason = "readability stage 2")]
 pub fn review_change(
     project: &Project,
     req: &ReviewRequest,

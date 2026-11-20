@@ -67,6 +67,7 @@ impl FindingStore for JsonFindingStore {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;

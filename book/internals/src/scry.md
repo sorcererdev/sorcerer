@@ -40,7 +40,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   `STEERING_CAP`.
 - `scope.rs`: `ScopeRequest`, `Scope`, `ScopedUnit`, `ScopedFile`, `header_of`.
 - `review_prompt.rs`: `ReviewUnit`, `ReviewAsk`, `RawFinding`, `ReviewReply`, `review_prompt`,
-  `parse_review`, `pack_units`, `REVIEW_TIMEOUT`.
+  `parse_review`, `batch_units`, `REVIEW_TIMEOUT`.
 - `judging.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_THRESHOLD`,
   `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
 - `budget.rs`: `Caps`, `Budget`, `review_estimate`, `check_estimate`, `cost_of`.
@@ -158,7 +158,7 @@ is a file's open findings whose issue type is in `[scry] issue_types`, best conf
 
 ## The review call
 
-`domain/review_prompt.rs` is the review call as data; its words are the eval's. A `ReviewAsk` carries the pack's
+`domain/review_prompt.rs` is the review call as data; its words are the eval's. A `ReviewAsk` carries the batch's
 `ReviewUnit`s (file, name, `lines`, enclosing `header`, `text`, `in_progress`), the diff, the
 steering text, `reported` (always empty in v1; spellbook's slot) and the `open` findings to
 re-answer. `review_prompt` renders it; `tests/golden/review-prompt.txt` is the golden, matched
@@ -172,7 +172,7 @@ finding needs one of the four issue types (the reply's `issue_type`), a file, a 
 answers need `holds` to be exactly `still holds` or `no longer holds`; a numeric id is accepted.
 Only a reply with no JSON at all is an `Err`.
 
-`pack_units` keeps units in order in packs of at most 600 numbered lines; a longer unit goes
+`batch_units` keeps units in order in batches of at most 600 numbered lines; a longer unit goes
 alone. `Reviewer` (`ports/reviewer.rs`) is the seam: `review(ask, model, cap_usd, cancel)` returns a `Reviewed` (the reply
 text and its `Errand`). `ResearchReviewer` (`adapters/research_reviewer.rs`) is the live one, one `Research` (product `scry`, verb
 `review`, tools Read/Grep/Glob, `REVIEW_TIMEOUT` 420 s); the eval swaps in recorded replies
@@ -187,6 +187,15 @@ review and the `ScopedFile`s the pass touched. The base is `HEAD`, or for `Since
 and every file is all new. The files are the named ones, or the view's `changed_since(base)`
 (every file, by `glob("**")`, with no commit). A file is dropped when no language covers it,
 `[scry] exclude` matches it, `Fences::allows` refuses it, or its text is `NotText`.
+
+The file reads top to bottom as these steps. `scope_of` builds a `Scoping` (the project, the
+view, the `Fences`, the `[scry] exclude` set, the base from `Scoping::base_revision`, and
+`all`), takes its `candidate_files` (each once; an absolute path outside the project is
+dropped by `relative_to_the_project`), starts from `Scope::empty` and asks `look_at` about each
+file. `look_at` answers a `FileInScope`: `LeftOut` with `reason_to_leave_out`'s reason (the
+first that holds, in the order above) or `not text` (`text_if_it_is_text`); `Deleted` from
+`deleted_since_the_base`; or `Present`, with `units_in_scope` turned into `scoped_units` and
+the file into a `scoped_file`.
 
 A file that is gone but was at the base is a `ScopedFile` with `deleted` and no units, so the
 pass can sweep its findings. A rename is a deletion and an addition (`changed_since` runs
@@ -282,9 +291,9 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `reviewed[file]` (every one with `fresh`). `Run::sweep_gone`: an open, waiting or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
    `gone`.
-3. **Review** (`ask.rs`). `pack_units` packs them; each pack is a `ReviewAsk` with its files' diffs
+3. **Review** (`ask.rs`). `batch_units` batches them; each batch is a `ReviewAsk` with its files' diffs
    (`diff_of`), `Steering::steering_text`, `reported` empty, and the open and waiting findings on its
-   units (`Run::open_on`). Before each call `Budget::allows(find_estimate)`; once one pack is
+   units (`Run::open_on`). Before each call `Budget::allows(find_estimate)`; once one batch is
    capped every later one is, and its units' names go to `capped[file]` in the store. The
    call's `cap_usd` is the per-call cap, set here in the pass and nowhere else:
    `Budget::room` bounded by `budget_per_pass` (`budget_per_pass` when nothing bounds the room). On the
@@ -293,7 +302,10 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `parse_review` refuses, is a `failures` line (`review failed for a.py: …`) and its units stay
    unreviewed; the reviewer has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
-   other failure.
+   other failure. In the code, `Run::send` is that story in order: `units_not_yet_reviewed`,
+   `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
+   `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
+   `cost_of_call`, then `Asked::record_reply` or `Asked::record_failure`).
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
@@ -344,8 +356,9 @@ decides reads it: the eval's table is the same with or without it. The calls:
 
 - `review_change`: the **Scope** section (`scope_text`), then the **Pass** section, the caps, what scry spent earlier today, the estimates.
 - `Run::send`: **Units** (each scope unit, to send or already reviewed), **Review calls** (per
-  pack: units, model, cap, the open ids, `review_prompt(&ask)` and the reply each in
-  `block`, the errand, then the parse or the failure, or the cap that held it back);
+  batch: units, model, cap, the open ids, `review_prompt(&ask)` and the reply each in
+  `block`, the errand, then the parse or the failure, or the cap that held it back; each piece
+  built by one of `ask.rs`'s `…_text` functions, last in the file);
   `Run::judge_all`: **Findings** (a `sub` heading a raw finding, then `Run::judge`);
   `Run::remember`: **Remember** (resolved by the reply, not found again, swept gone by
   `sweep_gone`, dropped as moved); and after the rounds `Run::mark_reviewed`: **Reviewed**.
@@ -481,7 +494,7 @@ exits 2 when any failed.
 `crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
 `git_repo` (no commit), `git_project`, `write`, `commit`, `project_with_vendored_grammars`
 (core's vendored grammars, no network), and three doubles. `StubReviewer` answers a review by the
-set of files in its pack (an empty findings list otherwise) and records every `ReviewAsk`.
+set of files in its batch (an empty findings list otherwise) and records every `ReviewAsk`.
 `StubDecider` answers each question with the first rule whose kind prefixes the question's and
 whose predicate holds, else a certain no, and records the questions. `StubReviewer::on_review` runs a hook during each call (a user acting mid-pass).
 `FixedClock` is a clock set by hand (`at`, `now`, `offset` to move it, `in_zone` for the
@@ -517,12 +530,12 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The project's grammars point at core's
   vendored sources; the request is `ScopeRequest::Working` with the caps
   `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`.
-- `reviews/<id>.json`, the recorded review replies in the packs form
-  `{"packs": [{"files", "reply", "cost_usd"}]}` (`recorded_findings` reads every pack's findings,
+- `reviews/<id>.json`, the recorded review replies in the batches form
+  `{"batches": [{"files", "reply", "cost_usd"}]}` (`recorded_findings` reads every batch's findings,
   each citing a rule by id; `the_recorded_replies_cite_the_corpus_rule_ids` checks bistro's are all in
-  its `scry.toml`). `CorpusReviewer` answers a pack with the findings, over all the case's packs,
-  whose `file` is one of the pack's files (an empty reply otherwise), at $0.04, so a change in
-  packing still replays. A case with no file, or a pack with a file no recorded pack holds, fails naming the case and the pack.
+  its `scry.toml`). `CorpusReviewer` answers a batch with the findings, over all the case's batches,
+  whose `file` is one of the batch's files (an empty reply otherwise), at $0.04, so a change in
+  batching still replays. A case with no file, or a batch with a file no recorded batch holds, fails naming the case and the batch.
 - `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
   the checker closure answers from it, `CannotTell` for a statement it does not hold.
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
@@ -549,17 +562,17 @@ To record a corpus, run its test once by hand with `JEV_API_KEY` set and `claude
 statement with no verdict in another corpus would be checked too). `run_corpus` then calls
 `run_corpus_with(corpus, only, Record::All, &live)`; `live` builds, per case, the live calls in a
 `Live`: a `ResearchReviewer` over `researcher_for`, the real `claim_checker` with Jev guarding, and
-a `RecordedDecider` recording with `jev_for`'s Jev. A pack is a miss when its case has no `reviews/<case>.json`, or when one of the pack's files is in none
-of the recorded packs (a recording that stopped part way through the case, `recorded_files`):
+a `RecordedDecider` recording with `jev_for`'s Jev. A batch is a miss when its case has no `reviews/<case>.json`, or when one of the batch's files is in none
+of the recorded batches (a recording that stopped part way through the case, `recorded_files`):
 `CorpusReviewer` asks the live reviewer with the pass's own `ReviewAsk` and model and appends
-`{"files", "reply", "cost_usd"}` for each pack (packs sorted by their files). A statement not in
+`{"files", "reply", "cost_usd"}` for each batch (batches sorted by their files). A statement not in
 `checks.json` is checked live and its verdict word (`right`, `wrong`, `cannot_tell`) written back,
 sorted. Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
 case prints the running total, and the end prints `recorded: N reviews $X, M checks $Y, K jev
-answers`. Without `SCRY_RECORD=all`, a miss fails naming the case and the pack's files
-(`a_partly_recorded_case_asks_for_the_missing_pack` covers the partial case).
+answers`. Without `SCRY_RECORD=all`, a miss fails naming the case and the batch's files
+(`a_partly_recorded_case_asks_for_the_missing_batch` covers the partial case).
 `record_mode_from` refuses any `SCRY_RECORD` when `CI` is set, before the first case. The tests
-`recording_writes_each_pack_and_the_verdict_word`, `a_miss_without_record_names_the_case_and_pack`
+`recording_writes_each_batch_and_the_verdict_word`, `a_miss_without_record_names_the_case_and_batch`
 and `record_is_refused_under_ci` run the mode on a fixture corpus with stubs for the live calls.
 
 Bistro, replayed on 2026-11-18 at scry `8e5e255` (identical over three runs, no Jev key; its

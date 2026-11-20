@@ -1,5 +1,5 @@
 {
-  "packs": [
+  "batches": [
     {
       "files": [
         "src/bistro/booking/ports/booking_repository/booking_repository__test.py"

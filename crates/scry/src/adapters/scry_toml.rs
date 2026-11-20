@@ -111,6 +111,7 @@ impl Settings for ScryToml {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,6 +252,11 @@ mod tests {
                 "adapters-implement-ports",
                 "cli-is-thin",
                 "one-name-per-concept",
+                "one-level-per-body",
+                "helpers-say-intent",
+                "log-text-apart",
+                "plain-names",
+                "comments-say-why",
                 "the-engine-knows-no-language",
                 "nothing-outside-the-repository",
                 "books-change-with-the-code",

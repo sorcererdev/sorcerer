@@ -19,3 +19,6 @@ anyhow.workspace = true
 chrono.workspace = true
 mockito.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true

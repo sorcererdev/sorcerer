@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_lines)]
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -236,9 +237,9 @@ fn no_json_is_an_error() {
 }
 
 #[test]
-fn units_pack_up_to_600_lines() {
-    let packs = pack_units(vec![unit(300), unit(250), unit(100)]);
-    let sizes: Vec<Vec<u32>> = packs
+fn units_batch_up_to_600_lines() {
+    let batches = batch_units(vec![unit(300), unit(250), unit(100)]);
+    let sizes: Vec<Vec<u32>> = batches
         .iter()
         .map(|p| p.iter().map(|u| u.lines.end).collect())
         .collect();
@@ -247,8 +248,8 @@ fn units_pack_up_to_600_lines() {
 
 #[test]
 fn a_long_unit_goes_alone() {
-    let packs = pack_units(vec![unit(700), unit(10)]);
-    assert_eq!(packs.iter().map(Vec::len).collect::<Vec<_>>(), vec![1, 1]);
+    let batches = batch_units(vec![unit(700), unit(10)]);
+    assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![1, 1]);
 }
 
 struct Stub(Mutex<Option<Research>>);

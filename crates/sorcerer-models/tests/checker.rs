@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_lines)]
 mod support;
 
 use std::collections::HashMap;

@@ -72,6 +72,7 @@ impl Run<'_, '_> {
         Ok((confidence_of(&w), on, w))
     }
 
+    #[expect(clippy::too_many_lines, reason = "readability stage 2")]
     fn judge(&mut self, mut raw: RawFinding, scope: &Scope) -> std::result::Result<(), Halt> {
         let cited_rule = raw.rule.clone();
         raw.rule = raw

@@ -26,3 +26,6 @@ grep-searcher.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true

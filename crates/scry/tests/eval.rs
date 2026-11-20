@@ -2,7 +2,7 @@
 //! names its language, sets and passing scores) run case by case through
 //! whole passes with every model call replayed, scored against its passing
 //! scores. One `#[test]` a corpus. The review calls replay the recorded
-//! findings (split by the pack's files), the claim checks the recorded
+//! findings (split by the batch's files), the claim checks the recorded
 //! verdicts, and Jev its recording under the corpus's `jev/`.
 //!
 //! `SCRY_EVAL_CASES=b01,vm02` runs only those cases and prints their
@@ -14,6 +14,7 @@
 //! `reviews/<case>.json` and the claim check of a statement not in
 //! `checks.json`, through the live researcher (`researcher_for`). Outward
 //! calls, run by hand, refused when `CI` is set.
+#![allow(clippy::too_many_lines)]
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -218,15 +219,15 @@ fn cases(corpus: &Corpus) -> Vec<Case> {
         .collect()
 }
 
-/// The findings of every pack recorded in `reviews/<case>.json`, in order.
+/// The findings of every batch recorded in `reviews/<case>.json`, in order.
 fn recorded_findings(file: &Path) -> Vec<Value> {
     let rec = read_json(file);
-    let packs = rec["packs"]
+    let batches = rec["batches"]
         .as_array()
-        .unwrap_or_else(|| panic!("{}: no packs", file.display()));
+        .unwrap_or_else(|| panic!("{}: no batches", file.display()));
     let mut out = Vec::new();
-    for pack in packs {
-        let reply = pack["reply"].as_str().unwrap();
+    for batch in batches {
+        let reply = batch["reply"].as_str().unwrap();
         if reply.trim().is_empty() {
             continue;
         }
@@ -240,9 +241,9 @@ fn recorded_findings(file: &Path) -> Vec<Value> {
     out
 }
 
-/// Every file some recorded pack in FILE holds.
+/// Every file some recorded batch in FILE holds.
 fn recorded_files(file: &Path) -> BTreeSet<PathBuf> {
-    read_json(file)["packs"]
+    read_json(file)["batches"]
         .as_array()
         .into_iter()
         .flatten()
@@ -252,15 +253,15 @@ fn recorded_files(file: &Path) -> BTreeSet<PathBuf> {
 }
 
 /// The review call replayed: the case's recorded findings (over all its
-/// packs) whose file is one of the pack's files, as one reply (an empty one
-/// when none are). A case with no recording asks LIVE and appends each pack
+/// batches) whose file is one of the batch's files, as one reply (an empty one
+/// when none are). A case with no recording asks LIVE and appends each batch
 /// to `reviews/<case>.json` when recording, and fails naming the case and
-/// pack otherwise.
+/// batch otherwise.
 struct CorpusReviewer<'a> {
     case: String,
     file: PathBuf,
     findings: Option<Vec<Value>>,
-    /// The files the recorded packs hold: a pack with a file outside them
+    /// The files the recorded batches hold: a batch with a file outside them
     /// is a miss (a recording that stopped part way through the case).
     covered: BTreeSet<PathBuf>,
     live: Option<&'a dyn Reviewer>,
@@ -291,18 +292,18 @@ impl<'a> CorpusReviewer<'a> {
         }
     }
 
-    /// Appends one pack to the case's recording, packs sorted by their files.
+    /// Appends one batch to the case's recording, batches sorted by their files.
     fn record(&self, files: Vec<String>, reviewed: &Reviewed) {
         let mut tally = self.tally.lock().unwrap();
         let mut rec = if self.file.exists() {
             read_json(&self.file)
         } else {
-            json!({"packs": []})
+            json!({"batches": []})
         };
         let cost = reviewed.errand.cost_usd.unwrap_or(0.0);
-        let packs = rec["packs"].as_array_mut().unwrap();
-        packs.push(json!({"files": files, "reply": reviewed.reply, "cost_usd": cost}));
-        packs.sort_by_key(|p| p["files"].to_string());
+        let batches = rec["batches"].as_array_mut().unwrap();
+        batches.push(json!({"files": files, "reply": reviewed.reply, "cost_usd": cost}));
+        batches.sort_by_key(|p| p["files"].to_string());
         std::fs::create_dir_all(self.file.parent().unwrap()).unwrap();
         std::fs::write(
             &self.file,
@@ -334,7 +335,7 @@ impl Reviewer for CorpusReviewer<'_> {
                 return Err(sorcerer_models::Error::Reply {
                     provider: "recorded".into(),
                     why: format!(
-                        "case {}: no recorded review for the pack [{}] ({}); record it with SCRY_RECORD=all",
+                        "case {}: no recorded review for the batch [{}] ({}); record it with SCRY_RECORD=all",
                         self.case,
                         names.join(", "),
                         self.file.display()
@@ -776,7 +777,7 @@ fn the_recorded_replies_cite_the_corpus_rule_ids() {
 
 /// A fixture corpus at `CARGO_TARGET_TMPDIR/NAME`: a four-file Python base,
 /// case `c1` changing `a.py`, case `c2` adding a 400-line function to each
-/// of `c.py` and `d.py` (two packs), no recordings, no passing scores.
+/// of `c.py` and `d.py` (two batches), no recordings, no passing scores.
 fn fixture_corpus(name: &str) -> Corpus {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
@@ -868,7 +869,7 @@ fn bug_reply(file: &str, line: u32, statement: &str) -> String {
     .to_string()
 }
 
-/// Stubs for the live calls: a reviewer answering one bug a pack, a
+/// Stubs for the live calls: a reviewer answering one bug a batch, a
 /// checker calling every claim right at $0.01, a decider answering no.
 fn stub_live(_: &Corpus, _: &Arc<Project>, _: &Arc<FilesView>) -> Live {
     let reviewer = support::StubReviewer::new()
@@ -896,20 +897,20 @@ fn stub_live(_: &Corpus, _: &Arc<Project>, _: &Arc<FilesView>) -> Live {
 }
 
 #[test]
-fn recording_writes_each_pack_and_the_verdict_word() {
+fn recording_writes_each_batch_and_the_verdict_word() {
     let c = fixture_corpus("eval-fixture-record");
     run_corpus_with(&c, None, Record::All, &stub_live);
-    let packs = |id: &str| -> Vec<Vec<String>> {
-        read_json(&c.dir.join("reviews").join(format!("{id}.json")))["packs"]
+    let batches = |id: &str| -> Vec<Vec<String>> {
+        read_json(&c.dir.join("reviews").join(format!("{id}.json")))["batches"]
             .as_array()
             .unwrap()
             .iter()
             .map(|p| serde_json::from_value(p["files"].clone()).unwrap())
             .collect()
     };
-    assert_eq!(packs("c1"), vec![vec!["a.py".to_string()]]);
+    assert_eq!(batches("c1"), vec![vec!["a.py".to_string()]]);
     assert_eq!(
-        packs("c2"),
+        batches("c2"),
         vec![vec!["c.py".to_string()], vec!["d.py".to_string()]]
     );
     let checks: BTreeMap<String, String> =
@@ -943,8 +944,8 @@ fn recording_writes_each_pack_and_the_verdict_word() {
 }
 
 #[test]
-#[should_panic(expected = "case c1: no recorded review for the pack [a.py]")]
-fn a_miss_without_record_names_the_case_and_pack() {
+#[should_panic(expected = "case c1: no recorded review for the batch [a.py]")]
+fn a_miss_without_record_names_the_case_and_batch() {
     let c = fixture_corpus("eval-fixture-miss");
     run_corpus_with(&c, None, Record::Nothing, &stub_live);
 }
@@ -956,20 +957,20 @@ fn record_is_refused_under_ci() {
 }
 
 #[test]
-fn a_partly_recorded_case_asks_for_the_missing_pack() {
+fn a_partly_recorded_case_asks_for_the_missing_batch() {
     let c = fixture_corpus("eval-fixture-partial");
     run_corpus_with(&c, None, Record::All, &stub_live);
-    // as if pack [c.py]'s live call had failed: c2 holds only pack [d.py]
+    // as if batch [c.py]'s live call had failed: c2 holds only batch [d.py]
     let file = c.dir.join("reviews/c2.json");
     let mut rec = read_json(&file);
-    rec["packs"]
+    rec["batches"]
         .as_array_mut()
         .unwrap()
         .retain(|p| p["files"] != json!(["c.py"]));
     std::fs::write(&file, rec.to_string()).unwrap();
-    // a recording asks for that pack again (not an empty replay) and keeps [d.py]
+    // a recording asks for that batch again (not an empty replay) and keeps [d.py]
     run_corpus_with(&c, None, Record::All, &stub_live);
-    let packs: Vec<Value> = read_json(&file)["packs"].as_array().unwrap().clone();
-    let files: Vec<&Value> = packs.iter().map(|p| &p["files"]).collect();
+    let batches: Vec<Value> = read_json(&file)["batches"].as_array().unwrap().clone();
+    let files: Vec<&Value> = batches.iter().map(|p| &p["files"]).collect();
     assert_eq!(files, vec![&json!(["c.py"]), &json!(["d.py"])]);
 }

@@ -1,6 +1,14 @@
 //! Working out a pass's scope from the request, through the view.
+//!
+//! `scope_of` sets up the `Scoping` (the fences, the `[scry] exclude` set
+//! and the `base_revision`), takes the `candidate_files`, and has it
+//! `look_at` each one. A file is left out (`reason_to_leave_out`, or not
+//! text: `text_if_it_is_text`), deleted (`deleted_since_the_base`), or
+//! present: its `units_in_scope` become `scoped_units`, and the file a
+//! `scoped_file`.
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use sorcerer_core::domain::compare::{UnitChange, compare_units};
@@ -24,110 +32,213 @@ pub fn scope_of(
     all: bool,
     cfg: &ScryConfig,
 ) -> Result<Scope> {
-    let fences = Fences::for_project(project)?;
-    let exclude = exclude_set(project, &cfg.exclude)?;
-    let has_commit = view.merge_base("HEAD").is_ok();
-    let base = match &request {
-        ScopeRequest::Since(rev) => view.merge_base(rev)?,
-        _ if has_commit => "HEAD".to_string(),
-        _ => String::new(),
-    };
-    let relative = |p: &PathBuf| -> Option<PathBuf> {
-        if p.is_absolute() {
-            fences.relative(p)
-        } else {
-            Some(p.clone())
-        }
-    };
-    let mut candidates: Vec<PathBuf> = match &request {
-        ScopeRequest::Files(ps) => ps.iter().filter_map(relative).collect(),
-        _ if base.is_empty() => view.glob("**")?,
-        _ => view.changed_since(&base)?,
-    };
-    let mut seen = std::collections::HashSet::new();
-    candidates.retain(|p| seen.insert(p.clone()));
-
-    let mut scope = Scope {
-        request,
-        base,
-        units: Vec::new(),
-        files: Vec::new(),
-        skipped: Vec::new(),
-    };
-    for file in candidates {
-        let left_out = if project.languages.for_path(&file).is_none() {
-            Some("no language")
-        } else if exclude.is_match(&file) {
-            Some("excluded by [scry] exclude")
-        } else if !fences.allows(&file) {
-            Some("fenced")
-        } else {
-            None
-        };
-        if let Some(why) = left_out {
-            scope.skipped.push((file, why.into()));
-            continue;
-        }
-        if !view.exists(&file) {
-            if !scope.base.is_empty() && view.text_at(&file, &scope.base)?.is_some() {
-                scope.files.push(ScopedFile {
-                    diff: view.diff(&file, &scope.base)?,
-                    file,
-                    units_now: Vec::new(),
-                    deleted: true,
-                });
-            } else {
-                scope
-                    .skipped
-                    .push((file, "deleted, and not at the base".into()));
+    let scoping = Scoping::new(project, view, &request, all, cfg)?;
+    let files = scoping.candidate_files(&request)?;
+    let mut scope = Scope::empty(request, scoping.base.clone());
+    for file in files {
+        match scoping.look_at(file)? {
+            FileInScope::LeftOut(file, why) => scope.skipped.push((file, why)),
+            FileInScope::Deleted(scoped) => scope.files.push(scoped),
+            FileInScope::Present(scoped, units) => {
+                scope.units.extend(units);
+                scope.files.push(scoped);
             }
-            continue;
         }
-        let text = match view.text(&file) {
-            Ok(t) => t,
-            Err(Error::NotText { .. }) => {
-                scope.skipped.push((file, "not text".into()));
-                continue;
-            }
-            Err(e) => return Err(e),
-        };
-        let now = view.units(&file)?;
-        let picked: Vec<Unit> = if all || scope.base.is_empty() {
-            now.clone()
-        } else {
-            // Units at the base that do not read count as none: all added.
-            let before = view.units_at(&file, &scope.base).unwrap_or_default();
-            compare_units(&before, &now)
-                .into_iter()
-                .filter_map(|c| match c {
-                    UnitChange::Added(u) | UnitChange::Changed { after: u, .. } => Some(u),
-                    _ => None,
-                })
-                .collect()
-        };
-        let lines: Vec<&str> = text.lines().collect();
-        for unit in picked {
-            scope.units.push(ScopedUnit {
-                file: file.clone(),
-                header: header_of(&lines, &now, &unit),
-                unit,
-            });
-        }
-        let diff = if scope.base.is_empty() {
-            String::new()
-        } else {
-            view.diff(&file, &scope.base)?
-        };
-        scope.files.push(ScopedFile {
-            diff: if diff.is_empty() { text } else { diff },
-            units_now: now.into_iter().map(|u| u.name).collect(),
-            file,
-            deleted: false,
-        });
     }
     Ok(scope)
 }
 
+/// What deciding each file's place in a pass's scope needs.
+struct Scoping<'a> {
+    project: &'a Project,
+    view: &'a dyn CodebaseView,
+    fences: Fences,
+    exclude: GlobSet,
+    /// The revision units are compared with; empty when the repository has
+    /// no commit.
+    base: String,
+    /// Every unit of a file is in scope, not only the added and changed ones.
+    all: bool,
+}
+
+/// Where one candidate file stands: left out (and why), deleted since the
+/// base, or present with its units in scope.
+enum FileInScope {
+    LeftOut(PathBuf, String),
+    Deleted(ScopedFile),
+    Present(ScopedFile, Vec<ScopedUnit>),
+}
+
+impl<'a> Scoping<'a> {
+    fn new(
+        project: &'a Project,
+        view: &'a dyn CodebaseView,
+        request: &ScopeRequest,
+        all: bool,
+        cfg: &ScryConfig,
+    ) -> Result<Scoping<'a>> {
+        Ok(Scoping {
+            fences: Fences::for_project(project)?,
+            exclude: exclude_set(project, &cfg.exclude)?,
+            base: Self::base_revision(view, request)?,
+            project,
+            view,
+            all,
+        })
+    }
+
+    /// The revision units are compared with: the merge base for `Since`,
+    /// else `HEAD`; empty when the repository has no commit.
+    fn base_revision(view: &dyn CodebaseView, request: &ScopeRequest) -> Result<String> {
+        Ok(match request {
+            ScopeRequest::Since(rev) => view.merge_base(rev)?,
+            _ if view.merge_base("HEAD").is_ok() => "HEAD".to_string(),
+            _ => String::new(),
+        })
+    }
+
+    /// The files named, or every file when there is no base, or the files
+    /// changed since the base; each once, in order.
+    fn candidate_files(&self, request: &ScopeRequest) -> Result<Vec<PathBuf>> {
+        let files = match request {
+            ScopeRequest::Files(named) => named
+                .iter()
+                .filter_map(|p| self.relative_to_the_project(p))
+                .collect(),
+            _ if self.base.is_empty() => self.view.glob("**")?,
+            _ => self.view.changed_since(&self.base)?,
+        };
+        let mut seen = HashSet::new();
+        Ok(files
+            .into_iter()
+            .filter(|f| seen.insert(f.clone()))
+            .collect())
+    }
+
+    /// PATH relative to the project's root; None for an absolute path
+    /// outside it.
+    fn relative_to_the_project(&self, path: &Path) -> Option<PathBuf> {
+        if path.is_absolute() {
+            self.fences.relative(path)
+        } else {
+            Some(path.to_path_buf())
+        }
+    }
+
+    /// Where FILE stands in the scope, read only as far as that needs.
+    fn look_at(&self, file: PathBuf) -> Result<FileInScope> {
+        if let Some(why) = self.reason_to_leave_out(&file) {
+            return Ok(FileInScope::LeftOut(file, why.into()));
+        }
+        if !self.view.exists(&file) {
+            return self.deleted_since_the_base(file);
+        }
+        let Some(text) = self.text_if_it_is_text(&file)? else {
+            return Ok(FileInScope::LeftOut(file, "not text".into()));
+        };
+        let units_now = self.view.units(&file)?;
+        let in_scope = self.units_in_scope(&file, &units_now);
+        let units = Self::scoped_units(&file, &text, &units_now, in_scope);
+        let scoped = self.scoped_file(file, text, units_now)?;
+        Ok(FileInScope::Present(scoped, units))
+    }
+
+    /// Why FILE is left out without being read, if it is; the first reason
+    /// that holds wins.
+    fn reason_to_leave_out(&self, file: &Path) -> Option<&'static str> {
+        if self.project.languages.for_path(file).is_none() {
+            Some("no language")
+        } else if self.exclude.is_match(file) {
+            Some("excluded by [scry] exclude")
+        } else if !self.fences.allows(file) {
+            Some("fenced")
+        } else {
+            None
+        }
+    }
+
+    /// A file no longer in the tree: deleted, with its diff, when it was at
+    /// the base; else left out.
+    fn deleted_since_the_base(&self, file: PathBuf) -> Result<FileInScope> {
+        let was_at_the_base =
+            !self.base.is_empty() && self.view.text_at(&file, &self.base)?.is_some();
+        if !was_at_the_base {
+            return Ok(FileInScope::LeftOut(
+                file,
+                "deleted, and not at the base".into(),
+            ));
+        }
+        Ok(FileInScope::Deleted(ScopedFile {
+            diff: self.view.diff(&file, &self.base)?,
+            file,
+            units_now: Vec::new(),
+            deleted: true,
+        }))
+    }
+
+    fn text_if_it_is_text(&self, file: &Path) -> Result<Option<String>> {
+        match self.view.text(file) {
+            Ok(text) => Ok(Some(text)),
+            Err(Error::NotText { .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The units of FILE a pass looks at: all of them with `all` or when
+    /// there is no base, else the ones added or changed since the base.
+    fn units_in_scope(&self, file: &Path, units_now: &[Unit]) -> Vec<Unit> {
+        if self.all || self.base.is_empty() {
+            return units_now.to_vec();
+        }
+        // Units at the base that do not read count as none: all added.
+        let units_at_base = self.view.units_at(file, &self.base).unwrap_or_default();
+        compare_units(&units_at_base, units_now)
+            .into_iter()
+            .filter_map(|change| match change {
+                UnitChange::Added(u) | UnitChange::Changed { after: u, .. } => Some(u),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// UNITS of FILE as the scope holds them, each with the first line of
+    /// the unit that encloses it.
+    fn scoped_units(
+        file: &Path,
+        text: &str,
+        units_now: &[Unit],
+        units: Vec<Unit>,
+    ) -> Vec<ScopedUnit> {
+        let lines: Vec<&str> = text.lines().collect();
+        units
+            .into_iter()
+            .map(|unit| ScopedUnit {
+                file: file.to_path_buf(),
+                header: header_of(&lines, units_now, &unit),
+                unit,
+            })
+            .collect()
+    }
+
+    /// FILE as the scope holds it: its diff against the base, or its whole
+    /// TEXT when that diff is empty (no base, untracked, or unchanged), and
+    /// the name of every unit it has now.
+    fn scoped_file(&self, file: PathBuf, text: String, units_now: Vec<Unit>) -> Result<ScopedFile> {
+        let diff = if self.base.is_empty() {
+            String::new()
+        } else {
+            self.view.diff(&file, &self.base)?
+        };
+        Ok(ScopedFile {
+            diff: if diff.is_empty() { text } else { diff },
+            units_now: units_now.into_iter().map(|u| u.name).collect(),
+            file,
+            deleted: false,
+        })
+    }
+}
+
+/// The `[scry] exclude` globs as one set; a bad glob is a config error.
 fn exclude_set(project: &Project, globs: &[String]) -> Result<GlobSet> {
     let bad = |why: String| Error::Config {
         file: project.root.join(".sorcerer/config.toml"),

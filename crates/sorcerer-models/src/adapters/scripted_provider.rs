@@ -53,6 +53,7 @@ impl Provider for ScriptedProvider {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;

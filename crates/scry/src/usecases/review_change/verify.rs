@@ -93,6 +93,7 @@ struct Around<'a> {
 /// checks are reserved against the budget, then run side by side. A
 /// failed check frees its place for the next round; one that does not fit
 /// the caps leaves its finding waiting and stops the rounds.
+#[expect(clippy::too_many_lines, reason = "readability stage 2")]
 fn verify(
     store: &mut Findings,
     file: &Path,

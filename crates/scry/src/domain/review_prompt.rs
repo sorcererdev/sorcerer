@@ -1,4 +1,4 @@
-//! The review call as data: the pack of changed units it is asked about, with
+//! The review call as data: the batch of changed units it is asked about, with
 //! the project's steering and the open findings to answer; its prompt and
 //! the parse of its reply. The prompt's words are the eval's: changing one
 //! changes what the corpus measured (`tests/golden/review-prompt.txt`).
@@ -15,8 +15,8 @@ use crate::domain::issue_type::ISSUE_TYPES;
 /// Seconds a review call may take.
 pub const REVIEW_TIMEOUT: Duration = Duration::from_secs(420);
 
-/// Numbered lines a pack may hold (a longer unit goes alone).
-const PACK_LINES: u32 = 600;
+/// Numbered lines a batch may hold (a longer unit goes alone).
+const BATCH_LINES: u32 = 600;
 
 /// A unit to review. `in_progress`: it probably stops before doing its job,
 /// so it is reviewed for what is written, not for what is missing.
@@ -295,24 +295,24 @@ pub fn parse_review(text: &str) -> Result<ReviewReply, String> {
     }
 }
 
-/// Units in order, packed into calls of at most 600 numbered lines; a unit
+/// Units in order, batched into calls of at most 600 numbered lines; a unit
 /// longer than that goes alone.
-pub fn pack_units(units: Vec<ReviewUnit>) -> Vec<Vec<ReviewUnit>> {
+pub fn batch_units(units: Vec<ReviewUnit>) -> Vec<Vec<ReviewUnit>> {
     let size = |u: &ReviewUnit| u.lines.end.saturating_sub(u.lines.start) + 1;
-    let mut packs: Vec<Vec<ReviewUnit>> = vec![];
+    let mut batches: Vec<Vec<ReviewUnit>> = vec![];
     let mut n = 0;
     for u in units {
         let s = size(&u);
-        match packs.last_mut() {
-            Some(p) if n + s <= PACK_LINES => {
+        match batches.last_mut() {
+            Some(p) if n + s <= BATCH_LINES => {
                 p.push(u);
                 n += s;
             }
             _ => {
-                packs.push(vec![u]);
+                batches.push(vec![u]);
                 n = s;
             }
         }
     }
-    packs
+    batches
 }

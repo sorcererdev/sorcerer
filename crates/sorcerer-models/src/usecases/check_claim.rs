@@ -299,6 +299,7 @@ fn guard_evidence(raw: &[RawCitation], view: &dyn CodebaseView, fences: &Fences)
         .join("\n\n")
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
     use super::*;

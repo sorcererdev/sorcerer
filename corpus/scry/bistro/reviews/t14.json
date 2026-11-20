@@ -1,5 +1,5 @@
 {
-  "packs": [
+  "batches": [
     {
       "files": [
         "src/bistro/booking/ports/clock/__init__.py",
