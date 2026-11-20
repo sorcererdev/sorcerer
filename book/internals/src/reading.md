@@ -37,7 +37,7 @@ batches` marks where a helper belongs.
 without it.
 
 ```rust
-self.t(&held_back_text(self.review_estimate, self.budget.room()));
+self.log(&held_back_text(self.review_estimate, self.budget.room()));
 fn held_back_text(estimate: f64, room: Option<f64>) -> String { format!(…) }
 ```
 
@@ -141,7 +141,7 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result
     if scope.units.is_empty() {
         units_text.push_str("- no unit in scope\n");
     }
-    self.t(&units_text);
+    self.log(&units_text);
     let mut fingerprints: HashMap<(PathBuf, String, u32), Fingerprint> = HashMap::new();
     let mut units = Vec::new();
     for u in &to_send {
@@ -155,13 +155,13 @@ step is a helper below it:
 ```rust
 pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> ReviewResults {
     let to_send = self.units_not_yet_reviewed(scope, fresh);
-    self.t(&units_text(scope, &to_send, fresh));
+    self.log(&units_text(scope, &to_send, fresh));
     let sent = sent_fingerprints(&to_send);
     let batches = self.batches_of(&to_send);
-    self.t(&review_calls_heading_text(batches.is_empty()));
+    self.log(&review_calls_heading_text(batches.is_empty()));
     let mut asked = ReviewResults::default();
     for (n, batch) in batches.into_iter().enumerate() {
-        self.t(&batch_heading_text(n, &batch));
+        self.log(&batch_heading_text(n, &batch));
         if self.must_hold_back(&asked) {
             self.hold_back_for_a_later_run(&batch, &mut asked);
         } else if self.cancel.is_cancelled() {

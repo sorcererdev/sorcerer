@@ -507,7 +507,7 @@ waiting).
 
 The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar view, `StubReviewer`,
 `StubDecider`, `FixedClock`, a checker that says right and the fixture's `Ports`) into `main_with` through
-`impl Wired for &Doubles`, so the reviewer's asks can be read after two runs.
+`impl Wiring for &Doubles`, so the reviewer's asks can be read after two runs.
 
 ## The eval
 
