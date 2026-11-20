@@ -119,7 +119,7 @@ fn provider_row(project: &Project, env: &dyn Env) -> Result<String, String> {
 /// use. scry does not run without Jev.
 fn jev_row(project: &Project, env: &dyn Env) -> Result<String, String> {
     match Jev::from_env(&project.config.decide, env, None) {
-        Ok(_) => Ok(default_decider(&project.config.decide, env)
+        Ok(_) => Ok(default_decider(env)
             .map(|c| format!("{} ({})", c.name, c.why))
             .unwrap_or_else(|| "jev".into())),
         Err(e) => Err(format!("{e}; scry does not run without Jev")),

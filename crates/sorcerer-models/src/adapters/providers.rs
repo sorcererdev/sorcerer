@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use sorcerer_core::domain::config::{DecideConfig, ModelConfig};
+use sorcerer_core::domain::config::ModelConfig;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
@@ -48,7 +48,7 @@ pub fn default_provider(cfg: &ModelConfig, env: &dyn Env) -> Option<ProviderChoi
 }
 
 /// The decider: Jev when `JEV_API_KEY` is set.
-pub fn default_decider(_cfg: &DecideConfig, env: &dyn Env) -> Option<ProviderChoice> {
+pub fn default_decider(env: &dyn Env) -> Option<ProviderChoice> {
     env.var(JEV_KEY_VAR)
         .and_then(|_| choice("jev", &format!("{JEV_KEY_VAR} is set")))
 }
