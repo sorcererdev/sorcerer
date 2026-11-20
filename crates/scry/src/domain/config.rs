@@ -1,4 +1,5 @@
-//! `[scry]` in `.sorcerer/config.toml`, read strictly and range-checked.
+//! scry's settings: the `[scry]` table of `.sorcerer/config.toml`. An
+//! unknown key, or a value out of range, is an error naming the key.
 
 use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::project::Project;
@@ -6,18 +7,27 @@ use sorcerer_core::{Error, Result};
 
 use crate::domain::issue_type::issue_type;
 
-/// At most this many findings are shown in a file at a time.
+/// At most 3 findings are shown in a file at a time.
 pub const MAX_SHOWN: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ScryConfig {
+    /// Whether scry reviews at all. On by default.
     pub enabled: bool,
+    /// The issue types shown to the user. By default `bug`, `assumption`
+    /// and `convention`; `design` is raised but kept quiet.
     pub issue_types: Vec<String>,
+    /// The model that reviews the code: `sonnet` by default.
     pub review_model: String,
+    /// How sure Jev must be that a finding is worth saying before it is
+    /// shown, from 0 to 1: 0.7 by default.
     pub confidence_threshold: f64,
+    /// The most one pass may spend, in dollars: 0.25 by default.
     pub budget_per_pass: f64,
+    /// The most all passes may spend in a day, in dollars: 3.00 by default.
     pub budget_per_day: f64,
+    /// Glob patterns of files never reviewed, such as `gen/**`.
     pub exclude: Vec<String>,
 }
 
@@ -37,34 +47,58 @@ impl Default for ScryConfig {
     }
 }
 
-/// The project's `[scry]` table; an error names the key and the config file.
-pub fn scry_config(p: &Project) -> Result<ScryConfig> {
-    let c: ScryConfig = p.config.table("scry")?;
-    let file = p.root.join(".sorcerer/config.toml");
-    let bad = |why: String| Error::Config {
-        file: file.clone(),
-        why: format!("[scry] {why}"),
-    };
-    if !(0.0..=1.0).contains(&c.confidence_threshold) {
-        return Err(bad(format!(
-            "confidence_threshold = {} is outside 0..=1",
-            c.confidence_threshold
-        )));
+/// The project's scry settings: the `[scry]` table, with the defaults for
+/// keys it leaves out. The confidence threshold must be from 0 to 1, the
+/// budgets must not be negative, and the issue types must be known ones;
+/// otherwise the error names the key and the config file.
+///
+/// Example: `confidence_threshold = 1.5` is refused with
+/// `[scry] confidence_threshold = 1.5 is outside 0..=1`.
+pub fn scry_config(project: &Project) -> Result<ScryConfig> {
+    let config: ScryConfig = project.config.table("scry")?;
+    match config.first_problem() {
+        None => Ok(config),
+        Some(why) => Err(Error::Config {
+            file: project.root.join(".sorcerer/config.toml"),
+            why: format!("[scry] {why}"),
+        }),
     }
-    for (key, v) in [
-        ("budget_per_pass", c.budget_per_pass),
-        ("budget_per_day", c.budget_per_day),
-    ] {
-        if v.is_nan() || v < 0.0 {
-            return Err(bad(format!("{key} = {v} must not be negative")));
-        }
+}
+
+impl ScryConfig {
+    /// The first value out of range, as the error message tells it.
+    fn first_problem(&self) -> Option<String> {
+        self.threshold_problem()
+            .or_else(|| self.budget_problem())
+            .or_else(|| self.issue_type_problem())
     }
-    if let Some(k) = c.issue_types.iter().find(|k| issue_type(k).is_none()) {
-        return Err(bad(format!(
-            "issue_types: `{k}` is not an issue type (bug, assumption, convention, design)"
-        )));
+
+    fn threshold_problem(&self) -> Option<String> {
+        let threshold = self.confidence_threshold;
+        (!(0.0..=1.0).contains(&threshold))
+            .then(|| format!("confidence_threshold = {threshold} is outside 0..=1"))
     }
-    Ok(c)
+
+    /// A budget below 0, or not a number at all.
+    fn budget_problem(&self) -> Option<String> {
+        [
+            ("budget_per_pass", self.budget_per_pass),
+            ("budget_per_day", self.budget_per_day),
+        ]
+        .into_iter()
+        .find(|(_, dollars)| dollars.is_nan() || *dollars < 0.0)
+        .map(|(key, dollars)| format!("{key} = {dollars} must not be negative"))
+    }
+
+    fn issue_type_problem(&self) -> Option<String> {
+        let unknown = self
+            .issue_types
+            .iter()
+            .find(|name| issue_type(name).is_none())?;
+        Some(format!(
+            "issue_types: `{unknown}` is not an issue type (bug, assumption, convention, design)"
+        ))
+    }
 }
 
 #[allow(clippy::too_many_lines)]

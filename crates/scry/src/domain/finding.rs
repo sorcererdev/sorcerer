@@ -1,5 +1,5 @@
-//! The finding: one thing scry says a change gets wrong, with where it is,
-//! what it cites, how it scored and what became of it.
+//! A finding: one problem scry says a change has, with where it is, what
+//! it cites as evidence, how sure scry is of it, and what became of it.
 
 use std::path::PathBuf;
 
@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Span;
 
-/// Six lowercase hex digits, stable for the record's life.
+/// A finding's id: six lowercase hex digits, such as `3fa9c0`. It never
+/// changes once the finding is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FindingId(pub String);
 
@@ -17,8 +18,8 @@ pub struct FindingId(pub String);
 pub enum Status {
     /// Shown: passed the checks and the confidence threshold.
     Open,
-    /// Reviewed, not yet checked (a cap held the pass back).
-    /// Raised by the reviewer, not yet verified (old stores say "waiting").
+    /// Raised by the reviewer, not yet verified: the pass ran out of budget
+    /// before checking it. Older stores call this "waiting".
     #[serde(alias = "waiting")]
     Unverified,
     /// Judged a nitpick: kept, not shown.
@@ -39,15 +40,22 @@ pub enum Status {
     Gone,
 }
 
+/// Where a finding is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Place {
     pub file: PathBuf,
+    /// The name of the unit it is in, such as `Order.cancel`; none when its
+    /// lines are in no unit.
     pub unit: Option<String>,
     pub lines: Span,
+    /// The unit's first line when the finding was placed.
     pub unit_start: Option<u32>,
+    /// The unit's fingerprint when the finding was placed, so scry can tell
+    /// later whether the unit's code changed.
     pub fingerprint: Option<Fingerprint>,
 }
 
+/// Lines a finding cites to back its claim.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Evidence {
     pub file: PathBuf,
@@ -58,14 +66,19 @@ pub struct Evidence {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Scores {
+    /// How sure Jev is that the finding is worth saying, from 0 to 1. It is
+    /// shown when it reaches the project's `confidence_threshold`.
     pub confidence: Option<f64>,
-    /// What the nitpick judgement was asked about (unit, rule text, wording).
+    /// A stamp of what the nitpick question was asked about (the unit's
+    /// code, the rule text, the question's wording), so it is asked again
+    /// only when one of them changes.
     pub asked_on: Option<String>,
 }
 
+/// What the claim check said about a finding.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoredVerdict {
-    /// `right`, `wrong`, `cannot_tell`, or the citation failure.
+    /// `right`, `wrong`, `cannot_tell`, or why its citations failed.
     pub verdict: String,
     pub why: String,
     /// What the check cited (or, for a citation failure, the finding's own
@@ -74,8 +87,8 @@ pub struct StoredVerdict {
     pub cited: Vec<StoredCitation>,
 }
 
-/// One citation behind a verdict: a path, a unit or a line, and whether it
-/// was found.
+/// One thing a verdict cites (a file, and maybe a unit and a line in it),
+/// and whether it was found there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredCitation {
     pub path: String,
@@ -89,54 +102,64 @@ pub struct StoredCitation {
 }
 
 impl StoredCitation {
-    /// `confirmed`, `not found`, or, for one that stood on its line,
-    /// `unit not found, confirmed on line N` (the label names the unit).
+    /// Whether the citation was found, in words: `confirmed`, `not found`,
+    /// or, when its unit was missing but its line held, `unit not found,
+    /// confirmed on line 41`.
     pub fn outcome(&self) -> String {
         match (self.confirmed, self.unit_missed, self.line) {
-            (true, true, Some(l)) => format!("unit not found, confirmed on line {l}"),
+            (true, true, Some(line)) => format!("unit not found, confirmed on line {line}"),
             (true, _, _) => "confirmed".into(),
             (false, _, _) => "not found".into(),
         }
     }
 
-    /// `path unit line N`, the parts it has.
+    /// The citation in words, with the parts it has: `orders.py`,
+    /// `orders.py Order.cancel`, or `orders.py Order.cancel line 41`.
     pub fn label(&self) -> String {
-        let mut s = self.path.clone();
-        if let Some(u) = &self.unit {
-            s.push(' ');
-            s.push_str(u);
-        }
-        if let Some(l) = self.line {
-            s.push_str(&format!(" line {l}"));
-        }
-        s
+        let unit = self.unit.as_ref().map(|unit| format!(" {unit}"));
+        let line = self.line.map(|line| format!(" line {line}"));
+        format!(
+            "{}{}{}",
+            self.path,
+            unit.unwrap_or_default(),
+            line.unwrap_or_default()
+        )
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
     pub id: FindingId,
+    /// `bug`, `assumption`, `convention` or `design`.
     pub issue_type: String,
+    /// The id of the project rule it breaks, if it cites one.
     pub rule: Option<String>,
+    /// What is wrong and why it matters, in the reviewer's words.
     pub statement: String,
     pub place: Place,
     pub evidence: Vec<Evidence>,
     pub scores: Scores,
     pub verdict: Option<StoredVerdict>,
     pub status: Status,
+    /// How many passes have raised it.
     pub seen: u32,
+    /// When it was first raised.
     pub first: DateTime<Utc>,
+    /// When it was last raised.
     pub last: DateTime<Utc>,
+    /// Each status it has had, with when.
     pub history: Vec<(DateTime<Utc>, Status)>,
+    /// The model that reviewed the code.
     pub model: String,
+    /// Always 0 today: what a pass costs is in the run log.
     pub cost_usd: f64,
 }
 
 impl Finding {
-    /// Change the status and record when.
-    pub fn set_status(&mut self, s: Status, at: DateTime<Utc>) {
-        self.status = s;
-        self.history.push((at, s));
+    /// Changes the status and adds the change to the history.
+    pub fn set_status(&mut self, status: Status, at: DateTime<Utc>) {
+        self.status = status;
+        self.history.push((at, status));
     }
 
     /// The finding, counted as seen once more, last at `at`.
@@ -149,9 +172,10 @@ impl Finding {
     }
 }
 
-/// A status as the store writes it (`open`, `dismissed-here`, …).
-pub fn status_word(s: Status) -> String {
-    serde_json::to_value(s)
+/// A status as the store writes it: `Status::DismissedHere` is
+/// `dismissed-here`.
+pub fn status_word(status: Status) -> String {
+    serde_json::to_value(status)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()
