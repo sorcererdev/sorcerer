@@ -300,8 +300,8 @@ by saving it and making the report (`Pass::report`). The steps, in
    units (`Pass::open_on`). Before each call `Budget::allows(find_estimate)`; once one batch is
    capped every later one is, and its units' names go to `capped[file]` in the store. The
    call's `cap_usd` is the per-call cap, set here in the pass and nowhere else:
-   `Budget::room` bounded by `budget_per_pass` (`budget_per_pass` when nothing bounds the room). On the
-   command line `Caps.pass` is `None`, so without the bound `room` is the rest of the local
+   `Budget::money_left` bounded by `budget_per_pass` (`budget_per_pass` when no cap is finite). On the
+   command line `Caps.pass` is `None`, so without the bound `money_left` is the rest of the local
    day and one hung call would be charged all of it. A call that fails, or a reply
    `parse_review` refuses, is a `failures` line (`review failed for a.py: …`) and its units stay
    unreviewed; the reviewer has already put its errand in the ledger. The budget is charged the
@@ -389,7 +389,7 @@ decides reads it: the eval's table is the same with or without it. The calls:
 ledger rows of product `scry` and verb `review` / `check`, else $0.04 a review ($0.005 when the
 model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)` holds the
 `Caps` (`pass`, `day`, `budget`); `allows(e)` is false when `spent + e` passes `pass` or
-`budget` (when set) or `today + spent + e` passes `day`; `charge` adds a cost; `room` is the
+`budget` (when set) or `spent_earlier_today + spent + e` passes `day`; `charge` adds a cost; `money_left` is the
 least left under any finite cap. `cost_of(errands)` sums a call's priced errands.
 
 `Pass::verify_findings_in_file(file, unverified_from_earlier_runs)` takes the file's unverified findings,

@@ -1,6 +1,8 @@
-//! The issue types of a finding: a name, the sentence the review prompt gives it,
+//! The four kinds of problem a finding can be (bug, assumption, convention,
+//! design): for each, the sentence the review prompt defines it with,
 //! whether it is shown by default, and how a finding of it is verified.
 
+/// How a finding of an issue type is verified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verify {
     /// Its evidence citations must check out.
@@ -12,7 +14,9 @@ pub enum Verify {
 #[derive(Debug)]
 pub struct IssueType {
     pub name: &'static str,
+    /// What it means, as the review prompt says it.
     pub sentence: &'static str,
+    /// Whether it is in the default `issue_types`, the ones shown.
     pub shown: bool,
     pub verify: Verify,
 }
@@ -44,8 +48,10 @@ pub static ISSUE_TYPES: &[IssueType] = &[
     },
 ];
 
+/// The issue type with this name; none for a name that is not one, such
+/// as `style`.
 pub fn issue_type(name: &str) -> Option<&'static IssueType> {
-    ISSUE_TYPES.iter().find(|k| k.name == name)
+    ISSUE_TYPES.iter().find(|known| known.name == name)
 }
 
 #[allow(clippy::too_many_lines)]

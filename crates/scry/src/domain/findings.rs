@@ -1,6 +1,9 @@
-//! The findings a project holds: each finding, the units each file was
-//! reviewed at, and the units a cap held back; and how a pass lays its
-//! findings over the store as it is now.
+//! The findings a project holds, and how a pass writes its work into them.
+//!
+//! The store keeps every finding scry has raised, which units of each file
+//! a pass has reviewed, and which units a cost cap held back. A pass works
+//! on its own copy; [`merge_into`] writes that copy over the store as it is
+//! now, so a dismissal the user made meanwhile is not lost.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -17,14 +20,19 @@ use crate::domain::scope::Scope;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Findings {
     pub findings: Vec<Finding>,
-    /// Per file, the units a pass has looked at.
+    /// For each file, the names of the units a pass has reviewed.
     pub reviewed: BTreeMap<PathBuf, BTreeSet<String>>,
-    /// Per file, the units a cost cap held back.
+    /// For each file, the names of the units a cost cap kept from review.
     pub capped: BTreeMap<PathBuf, BTreeSet<String>>,
 }
 
 impl Findings {
-    /// Six hex digits of the finding's hash; rehashed with a counter while taken.
+    /// A new finding's id: six hex digits hashed from when it was raised,
+    /// its file, its lines and its statement. If another finding already has
+    /// those digits, the hash is taken again with a counter added (1, 2, ...)
+    /// until the digits are free.
+    ///
+    /// Example: `"3fa9c0"`.
     pub fn new_id(
         &self,
         at: DateTime<Utc>,
@@ -40,192 +48,281 @@ impl Findings {
             lines.end,
             statement
         );
-        let mut id = fnv64_hex(base.as_bytes())[..6].to_string();
-        let mut n = 0;
-        while self.findings.iter().any(|f| f.id.0 == id) {
-            n += 1;
-            id = fnv64_hex(format!("{base}\0{n}").as_bytes())[..6].to_string();
-        }
-        FindingId(id)
+        let with_counter = (1..).map(|n: u64| format!("{base}\0{n}"));
+        std::iter::once(base.clone())
+            .chain(with_counter)
+            .map(|text| six_hex_digits(&text))
+            .find(|id| !self.has_id(id))
+            .map(FindingId)
+            .expect("an unbounded counter finds a free id")
     }
 
-    /// By id, or by a unique prefix of at least four characters.
+    fn has_id(&self, id: &str) -> bool {
+        self.findings.iter().any(|f| f.id.0 == id)
+    }
+
+    /// The finding with this id, or with an id that starts with it, as long
+    /// as the start is at least four characters and only one finding has it.
+    ///
+    /// Example: with findings `abcd01`, `abcd02` and `ffee11`, `"ffee"`
+    /// finds `ffee11`, while `"abcd"` (two match) and `"ff"` (too short)
+    /// find nothing.
     pub fn get(&self, id: &str) -> Option<&Finding> {
-        self.index_of(id).ok()
+        self.position_of(id).ok().map(|i| &self.findings[i])
     }
 
-    fn index_of(&self, id: &str) -> std::result::Result<&Finding, String> {
-        if let Some(f) = self.findings.iter().find(|f| f.id.0 == id) {
-            return Ok(f);
+    /// Where the finding [`Findings::get`] would find is in the list, or
+    /// why there is none, in words the user is shown.
+    fn position_of(&self, id: &str) -> std::result::Result<usize, String> {
+        if let Some(i) = self.findings.iter().position(|f| f.id.0 == id) {
+            return Ok(i);
         }
         if id.len() < 4 {
             return Err(format!("no finding {id}"));
         }
-        let mut hits = self.findings.iter().filter(|f| f.id.0.starts_with(id));
-        match (hits.next(), hits.next()) {
-            (Some(f), None) => Ok(f),
+        let mut starting_with_id = self
+            .findings
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.id.0.starts_with(id))
+            .map(|(i, _)| i);
+        match (starting_with_id.next(), starting_with_id.next()) {
+            (Some(i), None) => Ok(i),
             (Some(_), Some(_)) => Err(format!("{id} matches more than one finding")),
             _ => Err(format!("no finding {id}")),
         }
     }
 
+    /// Marks a finding dismissed, found as [`Findings::get`] finds it: in
+    /// its own unit only, or everywhere. The change goes into its history.
+    /// An id that finds no finding is an error saying so.
     pub fn dismiss(
         &mut self,
         id: &str,
         everywhere: bool,
         at: DateTime<Utc>,
     ) -> std::result::Result<(), String> {
-        let full = self.index_of(id)?.id.clone();
-        let f = self
-            .findings
-            .iter_mut()
-            .find(|f| f.id == full)
-            .expect("found a moment ago");
-        f.set_status(
-            if everywhere {
-                Status::DismissedEverywhere
-            } else {
-                Status::DismissedHere
-            },
-            at,
-        );
+        let i = self.position_of(id)?;
+        let status = if everywhere {
+            Status::DismissedEverywhere
+        } else {
+            Status::DismissedHere
+        };
+        self.findings[i].set_status(status, at);
         Ok(())
     }
 
-    /// What a review prints: every open finding of ISSUE_TYPES whose place
-    /// is a unit of SCOPE, best confidence first (no `MAX_SHOWN`: the rounds
-    /// already held each file to it).
+    /// The findings a review prints: every open finding of the given issue
+    /// types whose unit is in the scope, the most confident first. There is
+    /// no limit per file here: the pass already showed at most 3 in each.
     pub fn shown_in_scope(&self, scope: &Scope, issue_types: &[String]) -> Vec<&Finding> {
-        let mut v: Vec<&Finding> = self
+        let in_scope = |f: &&Finding| {
+            scope.units.iter().any(|scoped| {
+                scoped.file == f.place.file
+                    && f.place.unit.as_deref() == Some(scoped.unit.name.as_str())
+            })
+        };
+        let open_in_scope = self
             .findings
             .iter()
-            .filter(|f| {
-                f.status == Status::Open
-                    && issue_types.contains(&f.issue_type)
-                    && scope.units.iter().any(|u| {
-                        u.file == f.place.file
-                            && f.place.unit.as_deref() == Some(u.unit.name.as_str())
-                    })
-            })
-            .collect();
-        v.sort_by(|a, b| {
-            let (ka, kb) = (
-                a.scores.confidence.unwrap_or(0.0),
-                b.scores.confidence.unwrap_or(0.0),
-            );
-            kb.total_cmp(&ka)
-        });
-        v
+            .filter(|f| is_open_of(f, issue_types))
+            .filter(in_scope);
+        most_confident_first(open_in_scope.collect())
     }
 
-    /// The file's open findings of shown issue types, best confidence first, at most `MAX_SHOWN`.
+    /// The findings shown in one file: its open findings of the issue types
+    /// the project shows, the most confident first, at most 3.
     pub fn shown_in(&self, cfg: &ScryConfig, file: &Path) -> Vec<&Finding> {
-        let mut v: Vec<&Finding> = self
+        let in_file = self
             .findings
             .iter()
-            .filter(|f| {
-                f.status == Status::Open
-                    && f.place.file == file
-                    && cfg.issue_types.contains(&f.issue_type)
-            })
+            .filter(|f| is_open_of(f, &cfg.issue_types))
+            .filter(|f| f.place.file == file)
             .collect();
-        v.sort_by(|a, b| {
-            let (ka, kb) = (
-                a.scores.confidence.unwrap_or(0.0),
-                b.scores.confidence.unwrap_or(0.0),
-            );
-            kb.total_cmp(&ka)
-        });
-        v.truncate(MAX_SHOWN);
-        v
+        let mut shown = most_confident_first(in_file);
+        shown.truncate(MAX_SHOWN);
+        shown
     }
 }
 
-/// The pass's store (MINE, made from BASE) laid over CURRENT, the store as
-/// it is now: a finding the pass changed takes the
-/// pass's version only when its status in CURRENT is still what the pass
-/// started from, so a dismissal made meanwhile stands; the pass's new
-/// findings are added; reviewed sets are joined. A new finding whose id
-/// was taken meanwhile (by a finding added from elsewhere) takes a fresh
-/// one; RENAMES maps the pass's ids to the ids written, is applied to MINE
-/// first and grows with each such clash. BASE is in written ids.
+fn is_open_of(f: &Finding, issue_types: &[String]) -> bool {
+    f.status == Status::Open && issue_types.contains(&f.issue_type)
+}
+
+/// Sorted by confidence, highest first; a finding with no confidence counts
+/// as 0. Findings with the same confidence keep their order.
+fn most_confident_first(mut findings: Vec<&Finding>) -> Vec<&Finding> {
+    let confidence = |f: &Finding| f.scores.confidence.unwrap_or(0.0);
+    findings.sort_by(|a, b| confidence(b).total_cmp(&confidence(a)));
+    findings
+}
+
+/// The store after a pass writes its working copy over it.
+///
+/// The user may have changed the store while the pass ran (dismissed a
+/// finding, say), so the pass does not simply overwrite it. It compares its
+/// working copy with what it last wrote, and changes only what it changed
+/// itself:
+///
+/// 1. A finding the pass removed is removed.
+/// 2. A finding the pass changed takes the pass's version, but only if its
+///    status in the store is still the one the pass last wrote. Otherwise
+///    someone else changed it, and their change stands.
+/// 3. The pass's new findings are added. If one's id was taken meanwhile by
+///    a finding added from elsewhere, it is given a free id, and
+///    `renamed_ids` records the change so the pass's later writes use it.
+/// 4. The reviewed units of each file are those of both.
+/// 5. The capped units are the pass's if it changed them, else the store's.
+///
+/// `renamed_ids` is applied to the working copy first; `last_written` is
+/// already in the ids written.
+///
+/// Example: the pass raised its confidence in finding `3fa9c0` while the
+/// user dismissed it. The store keeps the dismissal.
 pub fn merge_into(
-    base: &Findings,
-    mine: &Findings,
+    last_written: &Findings,
+    working_copy: &Findings,
     current: &Findings,
-    renames: &mut HashMap<FindingId, FindingId>,
+    renamed_ids: &mut HashMap<FindingId, FindingId>,
 ) -> Findings {
-    let mine = renamed(mine, renames);
-    let by_id = |s: &Findings| -> HashMap<FindingId, Finding> {
-        s.findings
-            .iter()
-            .map(|f| (f.id.clone(), f.clone()))
-            .collect()
-    };
-    let (b, m) = (by_id(base), by_id(&mine));
-    let mut taken: HashSet<String> = current
+    let working_copy = renamed(working_copy, renamed_ids);
+    let pass = PassEdits::between(last_written, &working_copy);
+    let kept: Vec<Finding> = current
         .findings
         .iter()
-        .chain(&mine.findings)
-        .map(|f| f.id.0.clone())
+        .filter(|f| !pass.removed(f))
+        .map(|f| pass.version_to_keep(f))
         .collect();
-    let cur: HashSet<&FindingId> = current.findings.iter().map(|f| &f.id).collect();
-    let mut findings: Vec<Finding> = current
-        .findings
-        .iter()
-        .filter(|f| !(b.contains_key(&f.id) && !m.contains_key(&f.id)))
-        .map(|f| match (b.get(&f.id), m.get(&f.id)) {
-            (Some(was), Some(ours)) if was.status == f.status => ours.clone(),
-            _ => f.clone(),
-        })
-        .collect();
-    for f in mine.findings.iter().filter(|f| !b.contains_key(&f.id)) {
-        let mut f = f.clone();
-        if cur.contains(&f.id) {
-            let id = free_id(&f.id, &taken);
-            taken.insert(id.0.clone());
-            renames.insert(f.id.clone(), id.clone());
-            f.id = id;
-        }
-        findings.push(f);
+    let added = pass.new_findings_under_free_ids(current, renamed_ids);
+    Findings {
+        findings: kept.into_iter().chain(added).collect(),
+        reviewed: reviewed_by_either(current, &working_copy),
+        capped: pass.capped_units(current),
     }
+}
+
+/// What a pass changed: the store as it last wrote it, and its working
+/// copy now, each finding by id.
+struct PassEdits<'a> {
+    last_written: &'a Findings,
+    working_copy: &'a Findings,
+    before: HashMap<&'a FindingId, &'a Finding>,
+    after: HashMap<&'a FindingId, &'a Finding>,
+}
+
+impl<'a> PassEdits<'a> {
+    fn between(last_written: &'a Findings, working_copy: &'a Findings) -> Self {
+        let by_id = |store: &'a Findings| store.findings.iter().map(|f| (&f.id, f)).collect();
+        PassEdits {
+            last_written,
+            working_copy,
+            before: by_id(last_written),
+            after: by_id(working_copy),
+        }
+    }
+
+    fn removed(&self, f: &Finding) -> bool {
+        self.before.contains_key(&f.id) && !self.after.contains_key(&f.id)
+    }
+
+    /// The pass's version of a finding if nobody else changed its status
+    /// since the pass last wrote it, else the store's.
+    fn version_to_keep(&self, in_store: &Finding) -> Finding {
+        match (self.before.get(&in_store.id), self.after.get(&in_store.id)) {
+            (Some(was), Some(ours)) if was.status == in_store.status => (*ours).clone(),
+            _ => in_store.clone(),
+        }
+    }
+
+    /// The findings the pass raised since it last wrote, each under an id
+    /// no other finding has. Each id changed is recorded in `renamed_ids`.
+    fn new_findings_under_free_ids(
+        &self,
+        current: &Findings,
+        renamed_ids: &mut HashMap<FindingId, FindingId>,
+    ) -> Vec<Finding> {
+        let in_store: HashSet<&FindingId> = current.findings.iter().map(|f| &f.id).collect();
+        let mut taken: HashSet<String> = current
+            .findings
+            .iter()
+            .chain(&self.working_copy.findings)
+            .map(|f| f.id.0.clone())
+            .collect();
+        let new = self
+            .working_copy
+            .findings
+            .iter()
+            .filter(|f| !self.before.contains_key(&f.id));
+        new.map(|f| {
+            if !in_store.contains(&f.id) {
+                return f.clone();
+            }
+            let free = free_id(&f.id, &taken);
+            taken.insert(free.0.clone());
+            renamed_ids.insert(f.id.clone(), free.clone());
+            Finding {
+                id: free,
+                ..f.clone()
+            }
+        })
+        .collect()
+    }
+
+    fn capped_units(&self, current: &Findings) -> BTreeMap<PathBuf, BTreeSet<String>> {
+        if self.working_copy.capped == self.last_written.capped {
+            current.capped.clone()
+        } else {
+            self.working_copy.capped.clone()
+        }
+    }
+}
+
+fn reviewed_by_either(
+    current: &Findings,
+    working_copy: &Findings,
+) -> BTreeMap<PathBuf, BTreeSet<String>> {
     let mut reviewed = current.reviewed.clone();
-    for (file, set) in &mine.reviewed {
+    for (file, units) in &working_copy.reviewed {
         reviewed
             .entry(file.clone())
             .or_default()
-            .extend(set.iter().cloned());
+            .extend(units.iter().cloned());
     }
-    let capped = if mine.capped == base.capped {
-        current.capped.clone()
-    } else {
-        mine.capped.clone()
-    };
+    reviewed
+}
+
+/// The store with each finding id that `renamed_ids` lists replaced by the
+/// id it was renamed to.
+pub fn renamed(store: &Findings, renamed_ids: &HashMap<FindingId, FindingId>) -> Findings {
+    let findings = store
+        .findings
+        .iter()
+        .map(|f| match renamed_ids.get(&f.id) {
+            Some(to) => Finding {
+                id: to.clone(),
+                ..f.clone()
+            },
+            None => f.clone(),
+        })
+        .collect();
     Findings {
         findings,
-        reviewed,
-        capped,
+        ..store.clone()
     }
 }
 
-/// STORE with its finding ids mapped through RENAMES.
-pub fn renamed(store: &Findings, renames: &HashMap<FindingId, FindingId>) -> Findings {
-    let mut s = store.clone();
-    for f in &mut s.findings {
-        if let Some(to) = renames.get(&f.id) {
-            f.id = to.clone();
-        }
-    }
-    s
-}
-
-/// Six hex digits from ID and a counter, not in TAKEN.
+/// A fresh six-hex-digit id for a finding whose id is taken: the hash of
+/// its id with a counter added (1, 2, ...), the first one not in `taken`.
 fn free_id(id: &FindingId, taken: &HashSet<String>) -> FindingId {
     (1..)
-        .map(|n: u64| fnv64_hex(format!("{}\0{n}", id.0).as_bytes())[..6].to_string())
-        .find(|c| !taken.contains(c))
+        .map(|n: u64| six_hex_digits(&format!("{}\0{n}", id.0)))
+        .find(|candidate| !taken.contains(candidate))
         .map(FindingId)
         .expect("an unbounded counter finds a free id")
+}
+
+fn six_hex_digits(text: &str) -> String {
+    fnv64_hex(text.as_bytes())[..6].to_string()
 }
 
 #[allow(clippy::too_many_lines)]
