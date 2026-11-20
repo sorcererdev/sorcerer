@@ -1523,3 +1523,173 @@ fn an_id_taken_before_the_mid_round_write_stays_renamed_at_the_end() {
     assert!(r.touched.contains(&ours[0].id), "{:?}", r.touched);
     assert!(!r.touched.contains(&taken), "{:?}", r.touched);
 }
+
+/// The run log of one pass over F (every changed unit sent again) with
+/// REVIEWER and DECIDER, the claim checks failing.
+fn log_of(f: &Fixture, reviewer: &StubReviewer, decider: &StubDecider) -> String {
+    let store = support::store_of(&f.project);
+    pass_with(
+        &f.project,
+        &f.view,
+        reviewer,
+        decider,
+        &failing_check,
+        &store,
+    )
+    .log
+}
+
+/// LOG holds LINE, whole.
+fn assert_line(log: &str, line: &str) {
+    assert!(
+        log.contains(&format!("\n{line}\n")),
+        "no line {line:?} in the run log:\n{log}"
+    );
+}
+
+/// LOG holds LINE as the last of its section: the next section's heading
+/// (or the log's end) follows after one blank line.
+fn assert_section_end(log: &str, line: &str) {
+    let ends = log.contains(&format!("\n{line}\n\n## ")) || log.ends_with(&format!("\n{line}\n"));
+    assert!(ends, "no section ending {line:?} in the run log:\n{log}");
+}
+
+/// The run-log lines the goldens do not reach, each pinned exactly.
+#[test]
+fn the_run_log_lines_the_goldens_do_not_reach_are_as_recorded() {
+    let nitpick = || StubDecider::new().on("nitpick", |_| true, StubDecider::p_yes(0.9));
+    let same_nitpick = || {
+        StubDecider::new()
+            .on("same", |_| true, StubDecider::p_yes(0.9))
+            .on("nitpick", |_| true, StubDecider::p_yes(0.9))
+    };
+
+    // nothing found, nothing to remember
+    let f = Fixture::new();
+    let log = log_of(&f, &StubReviewer::new(), &StubDecider::new());
+    assert_section_end(&log, "- none found");
+    assert_section_end(&log, "- nothing resolved or gone");
+
+    // a failed call: not whole, nothing reviewed
+    let f = Fixture::new();
+    let failing = StubReviewer::new().reply(&["orders.py"], "I could not finish.");
+    let log = log_of(&f, &failing, &StubDecider::new());
+    assert_section_end(
+        &log,
+        "- the pass was not whole (a cap or a failure): nothing is resolved for not being found again",
+    );
+    assert_section_end(&log, "- no unit newly reviewed");
+
+    // the first finding has no candidate; raised again, a withheld one is
+    // not asked again on the same unit, rule and sides
+    let f = Fixture::new();
+    let log = log_of(&f, &bug_reviewer("cancel() returns None."), &nitpick());
+    assert_line(
+        &log,
+        "- same-problem question: no stored finding shares its file, rule or cited code",
+    );
+    let log = log_of(&f, &bug_reviewer("cancel() returns None."), &same_nitpick());
+    assert_line(
+        &log,
+        "- withheld, asked on the same unit, rule and sides: not asked again",
+    );
+
+    // two stored findings the same problem: the second answer is beaten
+    let f = Fixture::new();
+    let two = serde_json::json!({
+        "findings": [
+            {"issue_type": "bug", "file": "orders.py", "lines": [2, 2],
+             "statement": "first", "rule": "", "evidence": [{"file": "orders.py", "lines": [2, 2]}]},
+            {"issue_type": "bug", "file": "orders.py", "lines": [1, 1],
+             "statement": "second", "rule": "", "evidence": [{"file": "orders.py", "lines": [1, 1]}]},
+        ],
+        "open": [],
+    })
+    .to_string();
+    log_of(
+        &f,
+        &StubReviewer::new().reply(&["orders.py"], &two),
+        &StubDecider::new(),
+    );
+    let [a, b] = [&f.store().findings[0].id, &f.store().findings[1].id].map(|i| i.0.clone());
+    let log = log_of(&f, &bug_reviewer("third"), &same_nitpick());
+    assert_line(
+        &log,
+        &format!(
+            "- same problem as {a} (waiting, bug at orders.py:2; rule: none; first)? P(yes) 0.90 → the same: the first at or past the threshold wins"
+        ),
+    );
+    assert_line(
+        &log,
+        &format!(
+            "- same problem as {b} (waiting, bug at orders.py:1; rule: none; second)? P(yes) 0.90 → the same, but an earlier one won"
+        ),
+    );
+
+    // the same as one dismissed in another unit: a match starts afresh
+    let f = Fixture::new();
+    log_of(
+        &f,
+        &bug_reviewer("cancel() returns None."),
+        &StubDecider::new(),
+    );
+    let id = only(&f.store()).id.0.clone();
+    support::update_store(&f.project, |s| {
+        s.findings[0].place.unit = Some("place".into());
+        s.dismiss(&id, false, t0())
+    })
+    .unwrap()
+    .unwrap();
+    let log = log_of(
+        &f,
+        &bug_reviewer("cancel() gives back None."),
+        &same_nitpick(),
+    );
+    assert_line(
+        &log,
+        &format!("- result: new ({id} is dismissed-here: a match starts afresh)"),
+    );
+
+    // the unit changes while the pass runs (and so before its checks)
+    let f = Fixture::new();
+    let root = f.root().to_path_buf();
+    let moving = bug_reviewer("cancel() returns None.").on_review(move |_| {
+        let p = root.join("orders.py");
+        let text = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(p, text.replace("now=True", "now=False")).unwrap();
+    });
+    let log = log_of(&f, &moving, &StubDecider::new());
+    assert_line(
+        &log,
+        "- `orders.py` `cancel` changed while the pass ran: its new findings are dropped, it is not reviewed",
+    );
+    assert_line(
+        &log,
+        "- `orders.py` `cancel` changed while the checks ran: not reviewed",
+    );
+
+    // three open in the file and one waiting from before: nobody fits
+    let f = Fixture::new();
+    let four = serde_json::json!({
+        "findings": (1..=4).map(|n| serde_json::json!(
+            {"issue_type": "bug", "file": "orders.py", "lines": [2, 2],
+             "statement": format!("finding {n}"), "rule": "",
+             "evidence": [{"file": "orders.py", "lines": [2, 2]}]}
+        )).collect::<Vec<_>>(),
+        "open": [],
+    })
+    .to_string();
+    log_of(
+        &f,
+        &StubReviewer::new().reply(&["orders.py"], &four),
+        &StubDecider::new(),
+    );
+    support::update_store(&f.project, |s| {
+        for g in s.findings.iter_mut().take(3) {
+            g.set_status(Status::Open, t0());
+        }
+    })
+    .unwrap();
+    let log = log_of(&f, &StubReviewer::new(), &StubDecider::new());
+    assert_section_end(&log, "- nobody fits: the rounds end");
+}

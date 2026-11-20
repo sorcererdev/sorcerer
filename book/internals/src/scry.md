@@ -314,7 +314,7 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
    `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins
    (`same_problem_as_stored`); `match_stored` says merge (`Pass::merge`), drop, or new. A new finding gets the `nitpick`
-   question (`add_unless_a_nitpick`, over `Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
+   question (`add_waiting_or_withheld`, over `Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
    statement and evidence (`take_this_passs_version`; printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
@@ -393,11 +393,11 @@ best confidence first (`waiting_best_first`), in rounds. A round takes the candi
 (`Room::split`, from the file's `Room`: its open findings and how many the pass's own opened): one
 that was waiting before the pass (`old_waiting`) only while the file's open findings
 of shown issue types are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
-pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding (`check_citations`): `citations`
+pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding (`check_round_citations`, over `check_citations`): `citations`
 (failure → `unsure`, the reason as verdict); a `Verify::Citations` issue type opens at once; a
 `CitationsThenClaim` issue type's check is reserved against the budget at `check_estimate`, and one
 that does not fit leaves its finding waiting and stops the rounds (`Citations::HeldBack`; `verify_file` returns true).
-When there are checks to run the store is written (`Pass::save_working_copy`) and `Progress::Stored`
+When there are checks to run the store is written and `Progress::Stored` (`store_what_passed`, over `Pass::save_working_copy`)
 sent, so what opened shows before the checks finish. The round's checks run side by side on
 `std::thread::scope` (`claim_checks_side_by_side`), each recorded in the order started (`record_check`), each a `Claim` of the statement about its evidence: `Right` opens,
 `Wrong` is `refuted`, `CannotTell` is `unsure` (verdict, reason and `Checked::cited` stored, the cost
@@ -537,7 +537,10 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   replies cite them) and a config with `[languages] names = ["<language>"]` and
   `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The project's grammars point at core's
   vendored sources; the request is `ScopeRequest::Working` with the caps
-  `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`.
+  `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`. `run_case` reads as a
+  case's story: `project_for_case`, the replaying ports (`CorpusReviewer`, `recorded_decider`,
+  `CorpusChecker`), the pass (`pass_over`), its log written (`case_log`, `write_case_log`),
+  `assert_ran`, a look (`print_for_a_look`) and the row (`shown_statements`).
 - `reviews/<id>.json`, the recorded review replies in the batches form
   `{"batches": [{"files", "reply", "cost_usd"}]}` (`recorded_findings` reads every batch's findings,
   each citing a rule by id; `the_recorded_replies_cite_the_corpus_rule_ids` checks bistro's are all in
@@ -545,7 +548,7 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   whose `file` is one of the batch's files (an empty reply otherwise), at $0.04, so a change in
   batching still replays. A case with no file, or a batch with a file no recorded batch holds, fails naming the case and the batch.
 - `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
-  the checker closure answers from it, `CannotTell` for a statement it does not hold.
+  `CorpusChecker` answers from it (`replayed`), `CannotTell` for a statement it does not hold.
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
   `question_key` (FNV-1a over the Jev body without the model, so a question asked the same
   way has the same key). A question with no file
@@ -575,9 +578,9 @@ of the recorded batches (a recording that stopped part way through the case, `re
 `CorpusReviewer` asks the live reviewer with the pass's own `ReviewAsk` and model and appends
 `{"files", "reply", "cost_usd"}` for each batch (batches sorted by their files). A statement not in
 `checks.json` is checked live and its verdict word (`right`, `wrong`, `cannot_tell`) written back,
-sorted. Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
-case prints the running total, and the end prints `recorded: N reviews $X, M checks $Y, K jev
-answers`. Without `SCRY_RECORD=all`, a miss fails naming the case and the batch's files
+sorted (`CorpusChecker::record_check`). Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
+case prints the running total (`stop_past_the_ceiling`), and the end prints `recorded: N reviews $X, M checks $Y, K jev
+answers` (`recorded_text`). Without `SCRY_RECORD=all`, a miss fails naming the case and the batch's files
 (`a_partly_recorded_case_asks_for_the_missing_batch` covers the partial case).
 `record_mode_from` refuses any `SCRY_RECORD` when `CI` is set, before the first case. The tests
 `recording_writes_each_batch_and_the_verdict_word`, `a_miss_without_record_names_the_case_and_batch`

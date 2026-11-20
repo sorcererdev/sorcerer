@@ -621,7 +621,7 @@ fn verification_text(log: &str) -> &str {
 fn the_run_log_of_the_rounds_is_as_recorded() {
     use sorcerer_models::domain::claim::{Cited, RawCitation};
     let f = Fixture::new();
-    // five findings waiting before the pass, `cancel` not yet reviewed
+    // six findings waiting before the pass, `cancel` not yet reviewed
     let mut unsure = finding("00000a", "bug", 0.95, Status::Waiting);
     unsure.evidence.push(Evidence {
         file: "orders.py".into(),
@@ -634,6 +634,8 @@ fn the_run_log_of_the_rounds_is_as_recorded() {
         finding("00000c", "bug", 0.90, Status::Waiting),
         finding("00000d", "bug", 0.80, Status::Waiting),
         finding("00000e", "bug", 0.70, Status::Waiting),
+        // left for a round after the hold: no later round may take it
+        finding("00000f", "bug", 0.60, Status::Waiting),
     ];
     support::update_store(&f.project, |s| s.findings = seeded).unwrap();
     // and one the pass finds
@@ -705,4 +707,6 @@ fn the_run_log_of_the_rounds_is_as_recorded() {
     assert_eq!(status_of(&s, "00000c"), Status::Waiting);
     assert_eq!(status_of(&s, "00000d"), Status::Refuted);
     assert_eq!(status_of(&s, "00000e"), Status::Waiting);
+    assert_eq!(status_of(&s, "00000f"), Status::Waiting);
+    assert!(!log.contains("### Round 5"), "{log}");
 }

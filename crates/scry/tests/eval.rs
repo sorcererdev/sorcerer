@@ -14,9 +14,9 @@
 //! `reviews/<case>.json` and the claim check of a statement not in
 //! `checks.json`, through the live researcher (`researcher_for`). Outward
 //! calls, run by hand, refused when `CI` is set.
-#![allow(clippy::too_many_lines)]
 mod support;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use scry::adapters::research_reviewer::ResearchReviewer;
 use scry::adapters::wiring::{claim_checker, jev_for, researcher_for};
 use scry::domain::budget::Caps;
-use scry::domain::config::scry_config;
+use scry::domain::config::{ScryConfig, scry_config};
 use scry::domain::findings::Findings;
 use scry::domain::review_prompt::ReviewAsk;
 use scry::domain::scope::ScopeRequest;
@@ -48,6 +48,7 @@ use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
 use sorcerer_models::domain::decide::{Question, Weighed};
 use sorcerer_models::ports::decider::Decider;
 use support::{FixedClock, errand, git};
+use tempfile::TempDir;
 
 /// A corpus directory and what its `corpus.toml` says.
 struct Corpus {
@@ -324,40 +325,56 @@ impl Reviewer for CorpusReviewer<'_> {
         cancel: &Cancel,
     ) -> sorcerer_models::Result<Reviewed> {
         let files: BTreeSet<&Path> = ask.units.iter().map(|u| u.file.as_path()).collect();
-        let recorded = self
-            .findings
-            .as_ref()
-            .filter(|_| files.iter().all(|f| self.covered.contains(*f)));
-        let Some(findings) = recorded else {
-            let names: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
-            let Some(live) = self.live else {
-                // an error, not a panic: the pass fails the case after its log is written
-                return Err(sorcerer_models::Error::Reply {
-                    provider: "recorded".into(),
-                    why: format!(
-                        "case {}: no recorded review for the batch [{}] ({}); record it with SCRY_RECORD=all",
-                        self.case,
-                        names.join(", "),
-                        self.file.display()
-                    ),
-                });
-            };
-            let reviewed = live.review(ask, model, cap_usd, cancel)?;
-            self.record(names, &reviewed);
-            return Ok(reviewed);
+        if let Some(findings) = self.recorded_for(&files) {
+            return Ok(replayed_review(findings, &files, model));
+        }
+        let names: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
+        let Some(live) = self.live else {
+            // an error, not a panic: the pass fails the case after its log is written
+            return Err(self.not_recorded(&names));
         };
-        let mine: Vec<&Value> = findings
-            .iter()
-            .filter(|f| {
-                f["file"]
-                    .as_str()
-                    .is_some_and(|p| files.contains(Path::new(p)))
-            })
-            .collect();
-        Ok(Reviewed {
-            reply: json!({"findings": mine, "open": []}).to_string(),
-            errand: errand("review", model, 0.04),
+        let reviewed = live.review(ask, model, cap_usd, cancel)?;
+        self.record(names, &reviewed);
+        Ok(reviewed)
+    }
+}
+
+impl CorpusReviewer<'_> {
+    /// The case's recorded findings, when its recording covers every one
+    /// of FILES.
+    fn recorded_for(&self, files: &BTreeSet<&Path>) -> Option<&Vec<Value>> {
+        self.findings
+            .as_ref()
+            .filter(|_| files.iter().all(|f| self.covered.contains(*f)))
+    }
+
+    /// The miss of a batch of NAMES no recording covers.
+    fn not_recorded(&self, names: &[String]) -> sorcerer_models::Error {
+        sorcerer_models::Error::Reply {
+            provider: "recorded".into(),
+            why: format!(
+                "case {}: no recorded review for the batch [{}] ({}); record it with SCRY_RECORD=all",
+                self.case,
+                names.join(", "),
+                self.file.display()
+            ),
+        }
+    }
+}
+
+/// FINDINGS on one of FILES, as one review reply.
+fn replayed_review(findings: &[Value], files: &BTreeSet<&Path>, model: &str) -> Reviewed {
+    let mine: Vec<&Value> = findings
+        .iter()
+        .filter(|f| {
+            f["file"]
+                .as_str()
+                .is_some_and(|p| files.contains(Path::new(p)))
         })
+        .collect();
+    Reviewed {
+        reply: json!({"findings": mine, "open": []}).to_string(),
+        errand: errand("review", model, 0.04),
     }
 }
 
@@ -428,10 +445,58 @@ struct Run<'a> {
     tally: Mutex<Tally>,
 }
 
+/// One case: its project, its replaying ports, the pass, its log written,
+/// the pass ran without a failure, a look when asked, and its row.
 fn run_case(run: &Run, c: &Case) -> Row {
     let corpus = run.corpus;
-    let (record, look) = (run.record, run.look);
-    let dir = tempfile::TempDir::new().unwrap();
+    let (_dir, project, view) = project_for_case(corpus, c);
+    let cfg = scry_config(&project).unwrap();
+    let live = (run.record == Record::All).then(|| (run.live_for)(corpus, &project, &view));
+    let reviewer = CorpusReviewer::for_case(
+        corpus,
+        &c.id,
+        live.as_ref().map(|l| &*l.reviewer),
+        &run.tally,
+    );
+    let recorded = recorded_decider(corpus, run.record, &project);
+    let decider: &dyn Decider = match &live {
+        Some(l) => &*l.decider,
+        None => &recorded,
+    };
+    let looking = Looking {
+        inner: decider,
+        case: &c.id,
+    };
+    let decider: &dyn Decider = if run.look { &looking } else { decider };
+    let checker = CorpusChecker {
+        run,
+        live: live.as_ref(),
+    };
+    let (log_dir, log) = case_log(&c.id);
+    let collect = |s: &str| log.borrow_mut().push_str(s);
+    let log_to: &dyn RunLog = if log_dir.is_some() { &collect } else { &Quiet };
+    let outcome = pass_over(&project, &view, &reviewer, decider, &checker, &cfg, log_to);
+    // the log is written whatever happened, so a case that stops can be read
+    write_case_log(log_dir.as_deref(), &c.id, &log.borrow());
+    assert_ran(&c.id, outcome);
+
+    let store = support::read_store(&project);
+    if run.look {
+        print_for_a_look(&c.id, &store);
+    }
+    let shown = shown_statements(&store, &cfg, &c.changed);
+    Row {
+        id: c.id.clone(),
+        set: c.set.clone(),
+        shown: shown.len(),
+        hit: shown.iter().any(|(_, st)| c.hits.contains(st)),
+    }
+}
+
+/// The case's project: the corpus's base copied and committed, the case's
+/// patch applied, the corpus's steering and a config naming its language.
+fn project_for_case(corpus: &Corpus, case: &Case) -> (TempDir, Arc<Project>, Arc<FilesView>) {
+    let dir = TempDir::new().unwrap();
     let root = dir.path();
     copy_tree(&corpus.dir.join("base"), root);
     git(root, &["init", "-q", "-b", "main"]);
@@ -439,7 +504,7 @@ fn run_case(run: &Run, c: &Case) -> Row {
     git(root, &["config", "user.email", "t@example.com"]);
     git(root, &["add", "-A"]);
     git(root, &["commit", "-q", "-m", "base"]);
-    let patch = corpus.dir.join("cases").join(format!("{}.patch", c.id));
+    let patch = corpus.dir.join("cases").join(format!("{}.patch", case.id));
     git(root, &["apply", patch.to_str().unwrap()]);
     support::write(
         root,
@@ -454,85 +519,122 @@ fn run_case(run: &Run, c: &Case) -> Row {
             corpus.language
         ),
     );
-
     let (project, view) = support::project_with_vendored_grammars(root);
-    let view = Arc::new(view);
-    let cfg = scry_config(&project).unwrap();
-    let live = (record == Record::All).then(|| (run.live_for)(corpus, &project, &view));
-    let reviewer = CorpusReviewer::for_case(
-        corpus,
-        &c.id,
-        live.as_ref().map(|l| &*l.reviewer),
-        &run.tally,
-    );
-    let mut recorded = RecordedDecider::new(corpus.dir.join("jev"));
+    (dir, project, Arc::new(view))
+}
+
+/// Jev's recording for CORPUS; under `SCRY_RECORD=jev` the live Jev answers
+/// what is not recorded, its ledger the case's project's.
+fn recorded_decider(corpus: &Corpus, record: Record, project: &Project) -> RecordedDecider {
+    let recorded = RecordedDecider::new(corpus.dir.join("jev"));
     if record == Record::Jev {
-        // the live Jev, its ledger the temp project's
-        recorded = recorded.recording_with(jev_for(&project, &SystemEnv).unwrap());
+        recorded.recording_with(jev_for(project, &SystemEnv).unwrap())
+    } else {
+        recorded
     }
-    let decider: &dyn Decider = match &live {
-        Some(l) => &*l.decider,
-        None => &recorded,
-    };
-    let checker = |claim: &Claim| -> sorcerer_models::Result<Checked> {
+}
+
+/// The claim check replayed: the verdict `checks.json` holds for the
+/// statement (none: cannot tell). When recording (`SCRY_RECORD=all`) a
+/// statement it does not hold is asked live and written there.
+struct CorpusChecker<'a> {
+    run: &'a Run<'a>,
+    live: Option<&'a Live>,
+}
+
+impl ClaimChecker for CorpusChecker<'_> {
+    fn check(&self, claim: &Claim) -> sorcerer_models::Result<Checked> {
         let key = collapse(&claim.statement);
-        let known = run.checks.lock().unwrap().get(&key).cloned();
-        if let (None, Some(l)) = (&known, &live) {
-            let checked = l.checker.check(claim)?;
-            let mut checks = run.checks.lock().unwrap();
-            checks.insert(key, verdict_word(&checked.verdict).to_string());
-            std::fs::write(
-                corpus.dir.join("checks.json"),
-                serde_json::to_string_pretty(&*checks).unwrap() + "\n",
-            )
-            .unwrap();
-            let mut tally = run.tally.lock().unwrap();
-            tally.checks += 1;
-            tally.check_usd += checked
-                .errands
-                .iter()
-                .filter_map(|e| e.cost_usd)
-                .sum::<f64>();
-            return Ok(checked);
+        let known = self.run.checks.lock().unwrap().get(&key).cloned();
+        match (known, self.live) {
+            (None, Some(live)) => {
+                let checked = live.checker.check(claim)?;
+                self.record_check(key, &checked);
+                Ok(checked)
+            }
+            (known, _) => Ok(replayed(known.as_deref())),
         }
-        let verdict = match known.as_deref() {
-            Some("right") => Verdict::Right,
-            Some("wrong") => Verdict::Wrong,
-            _ => Verdict::CannotTell,
-        };
-        Ok(Checked {
-            verdict,
-            why: "1a's claim check".into(),
-            citations: Vec::new(),
-            cited: Vec::new(),
-            escalated: false,
-            errands: Vec::new(),
-        })
+    }
+}
+
+impl CorpusChecker<'_> {
+    /// CHECKED's verdict under KEY in `checks.json`, and its cost tallied.
+    fn record_check(&self, key: String, checked: &Checked) {
+        let mut checks = self.run.checks.lock().unwrap();
+        checks.insert(key, verdict_word(&checked.verdict).to_string());
+        std::fs::write(
+            self.run.corpus.dir.join("checks.json"),
+            serde_json::to_string_pretty(&*checks).unwrap() + "\n",
+        )
+        .unwrap();
+        let mut tally = self.run.tally.lock().unwrap();
+        tally.checks += 1;
+        tally.check_usd += checked
+            .errands
+            .iter()
+            .filter_map(|e| e.cost_usd)
+            .sum::<f64>();
+    }
+}
+
+/// A recorded verdict word as a check's result.
+fn replayed(known: Option<&str>) -> Checked {
+    let verdict = match known {
+        Some("right") => Verdict::Right,
+        Some("wrong") => Verdict::Wrong,
+        _ => Verdict::CannotTell,
     };
-    let looking = Looking {
-        inner: decider,
-        case: &c.id,
-    };
-    let decider: &dyn Decider = if look { &looking } else { decider };
+    Checked {
+        verdict,
+        why: "1a's claim check".into(),
+        citations: Vec::new(),
+        cited: Vec::new(),
+        escalated: false,
+        errands: Vec::new(),
+    }
+}
+
+/// `SCRY_EVAL_LOG=DIR`, when set, and the case's log so far.
+fn case_log(case: &str) -> (Option<PathBuf>, RefCell<String>) {
+    (
+        std::env::var_os("SCRY_EVAL_LOG").map(PathBuf::from),
+        RefCell::new(format!("# scry eval case {case}\n")),
+    )
+}
+
+/// LOG as `DIR/<case>.md`, when a DIR is set.
+fn write_case_log(dir: Option<&Path>, case: &str, log: &str) {
+    if let Some(d) = dir {
+        std::fs::create_dir_all(d).unwrap();
+        std::fs::write(d.join(format!("{case}.md")), log).unwrap();
+    }
+}
+
+/// One pass over the case's working tree through these ports, under the
+/// corpus's caps.
+fn pass_over(
+    project: &Project,
+    view: &FilesView,
+    reviewer: &dyn Reviewer,
+    decider: &dyn Decider,
+    checker: &dyn ClaimChecker,
+    cfg: &ScryConfig,
+    log: &dyn RunLog,
+) -> sorcerer_core::Result<ReviewOutcome> {
     let clock = FixedClock::at("2026-11-18T23:00:00Z".parse().unwrap());
     let progress = |_: &Progress| {};
-    // SCRY_EVAL_LOG=DIR writes each case's scope and pass trace to DIR/<id>.md
-    let log_dir = std::env::var_os("SCRY_EVAL_LOG").map(PathBuf::from);
-    let log = std::cell::RefCell::new(format!("# scry eval case {}\n", c.id));
-    let collect = |s: &str| log.borrow_mut().push_str(s);
-    let log_to: &dyn RunLog = if log_dir.is_some() { &collect } else { &Quiet };
-    let ports = support::Ports::of(&project);
+    let ports = support::Ports::of(project);
     let cancel = Cancel::default();
     let deps = ReviewDeps {
-        view: &*view,
-        reviewer: &reviewer,
+        view,
+        reviewer,
         decider,
-        checker: &checker,
+        checker,
         store: &ports.store,
         ledger: &ports.ledger,
         settings: &ports.settings,
         clock: &clock,
-        log: log_to,
+        log,
         progress: &progress,
         cancel: &cancel,
     };
@@ -544,57 +646,57 @@ fn run_case(run: &Run, c: &Case) -> Row {
         }),
         ..ReviewRequest::of(ScopeRequest::Working)
     };
-    let outcome = review_change(&project, &req, &deps);
-    // the log is written whatever happened, so a case that stops can be read
-    if let Some(d) = &log_dir {
-        std::fs::create_dir_all(d).unwrap();
-        std::fs::write(d.join(format!("{}.md", c.id)), log.borrow().as_str()).unwrap();
-    }
+    review_change(project, &req, &deps)
+}
+
+/// The pass ran, with no failed review call.
+fn assert_ran(case: &str, outcome: sorcerer_core::Result<ReviewOutcome>) {
     match outcome {
         Ok(ReviewOutcome::Ran(r)) => assert!(
             r.failures.is_empty(),
-            "case {}: failures {:?}",
-            c.id,
+            "case {case}: failures {:?}",
             r.failures
         ),
-        Ok(ReviewOutcome::Skipped(why)) => panic!("case {} skipped: {why}", c.id),
-        Err(e) => panic!("case {}: {e}", c.id),
+        Ok(ReviewOutcome::Skipped(why)) => panic!("case {case} skipped: {why}"),
+        Err(e) => panic!("case {case}: {e}"),
     }
+}
 
-    let s: Findings = support::read_store(&project);
-    if look {
-        for f in &s.findings {
-            let first: String = f.statement.chars().take(90).collect();
-            println!(
-                "{} {} {:?} {} confidence={:?} verdict={:?} unit={:?} lines={:?} {}",
-                c.id,
-                f.place.file.display(),
-                f.status,
-                f.issue_type,
-                f.scores.confidence,
-                f.verdict.as_ref().map(|v| &v.verdict),
-                f.place.unit,
-                f.place.lines,
-                first
-            );
-        }
+/// Each stored finding, a line, for a look (`SCRY_EVAL_CASES`).
+fn print_for_a_look(case: &str, findings: &Findings) {
+    for f in &findings.findings {
+        let first: String = f.statement.chars().take(90).collect();
+        println!(
+            "{} {} {:?} {} confidence={:?} verdict={:?} unit={:?} lines={:?} {}",
+            case,
+            f.place.file.display(),
+            f.status,
+            f.issue_type,
+            f.scores.confidence,
+            f.verdict.as_ref().map(|v| &v.verdict),
+            f.place.unit,
+            f.place.lines,
+            first
+        );
     }
+}
+
+/// The findings shown in each CHANGED file, once each, as (file, statement).
+fn shown_statements(
+    store: &Findings,
+    cfg: &ScryConfig,
+    changed: &[PathBuf],
+) -> Vec<(PathBuf, String)> {
     let mut shown: Vec<(PathBuf, String)> = Vec::new();
-    for file in &c.changed {
-        for f in s.shown_in(&cfg, file) {
+    for file in changed {
+        for f in store.shown_in(cfg, file) {
             let k = (file.clone(), f.statement.clone());
             if !shown.contains(&k) {
                 shown.push(k);
             }
         }
     }
-    let hit = shown.iter().any(|(_, st)| c.hits.contains(st));
-    Row {
-        id: c.id.clone(),
-        set: c.set.clone(),
-        shown: shown.len(),
-        hit,
-    }
+    shown
 }
 
 type BySet = BTreeMap<String, (usize, usize, f64)>;
@@ -666,34 +768,41 @@ fn run_corpus_with(
     {
         rows.push(run_case(&run, c));
         if record == Record::All {
-            let t = run.tally.lock().unwrap();
-            let spent = t.review_usd + t.check_usd;
-            println!("{}: recorded so far ${spent:.3}", c.id);
-            // SCRY_RECORD_CEILING (default 5) stops a recording; what it recorded is kept
-            let ceiling: f64 = std::env::var("SCRY_RECORD_CEILING")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(5.0);
-            assert!(
-                spent <= ceiling,
-                "recording stopped: ${spent:.3} spent, past the ceiling ${ceiling}"
-            );
+            stop_past_the_ceiling(&c.id, &run.tally.lock().unwrap());
         }
     }
     let (text, by) = table(corpus, &rows);
     println!("{text}");
     if record != Record::Nothing {
-        let t = run.tally.lock().unwrap();
         println!(
-            "recorded: {} reviews ${:.3}, {} checks ${:.3}, {} jev answers",
-            t.reviews,
-            t.review_usd,
-            t.checks,
-            t.check_usd,
-            jev_files() - jev_before
+            "{}",
+            recorded_text(&run.tally.lock().unwrap(), jev_files() - jev_before)
         );
     }
     (text, by)
+}
+
+/// What a recording spent so far, after CASE; past `SCRY_RECORD_CEILING`
+/// (default 5) the recording stops, keeping what it recorded.
+fn stop_past_the_ceiling(case: &str, tally: &Tally) {
+    let spent = tally.review_usd + tally.check_usd;
+    println!("{case}: recorded so far ${spent:.3}");
+    let ceiling: f64 = std::env::var("SCRY_RECORD_CEILING")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5.0);
+    assert!(
+        spent <= ceiling,
+        "recording stopped: ${spent:.3} spent, past the ceiling ${ceiling}"
+    );
+}
+
+/// What a recording asked and spent, and the Jev answers it added.
+fn recorded_text(tally: &Tally, jev_answers: usize) -> String {
+    format!(
+        "recorded: {} reviews ${:.3}, {} checks ${:.3}, {} jev answers",
+        tally.reviews, tally.review_usd, tally.checks, tally.check_usd, jev_answers
+    )
 }
 
 /// CORPUS's numbers against its passing scores; a look (`SCRY_EVAL_CASES`)
