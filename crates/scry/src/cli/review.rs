@@ -14,7 +14,7 @@ use super::RunArgs;
 use super::format::{finding_json, finding_text};
 use crate::adapters::markdown_run_log::{self, RESULT, StreamingLog};
 use crate::adapters::scry_toml::{STEERING_FILE, ScryToml};
-use crate::adapters::wiring::Wired;
+use crate::adapters::wiring::Wiring;
 use crate::domain::config::{ScryConfig, scry_config};
 use crate::domain::finding::{Finding, Status, status_word};
 use crate::domain::findings::Findings;
@@ -32,7 +32,7 @@ use crate::usecases::review_change::{
 /// the log is written under `state/scry/runs/` whatever the run did, and a
 /// failure to write it is one line on stderr.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn logged<W: Wired>(
+pub(super) fn logged<W: Wiring>(
     a: &RunArgs,
     line: &str,
     cwd: &Path,
@@ -170,7 +170,7 @@ fn run(
     a: &RunArgs,
     cwd: &Path,
     project: &Project,
-    wired: &impl Wired,
+    wired: &impl Wiring,
     out: &mut dyn Write,
     log: &StreamingLog,
     width: usize,

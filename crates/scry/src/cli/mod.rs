@@ -25,7 +25,7 @@ use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
-use crate::adapters::wiring::{Wired, Wiring};
+use crate::adapters::wiring::{Wiring, LiveWiring};
 use crate::domain::config::scry_config;
 pub use doctor::doctor_rows;
 
@@ -125,12 +125,12 @@ pub fn main(args: Vec<OsString>, env: &dyn Env, out: &mut dyn Write, err: &mut d
     } else {
         100
     };
-    main_with(args, &cwd, env, out, err, width, |p| Wiring::open(p, env))
+    main_with(args, &cwd, env, out, err, width, |p| LiveWiring::open(p, env))
 }
 
 /// [`main`] with the directory, width and wiring given (the tests' doubles).
 #[doc(hidden)]
-pub fn main_with<W: Wired>(
+pub fn main_with<W: Wiring>(
     args: Vec<OsString>,
     cwd: &Path,
     env: &dyn Env,
@@ -170,7 +170,7 @@ pub fn main_with<W: Wired>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn go<W: Wired>(
+fn go<W: Wiring>(
     cli: Cli,
     line: &str,
     cwd: &Path,
@@ -212,7 +212,7 @@ fn go<W: Wired>(
 /// The time and local offset: the wiring's clock when it opens (the tests'
 /// doubles), else the system's. These commands need no Jev, so a wiring
 /// that does not open is not an error here.
-fn clock_of<W: Wired>(
+fn clock_of<W: Wiring>(
     project: &Project,
     wire: &impl Fn(&Project) -> Result<W>,
 ) -> (DateTime<Utc>, FixedOffset) {

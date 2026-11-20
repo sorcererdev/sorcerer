@@ -90,7 +90,7 @@ An editor's language server is one more caller beside `cli/`: it calls the same 
   (`Ports::of`).
 - **An adapter**: against the real thing it wraps, a temporary directory, a git repository,
   a scripted provider; never a network or a model.
-- **The command line**: `main_with` with a `Wired` of doubles, asserting on stdout, stderr and
+- **The command line**: `main_with` with a `Wiring` of doubles, asserting on stdout, stderr and
   the exit code.
 
 ## The rule, checked

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use scry::adapters::wiring::{Wired, Wiring, claim_checker, jev_for};
+use scry::adapters::wiring::{Wiring, LiveWiring, claim_checker, jev_for};
 use scry::cli::{doctor_rows, main_with};
 use scry::ports::claim_checker::ClaimChecker;
 use scry::ports::run_log::Quiet;
@@ -100,7 +100,7 @@ impl Doubles {
     }
 }
 
-impl Wired for &Doubles {
+impl Wiring for &Doubles {
     fn deps(&self) -> ReviewDeps<'_> {
         ReviewDeps {
             view: &self.view,
@@ -381,7 +381,7 @@ fn no_jev_key_exits_2_naming_jev_api_key() {
     let env = MapEnv::default().on_path("claude");
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = main_with(args(&[]), dir.path(), &env, &mut out, &mut err, 100, |p| {
-        Wiring::open(p, &env)
+        LiveWiring::open(p, &env)
     });
     let err = String::from_utf8(err).unwrap();
     assert_eq!(code, 2);
@@ -396,9 +396,9 @@ fn live_opens_with_claude_and_a_jev_key() {
         .on_path("claude")
         .var_set("JEV_API_KEY", "k");
     let p = Project::open(dir.path()).unwrap();
-    assert!(Wiring::open(&p, &env).is_ok());
+    assert!(LiveWiring::open(&p, &env).is_ok());
     let none = MapEnv::default().var_set("JEV_API_KEY", "k");
-    let e = Wiring::open(&p, &none).err().unwrap().to_string();
+    let e = LiveWiring::open(&p, &none).err().unwrap().to_string();
     assert!(e.contains("ANTHROPIC_API_KEY"), "{e}");
 }
 
@@ -411,7 +411,7 @@ fn doctor(dir: &Path, env: &MapEnv) -> Ran {
         &mut out,
         &mut err,
         100,
-        |_: &Project| -> anyhow::Result<Wiring> { panic!("doctor wires no pass") },
+        |_: &Project| -> anyhow::Result<LiveWiring> { panic!("doctor wires no pass") },
     );
     Ran {
         code,

@@ -57,7 +57,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the settings from `.sorcerer/`),
 `research_reviewer.rs` (`ResearchReviewer`), `markdown_run_log.rs` (`StreamingLog`,
 `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`, `result_of`, `KEEP`, `RESULT`),
-`system_clock.rs` (`SystemClock`), `wiring.rs` (`Wiring`, `Wired`, `jev_for`,
+`system_clock.rs` (`SystemClock`), `wiring.rs` (`LiveWiring`, `Wiring`, `jev_for`,
 `researcher_for`, `claim_checker`, `PRODUCT`).
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `go`,
@@ -276,7 +276,7 @@ when a claim check did not fit, and `touched`, every finding the pass added or c
 of `Run::mine` not equal to the store as read, mapped through the renames), or
 `ReviewOutcome::Skipped` when `[scry] enabled` is false or Jev did not answer; the report
 carries the `scope` so the caller prints what was in it. The command line
-(`cli::go`) checks `enabled` itself before the wiring (`Wiring::open`, which needs a Jev key and
+(`cli::go`) checks `enabled` itself before the wiring (`LiveWiring::open`, which needs a Jev key and
 a provider) and exits 0, so a pre-commit hook
 in a project that turned scry off lets the commit through; any other `Skipped` exits 2. The steps, in
 `Run::go` (`mod.rs`), each in its own file:
@@ -399,8 +399,8 @@ next round, which takes the rest. The rounds end when a round takes nobody.
 
 ## Wiring
 
-`adapters/wiring.rs`. `Wired` is what the command line needs from a wiring: `deps()`, the
-review's `ReviewDeps`. `Wiring` is the real one, built by `Wiring::open(project, env)`:
+`adapters/wiring.rs`. `Wiring` is what the command line needs from a wiring: `deps()`, the
+review's `ReviewDeps`. `LiveWiring` is the real one, built by `LiveWiring::open(project, env)`:
 
 - Jev first, by `jev_for`: `Jev::from_env` over `[decide]` with the project's ledger, then
   `for_product("scry")`, so its errands are scry's `decide`. No key is an error naming the
@@ -420,15 +420,15 @@ review's `ReviewDeps`. `Wiring` is the real one, built by `Wiring::open(project,
   `SystemClock`, a progress callback that prints nothing, and `Quiet` as the run log (the
   command line puts its own in).
 
-Everything is shared through `Arc`s so `Wiring` owns it all and `deps()` lends it.
+Everything is shared through `Arc`s so `LiveWiring` owns it all and `deps()` lends it.
 
 ## The command line
 
 `src/cli/`, parsed with clap (`Cli`, `RunArgs`, `Cmd`; `args_conflicts_with_subcommands`, so
 bare files and subcommands do not mix). `main(args, env, out, err)` is what the binary calls:
 it takes the process's directory, the terminal's width (`terminal_size`, 100 when stdout is not
-a terminal) and `Wiring::open` as the wiring, and hands them to `main_with`, which the tests call
-with their own directory, width and a `Wired` of doubles. Every error is one `scry: …` line on
+a terminal) and `LiveWiring::open` as the wiring, and hands them to `main_with`, which the tests call
+with their own directory, width and a `Wiring` of doubles. Every error is one `scry: …` line on
 stderr and exit 2; clap's usage errors exit 2, `--help` 0.
 
 A run (`cli/review.rs`, `run`): open the project from the directory, `scry_config`, the
@@ -443,7 +443,7 @@ one object a line. The summary line is skipped when nothing was shown, looked at
 
 The store commands (`list`, `cost`, `dismiss`, `why`, `log`, a file each in `src/cli/`) need no Jev, so `go` does
 not require the wiring: `clock_of` asks it for the clock (the tests' `FixedClock` carries the
-zone) and falls back to the system clock when `Wiring::open` fails. Each calls its use case
+zone) and falls back to the system clock when `LiveWiring::open` fails. Each calls its use case
 over the adapters it builds (`JsonFindingStore`, `JsonlLedger`, `ScryToml`) and prints.
 `list_findings` sorts by `status_rank`, then file and line, and prints through `table` (columns padded to their widest
 cell). `report_cost` groups the ledger's `scry` errands by local day in the clock's offset

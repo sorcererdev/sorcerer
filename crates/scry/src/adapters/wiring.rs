@@ -37,11 +37,11 @@ pub const PRODUCT: &str = "scry";
 
 /// What a review needs, however it was built: the live wiring or a test's
 /// doubles.
-pub trait Wired {
+pub trait Wiring {
     fn deps(&self) -> ReviewDeps<'_>;
 }
 
-pub struct Wiring {
+pub struct LiveWiring {
     view: Arc<FilesView>,
     reviewer: ResearchReviewer,
     jev: Jev,
@@ -55,12 +55,12 @@ pub struct Wiring {
 
 fn quiet(_: &Progress) {}
 
-impl Wiring {
+impl LiveWiring {
     /// The live wiring for PROJECT: Jev from `[decide]` (its key is
     /// required), the default provider (`claude` runs Claude Code as the
     /// researcher; any other provider runs sorcerer's tool loop over it),
     /// grammars from the user's cache.
-    pub fn open(project: &Project, env: &dyn Env) -> Result<Wiring> {
+    pub fn open(project: &Project, env: &dyn Env) -> Result<LiveWiring> {
         let jev = jev_for(project, env)?;
         let view = Arc::new(FilesView::new(
             Arc::new(project.clone()),
@@ -77,7 +77,7 @@ impl Wiring {
             project.languages.clone(),
             cancel.clone(),
         );
-        Ok(Wiring {
+        Ok(LiveWiring {
             view,
             reviewer: ResearchReviewer { researcher },
             jev,
@@ -91,7 +91,7 @@ impl Wiring {
     }
 }
 
-impl Wired for Wiring {
+impl Wiring for LiveWiring {
     fn deps(&self) -> ReviewDeps<'_> {
         ReviewDeps {
             view: &*self.view,
