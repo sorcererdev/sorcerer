@@ -1,7 +1,7 @@
 //! Verifying the findings the review raised, one file at a time.
 //!
-//! A finding the reviewer raises is unverified: nobody has checked it yet
-//! (the store calls this status "waiting"). Before scry displays one, it
+//! A finding the reviewer raises is unverified: nobody has checked it yet.
+//! Before scry displays one, it
 //! checks it. A file displays at most 3 findings, so scry checks the most
 //! confident first (`PrioritizedFindings`) and stops once the file's 3
 //! display slots (`DisplaySlots`) are full. See `verify_findings_in_file`
@@ -101,7 +101,7 @@ impl PrioritizedFindings {
         let mut unverified: Vec<&Finding> = findings
             .findings
             .iter()
-            .filter(|f| f.place.file == file && f.status == Status::Waiting)
+            .filter(|f| f.place.file == file && f.status == Status::Unverified)
             .collect();
         unverified.sort_by(|a, b| confidence(b).total_cmp(&confidence(a)));
         PrioritizedFindings(unverified.into_iter().map(|f| f.id.clone()).collect())
@@ -212,7 +212,7 @@ impl Pass<'_, '_> {
         }
         let checked = self.check_cited_lines(&to_verify);
         if !checked.paid_checks.is_empty() {
-            self.show_what_opened_so_far()?;
+            self.save_before_paid_checks()?;
         }
         self.run_paid_checks(checked.paid_checks);
         if checked.budget_ran_out {
@@ -276,9 +276,12 @@ impl Pass<'_, '_> {
         }
     }
 
-    /// Saves the findings as they are now, so what opened without a paid
-    /// check shows in the editor before the paid checks finish.
-    fn show_what_opened_so_far(&mut self) -> std::result::Result<(), Halt> {
+    /// Saves the findings to the store before the paid checks start, which
+    /// can take a minute. A convention that opened without a paid check is
+    /// then in the store at once, so `scry list` in another terminal (and,
+    /// later, the editor, told by `Progress::Stored`) can display it while
+    /// the checks still run.
+    fn save_before_paid_checks(&mut self) -> std::result::Result<(), Halt> {
         self.save_working_copy()?;
         self.report(Progress::Stored);
         Ok(())
@@ -649,7 +652,7 @@ fn no_claim_check_text(id: &FindingId, issue_type: &str) -> String {
 
 fn check_held_back_text(id: &FindingId, estimate: f64) -> String {
     format!(
-        "- {}: claim check held back: {} more does not fit the caps; it waits\n",
+        "- {}: claim check held back: {} more does not fit the caps; it stays unverified\n",
         id.0,
         usd(estimate)
     )
@@ -657,7 +660,7 @@ fn check_held_back_text(id: &FindingId, estimate: f64) -> String {
 
 fn check_failed_text(id: &FindingId, error: &sorcerer_models::Error) -> String {
     format!(
-        "- {} claim check failed: {error} → it stays waiting\n",
+        "- {} claim check failed: {error} → it stays unverified\n",
         id.0
     )
 }

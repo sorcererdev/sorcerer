@@ -125,7 +125,7 @@ mod tests {
 
     const ALL: [Status; 10] = [
         Status::Open,
-        Status::Waiting,
+        Status::Unverified,
         Status::Withheld,
         Status::Refuted,
         Status::Unsure,

@@ -18,7 +18,9 @@ pub enum Status {
     /// Shown: passed the checks and the confidence threshold.
     Open,
     /// Reviewed, not yet checked (a cap held the pass back).
-    Waiting,
+    /// Raised by the reviewer, not yet verified (old stores say "waiting").
+    #[serde(alias = "waiting")]
+    Unverified,
     /// Judged a nitpick: kept, not shown.
     Withheld,
     /// The claim checker said the claim is wrong.

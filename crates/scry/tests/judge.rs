@@ -124,7 +124,7 @@ fn place_outside_scoped_units_is_elsewhere() {
 fn candidates_share_the_file_the_rule_or_a_cited_range_and_skip_resolved_and_gone() {
     let mut by_rule = stored(Status::Open, "z.py", None);
     by_rule.rule = Some("R".into());
-    let mut by_evidence = stored(Status::Waiting, "y.py", None);
+    let mut by_evidence = stored(Status::Unverified, "y.py", None);
     by_evidence.evidence = vec![Evidence {
         file: "c.py".into(),
         lines: span(5, 9),
@@ -190,7 +190,7 @@ fn finding_text_reads() {
 fn match_table() {
     let m = |s: Status| match_stored(&stored(s, "a.py", Some("f")), Some("f"));
     assert_eq!(m(Status::Open), Match::Merge);
-    assert_eq!(m(Status::Waiting), Match::Merge);
+    assert_eq!(m(Status::Unverified), Match::Merge);
     assert_eq!(m(Status::Withheld), Match::Merge);
     assert_eq!(m(Status::Refuted), Match::Merge);
     assert_eq!(m(Status::Unsure), Match::Merge);

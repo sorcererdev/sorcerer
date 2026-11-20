@@ -20,8 +20,8 @@
 - same problem as 1464e9 (open, bug at a.py:6; rule: none; beta doubles twice)? P(yes) 0.00 → not the same
 - same problem as 3777d3 (elsewhere, bug at a.py:3; rule: none; a stray blank line)? P(yes) 0.00 → not the same
 - result: new
-- nitpick? P(yes) 0.00 → confidence 1.00, threshold 0.70 → waiting
-- id 205301, waiting
+- nitpick? P(yes) 0.00 → confidence 1.00, threshold 0.70 → unverified
+- id 205301, unverified
 
 ### Finding 3: bug at b.py:2-2
 
@@ -51,7 +51,7 @@
 - same problem as dbfc2d (open, bug at a.py:2; rule: none; alpha adds one)? P(yes) 0.00 → not the same
 - same problem as 1464e9 (open, bug at a.py:6; rule: none; beta doubles twice)? P(yes) 0.00 → not the same
 - same problem as 3777d3 (elsewhere, bug at a.py:3; rule: none; a stray blank line)? P(yes) 0.00 → not the same
-- same problem as 205301 (waiting, bug at a.py:2; rule: none; alpha ignores negatives)? P(yes) 0.00 → not the same
+- same problem as 205301 (unverified, bug at a.py:2; rule: none; alpha ignores negatives)? P(yes) 0.00 → not the same
 - result: new
 - nitpick? P(yes) 0.90 → confidence 0.10, threshold 0.70 → withheld
 - id 230ff8, withheld
@@ -64,8 +64,8 @@
 - placed: unit `gamma` (fingerprint 196c787)
 - same problem as e51883 (open, bug at b.py:2; rule: none; gamma leaks a handle)? P(yes) 0.00 → not the same
 - result: new
-- nitpick? P(yes) 0.20 → confidence 0.80, threshold 0.70 → waiting
-- id 5c4b85, waiting
+- nitpick? P(yes) 0.20 → confidence 0.80, threshold 0.70 → unverified
+- id 5c4b85, unverified
 
 ### Finding 7: bug at c.py:2-2
 
@@ -75,8 +75,8 @@
 - placed: unit `eps` (fingerprint b4e3383)
 - same problem as 2d3fca (withheld, bug at c.py:2; rule: none; eps rounds half to even)? P(yes) 0.90 → the same: the first at or past the threshold wins
 - result: merge into 2d3fca
-- withheld, and what it was asked on changed: nitpick? P(yes) 0.10 → confidence 0.90, threshold 0.70 → waiting
-- id 2d3fca (merged; seen 2 times), waiting
+- withheld, and what it was asked on changed: nitpick? P(yes) 0.10 → confidence 0.90, threshold 0.70 → unverified
+- id 2d3fca (merged; seen 2 times), unverified
 
 ### Finding 8: bug at d.py:2-2
 
@@ -86,8 +86,8 @@
 - placed: unit `zeta` (fingerprint 14b9556)
 - same problem as 05f20c (refuted, bug at d.py:2; rule: none; zeta overflows)? P(yes) 0.90 → the same: the first at or past the threshold wins
 - result: merge into 05f20c
-- its evidence moved: it waits to be checked again
-- id 05f20c (merged; seen 2 times), waiting
+- its evidence moved: it is unverified again
+- id 05f20c (merged; seen 2 times), unverified
 
 ## Remember
 
@@ -104,7 +104,7 @@
 - candidates: 205301 (confidence 1.00)
 - left for a later round: none
 - 205301: citations hold: `a.py` 2-2 (print 11bc92c)
-- 205301 claim check failed: stub: no claim check in these tests → it stays waiting
+- 205301 claim check failed: stub: no claim check in these tests → it stays unverified
 
 ## Verification: b.py
 
@@ -115,7 +115,7 @@
 - candidates: 5c4b85 (confidence 0.80)
 - left for a later round: none
 - 5c4b85: citations hold: `b.py` 2-2 (print 196c787)
-- 5c4b85 claim check failed: stub: no claim check in these tests → it stays waiting
+- 5c4b85 claim check failed: stub: no claim check in these tests → it stays unverified
 
 ## Verification: c.py
 
@@ -126,7 +126,7 @@
 - candidates: 2d3fca (confidence 0.90)
 - left for a later round: none
 - 2d3fca: citations hold: `c.py` 2-2 (print b4e3383)
-- 2d3fca claim check failed: stub: no claim check in these tests → it stays waiting
+- 2d3fca claim check failed: stub: no claim check in these tests → it stays unverified
 
 ## Verification: d.py
 
@@ -137,7 +137,7 @@
 - candidates: 05f20c (confidence 1.00)
 - left for a later round: none
 - 05f20c: citations hold: `d.py` 2-2 (print 14b9556)
-- 05f20c claim check failed: stub: no claim check in these tests → it stays waiting
+- 05f20c claim check failed: stub: no claim check in these tests → it stays unverified
 
 ## Reviewed
 

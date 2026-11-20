@@ -16,7 +16,7 @@ pub fn list_findings(store: &dyn FindingStore, req: &ListRequest) -> anyhow::Res
     let mut fs: Vec<Finding> = st
         .findings
         .into_iter()
-        .filter(|f| req.statuses.is_empty() || req.statuses.contains(&status_word(f.status)))
+        .filter(|f| req.statuses.is_empty() || req.statuses.iter().any(|s| names(s, f.status)))
         .collect();
     fs.sort_by(|a, b| {
         (status_rank(a.status), &a.place.file, a.place.lines.start).cmp(&(
@@ -28,12 +28,24 @@ pub fn list_findings(store: &dyn FindingStore, req: &ListRequest) -> anyhow::Res
     Ok(fs)
 }
 
+/// Whether the status word ASKED names STATUS. `waiting`, the old word for
+/// `unverified`, still works: `scry list --status waiting` lists the
+/// unverified findings.
+fn names(asked: &str, status: Status) -> bool {
+    let asked = if asked == "waiting" {
+        "unverified"
+    } else {
+        asked
+    };
+    asked == status_word(status)
+}
+
 /// Open first, the order of the status type.
 fn status_rank(s: Status) -> u8 {
     use Status::*;
     match s {
         Open => 0,
-        Waiting => 1,
+        Unverified => 1,
         Withheld => 2,
         Refuted => 3,
         Unsure => 4,

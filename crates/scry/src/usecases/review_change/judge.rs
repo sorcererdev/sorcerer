@@ -5,8 +5,9 @@
 //!    stored as elsewhere with no question (`add_elsewhere`);
 //! 3. asks Jev whether a stored finding is the same problem
 //!    (`same_problem_as_stored`);
-//! 4. drops it, merges it into that finding (`merge`), or adds it, waiting
-//!    or, when Jev calls it a nitpick, withheld (`add_waiting_or_withheld`).
+//! 4. drops it, merges it into that finding (`merge`), or adds it,
+//!    unverified or, when Jev calls it a nitpick, withheld
+//!    (`add_unverified_or_withheld`).
 //!
 //! The run log's text is built last in the file.
 
@@ -72,11 +73,11 @@ impl Pass<'_, '_> {
             }
             Some((Match::New, stored)) => {
                 self.log(&new_afresh_text(&stored));
-                self.add_waiting_or_withheld(&raw, placed, &code)
+                self.add_unverified_or_withheld(&raw, placed, &code)
             }
             None => {
                 self.log(NEW_TEXT);
-                self.add_waiting_or_withheld(&raw, placed, &code)
+                self.add_unverified_or_withheld(&raw, placed, &code)
             }
         }
     }
@@ -142,9 +143,9 @@ impl Pass<'_, '_> {
             .map(|(s, _)| s))
     }
 
-    /// Asks Jev whether RAW is a nitpick and stores it: waiting when its
+    /// Asks Jev whether RAW is a nitpick and stores it: unverified when its
     /// confidence reaches the threshold, else withheld.
-    fn add_waiting_or_withheld(
+    fn add_unverified_or_withheld(
         &mut self,
         raw: &RawFinding,
         placed: Place,
@@ -153,7 +154,7 @@ impl Pass<'_, '_> {
         let (confidence, on, w) = self.confidence(raw, placed.fingerprint.as_ref(), code)?;
         let threshold = self.cfg.confidence_threshold;
         let status = if confidence >= threshold {
-            Status::Waiting
+            Status::Unverified
         } else {
             Status::Withheld
         };
@@ -221,7 +222,7 @@ impl Pass<'_, '_> {
     /// RAW merges into the stored finding ID: it takes this pass's place,
     /// wording and evidence; it is counted seen again; a withheld one is
     /// asked again when what it was asked on changed; a refuted or unsure
-    /// one waits again when its evidence moved. Id, status and dismissals
+    /// one is unverified again when its evidence moved. Id, status and dismissals
     /// stay.
     fn merge(
         &mut self,
@@ -277,7 +278,7 @@ impl Pass<'_, '_> {
     }
 
     /// A withheld finding is asked Jev's nitpick question again when what it
-    /// was asked on (its unit, rule and sides) changed, and waits when its
+    /// was asked on (its unit, rule and sides) changed, and is unverified again when its
     /// confidence now reaches the threshold.
     fn ask_withheld_again_if_changed(&mut self, f: &mut Finding) -> std::result::Result<(), Halt> {
         let code = cited_code(&self.text(&f.place.file), f.place.lines.start);
@@ -295,13 +296,13 @@ impl Pass<'_, '_> {
         };
         let threshold = self.cfg.confidence_threshold;
         if confidence >= threshold {
-            f.set_status(Status::Waiting, self.now);
+            f.set_status(Status::Unverified, self.now);
         }
         self.log(&asked_again_text(&w[0], confidence, threshold, f.status));
         Ok(())
     }
 
-    /// A refuted or unsure finding waits to be checked again when the prints
+    /// A refuted or unsure finding is unverified again (to be checked again) when the prints
     /// of its evidence, as cited now, are not OLD_PRINTS.
     fn wait_again_if_evidence_moved(
         &self,
@@ -311,7 +312,7 @@ impl Pass<'_, '_> {
     ) {
         let Ok(evidence) = cited else { return };
         if prints(evidence) != old_prints {
-            f.set_status(Status::Waiting, self.now);
+            f.set_status(Status::Unverified, self.now);
             self.log(EVIDENCE_MOVED_TEXT);
         }
     }
@@ -404,7 +405,7 @@ const NEW_TEXT: &str = "- result: new\n";
 const NOT_ASKED_AGAIN_TEXT: &str =
     "- withheld, asked on the same unit, rule and sides: not asked again\n";
 
-const EVIDENCE_MOVED_TEXT: &str = "- its evidence moved: it waits to be checked again\n";
+const EVIDENCE_MOVED_TEXT: &str = "- its evidence moved: it is unverified again\n";
 
 /// `### Finding 3: bug at orders.py:2-2`.
 fn finding_heading_text(n: usize, raw: &RawFinding) -> String {

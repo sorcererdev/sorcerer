@@ -120,7 +120,7 @@ pub struct ReviewReport {
     pub failures: Vec<String>,
     /// Nothing capped and every review call answered.
     pub whole: bool,
-    /// A claim check did not fit the caps; its finding waits.
+    /// A claim check did not fit the caps; its finding stays unverified.
     pub checks_capped: bool,
     /// Every finding this pass added or changed, in store order.
     pub touched: Vec<FindingId>,
@@ -388,12 +388,12 @@ fn ids_of(findings: &Findings) -> HashSet<FindingId> {
     findings.findings.iter().map(|f| f.id.clone()).collect()
 }
 
-/// The findings nobody has verified yet (stored as "waiting").
+/// The findings nobody has verified yet.
 fn unverified_ids(findings: &Findings) -> HashSet<FindingId> {
     findings
         .findings
         .iter()
-        .filter(|f| f.status == Status::Waiting)
+        .filter(|f| f.status == Status::Unverified)
         .map(|f| f.id.clone())
         .collect()
 }

@@ -185,7 +185,7 @@ fn waiting_bugs(keeps: &[f64]) -> Vec<Finding> {
     keeps
         .iter()
         .enumerate()
-        .map(|(i, k)| finding(&format!("00000{i}"), "bug", *k, Status::Waiting))
+        .map(|(i, k)| finding(&format!("00000{i}"), "bug", *k, Status::Unverified))
         .collect()
 }
 
@@ -368,8 +368,8 @@ fn rounds_fill_max_shown_best_first() {
         ("000001", Status::Open),
         ("000003", Status::Open),
         ("000000", Status::Open),
-        ("000004", Status::Waiting),
-        ("000002", Status::Waiting),
+        ("000004", Status::Unverified),
+        ("000002", Status::Unverified),
     ] {
         assert_eq!(status_of(&s, id), want, "{id}");
     }
@@ -399,15 +399,15 @@ fn a_refuted_check_frees_its_place() {
     for id in ["000001", "000002", "000003"] {
         assert_eq!(status_of(&s, id), Status::Open, "{id}");
     }
-    assert_eq!(status_of(&s, "000004"), Status::Waiting);
+    assert_eq!(status_of(&s, "000004"), Status::Unverified);
 }
 
 #[test]
 fn conventions_show_before_claim_checks_finish() {
     let f = Fixture::new();
     f.seed(vec![
-        finding("00000b", "bug", 0.95, Status::Waiting),
-        finding("00000c", "convention", 0.90, Status::Waiting),
+        finding("00000b", "bug", 0.95, Status::Unverified),
+        finding("00000c", "convention", 0.90, Status::Unverified),
     ]);
     let shown_early = Arc::new(AtomicBool::new(false));
     let project = f.project.clone();
@@ -466,7 +466,7 @@ fn a_check_error_leaves_the_finding_waiting() {
     assert_eq!(r.spent, 0.0);
     let s = f.store();
     let g = &s.findings[0];
-    assert_eq!(g.status, Status::Waiting);
+    assert_eq!(g.status, Status::Unverified);
     assert_eq!(g.verdict, None);
     assert_eq!(g.history.len(), 1);
 }
@@ -490,13 +490,13 @@ fn a_check_that_does_not_fit_waits_and_stops_the_rounds() {
     assert!(r.checks_capped);
     let s = f.store();
     assert_eq!(status_of(&s, "000000"), Status::Open);
-    assert_eq!(status_of(&s, "000001"), Status::Waiting);
+    assert_eq!(status_of(&s, "000001"), Status::Unverified);
 }
 
 #[test]
 fn a_finding_whose_citations_fail_is_unsure() {
     let f = Fixture::new();
-    let mut g = finding("00000d", "bug", 0.95, Status::Waiting);
+    let mut g = finding("00000d", "bug", 0.95, Status::Unverified);
     g.evidence[0].lines = Span { start: 99, end: 99 };
     f.seed(vec![g]);
     let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
@@ -518,7 +518,7 @@ fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_review() {
         .iter()
         .map(|id| finding(id, "bug", 0.99, Status::Open))
         .collect();
-    seeded.push(finding("000011", "bug", 0.80, Status::Waiting));
+    seeded.push(finding("000011", "bug", 0.80, Status::Unverified));
     f.seed(seeded);
     let calls = AtomicUsize::new(0);
     let checker = |c: &Claim| {
@@ -528,7 +528,7 @@ fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_review() {
     let reviewer = StubReviewer::new();
     f.run(&reviewer, &checker, &no_caps());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert_eq!(status_of(&f.store(), "000011"), Status::Waiting);
+    assert_eq!(status_of(&f.store(), "000011"), Status::Unverified);
 
     support::update_store(&f.project, |s| s.dismiss("00000e", false, t0()))
         .unwrap()
@@ -622,7 +622,7 @@ fn the_run_log_of_the_rounds_is_as_recorded() {
     use sorcerer_models::domain::claim::{Cited, RawCitation};
     let f = Fixture::new();
     // six findings waiting before the pass, `cancel` not yet reviewed
-    let mut unsure = finding("00000a", "bug", 0.95, Status::Waiting);
+    let mut unsure = finding("00000a", "bug", 0.95, Status::Unverified);
     unsure.evidence.push(Evidence {
         file: "orders.py".into(),
         lines: Span { start: 99, end: 99 },
@@ -630,12 +630,12 @@ fn the_run_log_of_the_rounds_is_as_recorded() {
     });
     let seeded = vec![
         unsure,
-        finding("00000b", "convention", 0.92, Status::Waiting),
-        finding("00000c", "bug", 0.90, Status::Waiting),
-        finding("00000d", "bug", 0.80, Status::Waiting),
-        finding("00000e", "bug", 0.70, Status::Waiting),
+        finding("00000b", "convention", 0.92, Status::Unverified),
+        finding("00000c", "bug", 0.90, Status::Unverified),
+        finding("00000d", "bug", 0.80, Status::Unverified),
+        finding("00000e", "bug", 0.70, Status::Unverified),
         // left for a round after the hold: no later round may take it
-        finding("00000f", "bug", 0.60, Status::Waiting),
+        finding("00000f", "bug", 0.60, Status::Unverified),
     ];
     support::update_store(&f.project, |s| s.findings = seeded).unwrap();
     // and one the pass finds
@@ -704,9 +704,9 @@ fn the_run_log_of_the_rounds_is_as_recorded() {
     assert_eq!(status_of(&s, &r.new[0].0), Status::Open);
     assert_eq!(status_of(&s, "00000a"), Status::Unsure);
     assert_eq!(status_of(&s, "00000b"), Status::Open);
-    assert_eq!(status_of(&s, "00000c"), Status::Waiting);
+    assert_eq!(status_of(&s, "00000c"), Status::Unverified);
     assert_eq!(status_of(&s, "00000d"), Status::Refuted);
-    assert_eq!(status_of(&s, "00000e"), Status::Waiting);
-    assert_eq!(status_of(&s, "00000f"), Status::Waiting);
+    assert_eq!(status_of(&s, "00000e"), Status::Unverified);
+    assert_eq!(status_of(&s, "00000f"), Status::Unverified);
     assert!(!log.contains("### Round 5"), "{log}");
 }

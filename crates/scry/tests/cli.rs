@@ -774,7 +774,7 @@ fn cost_sums_by_local_day() {
     let mut s = stored::finding(
         "aaaa01",
         "bug",
-        scry::domain::finding::Status::Waiting,
+        scry::domain::finding::Status::Unverified,
         "a.py",
         1,
     );
@@ -904,7 +904,7 @@ fn why_does_not_print_a_fenced_or_outside_citation() {
     let mut f = stored::finding(
         "aaaa03",
         "bug",
-        scry::domain::finding::Status::Waiting,
+        scry::domain::finding::Status::Unverified,
         "orders.py",
         2,
     );
@@ -1365,8 +1365,8 @@ fn the_run_log_summary_is_as_recorded() {
         let text = std::fs::read_to_string(&p).unwrap();
         std::fs::write(p, text.replacen("x1 = 1", "x1 = 2", 1)).unwrap();
     }
-    // a convention waiting before the run, in `place` (out of this run's scope)
-    let mut before = stored::finding("dddd01", "convention", Status::Waiting, "orders.py", 6);
+    // a convention unverified before the run, in `place` (out of this run's scope)
+    let mut before = stored::finding("dddd01", "convention", Status::Unverified, "orders.py", 6);
     before.place.unit = Some("place".into());
     before.place.lines = sorcerer_core::domain::unit::Span { start: 6, end: 6 };
     before.verdict = None;
@@ -1611,7 +1611,7 @@ fn exit_codes_and_held_back_lines_are_as_before() {
                 2,
                 "0 findings, 1 unit looked at, $0.04",
                 &[
-                    "scry: the budget or the day's cap held back a claim check; its finding waits for the next run",
+                    "scry: the budget or the day's cap held back a claim check; its finding stays unverified until the next run",
                 ],
             ),
         ),
@@ -1674,4 +1674,36 @@ fn log_list_output_is_as_recorded() {
         (list.code, list.out.as_str(), list.err.as_str()),
         (0, want, "")
     );
+}
+
+/// A store written before the word changed says "waiting": it reads as
+/// unverified, and `--status waiting` still lists those findings.
+#[test]
+fn a_store_that_says_waiting_reads_as_unverified() {
+    let dir = changed_project();
+    let store = dir.path().join(".sorcerer/state/scry/findings.json");
+    std::fs::create_dir_all(store.parent().unwrap()).unwrap();
+    let mut f = stored::finding(
+        "eeee01",
+        "bug",
+        scry::domain::finding::Status::Unverified,
+        "orders.py",
+        2,
+    );
+    f.history.clear();
+    let data = scry::domain::findings::Findings {
+        findings: vec![f],
+        ..Default::default()
+    };
+    let text = serde_json::json!({"version": 2, "data": data})
+        .to_string()
+        .replace("\"unverified\"", "\"waiting\"");
+    assert!(text.contains("\"waiting\""), "{text}");
+    std::fs::write(&store, text).unwrap();
+    let d = plain_doubles(dir.path());
+    for status in ["waiting", "unverified"] {
+        let r = scry(dir.path(), &d, &["list", "--status", status]);
+        assert_eq!(r.code, 0, "{}", r.err);
+        assert!(r.out.contains("unverified  bug"), "{status}: {}", r.out);
+    }
 }

@@ -20,7 +20,7 @@
 - candidates: 00000c (confidence 0.90)
 - left for a later round: 00000d (confidence 0.80), 00000e (confidence 0.70), 00000f (confidence 0.60)
 - 00000c: citations hold: `orders.py` 2-2 (print 0e41bd1)
-- 00000c claim check failed: stub: no answer → it stays waiting
+- 00000c claim check failed: stub: no answer → it stays unverified
 
 ### Round 3
 
@@ -37,4 +37,4 @@
 - candidates: 00000e (confidence 0.70)
 - left for a later round: 00000f (confidence 0.60)
 - 00000e: citations hold: `orders.py` 2-2 (print 0e41bd1)
-- 00000e: claim check held back: $0.016 more does not fit the caps; it waits
+- 00000e: claim check held back: $0.016 more does not fit the caps; it stays unverified

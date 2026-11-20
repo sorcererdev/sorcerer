@@ -65,10 +65,10 @@ A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`, `log`) 
 
 `scry list` prints a table, `status  issue type  file  line  rule  statement` (`-` when no rule, the
 statement cut to 80 characters), open findings first, then by file and line. `--status` (repeat
-it) keeps only those statuses (`open`, `waiting`, `withheld`, `refuted`, `unsure`, `elsewhere`,
+it) keeps only those statuses (`open`, `unverified`, `withheld`, `refuted`, `unsure`, `elsewhere`,
 `dismissed-here`, `dismissed-everywhere`, `resolved`, `gone`). `--json` prints
 `{"findings": [{"id", "status", "issue_type", "file", "line", "rule", "statement", "confidence",
-"verdict", "seen"}]}`.
+"verdict", "seen"}]}`. `waiting`, the word older scry used for `unverified`, still works with `--status`, and a store an older scry wrote reads as before.
 
 `scry cost` reads the ledger: a row for each of your local days, `day  reviews  checks  review $
 check $  total $`, then `waiting on the cap: N units`. Jev's questions are in the total only.
@@ -240,7 +240,7 @@ more than `budget_per_pass`, even on the command line where no pass cap applies:
 not use up the day.
 
 A unit a cap holds back is not reviewed; scry records it and the next pass with room takes
-it. A finding whose claim check does not fit waits, and is checked on a later pass. Findings
+it. A finding whose claim check does not fit stays unverified, and is checked on a later pass. Findings
 are checked best first, and only until 3 are open in the file: a claim the checker
 refutes frees its place for the next one.
 

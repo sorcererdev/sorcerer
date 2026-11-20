@@ -303,7 +303,7 @@ fn held_back_text(r: &ReviewReport, budget: bool) -> String {
     }
     if r.checks_capped {
         s.push_str(&format!(
-            "scry: {cap} held back a claim check; its finding waits for the next run\n"
+            "scry: {cap} held back a claim check; its finding stays unverified until the next run\n"
         ));
     }
     s
@@ -429,7 +429,7 @@ fn why_not_printed(f: &Finding, in_scope: bool, cfg: &ScryConfig) -> String {
         ),
         Status::Open if !in_scope => "its unit is not in this run's scope".into(),
         Status::Open => "open".into(),
-        Status::Waiting => "not checked yet (a cap or a failed check)".into(),
+        Status::Unverified => "not checked yet (a cap or a failed check)".into(),
         Status::Withheld => format!(
             "judged a nitpick (confidence {:.2} under the threshold {:.2})",
             f.scores.confidence.unwrap_or(0.0),
