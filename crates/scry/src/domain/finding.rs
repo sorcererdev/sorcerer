@@ -171,7 +171,8 @@ pub struct Finding {
     pub history: Vec<(DateTime<Utc>, Status)>,
     /// The model that reviewed the code.
     pub model: String,
-    /// Always 0 today: what a pass costs is in the run log.
+    /// What the claim checks on it have cost, in dollars: 0 until one runs.
+    /// It is stored but no command shows it yet.
     pub cost_usd: f64,
 }
 
