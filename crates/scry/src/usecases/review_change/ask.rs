@@ -62,14 +62,22 @@ impl Pass<'_, '_> {
     /// Sends the scope's unreviewed units to the reviewer, batch by batch,
     /// within the caps; what the calls gave.
     pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> ReviewResults {
+        // 1. Pick the units to send: those not reviewed yet at their current
+        //    code (every unit when `fresh`). Log the choice.
         let to_send = self.units_not_yet_reviewed(scope, fresh);
         self.log(&units_text(scope, &to_send, fresh));
+        // 2. Remember the version (fingerprint) each is sent at, to record
+        //    the answer against it.
         let sent = sent_fingerprints(&to_send);
+        // 3. Group them into batches of at most 600 lines, one call each.
         let batches = self.batches_of(&to_send);
         self.log(&review_calls_heading_text(batches.is_empty()));
         let mut asked = ReviewResults::default();
         for (n, batch) in batches.into_iter().enumerate() {
             self.log(&batch_heading_text(n, &batch));
+            // 4. Each batch: held back when the spending limit leaves no
+            //    room (and every batch after it too); failed when the user
+            //    cancelled; else sent to the reviewer.
             if self.must_hold_back(&asked) {
                 self.hold_back_for_a_later_run(&batch, &mut asked);
             } else if self.deps.cancel.is_cancelled() {
@@ -148,7 +156,10 @@ impl Pass<'_, '_> {
         sent: &SentFingerprints,
         asked: &mut ReviewResults,
     ) {
+        // 1. Build the question: the units' code, the diffs, the project's
+        //    rules, and the open findings on these units to answer.
         let ask = self.ask_for(scope, batch);
+        // 2. Ask the reviewer, under a cost cap for this one call. Log it.
         let cap = self.cap_for_one_call();
         self.log(&ask_text(&self.cfg.review_model, cap, &ask));
         let found = self
@@ -156,7 +167,11 @@ impl Pass<'_, '_> {
             .reviewer
             .review(&ask, &self.cfg.review_model, cap, self.deps.cancel);
         self.log(&reply_text(&found));
+        // 3. Charge what the call cost.
         self.budget.charge(self.cost_of_call(&found, cap));
+        // 4. A call that failed, or a reply that is not the JSON asked for,
+        //    is a failure. Else record the reply: its findings, and its
+        //    answers on the open findings it was shown.
         let files = files_of(&ask.units);
         let answer = match found {
             Ok(answer) => answer,
