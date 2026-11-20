@@ -4,3 +4,4 @@
 - [Adding a language](adding-a-language.md)
 - [Configuration](configuration.md)
 - [Scry](scry.md)
+- [Scry in your editor](editor.md)
