@@ -43,7 +43,11 @@ pub(crate) struct JsonReply {
 ///
 /// Example: with a 1-second backoff, Anthropic answers 529, then 529, then 200: the call
 /// returns the third reply after about 3 seconds of waiting.
-pub(crate) fn post_json(post: &Post, body: &serde_json::Value, cancel: &Cancel) -> Result<JsonReply> {
+pub(crate) fn post_json(
+    post: &Post,
+    body: &serde_json::Value,
+    cancel: &Cancel,
+) -> Result<JsonReply> {
     let start = Instant::now();
     let text = send_until_not_busy(post, body, cancel, 1)?;
     let json = serde_json::from_str(&text).map_err(|e| Error::Reply {
@@ -127,10 +131,9 @@ fn build_request(
     let request = client
         .post(&post.url)
         .header("content-type", "application/json");
-    let request = post
-        .headers
-        .iter()
-        .fold(request, |request, (name, value)| request.header(name, value));
+    let request = post.headers.iter().fold(request, |request, (name, value)| {
+        request.header(name, value)
+    });
     Ok(request.body(body.to_string()))
 }
 

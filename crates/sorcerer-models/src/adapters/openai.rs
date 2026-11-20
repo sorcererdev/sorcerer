@@ -188,7 +188,10 @@ impl Provider for OpenAiCompatible {
             output_tokens: json["usage"]["completion_tokens"].as_u64().unwrap_or(0),
         };
         Ok(Reply {
-            text: choice["message"]["content"].as_str().unwrap_or_default().into(),
+            text: choice["message"]["content"]
+                .as_str()
+                .unwrap_or_default()
+                .into(),
             tool_calls: tool_calls_of(&choice["message"]),
             usage,
             cost_usd: price(&self.prices, &req.model.0, &usage),

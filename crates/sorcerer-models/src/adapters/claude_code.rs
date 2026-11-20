@@ -14,7 +14,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
 
-use crate::adapters::claude::run_claude;
+use crate::adapters::claude::{ClaudeReply, ClaudeRun};
 use crate::domain::research::{Research, Researched};
 use crate::ports::researcher::Researcher;
 use crate::{Error, Result};
@@ -47,6 +47,8 @@ impl ClaudeCodeResearcher {
         self
     }
 
+    /// `claude -p` with only the research's tools allowed, the fences as deny rules, web
+    /// search and fetch denied, and the fence prompt appended to the system prompt.
     fn args(&self, r: &Research) -> Vec<String> {
         let tools = r
             .tools
@@ -54,26 +56,10 @@ impl ClaudeCodeResearcher {
             .map(|t| t.claude_name())
             .collect::<Vec<_>>()
             .join(",");
-        let patterns = self.fences.patterns();
-        // `**/x` and its root form `x` both, as the measured rules did;
-        // a symlink out of the root or onto a fenced file is denied by name
-        // (claude reads through links; measured 2026-11-17)
-        let mut deny: Vec<String> = Vec::new();
-        for p in &patterns {
-            deny.push(format!("Read(./{p})"));
-            if let Some(root_form) = p.strip_prefix("**/") {
-                deny.push(format!("Read(./{root_form})"));
-            }
-        }
-        for link in self.fences.fenced_links() {
-            deny.push(format!("Read(./{})", link.display()));
-            deny.push(format!("Read(./{}/**)", link.display()));
-        }
-        deny.extend(["WebSearch".to_string(), "WebFetch".to_string()]);
-        let settings = json!({"permissions": {"deny": deny}}).to_string();
+        let settings = json!({"permissions": {"deny": self.deny_rules()}}).to_string();
         let prompt = FENCE_PROMPT
             .trim()
-            .replace("{fences}", &patterns.join(", "));
+            .replace("{fences}", &self.fences.patterns().join(", "));
         [
             "-p",
             "--output-format",
@@ -98,58 +84,91 @@ impl ClaudeCodeResearcher {
         .map(|s| s.to_string())
         .collect()
     }
+
+    /// What `claude` may not do. A fence such as `**/.env` is denied in both forms, `**/.env`
+    /// and the root's `.env`, as the measured rules did. `claude` reads through symlinks, so
+    /// a link out of the root or onto a fenced file is denied by its own name, and so is
+    /// everything under it (measured 2026-11-17).
+    fn deny_rules(&self) -> Vec<String> {
+        let fenced_files = self.fences.patterns().into_iter().flat_map(|pattern| {
+            let root_form = pattern
+                .strip_prefix("**/")
+                .map(|root_form| format!("Read(./{root_form})"));
+            std::iter::once(format!("Read(./{pattern})")).chain(root_form)
+        });
+        let fenced_links = self.fences.fenced_links().into_iter().flat_map(|link| {
+            [
+                format!("Read(./{})", link.display()),
+                format!("Read(./{}/**)", link.display()),
+            ]
+        });
+        fenced_files
+            .chain(fenced_links)
+            .chain(["WebSearch".to_string(), "WebFetch".to_string()])
+            .collect()
+    }
 }
 
 impl Researcher for ClaudeCodeResearcher {
+    /// Runs `claude` in the project root on the research prompt and records the call in
+    /// the ledger, whether it worked or not, before returning its answer.
     fn research(&self, r: Research, cancel: &Cancel) -> Result<Researched> {
-        let result = run_claude(
-            &self.runner,
-            &self.args(&r),
-            Some(&self.root),
-            &r.prompt,
-            r.timeout,
-            cancel,
-            &self.envs,
-        );
-        let errand = match &result {
-            Ok(reply) => Errand {
-                at: chrono::Utc::now(),
-                product: r.product.clone(),
-                verb: r.verb.clone(),
-                model: r.model.clone(),
-                provider: "claude".into(),
-                cost_usd: reply.cost_usd,
-                input_tokens: reply.usage.input_tokens,
-                output_tokens: reply.usage.output_tokens,
-                seconds: reply.seconds,
-                ok: true,
-                note: None,
-            },
-            Err(e) => Errand {
-                at: chrono::Utc::now(),
-                product: r.product.clone(),
-                verb: r.verb.clone(),
-                model: r.model.clone(),
-                provider: "claude".into(),
-                // a call that ran out of time was probably paid for
-                cost_usd: matches!(e, Error::Timeout { .. }).then_some(r.cap_usd),
-                input_tokens: 0,
-                output_tokens: 0,
-                seconds: if matches!(e, Error::Timeout { .. }) {
-                    r.timeout.as_secs_f64()
-                } else {
-                    0.0
-                },
-                ok: false,
-                note: Some(e.to_string()),
-            },
-        };
+        let result = ClaudeRun {
+            runner: &self.runner,
+            args: self.args(&r),
+            cwd: Some(&self.root),
+            prompt: &r.prompt,
+            timeout: r.timeout,
+            envs: &self.envs,
+        }
+        .run(cancel);
+        let errand = errand(&r, &result);
         self.ledger.append(&errand)?;
-        let reply = result?;
         Ok(Researched {
-            answer: reply.text,
+            answer: result?.text,
             errand,
             reads: Vec::new(),
         })
+    }
+}
+
+/// The ledger line for one research call. A call that ran out of time was probably paid
+/// for, so it is charged the research's whole cap and its whole time limit.
+///
+/// Example: a research capped at $0.50 that times out after 300 seconds is recorded as
+/// costing $0.50 and taking 300 seconds; one that fails to start costs nothing.
+fn errand(r: &Research, result: &Result<ClaudeReply>) -> Errand {
+    let failed = Errand {
+        at: chrono::Utc::now(),
+        product: r.product.clone(),
+        verb: r.verb.clone(),
+        model: r.model.clone(),
+        provider: "claude".into(),
+        cost_usd: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        seconds: 0.0,
+        ok: false,
+        note: None,
+    };
+    match result {
+        Ok(reply) => Errand {
+            cost_usd: reply.cost_usd,
+            input_tokens: reply.usage.input_tokens,
+            output_tokens: reply.usage.output_tokens,
+            seconds: reply.seconds,
+            ok: true,
+            ..failed
+        },
+        Err(e @ Error::Timeout { .. }) => Errand {
+            cost_usd: Some(r.cap_usd),
+            seconds: r.timeout.as_secs_f64(),
+            note: Some(e.to_string()),
+            ..failed
+        },
+        Err(e) => Errand {
+            note: Some(e.to_string()),
+            ..failed
+        },
     }
 }
