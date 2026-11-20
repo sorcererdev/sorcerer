@@ -11,7 +11,7 @@ use sorcerer_core::Cancel;
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_core::ports::env::Env;
 
-use crate::adapters::http::{Post, post_json};
+use crate::adapters::http::{JsonReply, Post, post_json};
 use crate::domain::model::{
     Completion, Content, ModelId, Reply, Role, StopReason, ToolCall, Usage, price,
 };
@@ -28,8 +28,12 @@ pub struct OpenAiCompatible {
 }
 
 impl OpenAiCompatible {
-    /// From `[model.providers.<name>]`: `url` required, the key optional
-    /// (from `api_key_env`).
+    /// From `[model.providers.<name>]`. The `url` is required; the key is optional (a
+    /// local server such as Ollama needs none) and is read from the variable `api_key_env`
+    /// names. A price may be keyed by an alias or by a model id.
+    ///
+    /// Example: `url = "http://localhost:11434/v1"` with `aliases.haiku = "qwen3:8b"` sends
+    /// requests for `haiku` to Ollama's `qwen3:8b`.
     pub fn from_config(
         name: &str,
         cfg: &ProviderConfig,
@@ -38,81 +42,99 @@ impl OpenAiCompatible {
         let url = cfg.url.clone().ok_or_else(|| Error::Setup {
             why: format!("[model.providers.{name}] needs a url, such as http://localhost:11434/v1"),
         })?;
-        let key = cfg.api_key_env.as_deref().and_then(|v| env.var(v));
         let prices = cfg
             .prices
             .iter()
-            .map(|(k, p)| (cfg.aliases.get(k).cloned().unwrap_or_else(|| k.clone()), *p))
+            .map(|(alias_or_id, price)| {
+                let id = cfg.aliases.get(alias_or_id).unwrap_or(alias_or_id);
+                (id.clone(), *price)
+            })
             .collect();
         Ok(OpenAiCompatible {
             name: name.into(),
             url: url.trim_end_matches('/').into(),
-            key,
+            key: cfg.api_key_env.as_deref().and_then(|var| env.var(var)),
             aliases: cfg.aliases.clone(),
             prices,
             backoff: Duration::from_secs(1),
         })
     }
 
+    /// The wait before the first retry when the server is busy (tests set zero).
     pub fn with_backoff(mut self, backoff: Duration) -> OpenAiCompatible {
         self.backoff = backoff;
         self
     }
 }
 
-fn messages(req: &Completion) -> Vec<Value> {
-    let mut out = vec![json!({"role": "system", "content": req.system})];
-    for m in &req.messages {
-        let text: String = m
-            .content
-            .iter()
-            .filter_map(|c| {
-                if let Content::Text(t) = c {
-                    Some(t.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let calls: Vec<Value> = m
-            .content
-            .iter()
-            .filter_map(|c| match c {
-                Content::ToolCall(t) => Some(json!({"id": t.id, "type": "function", "function": {"name": t.name, "arguments": t.input.to_string()}})),
-                _ => None,
-            })
-            .collect();
-        let results: Vec<Value> = m
-            .content
-            .iter()
-            .filter_map(|c| match c {
-                Content::ToolResult { id, text } => {
-                    Some(json!({"role": "tool", "tool_call_id": id, "content": text}))
-                }
-                _ => None,
-            })
-            .collect();
-        match m.role {
-            Role::Assistant => {
-                let mut a = json!({"role": "assistant"});
-                if !text.is_empty() {
-                    a["content"] = json!(text);
-                }
-                if !calls.is_empty() {
-                    a["tool_calls"] = json!(calls);
-                }
-                out.push(a);
-            }
-            Role::User => {
-                out.extend(results);
-                if !text.is_empty() {
-                    out.push(json!({"role": "user", "content": text}));
-                }
-            }
-        }
+/// The chat completions request: the model, the conversation, the token limit, and the
+/// tools in OpenAI's function shape when there are any.
+fn body(req: &Completion) -> Value {
+    let mut body =
+        json!({"model": req.model.0, "messages": messages(req), "max_tokens": req.max_tokens});
+    if !req.tools.is_empty() {
+        body["tools"] = req.tools.iter().map(|t| json!({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.schema}})).collect();
     }
-    out
+    body
+}
+
+/// The conversation in OpenAI's shape. The system prompt is the first message. OpenAI
+/// wants each tool result as its own `tool` message, so a user turn becomes its tool
+/// results followed by its text.
+///
+/// Example: a user turn holding two tool results and the text "go on" becomes three
+/// messages: `tool`, `tool`, then `user` with "go on".
+fn messages(req: &Completion) -> Vec<Value> {
+    std::iter::once(json!({"role": "system", "content": req.system}))
+        .chain(req.messages.iter().flat_map(|m| match m.role {
+            Role::Assistant => vec![assistant_message(&m.content)],
+            Role::User => tool_results_then_text(&m.content),
+        }))
+        .collect()
+}
+
+/// The model's turn: its text and the tools it asked to run, each left out when empty.
+fn assistant_message(content: &[Content]) -> Value {
+    let text = text_of(content);
+    let calls: Vec<Value> = content
+        .iter()
+        .filter_map(|c| match c {
+            Content::ToolCall(t) => Some(json!({"id": t.id, "type": "function", "function": {"name": t.name, "arguments": t.input.to_string()}})),
+            _ => None,
+        })
+        .collect();
+    let mut message = json!({"role": "assistant"});
+    if !text.is_empty() {
+        message["content"] = json!(text);
+    }
+    if !calls.is_empty() {
+        message["tool_calls"] = json!(calls);
+    }
+    message
+}
+
+fn tool_results_then_text(content: &[Content]) -> Vec<Value> {
+    let tool_results = content.iter().filter_map(|c| match c {
+        Content::ToolResult { id, text } => {
+            Some(json!({"role": "tool", "tool_call_id": id, "content": text}))
+        }
+        _ => None,
+    });
+    let text = text_of(content);
+    let user_text = (!text.is_empty()).then(|| json!({"role": "user", "content": text}));
+    tool_results.chain(user_text).collect()
+}
+
+/// The turn's text pieces joined by a blank line.
+fn text_of(content: &[Content]) -> String {
+    content
+        .iter()
+        .filter_map(|c| match c {
+            Content::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 impl Provider for OpenAiCompatible {
@@ -120,6 +142,8 @@ impl Provider for OpenAiCompatible {
         &self.name
     }
 
+    /// The table's alias first; else a name that looks like the server's own model name
+    /// (it has a `/` or a `:`, such as `qwen3:8b`) as it is.
     fn resolve(&self, alias: &str) -> Result<ModelId> {
         if let Some(m) = self.aliases.get(alias) {
             return Ok(ModelId(m.clone()));
@@ -137,12 +161,9 @@ impl Provider for OpenAiCompatible {
         })
     }
 
+    /// Sends the conversation to `/chat/completions` and reads the first choice: its text,
+    /// its tool calls, the tokens used and their price, and why the model stopped.
     fn complete(&self, req: Completion, cancel: &Cancel) -> Result<Reply> {
-        let mut body =
-            json!({"model": req.model.0, "messages": messages(&req), "max_tokens": req.max_tokens});
-        if !req.tools.is_empty() {
-            body["tools"] = req.tools.iter().map(|t| json!({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.schema}})).collect();
-        }
         let post = Post {
             provider: &self.name,
             url: format!("{}/chat/completions", self.url),
@@ -154,52 +175,58 @@ impl Provider for OpenAiCompatible {
             timeout: req.timeout,
             backoff: self.backoff,
         };
-        let (v, seconds) = post_json(&post, &body, cancel)?;
-        let choice = &v["choices"][0];
+        let JsonReply { json, seconds } = post_json(&post, &body(&req), cancel)?;
+        let choice = &json["choices"][0];
         if choice.is_null() {
             return Err(Error::Reply {
                 provider: self.name.clone(),
                 why: "no choices in the reply".into(),
             });
         }
-        let msg = &choice["message"];
-        let tool_calls = msg["tool_calls"]
-            .as_array()
-            .map(|cs| {
-                cs.iter()
-                    .map(|c| {
-                        let args = c["function"]["arguments"].as_str().unwrap_or("{}");
-                        ToolCall {
-                            id: c["id"].as_str().unwrap_or_default().into(),
-                            name: c["function"]["name"].as_str().unwrap_or_default().into(),
-                            input: serde_json::from_str(args)
-                                .unwrap_or_else(|_| Value::String(args.into())),
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
         let usage = Usage {
-            input_tokens: v["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
-            output_tokens: v["usage"]["completion_tokens"].as_u64().unwrap_or(0),
-        };
-        let stop = match choice["finish_reason"].as_str().unwrap_or_default() {
-            "stop" => StopReason::End,
-            "tool_calls" => StopReason::ToolUse,
-            "length" => StopReason::MaxTokens,
-            other => StopReason::Other(other.into()),
+            input_tokens: json["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+            output_tokens: json["usage"]["completion_tokens"].as_u64().unwrap_or(0),
         };
         Ok(Reply {
-            text: msg["content"].as_str().unwrap_or_default().into(),
-            tool_calls,
+            text: choice["message"]["content"].as_str().unwrap_or_default().into(),
+            tool_calls: tool_calls_of(&choice["message"]),
             usage,
             cost_usd: price(&self.prices, &req.model.0, &usage),
-            stop,
+            stop: stop_reason(choice["finish_reason"].as_str().unwrap_or_default()),
             seconds,
         })
     }
 
     fn supports_tools(&self) -> bool {
         true
+    }
+}
+
+/// The tools the model asked to run. OpenAI sends each call's input as a JSON string; one
+/// that does not parse is kept as that string so the tool can say what is wrong.
+fn tool_calls_of(message: &Value) -> Vec<ToolCall> {
+    let Some(calls) = message["tool_calls"].as_array() else {
+        return Vec::new();
+    };
+    calls
+        .iter()
+        .map(|call| {
+            let arguments = call["function"]["arguments"].as_str().unwrap_or("{}");
+            ToolCall {
+                id: call["id"].as_str().unwrap_or_default().into(),
+                name: call["function"]["name"].as_str().unwrap_or_default().into(),
+                input: serde_json::from_str(arguments)
+                    .unwrap_or_else(|_| Value::String(arguments.into())),
+            }
+        })
+        .collect()
+}
+
+fn stop_reason(finish_reason: &str) -> StopReason {
+    match finish_reason {
+        "stop" => StopReason::End,
+        "tool_calls" => StopReason::ToolUse,
+        "length" => StopReason::MaxTokens,
+        other => StopReason::Other(other.into()),
     }
 }
