@@ -223,3 +223,113 @@ fn a_bad_since_rev_names_it() {
     .expect_err("a bad rev is an error");
     assert!(err.to_string().contains("no-such-branch"), "{err}");
 }
+
+fn skipped(s: &Scope) -> Vec<(String, String)> {
+    s.skipped
+        .iter()
+        .map(|(f, why)| (f.display().to_string(), why.clone()))
+        .collect()
+}
+
+#[test]
+fn the_first_reason_to_leave_a_file_out_wins() {
+    let d = committed();
+    support::write(d.path(), "notes.txt", "def nope():\n    pass\n");
+    support::write(d.path(), ".env.py", "def secret():\n    pass\n");
+    let cfg = ScryConfig {
+        exclude: vec!["notes.txt".into(), ".env.py".into()],
+        ..ScryConfig::default()
+    };
+    let named = ScopeRequest::Files(vec!["notes.txt".into(), ".env.py".into()]);
+    let s = scope_with(d.path(), named, true, &cfg);
+    assert_eq!(
+        skipped(&s),
+        [
+            ("notes.txt".to_string(), "no language".to_string()),
+            (
+                ".env.py".to_string(),
+                "excluded by [scry] exclude".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_file_that_is_not_text_is_skipped_as_not_text() {
+    let d = committed();
+    std::fs::write(d.path().join("blob.py"), [0xff, 0xfe, 0x00, 0x80]).unwrap();
+    let s = scope(d.path(), ScopeRequest::Working, false);
+    assert_eq!(
+        skipped(&s),
+        [("blob.py".to_string(), "not text".to_string())]
+    );
+    assert!(s.files.is_empty());
+}
+
+#[test]
+fn a_deleted_file_that_was_never_at_the_base_is_skipped() {
+    let d = committed();
+    let s = scope(
+        d.path(),
+        ScopeRequest::Files(vec!["ghost.py".into()]),
+        false,
+    );
+    assert_eq!(
+        skipped(&s),
+        [(
+            "ghost.py".to_string(),
+            "deleted, and not at the base".to_string()
+        )]
+    );
+    assert!(s.files.is_empty());
+}
+
+#[test]
+fn a_named_file_is_taken_once_however_often_it_is_named() {
+    let d = committed();
+    let root = d.path().canonicalize().unwrap();
+    let named = ScopeRequest::Files(vec![
+        "orders.py".into(),
+        "orders.py".into(),
+        root.join("orders.py"),
+    ]);
+    let s = scope(d.path(), named, true);
+    assert_eq!(files(&s), [PathBuf::from("orders.py")]);
+    assert_eq!(names(&s), ["cancel", "place"]);
+}
+
+#[test]
+fn an_absolute_path_outside_the_project_is_dropped() {
+    let d = committed();
+    let elsewhere = tempfile::tempdir().unwrap();
+    support::write(elsewhere.path(), "far.py", "def far():\n    pass\n");
+    let named = ScopeRequest::Files(vec![elsewhere.path().join("far.py")]);
+    let s = scope(d.path(), named, true);
+    assert!(s.files.is_empty() && s.units.is_empty() && s.skipped.is_empty());
+}
+
+#[test]
+fn a_changed_file_carries_its_diff_and_an_untouched_named_file_its_text() {
+    let d = committed();
+    let pay = "def charge(x):\n    return x\n";
+    support::write(d.path(), "pay.py", pay);
+    support::commit(d.path(), "pay");
+    support::write(
+        d.path(),
+        "orders.py",
+        &ORDERS.replace("order.place()", "None"),
+    );
+    let named = ScopeRequest::Files(vec!["orders.py".into(), "pay.py".into()]);
+    let s = scope(d.path(), named, false);
+    assert_eq!(
+        files(&s),
+        [PathBuf::from("orders.py"), PathBuf::from("pay.py")]
+    );
+    assert!(
+        s.files[0].diff.contains("+    return None"),
+        "{}",
+        s.files[0].diff
+    );
+    assert_eq!(s.files[1].diff, pay);
+    assert_eq!(names(&s), ["place"]);
+}
