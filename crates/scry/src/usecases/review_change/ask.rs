@@ -1,10 +1,13 @@
-//! The review calls. `send` takes the scope's `units_not_yet_reviewed`,
-//! writes them in batches (`batches_of`), and for each batch in turn either
-//! holds it back for a later run (`hold_back_for_a_later_run`), fails it as
-//! cancelled (`fail_as_cancelled`), or has a call review it
-//! (`review_one_batch`: `ask_for` the batch, under `cap_for_one_call`,
-//! charged `cost_of_call`, the reply parsed and recorded in `Asked`). The
-//! run log's text is built last in the file.
+//! The review calls. `send`:
+//! 1. takes the scope's `units_not_yet_reviewed`;
+//! 2. groups them into batches (`batches_of`);
+//! 3. for each batch in turn, either holds it back for a later run
+//!    (`hold_back_for_a_later_run`), fails it as cancelled
+//!    (`fail_as_cancelled`), or has a call review it (`review_one_batch`:
+//!    `ask_for` the batch, under `cap_for_one_call`, charged `cost_of_call`,
+//!    the reply parsed and recorded in `Asked` by `take_reply`).
+//!
+//! The run log's text is built last in the file.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
@@ -12,7 +15,7 @@ use std::path::PathBuf;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
-use super::{Halt, Progress, Run, Sent};
+use super::{Progress, Run, Sent};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
@@ -21,27 +24,35 @@ use crate::domain::review_prompt::{
 use crate::domain::scope::{Scope, ScopedUnit};
 use crate::ports::reviewer::Reviewed;
 
-/// What the review calls gave: the units sent to a call that answered, the
-/// findings, the open findings said to no longer hold or to still hold, the
-/// units a cap held back and the calls that failed.
+/// What the review calls gave.
 #[derive(Default)]
 pub(super) struct Asked {
+    /// The units sent to a call that answered.
     pub answered: Vec<Sent>,
+    /// The findings the calls reported.
     pub raws: Vec<RawFinding>,
-    pub no_longer: HashSet<String>,
-    pub held: HashSet<String>,
+    /// The open findings a call said no longer hold.
+    pub no_longer_hold: HashSet<String>,
+    /// The open findings a call said still hold.
+    pub still_hold: HashSet<String>,
+    /// How many units a cap held back for a later run.
     pub capped: usize,
+    /// One line for each call that failed or was cancelled.
     pub failures: Vec<String>,
 }
 
 /// The fingerprint each unit was sent at, by its file, name and first line.
+/// A `ReviewUnit` (the prompt's data) carries no fingerprint, so it is kept
+/// here until the reply is recorded.
 type SentFingerprints = HashMap<(PathBuf, String, u32), Fingerprint>;
 
 /// What a review call returns: the reply and its errand, or why it failed.
 type CallResult = sorcerer_models::Result<Reviewed>;
 
 impl Run<'_, '_> {
-    pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
+    /// Sends the scope's unreviewed units to the reviewer, batch by batch,
+    /// within the caps; what the calls gave.
+    pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> Asked {
         let to_send = self.units_not_yet_reviewed(scope, fresh);
         self.t(&units_text(scope, &to_send, fresh));
         let sent = sent_fingerprints(&to_send);
@@ -58,7 +69,7 @@ impl Run<'_, '_> {
                 self.review_one_batch(scope, batch, &sent, &mut asked);
             }
         }
-        Ok(asked)
+        asked
     }
 
     /// The scope's units, less those already reviewed at their fingerprint
@@ -138,18 +149,31 @@ impl Run<'_, '_> {
         self.t(&reply_text(&found));
         self.budget.charge(self.cost_of_call(&found, cap));
         let files = files_of(&ask.units);
-        match found.map(|f| parse_review(&f.reply)) {
-            Err(e) => asked.record_failure(&files, e.to_string()),
-            Ok(Err(why)) => {
+        let answer = match found {
+            Ok(answer) => answer,
+            Err(e) => return asked.record_failure(&files, e.to_string()),
+        };
+        match parse_review(&answer.reply) {
+            Err(why) => {
                 self.t(&parse_error_text(&why));
                 asked.record_failure(&files, why);
             }
-            Ok(Ok(reply)) => {
-                self.t(&parsed_text(&ask, &reply));
-                (self.deps.progress)(&Progress::Reviewed(reply.findings.len()));
-                asked.record_reply(&ask, reply, sent);
-            }
+            Ok(reply) => self.take_reply(&ask, reply, sent, asked),
         }
+    }
+
+    /// Logs a parsed REPLY to ASK, reports its findings and records it in
+    /// ASKED.
+    fn take_reply(
+        &mut self,
+        ask: &ReviewAsk,
+        reply: ReviewReply,
+        sent: &SentFingerprints,
+        asked: &mut Asked,
+    ) {
+        self.t(&parsed_text(ask, &reply));
+        self.report(Progress::Reviewed(reply.findings.len()));
+        asked.record_reply(ask, reply, sent);
     }
 
     /// The review call's question about BATCH: its diffs, the steering, and
@@ -158,6 +182,7 @@ impl Run<'_, '_> {
         ReviewAsk {
             diff: diff_of(scope, &files_of(&batch)),
             steering: self.st.steering_text(),
+            // spellbook's slot: what was reported before; always empty in v1
             reported: Vec::new(),
             open: self.open_on(&batch),
             units: batch,
@@ -206,6 +231,7 @@ impl Asked {
     fn record_reply(&mut self, ask: &ReviewAsk, reply: ReviewReply, sent: &SentFingerprints) {
         for u in &ask.units {
             let key = (u.file.clone(), u.name.clone(), u.lines.start);
+            // every unit of a batch came from to_send, so its key is in SENT
             let fingerprint = sent[&key];
             self.answered.push((key.0, key.1, key.2, fingerprint));
         }
@@ -217,9 +243,9 @@ impl Asked {
             .filter(|o| shown.contains(o.id.as_str()))
         {
             if o.holds {
-                self.held.insert(o.id);
+                self.still_hold.insert(o.id);
             } else {
-                self.no_longer.insert(o.id);
+                self.no_longer_hold.insert(o.id);
             }
         }
         self.raws.extend(reply.findings);
@@ -227,12 +253,12 @@ impl Asked {
 
     fn record_failure(&mut self, files: &[PathBuf], why: String) {
         self.failures
-            .push(format!("review failed for {}: {why}", names(files)));
+            .push(format!("review failed for {}: {why}", file_list(files)));
     }
 
     fn record_cancelled(&mut self, files: &[PathBuf]) {
         self.failures
-            .push(format!("review cancelled for {}", names(files)));
+            .push(format!("review cancelled for {}", file_list(files)));
     }
 }
 
@@ -261,13 +287,14 @@ fn files_of(batch: &[ReviewUnit]) -> Vec<PathBuf> {
     let mut seen = BTreeSet::new();
     batch
         .iter()
+        // `insert` is false for a file already seen, so each file passes once
         .filter(|u| seen.insert(u.file.clone()))
         .map(|u| u.file.clone())
         .collect()
 }
 
-/// FILES as one comma-separated list.
-fn names(files: &[PathBuf]) -> String {
+/// FILES as one comma-separated list, for the log and failure text.
+fn file_list(files: &[PathBuf]) -> String {
     files
         .iter()
         .map(|f| f.display().to_string())
@@ -291,6 +318,7 @@ fn diff_of(scope: &Scope, files: &[PathBuf]) -> String {
 fn units_text(scope: &Scope, to_send: &[&ScopedUnit], fresh: bool) -> String {
     let mut text = section("Units");
     for u in &scope.units {
+        // the same unit of the scope, not just an equal one
         let sending = to_send.iter().any(|s| std::ptr::eq(*s, u));
         let what = if sending && fresh {
             "to send (fresh)"
@@ -330,7 +358,7 @@ fn batch_heading_text(n: usize, batch: &[ReviewUnit]) -> String {
         .collect();
     format!(
         "{}- units: {}\n",
-        sub(&format!("Batch {}: {}", n + 1, names(&files_of(batch)))),
+        sub(&format!("Batch {}: {}", n + 1, file_list(&files_of(batch)))),
         unit_names.join(", ")
     )
 }

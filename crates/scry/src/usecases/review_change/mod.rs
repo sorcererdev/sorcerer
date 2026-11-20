@@ -295,7 +295,7 @@ impl Run<'_, '_> {
             .map(|f| f.id.clone())
             .collect();
         let gone = self.sweep_gone(scope);
-        let mut asked = self.send(scope, fresh)?;
+        let mut asked = self.send(scope, fresh);
         self.judge_all(std::mem::take(&mut asked.raws), scope)?;
         let whole = asked.capped == 0 && asked.failures.is_empty();
         self.remember(&asked, &gone, &base_ids, whole);
@@ -316,6 +316,11 @@ impl Run<'_, '_> {
 
     fn t(&self, text: &str) {
         self.deps.log.put(text);
+    }
+
+    /// Tells the caller's progress callback that P happened.
+    fn report(&self, p: Progress) {
+        (self.deps.progress)(&p);
     }
 
     /// The file's text, read once a pass; empty when fenced or unreadable.
