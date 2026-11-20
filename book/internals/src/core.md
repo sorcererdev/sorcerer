@@ -96,7 +96,9 @@ its grammar, and its query files compiled by `query::compile`, which refuses any
 or directive the `tree-sitter` crate would silently ignore (only `#eq?`, `#match?`,
 `#any-of?` and their `#not-` forms are evaluated).
 
-`units_of(loaded, text)` parses the text and runs every query file over it. The rules:
+`units_of(loaded, text)` parses the text (`Loaded::parse`, which `facts_of` uses too) and runs
+every query file over it (`Captured::by_queries`); then `one_per_node`, `widened_span` and
+`named_units` apply the rules below, in that order. The rules:
 
 1. **A definition** is a capture named `definition.<kind>`, for a kind in `UNIT_KINDS`
    (function, method, class, interface, module, type, impl, instance), or `unit.<anything>`

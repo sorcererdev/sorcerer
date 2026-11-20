@@ -1,6 +1,8 @@
-//! `.sorcerer/config.toml`, parsed once. Core owns `[model]`, `[decide]` and
-//! `[languages]` and is strict about them; every other table is kept for the
-//! product that owns it, which reads it strictly with [`Config::table`].
+//! The project's settings file, `.sorcerer/config.toml`, read once.
+//!
+//! Core reads three tables itself, `[model]`, `[decide]` and `[languages]`, and refuses a key
+//! it does not know in them. Every other table belongs to a product (`[scry]`, `[conjure]`, …)
+//! and is kept as it is until that product reads it with [`Config::table`], just as strictly.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,8 +12,8 @@ use serde::de::DeserializeOwned;
 
 use crate::{Error, Result};
 
-/// Every top-level table the suite knows. Another name is probably a typo:
-/// it is warned about, not refused.
+/// Every top-level table some part of sorcerer reads. Any other table name is probably a typo
+/// (`[scyr]`): sorcerer warns about it but still runs.
 pub const KNOWN_TABLES: &[&str] = &[
     "model",
     "decide",
@@ -22,13 +24,16 @@ pub const KNOWN_TABLES: &[&str] = &[
     "plans",
 ];
 
+/// What the settings file says. A project with no file gets the defaults.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub model: ModelConfig,
     pub decide: DecideConfig,
+    /// The languages named in `[languages] names`, to load beside the ones sorcerer ships.
     pub languages: Vec<String>,
-    /// Every other top-level table, for the products.
+    /// The products' tables, each read later by its product.
     pub tables: toml::Table,
+    /// Warnings to show the user, such as an unknown table name.
     pub warnings: Vec<String>,
     file: PathBuf,
 }
@@ -46,7 +51,8 @@ impl Default for Config {
     }
 }
 
-/// `[model]` and `[model.providers.*]`.
+/// `[model]`: which model provider to use, the paths no model may read
+/// (`not_evidence`), and one `[model.providers.<name>]` table per configured provider.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ModelConfig {
@@ -55,7 +61,8 @@ pub struct ModelConfig {
     pub providers: BTreeMap<String, ProviderConfig>,
 }
 
-/// One `[model.providers.<name>]` table. `kind` defaults to the table's name.
+/// One `[model.providers.<name>]` table: how to reach a provider and what its models cost.
+/// `kind` says which adapter talks to it, and defaults to the table's name.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ProviderConfig {
@@ -68,7 +75,8 @@ pub struct ProviderConfig {
     pub prices: BTreeMap<String, [f64; 2]>,
 }
 
-/// `[decide]`: the decider (Jev).
+/// `[decide]`: the model that makes the small yes-or-no calls (Jev), and the environment
+/// variable holding its key.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DecideConfig {
@@ -83,22 +91,25 @@ struct LanguagesTable {
 }
 
 impl Config {
-    /// Parses TEXT, the contents of FILE (named in errors and warnings).
+    /// Reads the settings from the file's text. `file` is the file's path, used only in errors
+    /// and warnings.
+    ///
+    /// Example: `[model]\nprovider = "claude"\n[scyr]\n` sets the provider and warns
+    /// "unknown table [scyr] in .sorcerer/config.toml"; `[model]\nprovder = "claude"\n` is an
+    /// error naming `provder`.
     pub fn parse(text: &str, file: &Path) -> Result<Config> {
-        let bad = |why: String| Error::Config {
+        let config_error = |why: String| Error::Config {
             file: file.to_path_buf(),
             why,
         };
         let mut tables: toml::Table =
-            toml::from_str(text).map_err(|e| bad(e.message().to_string()))?;
-        let model = core_table::<ModelConfig>(&mut tables, "model").map_err(bad)?;
-        let decide = core_table::<DecideConfig>(&mut tables, "decide").map_err(bad)?;
-        let languages = core_table::<LanguagesTable>(&mut tables, "languages").map_err(bad)?;
-        let warnings = tables
-            .keys()
-            .filter(|k| !KNOWN_TABLES.contains(&k.as_str()))
-            .map(|k| format!("unknown table [{k}] in {}", file.display()))
-            .collect();
+            toml::from_str(text).map_err(|e| config_error(e.message().to_string()))?;
+        let model = take_core_table::<ModelConfig>(&mut tables, "model").map_err(config_error)?;
+        let decide =
+            take_core_table::<DecideConfig>(&mut tables, "decide").map_err(config_error)?;
+        let languages =
+            take_core_table::<LanguagesTable>(&mut tables, "languages").map_err(config_error)?;
+        let warnings = unknown_table_warnings(&tables, file);
         Ok(Config {
             model,
             decide,
@@ -109,44 +120,64 @@ impl Config {
         })
     }
 
-    /// A product's table, read strictly: its struct carries
-    /// `#[serde(deny_unknown_fields)]`. An absent table is `T::default()`.
+    /// Reads one product's table into its settings struct, refusing unknown keys. The struct
+    /// carries `#[serde(deny_unknown_fields)]`; a project without the table gets the struct's
+    /// defaults.
+    ///
+    /// Example: `config.table::<ScryConfig>("scry")` on `[scry]\nkut = 0.6\n` fails with an
+    /// unknown-key error naming `kut` in `[scry]`.
     pub fn table<T: DeserializeOwned + Default>(&self, name: &str) -> Result<T> {
         let Some(value) = self.tables.get(name) else {
             return Ok(T::default());
         };
-        value.clone().try_into().map_err(|e: toml::de::Error| {
-            let msg = e.message().to_string();
-            match unknown_field(&msg) {
-                Some(key) => Error::UnknownKey {
-                    table: name.to_string(),
-                    key,
-                },
-                None => Error::Config {
-                    file: self.file.clone(),
-                    why: format!("[{name}]: {msg}"),
-                },
-            }
-        })
+        value
+            .clone()
+            .try_into()
+            .map_err(|e: toml::de::Error| self.product_table_error(name, e.message()))
+    }
+
+    /// An unknown key gets its own error, so the message can name it; anything else is a
+    /// general config error.
+    fn product_table_error(&self, table: &str, message: &str) -> Error {
+        match unknown_field(message) {
+            Some(key) => Error::UnknownKey {
+                table: table.to_string(),
+                key,
+            },
+            None => Error::Config {
+                file: self.file.clone(),
+                why: format!("[{table}]: {message}"),
+            },
+        }
     }
 }
 
-/// Takes core's table NAME out of TABLES and reads it.
-fn core_table<T: DeserializeOwned + Default>(
+/// Removes one of core's own tables from the file's tables and reads it. An absent table gives
+/// the defaults; the error text names the table.
+fn take_core_table<T: DeserializeOwned + Default>(
     tables: &mut toml::Table,
     name: &str,
 ) -> std::result::Result<T, String> {
     match tables.remove(name) {
         None => Ok(T::default()),
-        Some(v) => v
+        Some(value) => value
             .try_into()
             .map_err(|e: toml::de::Error| format!("[{name}]: {}", e.message())),
     }
 }
 
-/// The key serde names in "unknown field `x`, expected …".
-fn unknown_field(msg: &str) -> Option<String> {
-    let rest = msg.strip_prefix("unknown field `")?;
+/// One warning per table that no part of sorcerer reads.
+fn unknown_table_warnings(tables: &toml::Table, file: &Path) -> Vec<String> {
+    tables
+        .keys()
+        .filter(|name| !KNOWN_TABLES.contains(&name.as_str()))
+        .map(|name| format!("unknown table [{name}] in {}", file.display()))
+        .collect()
+}
+
+/// The key named in serde's message "unknown field `kut`, expected …": `kut`.
+fn unknown_field(message: &str) -> Option<String> {
+    let rest = message.strip_prefix("unknown field `")?;
     Some(rest[..rest.find('`')?].to_string())
 }
 
