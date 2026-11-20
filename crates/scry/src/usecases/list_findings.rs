@@ -1,37 +1,46 @@
-//! The findings in the store, by status: open first, then by file and line.
+//! The stored findings for `scry list`: open ones first, then by file and
+//! line.
 
 use crate::domain::finding::{Finding, Status, status_word};
 use crate::ports::finding_store::FindingStore;
 use crate::usecases::read_findings;
 
-/// Which findings to list: those of STATUSES (`open`, `dismissed-here`, …),
-/// all when none.
+/// Which findings to list: those with any of these statuses (`open`,
+/// `dismissed-here`, ...), or every finding when none are given.
 #[derive(Debug, Clone, Default)]
 pub struct ListRequest {
     pub statuses: Vec<String>,
 }
 
-pub fn list_findings(store: &dyn FindingStore, req: &ListRequest) -> anyhow::Result<Vec<Finding>> {
-    let st = read_findings(store)?;
-    let mut fs: Vec<Finding> = st
-        .findings
-        .into_iter()
-        .filter(|f| req.statuses.is_empty() || req.statuses.iter().any(|s| names(s, f.status)))
-        .collect();
-    fs.sort_by(|a, b| {
-        (status_rank(a.status), &a.place.file, a.place.lines.start).cmp(&(
-            status_rank(b.status),
-            &b.place.file,
-            b.place.lines.start,
-        ))
+/// The findings the request asks for, sorted by status (open first, then
+/// the order the statuses are declared in), then by file, then by line.
+pub fn list_findings(
+    store: &dyn FindingStore,
+    request: &ListRequest,
+) -> anyhow::Result<Vec<Finding>> {
+    let stored = read_findings(store)?;
+    let asked_for = |f: &Finding| {
+        request.statuses.is_empty()
+            || request
+                .statuses
+                .iter()
+                .any(|asked| status_named(asked, f.status))
+    };
+    let mut listed: Vec<Finding> = stored.findings.into_iter().filter(asked_for).collect();
+    listed.sort_by_key(|f| {
+        (
+            status_rank(f.status),
+            f.place.file.clone(),
+            f.place.lines.start,
+        )
     });
-    Ok(fs)
+    Ok(listed)
 }
 
-/// Whether the status word ASKED names STATUS. `waiting`, the old word for
-/// `unverified`, still works: `scry list --status waiting` lists the
-/// unverified findings.
-fn names(asked: &str, status: Status) -> bool {
+/// Whether the status word the user gave names this status. `waiting`, the
+/// old word for `unverified`, still works: `scry list --status waiting`
+/// lists the unverified findings.
+fn status_named(asked: &str, status: Status) -> bool {
     let asked = if asked == "waiting" {
         "unverified"
     } else {
@@ -40,10 +49,10 @@ fn names(asked: &str, status: Status) -> bool {
     asked == status_word(status)
 }
 
-/// Open first, the order of the status type.
-fn status_rank(s: Status) -> u8 {
+/// Where a status sorts: open first, then the order of [`Status`].
+fn status_rank(status: Status) -> u8 {
     use Status::*;
-    match s {
+    match status {
         Open => 0,
         Unverified => 1,
         Withheld => 2,

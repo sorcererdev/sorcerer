@@ -1,5 +1,5 @@
-//! A finding in full: the rule it cites and its text, and each cited
-//! range's file when the fences allow it.
+//! One finding in full, for `scry why`: the finding, the rule it cites with
+//! its text, and the files its evidence cites, where the fences allow.
 
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
@@ -15,10 +15,12 @@ use crate::usecases::read_findings;
 pub enum CitedText {
     /// Fenced, or outside the project: never read.
     NotShown,
+    /// Allowed, but the file could not be read.
     Unreadable,
     Text(String),
 }
 
+/// A finding with what explains it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Explanation {
     pub finding: Finding,
@@ -27,8 +29,12 @@ pub struct Explanation {
     pub evidence: Vec<(Evidence, CitedText)>,
 }
 
-/// The finding ID (or a unique prefix of four or more); an unknown or
-/// ambiguous id is an error saying which.
+/// One finding in full, found by its id or the start of it (at least four
+/// characters, matching only one finding):
+///
+/// 1. the finding, or an error saying no finding or more than one matches;
+/// 2. the rule it cites, with the rule's text if the steering still has it;
+/// 3. the text of each file its evidence cites, where the fences allow it.
 pub fn explain_finding(
     project: &Project,
     store: &dyn FindingStore,
@@ -36,46 +42,49 @@ pub fn explain_finding(
     view: &dyn CodebaseView,
     id: &str,
 ) -> anyhow::Result<Explanation> {
-    let st = read_findings(store)?;
-    let Some(f) = st.get(id) else {
-        let n = st
-            .findings
-            .iter()
-            .filter(|f| id.len() >= 4 && f.id.0.starts_with(id))
-            .count();
-        if n > 1 {
-            anyhow::bail!("{id} matches more than one finding");
-        }
-        anyhow::bail!("no finding {id}");
-    };
-    let rule = match &f.rule {
-        None => None,
-        Some(r) => {
-            let steering = settings.steering()?;
-            let text = steering.rule(r).map(|rule| rule.text.trim().to_string());
-            Some((r.clone(), text))
-        }
-    };
-    let mut evidence = Vec::new();
-    if !f.evidence.is_empty() {
-        // a citation the checks never saw may name any path: read only what
-        // the fences allow, inside the root
-        let fences = Fences::for_project(project)?;
-        for e in &f.evidence {
-            let text = if e.file.is_absolute() || !fences.allows(&e.file) {
-                CitedText::NotShown
-            } else {
-                match view.text(&e.file) {
-                    Ok(t) => CitedText::Text(t),
-                    Err(_) => CitedText::Unreadable,
-                }
-            };
-            evidence.push((e.clone(), text));
-        }
-    }
+    let stored = read_findings(store)?;
+    let finding = stored.find(id).map_err(anyhow::Error::msg)?;
     Ok(Explanation {
-        finding: f.clone(),
-        rule,
-        evidence,
+        finding: finding.clone(),
+        rule: rule_cited(finding, settings)?,
+        evidence: cited_texts(finding, project, view)?,
     })
+}
+
+fn rule_cited(
+    finding: &Finding,
+    settings: &dyn Settings,
+) -> anyhow::Result<Option<(String, Option<String>)>> {
+    let Some(id) = &finding.rule else {
+        return Ok(None);
+    };
+    let steering = settings.steering()?;
+    let text = steering.rule(id).map(|rule| rule.text.trim().to_string());
+    Ok(Some((id.clone(), text)))
+}
+
+/// Each piece of evidence with the text of the file it cites. A citation
+/// the checks never saw may name any path, so only a relative path the
+/// fences allow is read.
+fn cited_texts(
+    finding: &Finding,
+    project: &Project,
+    view: &dyn CodebaseView,
+) -> anyhow::Result<Vec<(Evidence, CitedText)>> {
+    if finding.evidence.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fences = Fences::for_project(project)?;
+    let cited = finding.evidence.iter().map(|evidence| {
+        let text = if evidence.file.is_absolute() || !fences.allows(&evidence.file) {
+            CitedText::NotShown
+        } else {
+            match view.text(&evidence.file) {
+                Ok(text) => CitedText::Text(text),
+                Err(_) => CitedText::Unreadable,
+            }
+        };
+        (evidence.clone(), text)
+    });
+    Ok(cited.collect())
 }

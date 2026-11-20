@@ -1,4 +1,5 @@
-//! The traits scry's use cases talk through, and the data they pass.
+//! The traits scry's use cases talk to the world through (the store, the
+//! reviewer, the clock, ...), so tests and the eval can stand in for it.
 
 pub mod claim_checker;
 pub mod clock;
