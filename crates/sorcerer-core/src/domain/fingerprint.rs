@@ -1,22 +1,22 @@
-//! Fingerprints: seven hex digits naming a unit's text with formatting
-//! removed, so a formatter's reflow keeps it and a real edit changes it.
-//! Every verdict sorcerer records is "true when the unit hashed to this".
+//! Fingerprints: a short name for a unit's text that survives reformatting.
 //!
-//! The function: the span's lines trimmed, blank lines dropped, joined
-//! by newlines except where a formatter would have split one line (see
-//! [`reflowed`]), FNV-1a 64 over the UTF-8 bytes, the first seven of its
-//! sixteen hex digits. Comments are kept: changing one changes it.
+//! A fingerprint is seven hex digits, such as `aee3e55`. Reindenting a function, or a formatter
+//! spreading a call over several lines, keeps its fingerprint; editing what the code says
+//! changes it, and so does editing a comment. Every verdict sorcerer records holds "for the unit
+//! with this fingerprint", so a verdict lapses when the unit really changes and only then.
 
 use std::fmt;
 
 use crate::domain::fnv::fnv64_hex;
 use crate::domain::unit::Span;
 
+/// Seven lowercase hex digits naming a unit's text (see the module comment).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Fingerprint([u8; 7]);
 
 impl Fingerprint {
-    /// Seven lowercase hex digits, or None.
+    /// Reads a fingerprint back from text. Only exactly seven lowercase hex digits are one:
+    /// `"8fe4240"` is, `"8FE4240"` and `"8fe424"` are not (`None`).
     pub fn parse(s: &str) -> Option<Fingerprint> {
         let b = s.as_bytes();
         if b.len() != 7
@@ -31,6 +31,7 @@ impl Fingerprint {
         Some(Fingerprint(out))
     }
 
+    /// The seven digits as text.
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.0).unwrap_or("0000000")
     }
@@ -62,66 +63,87 @@ impl<'de> serde::Deserialize<'de> for Fingerprint {
     }
 }
 
-/// The fingerprint of SPAN's lines (1-based, inclusive) of TEXT.
+/// The fingerprint of some lines of a file, from `span.start` to `span.end`, counted from 1.
+///
+/// The lines are trimmed, blank lines are dropped, lines a formatter split are joined back
+/// (see [`reflowed`]), and the result is hashed with FNV-1a; the fingerprint is the first seven
+/// of the hash's sixteen hex digits.
+///
+/// Example: `f(a, b)` and the same call spread over four lines as `f(`, `a,`, `b,`, `)` both
+/// have the fingerprint `8fe4240`.
 pub fn fingerprint(text: &str, span: Span) -> Fingerprint {
-    let lines: Vec<&str> = text
-        .split('\n')
-        .skip(span.start.saturating_sub(1) as usize)
-        .take((span.end + 1).saturating_sub(span.start) as usize)
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
+    let lines = nonblank_trimmed_lines(text, span);
     let hex = fnv64_hex(reflowed(&lines).as_bytes());
     Fingerprint::parse(&hex[..7]).expect("hex digits")
 }
 
-/// Trimmed lines joined as one would be had a formatter not split it:
-/// after an opening bracket and before a closing one with nothing between
-/// (a trailing comma dropped), after a comma with one space, before a
-/// leading comma with none; every other break is a newline. Where any break
-/// was joined, a space just inside a bracket goes too (leading-comma style
-/// opens `[ a`).
+/// The span's lines with their indentation and line endings trimmed, blank lines dropped.
+fn nonblank_trimmed_lines(text: &str, span: Span) -> Vec<&str> {
+    text.split('\n')
+        .skip(span.start.saturating_sub(1) as usize)
+        .take((span.end + 1).saturating_sub(span.start) as usize)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+/// Joins trimmed lines back the way they would read had a formatter not split them.
+///
+/// A break is a formatter's, and is undone, in four places: before a closing bracket (a
+/// trailing comma just before it goes too), after an opening bracket, after a comma (one space
+/// is kept), and before a leading comma. Every other break stays a newline. When any break was
+/// undone, a space just inside a bracket is dropped too, since leading-comma style opens with
+/// `[ a`.
+///
+/// Example: `["f(", "a,", "b,", ")"]` becomes `f(a, b)`; `["x = 1", "y = 2"]` stays two lines.
 pub fn reflowed(lines: &[&str]) -> String {
     let Some((first, rest)) = lines.split_first() else {
         return String::new();
     };
-    let mut acc = first.to_string();
-    let mut joined = false;
-    for n in rest {
-        if n.starts_with([')', ']', '}']) {
-            joined = true;
-            if acc.ends_with(',') {
-                acc.pop();
-            }
-            acc.push_str(n);
-        } else if acc.ends_with(['(', '[', '{']) {
-            joined = true;
-            acc.push_str(n);
-        } else if acc.ends_with(',') {
-            joined = true;
-            acc.push(' ');
-            acc.push_str(n);
-        } else if n.starts_with(',') {
-            joined = true;
-            acc.push_str(n);
-        } else {
-            acc.push('\n');
-            acc.push_str(n);
-        }
+    let (text, any_undone) =
+        rest.iter()
+            .fold(
+                (first.to_string(), false),
+                |(text, any_undone), next| match undo_formatter_break(&text, next) {
+                    Some(joined) => (joined, true),
+                    None => (format!("{text}\n{next}"), any_undone),
+                },
+            );
+    if any_undone {
+        without_spaces_inside_brackets(text)
+    } else {
+        text
     }
-    if joined {
-        for (from, to) in [
-            (" }", "}"),
-            (" ]", "]"),
-            (" )", ")"),
-            ("{ ", "{"),
-            ("[ ", "["),
-            ("( ", "("),
-        ] {
-            acc = acc.replace(from, to);
-        }
+}
+
+/// The text so far with the next line joined on, when the break between them is one a
+/// formatter makes; `None` when it is a real line break.
+fn undo_formatter_break(text: &str, next: &str) -> Option<String> {
+    if next.starts_with([')', ']', '}']) {
+        let without_trailing_comma = text.strip_suffix(',').unwrap_or(text);
+        Some(format!("{without_trailing_comma}{next}"))
+    } else if text.ends_with(['(', '[', '{']) {
+        Some(format!("{text}{next}"))
+    } else if text.ends_with(',') {
+        Some(format!("{text} {next}"))
+    } else if next.starts_with(',') {
+        Some(format!("{text}{next}"))
+    } else {
+        None
     }
-    acc
+}
+
+fn without_spaces_inside_brackets(text: String) -> String {
+    [
+        (" }", "}"),
+        (" ]", "]"),
+        (" )", ")"),
+        ("{ ", "{"),
+        ("[ ", "["),
+        ("( ", "("),
+    ]
+    .iter()
+    .fold(text, |text, (from, to)| text.replace(from, to))
 }
 
 #[allow(clippy::too_many_lines)]
