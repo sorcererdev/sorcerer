@@ -26,7 +26,7 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::WorkDone;
 
-use super::{Server, lock, project_file};
+use super::{Publish, Server, lock, project_file};
 use crate::adapters::markdown_run_log::{RESULT, runs_dir, write_run};
 use crate::adapters::scry_toml::ScryToml;
 use crate::adapters::wiring::Wiring;
@@ -139,7 +139,7 @@ impl<W: Wiring + 'static> Server<W> {
         if let Some(why) = &failure {
             self.log_error(why);
         }
-        end_line(&pass, failure.is_some());
+        self.end_line(&pass, failure.is_some());
         self.finish(&pass);
     }
 
@@ -262,11 +262,13 @@ impl<W: Wiring + 'static> Server<W> {
     /// review failed, unless a save cancelled it on purpose), and the day's message is said
     /// when the day's cap held something back.
     fn after_review(&self, pass: &RunningPass, config: &ScryConfig, report: &ReviewReport) {
-        if pass.made_a_call() || !report.touched.is_empty() {
+        // a pass that made a call published when it stored; one that only resolved a unit
+        // put back publishes now
+        if !pass.made_a_call() && !report.touched.is_empty() {
             self.publish_open();
         }
         let failed = !report.failures.is_empty() && !pass.overtaken.load(Ordering::SeqCst);
-        end_line(pass, failed);
+        self.end_line(pass, failed);
         if report.day_spent {
             let local_day = self
                 .cfg
@@ -341,6 +343,16 @@ impl<W: Wiring + 'static> Server<W> {
         });
     }
 
+    /// Ends the pass's progress line if it began, once what the pass asked to publish is
+    /// published, saying the review failed when it did.
+    fn end_line(&self, pass: &RunningPass, failed: bool) {
+        if let Some(line) = lock(&pass.line).take() {
+            self.publish(Publish::After(Box::new(move || {
+                line.end(failed.then_some(REVIEW_FAILED));
+            })));
+        }
+    }
+
     /// Whether the saved file holds a unit the call was sent, and none of the units it was
     /// sent still has the fingerprint it was sent at.
     fn overtakes(&self, pass: &RunningPass, saved: &Path) -> bool {
@@ -384,13 +396,6 @@ fn editor_request(files: Vec<PathBuf>, config: &ScryConfig) -> ReviewRequest {
             day: config.budget_per_day,
             budget: None,
         }),
-    }
-}
-
-/// Ends the pass's progress line if it began, saying the review failed when it did.
-fn end_line(pass: &RunningPass, failed: bool) {
-    if let Some(line) = lock(&pass.line).take() {
-        line.end(failed.then_some(REVIEW_FAILED));
     }
 }
 

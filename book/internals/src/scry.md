@@ -574,7 +574,8 @@ language is ignored without a word.
 **Publishing.** One thread, started with the server (`start_publisher`), publishes in the
 order it is asked, so the main loop never waits on a parse or a grammar build and a close
 always lands after the open before it. `Publish::File(path)` is sent at an open and at a save,
-`Publish::Clear(path)` at a close (an empty list). For a file that is open and the project's,
+`Publish::Clear(path)` at a close (an empty list), `Publish::AllOpen` for every open document,
+and `Publish::After(f)` runs `f` once everything asked before it is published. For a file that is open and the project's,
 `Server::diagnostics_for` reads the store afresh (`JsonFindingStore::at`, so a read creates
 nothing), takes `shown_in_file` and turns each `Shown` into a diagnostic. Only open documents
 are ever published. An error (the config does not parse, the store is from a newer scry) goes
@@ -606,8 +607,9 @@ overtaking check).
   the progress line (`work_done("scry", "reviewing 1 unit")`) or reports on it;
   `Progress::Stored` republishes, once the pass has made a call (a finding that needs no claim
   check shows before the checks end).
-- `after_review`: republish when the pass made a call or touched a finding (a put-back resolve);
-  end the line, with `review failed, see "scry log"` when a call failed and no save cancelled
+- `after_review`: republish when the pass touched a finding without a call (a put-back
+  resolve; a pass that made a call already republished at its last `Stored`); end the line,
+  through the publisher's queue (`Publish::After`) so it ends after the pass's findings show, with `review failed, see "scry log"` when a call failed and no save cancelled
   it on purpose; when `ReviewReport::day_spent`, `say_once("day-<local date>", …)` the day's
   message with `budget_per_day`. A run log is written (`write_run`) only when the pass made a
   call or failed, so `scry log` is not filled with empty saves. A clean save says nothing.

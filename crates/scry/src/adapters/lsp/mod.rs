@@ -131,6 +131,9 @@ enum Publish {
     Clear(PathBuf),
     /// Every open file's diagnostics.
     AllOpen,
+    /// Something to do once what was asked before it is published: a pass's progress line
+    /// ends after the pass's findings show.
+    After(Box<dyn FnOnce() + Send>),
 }
 
 impl<W: Wiring + 'static> ScryServer<W> {
@@ -220,6 +223,7 @@ impl<W: Wiring + 'static> Server<W> {
                     self.publish_if_open(&path);
                 }
             }
+            Publish::After(then) => then(),
         }
     }
 

@@ -763,6 +763,16 @@ fn progress_begins_with_the_units_and_ends() {
     let begin = s.progress("begin", WAIT).unwrap();
     assert_eq!(begin["title"], "scry");
     assert_eq!(begin["message"], "reviewing 1 unit");
+    // the finding shows before the line ends
+    let finding_or_end = s.wait_for(WAIT, |m| {
+        matches!(m, Message::Notification(n)
+            if (n.method == "textDocument/publishDiagnostics" && n.params["diagnostics"] != json!([]))
+                || (n.method == "$/progress" && n.params["value"]["kind"] == "end"))
+    });
+    let Some(Message::Notification(first)) = finding_or_end else {
+        panic!("neither a finding nor the end")
+    };
+    assert_eq!(first.method, "textDocument/publishDiagnostics", "{first:?}");
     let end = s.progress("end", WAIT).unwrap();
     assert!(end.get("message").is_none(), "{end}");
     s.stop();
