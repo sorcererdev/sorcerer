@@ -39,6 +39,29 @@ so in one sentence.
 `Project::state_dir()` creates `.sorcerer/state/` on first use and writes a `.gitignore`
 of `*` into it, so nothing a tool remembers is ever committed.
 
+## Trust
+
+`domain/trust.rs` decides; `adapters/trust_list.rs` remembers. Three things a project's own
+files can set run code or move the user's API key: a provider's `runner` (a program sorcerer
+starts), a provider's `url` (where the code and the key are sent) and a grammar the
+project's `.sorcerer/languages/<name>/language.toml` names (C source compiled with `cc` and
+loaded into the process). `needs_trust(project)` lists each one as a `TrustReason { key,
+value }`, providers by name (runner, then url), then languages by name; a language counts
+when `origins["grammar"] == "project"`, so a shipped grammar or a project file that only
+changes `files` needs nothing. A git grammar needs trust with or without a pinned `rev`.
+
+`TrustList` is the user's list of trusted project roots, `trusted.toml` in
+`$XDG_CONFIG_HOME/sorcerer/`, else `~/.config/sorcerer/` (`TrustList::user`, `None` with
+neither variable; `TrustList::at(dir)` for tests). It reads `projects = [ … ]`, sorted. Every
+question reads the file afresh; `trust` and `revoke` write it whole beside itself and rename
+it over. A missing file is an empty list; a broken one trusts nothing and refuses to be
+written. The key is the root `Project::open` picks, which is canonical, so a symlink and its
+target are one project. `Project::root_above(dir)` gives that root without reading any
+config, for a server deciding whether a file belongs to its project.
+
+Only a server that starts by itself (an editor's) consults the list. The command line never
+asks: typing a command in a project is the consent.
+
 ## Languages
 
 `domain/language.rs`. A language is layers of TOML merged in order, then query files:

@@ -31,13 +31,13 @@ method names and the domain file stays pure.
   `unit.rs` (units from the queries), `fingerprint.rs`, `compare.rs` (units before and
   after), `facts.rs`, `versioned.rs` (`Versioned`, `Snapshot`: a product's state file as data),
   `errand.rs` (one paid call), `cost.rs` (`spent_since`), `fences.rs` (the
-  patterns and `allows_relative`), `fnv.rs`.
+  patterns and `allows_relative`), `trust.rs` (`needs_trust`), `fnv.rs`.
 - `ports/`: `view.rs` (`CodebaseView`), `ledger.rs` (`Ledger`), `env.rs` (`Env`).
 - `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars fetched,
   built and loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
   `json_store.rs` (`Store`), `jsonl_ledger.rs` (`JsonlLedger`),
   `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`), `env.rs`
-  (`SystemEnv`, `MapEnv`).
+  (`SystemEnv`, `MapEnv`), `trust_list.rs` (`TrustList`).
 
 **sorcerer-models**
 

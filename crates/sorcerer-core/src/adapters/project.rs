@@ -17,9 +17,7 @@ impl Project {
     /// above, it is an error.
     pub fn open(dir: &Path) -> Result<Project> {
         let dir = dir.canonicalize().map_err(|e| Error::io(dir, e))?;
-        let root = find_up(&dir, |d| d.join(".sorcerer").is_dir())
-            .or_else(|| find_up(&dir, |d| d.join(".git").exists()))
-            .ok_or(Error::NoProject { from: dir.clone() })?;
+        let root = root_above_canonical(&dir).ok_or(Error::NoProject { from: dir.clone() })?;
         let config = read_config(&root)?;
         let languages = Languages::assemble(&root, &config.languages)?;
         let state = root.join(".sorcerer/state");
@@ -29,6 +27,16 @@ impl Project {
             languages,
             state,
         })
+    }
+
+    /// The root [`Project::open`] would pick from a directory, without reading any config:
+    /// the nearest directory upward holding `.sorcerer/`, else the nearest holding `.git`, as a
+    /// canonical path. `None` when there is neither, or the directory does not exist.
+    ///
+    /// Example: for `~/shop/libs/pay/src` with `~/shop/.sorcerer/` and `~/shop/libs/pay/.git`,
+    /// the root is `~/shop`: a `.sorcerer/` directory anywhere above wins over a nearer `.git`.
+    pub fn root_above(dir: &Path) -> Option<PathBuf> {
+        root_above_canonical(&dir.canonicalize().ok()?)
     }
 
     /// The directory where products keep what they remember, `.sorcerer/state`. The first call
@@ -51,6 +59,12 @@ fn read_config(root: &Path) -> Result<Config> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
         Err(e) => Err(Error::io(&file, e)),
     }
+}
+
+/// The project root above a directory already made canonical: `.sorcerer/` first, then `.git`.
+fn root_above_canonical(dir: &Path) -> Option<PathBuf> {
+    find_up(dir, |d| d.join(".sorcerer").is_dir())
+        .or_else(|| find_up(dir, |d| d.join(".git").exists()))
 }
 
 /// The directory itself or the nearest one above it that passes the test.

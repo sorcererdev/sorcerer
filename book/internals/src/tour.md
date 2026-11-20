@@ -36,18 +36,20 @@ root.
 | `domain/facts.rs` | parse errors, TODOs, empty bodies |
 | `domain/errand.rs`, `domain/cost.rs` | one paid call; spend per day |
 | `domain/fences.rs` | what a model may never read, matched on a resolved path |
+| `domain/trust.rs` | `needs_trust`: what in a project's own files must be trusted |
 | `domain/fnv.rs` | the one hash |
 | `domain/versioned.rs` | `Versioned`, `Snapshot`: a product's state file as data |
 | `ports/view.rs` | `CodebaseView`: the questions a product asks about a codebase |
 | `ports/ledger.rs` | `Ledger`: append and read errands |
 | `ports/env.rs` | `Env`: variables and executables on PATH |
-| `adapters/project.rs` | `Project::open`: find the root, read the config and languages |
+| `adapters/project.rs` | `Project::open`: find the root, read the config and languages; `Project::root_above` |
 | `adapters/grammar.rs` | fetch, compile and load grammars at run time; `Languages::assemble`, `Languages::load` |
 | `adapters/files_view.rs` | `FilesView`: the working tree, git and tree-sitter |
 | `adapters/json_store.rs` | versioned state under a lock |
 | `adapters/jsonl_ledger.rs` | `JsonlLedger`: the ledger as `ledger.jsonl` |
 | `adapters/fences.rs` | `Fences::for_project`, `allows`, `relative`, `fenced_links`: paths resolved first |
 | `adapters/env.rs` | `SystemEnv`, `MapEnv` |
+| `adapters/trust_list.rs` | `TrustList`: the user's trusted project roots |
 
 `crates/sorcerer-models/src/` is in four layers: `domain/`, `ports/`, `usecases/` and
 `adapters/` ([Architecture](architecture.md)).

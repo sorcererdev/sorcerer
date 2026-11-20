@@ -11,5 +11,6 @@ pub mod fnv;
 pub mod language;
 pub mod project;
 pub mod query;
+pub mod trust;
 pub mod unit;
 pub mod versioned;
