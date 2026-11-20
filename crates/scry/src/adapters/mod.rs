@@ -10,4 +10,5 @@ pub mod markdown_run_log;
 pub mod research_reviewer;
 pub mod scry_toml;
 pub mod system_clock;
+pub mod why_text;
 pub mod wiring;

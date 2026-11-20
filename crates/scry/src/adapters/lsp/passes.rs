@@ -92,6 +92,18 @@ impl<W: Wiring + 'static> Server<W> {
         self.start_pass_after(self.cfg.settle);
     }
 
+    /// A file to review at once, with no settle wait (after a dismissal).
+    pub(super) fn queue(self: &Arc<Self>, file: PathBuf) {
+        {
+            let mut passes = lock(&self.passes);
+            if passes.shut_down {
+                return;
+            }
+            passes.pending.insert(file);
+        }
+        self.start_pass_after(Duration::ZERO);
+    }
+
     /// The editor is shutting down: the running pass is stopped, nothing pending is
     /// reviewed, and no pass starts again.
     pub(super) fn shutdown(&self) {

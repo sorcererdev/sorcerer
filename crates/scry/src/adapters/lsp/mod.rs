@@ -10,10 +10,11 @@
 //! order it was asked for, so the main loop never waits on a parse or a grammar build and a
 //! close always lands after the open before it.
 
+mod commands;
 mod diagnostics;
 mod passes;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, Weak};
@@ -36,7 +37,7 @@ use crate::adapters::scry_toml::ScryToml;
 use crate::adapters::system_clock::SystemClock;
 use crate::adapters::wiring::{LiveWiring, Wiring};
 use crate::ports::clock::Clock;
-use crate::usecases::show_findings::shown_in_file;
+use crate::usecases::show_findings::{Shown, shown_in_file};
 pub use diagnostics::{STALE_LINE, diagnostic};
 
 /// How long the server waits after the last save before it reviews: a burst of saves, or an
@@ -111,6 +112,8 @@ struct Server<W: Wiring> {
     publisher: Mutex<Sender<Publish>>,
     /// The errors logged since the server last published, so each is logged once.
     errors_logged: Mutex<BTreeSet<String>>,
+    /// What the server last published for each open file, for the code actions on a line.
+    published: Mutex<HashMap<PathBuf, Vec<Shown>>>,
     /// The settle wait before a pass, and the overtaking check.
     jobs: Jobs,
     /// The files saved and not yet reviewed, and the pass running, if one is.
@@ -138,6 +141,7 @@ impl<W: Wiring + 'static> ScryServer<W> {
             root: root.unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
             publisher: Mutex::new(publisher),
             errors_logged: Mutex::new(BTreeSet::new()),
+            published: Mutex::new(HashMap::new()),
             jobs: Jobs::new(),
             passes: Mutex::new(passes::Passes::default()),
         });
@@ -148,7 +152,7 @@ impl<W: Wiring + 'static> ScryServer<W> {
 
 impl<W: Wiring + 'static> Product for ScryServer<W> {
     fn capabilities() -> ServerCapabilities {
-        ServerCapabilities::default()
+        commands::capabilities()
     }
 
     fn opened(&mut self, path: &Path) {
@@ -164,8 +168,12 @@ impl<W: Wiring + 'static> Product for ScryServer<W> {
         self.server.saved(path.to_path_buf());
     }
 
-    fn request(&mut self, method: &str, _params: Value) -> Result<Value, ResponseError> {
-        Err(unknown_method(method))
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
+        match method {
+            "textDocument/codeAction" => self.server.code_actions(params),
+            "workspace/executeCommand" => self.server.execute(params),
+            _ => Err(unknown_method(method)),
+        }
     }
 
     fn shutdown(&mut self) {
@@ -198,7 +206,10 @@ impl<W: Wiring> Server<W> {
 
     fn publish_now(&self, what: Publish) {
         match what {
-            Publish::Clear(path) => self.client.publish(&path, Vec::new()),
+            Publish::Clear(path) => {
+                lock(&self.published).remove(&path);
+                self.client.publish(&path, Vec::new());
+            }
             Publish::File(path) => self.publish_if_open(&path),
             Publish::AllOpen => {
                 for path in self.client.open_paths() {
@@ -216,8 +227,9 @@ impl<W: Wiring> Server<W> {
             return;
         }
         match self.diagnostics_for(path) {
-            Ok(Some(diagnostics)) => {
+            Ok(Some((shown, diagnostics))) => {
                 self.client.publish(path, diagnostics);
+                lock(&self.published).insert(path.to_path_buf(), shown);
                 lock(&self.errors_logged).clear();
             }
             Ok(None) => {}
@@ -225,9 +237,12 @@ impl<W: Wiring> Server<W> {
         }
     }
 
-    /// What scry shows in the file now, as diagnostics; `None` when the file is not the
-    /// project's or the project has no language for it.
-    fn diagnostics_for(&self, path: &Path) -> anyhow::Result<Option<Vec<Diagnostic>>> {
+    /// What scry shows in the file now, and the same as diagnostics; `None` when the file is
+    /// not the project's or the project has no language for it.
+    fn diagnostics_for(
+        &self,
+        path: &Path,
+    ) -> anyhow::Result<Option<(Vec<Shown>, Vec<Diagnostic>)>> {
         let project = (self.cfg.open)(&self.root)?;
         let Some(file) = project_file(&project, path) else {
             return Ok(None);
@@ -239,12 +254,11 @@ impl<W: Wiring> Server<W> {
         let shown = shown_in_file(&store, &settings, &view, &file)?;
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let related = self.client.related_information();
-        Ok(Some(
-            shown
-                .iter()
-                .map(|s| diagnostic(s, &root, &text, related))
-                .collect(),
-        ))
+        let diagnostics = shown
+            .iter()
+            .map(|s| diagnostic(s, &root, &text, related))
+            .collect();
+        Ok(Some((shown, diagnostics)))
     }
 
     /// Logs an error to the editor's log for the server, unless it was logged since the

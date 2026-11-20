@@ -1063,3 +1063,225 @@ fn shutdown_answers_while_a_pass_runs() {
     let mut s = s;
     s.server.take().unwrap().join().unwrap();
 }
+
+// ---- the four actions ----
+
+/// The titles of the code actions offered on zero-based LINE of orders.py.
+fn action_titles(s: &Served, dir: &TempDir, line: u32) -> Vec<String> {
+    let id = s.request(
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": uri_of(&orders(dir)).as_str() },
+            "range": { "start": { "line": line, "character": 0 }, "end": { "line": line, "character": 0 } },
+            "context": { "diagnostics": [] },
+        }),
+    );
+    let actions = s.response(id).response_result.unwrap();
+    actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["title"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The server over a project whose store holds FINDINGS, with orders.py open and shown.
+fn showing(findings: impl FnOnce(&Path) -> Vec<Finding>) -> (TempDir, Served) {
+    let dir = project();
+    let findings = findings(dir.path());
+    seed(dir.path(), findings);
+    let s = served(dir.path(), StubReviewer::new());
+    s.open(&orders(&dir));
+    assert!(s.next_diagnostics(&orders(&dir), WAIT).is_some());
+    (dir, s)
+}
+
+fn execute(s: &Served, command: &str, arguments: Value) -> Response {
+    let id = s.request(
+        "workspace/executeCommand",
+        json!({ "command": command, "arguments": arguments }),
+    );
+    s.response(id)
+}
+
+/// The next `window/showDocument` request's parameters.
+fn shown_document(s: &Served) -> Value {
+    let request = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Request(r) if r.method == "window/showDocument"),
+    );
+    let Some(Message::Request(request)) = request else {
+        panic!("no document shown")
+    };
+    request.params
+}
+
+#[test]
+fn a_line_with_a_finding_offers_the_four_actions() {
+    let (dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
+    assert_eq!(
+        action_titles(&s, &dir, 1),
+        [
+            "scry: Show why",
+            "scry: Show code",
+            "scry: Dismiss here",
+            "scry: Dismiss everywhere"
+        ]
+    );
+    s.stop();
+}
+
+#[test]
+fn a_finding_with_no_evidence_offers_three() {
+    let (dir, s) = showing(|dir| {
+        let mut f = in_cancel(dir, "b00001", "bug");
+        f.evidence.clear();
+        vec![f]
+    });
+    assert_eq!(
+        action_titles(&s, &dir, 1),
+        [
+            "scry: Show why",
+            "scry: Dismiss here",
+            "scry: Dismiss everywhere"
+        ]
+    );
+    s.stop();
+}
+
+#[test]
+fn a_line_without_one_offers_none() {
+    let (dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
+    assert!(action_titles(&s, &dir, 4).is_empty());
+    s.stop();
+}
+
+#[test]
+fn why_writes_the_explanation_and_shows_it() {
+    use scry::adapters::why_text::why_text;
+    use scry::usecases::explain_finding::explain_finding;
+    let (dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
+    let response = execute(&s, "scry.why", json!(["b00001"]));
+    assert_eq!(response.response_result.unwrap(), Value::Null);
+    let file = dir.path().join(".sorcerer/state/scry/why-b00001.md");
+    let (project, view) = support::project_with_vendored_grammars(dir.path());
+    let ports = support::Ports::of(&project);
+    let explanation =
+        explain_finding(&project, &ports.store, &ports.settings, &view, "b00001").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        why_text(&explanation)
+    );
+    let shown = shown_document(&s);
+    assert!(
+        shown["uri"]
+            .as_str()
+            .unwrap()
+            .ends_with("/scry/why-b00001.md"),
+        "{shown}"
+    );
+    assert_eq!(shown["takeFocus"], true);
+    s.stop();
+}
+
+#[test]
+fn show_code_selects_the_first_evidence() {
+    let (_dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
+    execute(&s, "scry.showCode", json!(["b00001"]));
+    let shown = shown_document(&s);
+    assert!(
+        shown["uri"].as_str().unwrap().ends_with("/orders.py"),
+        "{shown}"
+    );
+    assert_eq!(
+        shown["selection"]["start"],
+        json!({ "line": 1, "character": 0 })
+    );
+    s.stop();
+}
+
+/// Dismisses b00001 with REACH and gives back its stored status and what was published.
+fn dismissed(reach: &str) -> (scry::domain::finding::Status, Vec<Diagnostic>) {
+    let (dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
+    let response = execute(&s, "scry.dismiss", json!(["b00001", reach]));
+    assert_eq!(response.response_result.unwrap(), Value::Null);
+    let shown = s.next_diagnostics(&orders(&dir), WAIT).unwrap();
+    let project = Project::open(dir.path()).unwrap();
+    let status = support::read_store(&project).findings[0].status;
+    s.stop();
+    (status, shown)
+}
+
+#[test]
+fn dismiss_here_clears_the_line_and_the_store_agrees() {
+    let (status, shown) = dismissed("here");
+    assert_eq!(status, scry::domain::finding::Status::DismissedHere);
+    assert!(shown.is_empty());
+}
+
+#[test]
+fn dismiss_everywhere_is_recorded_as_such() {
+    let (status, _) = dismissed("everywhere");
+    assert_eq!(status, scry::domain::finding::Status::DismissedEverywhere);
+}
+
+#[test]
+fn a_dismissal_lets_a_fourth_finding_take_the_place() {
+    let (dir, s) = showing(|dir| {
+        (0..4)
+            .map(|i| {
+                let mut f = in_cancel(dir, &format!("b0000{i}"), "bug");
+                f.scores.confidence = Some(0.9 - f64::from(i) / 10.0);
+                f
+            })
+            .collect()
+    });
+    execute(&s, "scry.dismiss", json!(["b00000", "here"]));
+    let shown = s.next_diagnostics(&orders(&dir), WAIT).unwrap();
+    let ids: Vec<&Value> = shown.iter().map(|d| d.data.as_ref().unwrap()).collect();
+    assert_eq!(ids, [&json!("b00001"), &json!("b00002"), &json!("b00003")]);
+    s.stop();
+}
+
+#[test]
+fn a_dismissal_queues_a_pass_for_the_file() {
+    let dir = changed_project();
+    seed(
+        dir.path(),
+        vec![support::open_finding("f00001", "bug", "orders.py", None, 5)],
+    );
+    let s = served(dir.path(), bug_reviewer());
+    execute(&s, "scry.dismiss", json!(["f00001", "here"]));
+    s.wait_for_asks(1);
+    s.stop();
+}
+
+#[test]
+fn an_unknown_id_is_refused_by_name() {
+    let (dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
+    let store = dir.path().join(".sorcerer/state/scry/findings.json");
+    let before = std::fs::read_to_string(&store).unwrap();
+    for (command, arguments) in [
+        ("scry.why", json!(["zzzzzz"])),
+        ("scry.showCode", json!(["zzzzzz"])),
+        ("scry.dismiss", json!(["zzzzzz", "here"])),
+    ] {
+        let error = execute(&s, command, arguments).response_result.unwrap_err();
+        assert_eq!(error.code, -32602, "{command}");
+        assert!(
+            error.message.contains("zzzzzz"),
+            "{command}: {}",
+            error.message
+        );
+    }
+    let error = execute(&s, "scry.dismiss", json!(["b00001", "somewhere"]))
+        .response_result
+        .unwrap_err();
+    assert!(error.message.contains("somewhere"), "{}", error.message);
+    let error = execute(&s, "scry.why", json!([]))
+        .response_result
+        .unwrap_err();
+    assert_eq!(error.code, -32602);
+    assert_eq!(std::fs::read_to_string(&store).unwrap(), before);
+    s.stop();
+}

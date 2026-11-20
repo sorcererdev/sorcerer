@@ -63,7 +63,9 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `researcher_for`, `claim_checker`, `PRODUCT`), and `lsp/`, the editor's server (below):
 `mod.rs` (`ServerConfig`, `serve`, `SETTLE`, the product `ScryServer` and its shared `Server`),
 `diagnostics.rs` (`diagnostic`, `STALE_LINE`), `passes.rs` (`Passes`, `RunningPass`, a save
-to a pass).
+to a pass), `commands.rs` (the code actions and the three commands); and `why_text.rs`
+(`why_text`, `lines_text`: a finding in full as Markdown, for `scry why` and the editor's
+*Show why*).
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `run_command`,
 `clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`,
@@ -620,6 +622,24 @@ overtaking check).
 - `Server::shutdown` (the product's `shutdown`) sets both cancels of the running pass, drops
   what is pending and stops new passes; it returns at once.
 
+**The four actions** (`commands.rs`). The product announces `codeActionProvider` and the
+commands `scry.why`, `scry.showCode`, `scry.dismiss`. `Server::published` keeps what the server
+last published for each open file; `code_actions` answers `textDocument/codeAction` from it
+(not from the diagnostic's `data`), so the actions always match what the editor shows: for each
+finding on a line of the range, `scry: Show why`, `scry: Show code` (left out when it cites no
+evidence), `scry: Dismiss here`, `scry: Dismiss everywhere`, each a `quickfix` carrying its
+`Command`. `execute` runs `workspace/executeCommand`:
+
+- `scry.why [id]`: `explain_finding`, then `why_text` written to
+  `.sorcerer/state/scry/why-<id>.md` and opened with `show_document`;
+- `scry.showCode [id]`: the first evidence's file, its lines selected;
+- `scry.dismiss [id, "here" | "everywhere"]`: `dismiss_finding` at `cfg.clock`'s now,
+  `publish_open`, then `Server::queue` of the finding's file (a pass with no settle wait), so a
+  finding waiting behind the limit of three can take the place.
+
+An unknown id, a missing argument or another word is an `InvalidParams` error naming it, and
+nothing is written (the id is looked up before the dismissal).
+
 **A finding as a diagnostic** (`diagnostic(shown, root, text, related)`):
 
 | field | value |
@@ -647,6 +667,14 @@ as a paid call would append it. The rounds tests (`tests/rounds.rs`) seed unveri
 straight into the store with `cancel` already reviewed, so no review call runs, and pass a
 claim checker closure; the pass tests use one that always errs (an unverified finding stays
 unverified).
+
+The server's tests (`tests/lsp.rs`) drive `serve` over `Connection::memory()`: `served` (and
+`served_with` a `Setup`: the editor's capabilities, how a pass's wiring is built, the trust
+directory, the claim checker) runs it on a thread with a 20 ms settle, vendored grammars, a
+fixed clock and a `TestWiring` (the shared `Doubles` with the pass's two cancels); `Served`
+plays the editor (answering progress-token and show-document requests as one would) and keeps
+what the server sent in an inbox the tests search (`wait_for`, `next_diagnostics`,
+`all_within`).
 
 The command line tests (`tests/cli.rs`) wire a `Doubles` (in `tests/support/`, shared with the
 editor's server tests: a vendored-grammar view, `StubReviewer`,
