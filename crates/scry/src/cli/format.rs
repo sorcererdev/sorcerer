@@ -28,6 +28,7 @@ pub(super) fn table(header: &[&str], rows: &[Vec<String>]) -> String {
     out
 }
 
+/// S, cut to N characters (the last an ellipsis) when it is longer.
 pub(super) fn cut_to(n: usize, s: &str) -> String {
     if s.chars().count() > n {
         let mut t: String = s.chars().take(n - 1).collect();
@@ -50,6 +51,7 @@ pub(super) fn cited_range(text: &str, lines: Span) -> String {
         .join("\n")
 }
 
+/// `2` for one line, `2-5` for a range.
 pub(super) fn lines_text(a: u32, z: u32) -> String {
     if a == z {
         a.to_string()
@@ -70,8 +72,22 @@ pub(super) fn finding_text(f: &Finding, width: usize) -> String {
     let indent = head.chars().count();
     let room = width.saturating_sub(indent).max(30);
     let tag = format!("({:.2})", f.scores.confidence.unwrap_or(0.0));
+    let lines = wrapped_with_tag(&f.statement, &tag, room);
+    let mut text = head;
+    text.push_str(&lines.join(&format!("\n{}", " ".repeat(indent))));
+    text.push('\n');
+    if !f.evidence.is_empty() {
+        text.push_str(&evidence_line(f));
+    }
+    text.push_str(&format!("  scry why {}\n", f.id.0));
+    text
+}
+
+/// STATEMENT's words in lines of at most ROOM characters, TAG two spaces
+/// after the last word, or on a line of its own when it does not fit.
+fn wrapped_with_tag(statement: &str, tag: &str, room: usize) -> Vec<String> {
     let mut lines: Vec<String> = vec![String::new()];
-    for word in f.statement.split_whitespace() {
+    for word in statement.split_whitespace() {
         let last = lines.last_mut().expect("one line at least");
         if last.is_empty() {
             last.push_str(word);
@@ -85,29 +101,27 @@ pub(super) fn finding_text(f: &Finding, width: usize) -> String {
     let last = lines.last_mut().expect("one line at least");
     if last.chars().count() + 2 + tag.len() <= room {
         last.push_str("  ");
-        last.push_str(&tag);
+        last.push_str(tag);
     } else {
-        lines.push(tag);
+        lines.push(tag.to_string());
     }
-    let mut text = head;
-    text.push_str(&lines.join(&format!("\n{}", " ".repeat(indent))));
-    text.push('\n');
-    if !f.evidence.is_empty() {
-        let cited: Vec<String> = f
-            .evidence
-            .iter()
-            .map(|e| {
-                format!(
-                    "{}:{}",
-                    e.file.display(),
-                    lines_text(e.lines.start, e.lines.end)
-                )
-            })
-            .collect();
-        text.push_str(&format!("  evidence: {}\n", cited.join(", ")));
-    }
-    text.push_str(&format!("  scry why {}\n", f.id.0));
-    text
+    lines
+}
+
+/// `  evidence: orders.py:2, orders.py:5-6`.
+fn evidence_line(f: &Finding) -> String {
+    let cited: Vec<String> = f
+        .evidence
+        .iter()
+        .map(|e| {
+            format!(
+                "{}:{}",
+                e.file.display(),
+                lines_text(e.lines.start, e.lines.end)
+            )
+        })
+        .collect();
+    format!("  evidence: {}\n", cited.join(", "))
 }
 
 pub(super) fn finding_json(f: &Finding) -> serde_json::Value {

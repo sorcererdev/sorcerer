@@ -1279,3 +1279,399 @@ fn the_run_log_head_says_what_steering_was_understood() {
     assert!(text.contains(" of 32.0 KB\n"), "{text}");
     assert!(text.find("## Steering") < text.find("## Scope"), "{text}");
 }
+
+// ---- the command line's texts, pinned before the rewrite ----
+
+/// A unit of N lines named NAME: its definition and N - 1 numbered lines.
+fn long_unit(name: &str, n: u32) -> String {
+    let mut text = format!("def {name}():\n");
+    for i in 1..n {
+        text.push_str(&format!("    x{i} = {i}\n"));
+    }
+    text
+}
+
+/// The text of DIR's only run log.
+fn the_run_log(dir: &Path) -> String {
+    let logs = run_logs(dir);
+    assert_eq!(logs.len(), 1, "{logs:?}");
+    std::fs::read_to_string(runs_dir(dir).join(&logs[0])).unwrap()
+}
+
+/// The run log from its `FIRST` heading to the end of its `LAST` section.
+fn sections_of<'l>(log: &'l str, first: &str, last: &str) -> &'l str {
+    let start = log
+        .find(&format!("\n## {first}\n"))
+        .unwrap_or_else(|| panic!("no {first} section in:\n{log}"));
+    let at = start
+        + log[start..]
+            .find(&format!("\n## {last}\n"))
+            .unwrap_or_else(|| panic!("no {last} section in:\n{log}"));
+    let end = log[at + 1..]
+        .find("\n## ")
+        .map_or(log.len(), |e| at + 1 + e);
+    &log[start..end]
+}
+
+/// TEXT equals the golden file NAME; SCRY_BLESS=1 rewrites it.
+fn assert_golden(name: &str, text: &str) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(name);
+    if std::env::var_os("SCRY_BLESS").is_some() {
+        std::fs::write(&path, text).unwrap();
+    }
+    let golden = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        text, golden,
+        "the run log drifted from {name}; SCRY_BLESS=1 rewrites the golden file"
+    );
+}
+
+/// A review reply of FINDINGS on orders.py, each (issue type, line,
+/// statement, cited line).
+fn orders_reply(findings: &[(&str, u32, &str, u32)]) -> String {
+    let findings: Vec<serde_json::Value> = findings
+        .iter()
+        .map(|(kind, line, statement, cited)| {
+            serde_json::json!({
+                "issue_type": kind,
+                "file": "orders.py",
+                "lines": [line, line],
+                "statement": statement,
+                "evidence": [{"file": "orders.py", "lines": [cited, cited]}],
+            })
+        })
+        .collect();
+    serde_json::json!({"findings": findings, "open": []}).to_string()
+}
+
+#[test]
+fn the_run_log_summary_is_as_recorded() {
+    use scry::domain::finding::Status;
+    // orders.py and two files of one long unit each, so three review calls
+    let dir = git_project();
+    write(dir.path(), "orders.py", ORDERS);
+    write(dir.path(), "x_big.py", &long_unit("xray", 600));
+    write(dir.path(), "y_big.py", &long_unit("yankee", 600));
+    commit(dir.path(), "three files");
+    write(
+        dir.path(),
+        "orders.py",
+        &ORDERS.replace("order.cancel()", "order.cancel(now=True)"),
+    );
+    for file in ["x_big.py", "y_big.py"] {
+        let p = dir.path().join(file);
+        let text = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(p, text.replacen("x1 = 1", "x1 = 2", 1)).unwrap();
+    }
+    // a convention waiting before the run, in `place` (out of this run's scope)
+    let mut before = stored::finding("dddd01", "convention", Status::Waiting, "orders.py", 6);
+    before.place.unit = Some("place".into());
+    before.place.lines = sorcerer_core::domain::unit::Span { start: 6, end: 6 };
+    before.verdict = None;
+    // first in the store at the top confidence: it takes round 1's first place
+    before.scores.confidence = Some(1.0);
+    stored::put(dir.path(), vec![before]);
+
+    let mut reviewer = StubReviewer::new()
+        .reply(
+            &["orders.py"],
+            &orders_reply(&[
+                ("convention", 2, "cancel breaks the naming rule", 2),
+                ("design", 2, "cancel is hard to test", 2),
+                ("bug", 2, "cancel is not idempotent", 2),
+                ("bug", 2, "cancel loses the refund", 2),
+                ("bug", 2, "cancel forgets the audit", 2),
+                ("bug", 2, "cancel cites a missing line", 99),
+                ("bug", 2, "cancel has a long name", 2),
+                ("bug", 3, "a stray blank line", 3),
+            ]),
+        )
+        .reply(&["x_big.py"], "I could not finish.");
+    reviewer.cost = 0.01;
+    // each call leaves its ledger row, as the live reviewer's does
+    let ledger_dir = dir.path().to_path_buf();
+    let reviewer = reviewer.on_review(move |_| {
+        let p = Project::open(&ledger_dir).unwrap();
+        JsonlLedger::for_project(&p)
+            .unwrap()
+            .append(&support::errand("review", "sonnet", 0.01))
+            .unwrap();
+    });
+    let mut d = Doubles::new(dir.path(), reviewer);
+    d.decider = StubDecider::new().on(
+        "nitpick",
+        |q| StubDecider::context(q, "finding") == "cancel has a long name",
+        StubDecider::p_yes(0.9),
+    );
+    d.checker = Box::new(|c: &Claim| match c.statement.as_str() {
+        "cancel is not idempotent" => Ok(Checked {
+            verdict: Verdict::Wrong,
+            why: "it checks the state first".into(),
+            citations: Vec::new(),
+            cited: Vec::new(),
+            escalated: false,
+            errands: vec![support::errand("check", "haiku", 0.01)],
+        }),
+        "cancel loses the refund" => Ok(Checked {
+            verdict: Verdict::CannotTell,
+            why: "the refund is not in view".into(),
+            citations: Vec::new(),
+            cited: Vec::new(),
+            escalated: true,
+            errands: vec![support::errand("check", "sonnet", 0.01)],
+        }),
+        _ => Err(sorcerer_models::Error::Reply {
+            provider: "stub".into(),
+            why: "no answer".into(),
+        }),
+    });
+    // room for two calls at the $0.04 estimate ($0.01 each spent), not a third
+    let r = scry(dir.path(), &d, &["--budget", "0.055"]);
+    let log = the_run_log(dir.path());
+    assert_eq!(r.code, 1, "{}{}{log}", r.out, r.err);
+    assert_golden(
+        "run-log-summary.md",
+        sections_of(&log, "Summary", "Summary"),
+    );
+}
+
+#[test]
+fn the_run_log_head_is_as_recorded() {
+    let dir = changed_project();
+    write(dir.path(), "notes.md", "Orders are cancelled by id.\n");
+    write(
+        dir.path(),
+        ".sorcerer/scry.toml",
+        "context = \"Orders.\"\ninclude = [\"notes.md\"]\n\n[[rule]]\nid = \"result\"\ntext = \"Commands return a Result.\"\n",
+    );
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[scry]\nbudget_per_day = 2.5\n",
+    );
+    let d = bug_doubles(dir.path());
+    let r = scry(dir.path(), &d, &["--budget", "0.5"]);
+    assert_eq!(r.code, 1, "{}{}", r.out, r.err);
+    // the machine's: the project's path and scry's version
+    let root = dir.path().canonicalize().unwrap();
+    let log = the_run_log(dir.path())
+        .replace(&root.display().to_string(), "<project>")
+        .replace(env!("CARGO_PKG_VERSION"), "<version>");
+    let head = &log[..log.find("\n## Scope\n").expect("a Scope section")];
+    assert_golden("run-log-head.md", head);
+
+    // a config scry cannot read stops the command before the run: no run
+    // log, so the head's own `- config:` line is not reached from here
+    let bad = changed_project();
+    write(
+        bad.path(),
+        ".sorcerer/config.toml",
+        "[scry]\nissue_types = [\"style\"]\n",
+    );
+    let d = bug_doubles(bad.path());
+    let r = scry(bad.path(), &d, &[]);
+    assert_eq!((r.code, r.out.as_str()), (2, ""), "{}", r.err);
+    assert!(
+        r.err.ends_with("[scry] issue_types: `style` is not an issue type (bug, assumption, convention, design)\n"),
+        "{}",
+        r.err
+    );
+    assert!(run_logs(bad.path()).is_empty());
+}
+
+/// An exit code, stdout's last line and stderr's lines.
+type Outcome = (i32, String, Vec<String>);
+
+/// What `scry ARGS` gives in one row of the table.
+fn outcome(dir: &Path, d: &Doubles, a: &[&str]) -> Outcome {
+    let r = scry(dir, d, a);
+    (
+        r.code,
+        r.out.lines().last().unwrap_or("").to_string(),
+        r.err.lines().map(String::from).collect(),
+    )
+}
+
+/// orders.py's change and a file of one 600-line unit, changed: two calls.
+fn two_calls_project() -> TempDir {
+    let dir = git_project();
+    write(dir.path(), "orders.py", ORDERS);
+    write(dir.path(), "x_big.py", &long_unit("xray", 600));
+    commit(dir.path(), "two files");
+    write(
+        dir.path(),
+        "orders.py",
+        &ORDERS.replace("order.cancel()", "order.cancel(now=True)"),
+    );
+    let p = dir.path().join("x_big.py");
+    let text = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(p, text.replacen("x1 = 1", "x1 = 2", 1)).unwrap();
+    dir
+}
+
+#[test]
+fn exit_codes_and_held_back_lines_are_as_before() {
+    let failing = || StubReviewer::new().reply(&["orders.py"], "I could not finish.");
+    let mut rows: Vec<(&str, Outcome)> = Vec::new();
+
+    let dir = changed_project();
+    rows.push(("shown", outcome(dir.path(), &bug_doubles(dir.path()), &[])));
+    let dir = changed_project();
+    rows.push((
+        "shown, --json",
+        outcome(dir.path(), &bug_doubles(dir.path()), &["--json"]),
+    ));
+    let dir = changed_project();
+    rows.push((
+        "a failure",
+        outcome(dir.path(), &Doubles::new(dir.path(), failing()), &[]),
+    ));
+    let dir = changed_project();
+    rows.push((
+        "a failure, --json",
+        outcome(
+            dir.path(),
+            &Doubles::new(dir.path(), failing()),
+            &["--json"],
+        ),
+    ));
+    let dir = changed_project();
+    rows.push((
+        "capped by --budget",
+        outcome(dir.path(), &bug_doubles(dir.path()), &["--budget", "0.01"]),
+    ));
+    let dir = changed_project();
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[scry]\nbudget_per_day = 0.01\n",
+    );
+    rows.push((
+        "capped by the day",
+        outcome(dir.path(), &bug_doubles(dir.path()), &[]),
+    ));
+    let dir = changed_project();
+    rows.push((
+        "a check capped by --budget",
+        outcome(dir.path(), &bug_doubles(dir.path()), &["--budget", "0.05"]),
+    ));
+    let dir = two_calls_project();
+    rows.push((
+        "shown and capped",
+        outcome(dir.path(), &bug_doubles(dir.path()), &["--budget", "0.07"]),
+    ));
+    let dir = changed_project();
+    let quiet_reviewer = StubReviewer::new();
+    rows.push((
+        "nothing found",
+        outcome(dir.path(), &Doubles::new(dir.path(), quiet_reviewer), &[]),
+    ));
+    let summary = "1 finding, 1 unit looked at, $0.04";
+    let failed = "scry: review failed for orders.py: no JSON in the review reply";
+    let json = r#"{"confidence":1.0,"evidence":[{"file":"orders.py","lines":[2,2]}],"file":"orders.py","id":"5034e6","issue_type":"bug","lines":[2,2],"rule":null,"statement":"cancel() passes now=True","status":"open","unit":"cancel","verdict":"right"}"#;
+    let row = |code: i32, last: &str, err: &[&str]| {
+        (
+            code,
+            last.to_string(),
+            err.iter().map(|l| (*l).to_string()).collect::<Vec<_>>(),
+        )
+    };
+    let want = [
+        ("shown", row(1, summary, &[])),
+        ("shown, --json", row(1, json, &[summary])),
+        (
+            "a failure",
+            row(2, "0 findings, 0 units looked at, $0.04", &[failed]),
+        ),
+        (
+            "a failure, --json",
+            row(2, "", &["0 findings, 0 units looked at, $0.04", failed]),
+        ),
+        (
+            "capped by --budget",
+            row(
+                2,
+                "",
+                &["scry: the budget or the day's cap stopped 1 unit; it waits for the next run"],
+            ),
+        ),
+        (
+            "capped by the day",
+            row(
+                2,
+                "",
+                &["scry: the day's cap stopped 1 unit; it waits for the next run"],
+            ),
+        ),
+        (
+            "a check capped by --budget",
+            row(
+                2,
+                "0 findings, 1 unit looked at, $0.04",
+                &[
+                    "scry: the budget or the day's cap held back a claim check; its finding waits for the next run",
+                ],
+            ),
+        ),
+        (
+            "shown and capped",
+            row(
+                1,
+                summary,
+                &["scry: the budget or the day's cap stopped 1 unit; it waits for the next run"],
+            ),
+        ),
+        (
+            "nothing found",
+            row(0, "0 findings, 1 unit looked at, $0.04", &[]),
+        ),
+    ];
+    assert_eq!(rows.len(), want.len());
+    for ((name, got), (want_name, want)) in rows.iter().zip(want.iter()) {
+        assert_eq!(name, want_name);
+        assert_eq!(got, want, "{name}");
+    }
+}
+
+#[test]
+fn doctor_output_is_as_recorded() {
+    // no source file: no grammar is loaded (nor built into the working directory)
+    let dir = git_project();
+    let good = MapEnv::default()
+        .on_path("claude")
+        .var_set("JEV_API_KEY", "k");
+    let r = doctor(dir.path(), &good);
+    let want = "provider   ok    claude (claude is on PATH)\n\
+                jev        ok    jev (JEV_API_KEY is set)\n\
+                languages  ok    no file here is in a language sorcerer knows\n\
+                steering   ok    no .sorcerer/scry.toml: no rules\n\
+                store      ok    no findings yet\n\
+                ledger     ok    0 rows, 0 of them scry's\n";
+    assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, want, ""));
+    let r = doctor(dir.path(), &MapEnv::default());
+    let want = "provider   FAIL  no model provider: put claude on PATH or set ANTHROPIC_API_KEY\n\
+                jev        FAIL  jev: no key; set JEV_API_KEY; scry does not run without Jev\n\
+                languages  ok    no file here is in a language sorcerer knows\n\
+                steering   ok    no .sorcerer/scry.toml: no rules\n\
+                store      ok    no findings yet\n\
+                ledger     ok    0 rows, 0 of them scry's\n";
+    assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (2, want, ""));
+}
+
+#[test]
+fn log_list_output_is_as_recorded() {
+    let dir = changed_project();
+    let d = bug_doubles(dir.path());
+    scry(dir.path(), &d, &[]);
+    scry(dir.path(), &d, &[]);
+    let list = scry(dir.path(), &d, &["log", "--list"]);
+    let want = "log                        time                        result\n\
+                2026-11-18T23-00-00Z-2.md  2026-11-18 23:00:00 +00:00  1 finding shown, 0 units looked at, $0.00, exit 1\n\
+                2026-11-18T23-00-00Z.md    2026-11-18 23:00:00 +00:00  1 finding shown, 1 unit looked at, $0.04, exit 1\n";
+    assert_eq!(
+        (list.code, list.out.as_str(), list.err.as_str()),
+        (0, want, "")
+    );
+}

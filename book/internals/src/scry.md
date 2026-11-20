@@ -438,15 +438,16 @@ a terminal) and `LiveWiring::open` as the wiring, and hands them to `main_with`,
 with their own directory, width and a `Wiring` of doubles. Every error is one `scry: …` line on
 stderr and exit 2; clap's usage errors exit 2, `--help` 0.
 
-A run (`cli/review.rs`, `run`): open the project from the directory, `scry_config`, the
-wiring, then `review_change` with a `ReviewRequest` of `Since(rev)`, `Files` (joined to the
+A run (`cli/review.rs`, `run`): open the project from the directory, `check_budget`, `scry_config`, the
+wiring, then `review_change` with a `ReviewRequest` (`request_from`) of `Since(rev)`, `Files` (joined to the
 directory, so `../a.py` works from a subdirectory) or `Working`, `--all`, `--fresh` and
 `--budget`, and no caps of its own, so the use case's `Caps { pass: None, day: budget_per_day,
 budget: --budget }` hold (the day's cap already counts what scry spent earlier today, so leaving `budget` unset is "the
 day's remaining"); then the store is read again and `Findings::shown_in_scope` (domain) takes every open finding
 of a shown issue type whose place's file and unit are a scope unit, best confidence first, with no
-`MAX_SHOWN`. `finding_text` prints each (the statement wrapped under itself), or `finding_json`
-one object a line. The summary line is skipped when nothing was shown, looked at or spent.
+`MAX_SHOWN`. `print_findings` prints each through `finding_text` (the statement wrapped under itself), or `finding_json`
+one object a line. `exit_code` is 1 when a finding is shown, else 2 after a failure or a cap, else 0.
+The summary line (`summary_line`, said by `say_summary_line`: stdout, or stderr under `--json`) is skipped when nothing was shown, looked at or spent.
 
 The store commands (`list`, `cost`, `dismiss`, `why`, `log`, a file each in `src/cli/`) need no Jev, so `go` does
 not require the wiring: `clock_of` asks it for the clock (the tests' `FixedClock` carries the
@@ -463,7 +464,7 @@ command line prints `cited_range`), reading a cited path only when it is relativ
 the root after `..` and symlinks, not fenced): evidence on a finding that was never verified
 is whatever path the model wrote (the cited lines, two either side; not `judge::cited_code`, the claim prompt's
 window of 8 around the first line).
-`held_back` prints the failures and caps.
+`held_back_text` is the failures and caps, a stderr line each.
 
 **The run log.** A run goes through `logged`: it builds a `StreamingLog`
 (`adapters/markdown_run_log.rs`: the text in a `RefCell`, and stderr, written to as the text
@@ -471,12 +472,12 @@ grows when `-v`; the run's other stderr lines go through `StreamingLog::say`), o
 version, the command line `main_with` joined from its args, the caps, the effective `[scry]`
 serialized a `key = value` line each) and the **Steering** section (`steering_section`: the
 file, the context's size, each include's size, the rule ids, the size against the cap, or
-the error), then `run`, which hands the review its `ReviewDeps` with
+the error; `head` is `run_text`, `config_text` and `steering_section`), then `run`, which hands the review its `ReviewDeps` with
 `log` set to the `StreamingLog` (the use case puts the scope), and at the end
 `summary_text`: each of `ReviewReport::touched` with its status, verdict and why it is or is not
-printed; the ledger's new `scry` rows (read before and after the pass) by verb; failures and
-caps; and the `RESULT` line with the exit code. A run that errs or is skipped still gets
-a summary. `write_run` then creates `state/scry/runs/<UTC %Y-%m-%dT%H-%M-%SZ>.md`
+printed (`touched_text`, `why_not_printed`); the ledger's new `scry` rows (read before and after the pass, `ledger_rows`) by verb (`spent_text`); failures and
+caps (`failures_and_caps_text`); and the `RESULT` line with the exit code. A run that errs or is skipped still gets
+a summary (`error_summary_text`, `skipped_summary_text`). `write_run_log` then calls `write_run`, which creates `state/scry/runs/<UTC %Y-%m-%dT%H-%M-%SZ>.md`
 (`create_new`, `-2`, `-3` on a clash) and deletes all but the newest `KEEP` (20), newest by
 `run_key` (the stamp, then the counter, so `-10` sorts after `-9`); a failure is one stderr
 line. A run with scry off writes no log. `scry log` (`cli/log.rs`, `show_log`) reads `runs` without

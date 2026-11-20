@@ -4,6 +4,7 @@
 //! the wiring's other callers, not among the use cases. Reads only.
 
 use std::io::Write;
+use std::path::Path;
 
 use anyhow::Result;
 use sorcerer_core::adapters::files_view::FilesView;
@@ -32,15 +33,13 @@ pub(super) fn doctor(
     out: &mut dyn Write,
 ) -> Result<i32> {
     let rows = doctor_rows(project, env, cache);
-    let mut code = 0;
-    for (name, row) in rows {
-        match row {
-            Ok(s) => writeln!(out, "{name:<10} ok    {s}")?,
-            Err(s) => {
-                code = 2;
-                writeln!(out, "{name:<10} FAIL  {s}")?
-            }
-        }
+    let code = if rows.iter().any(|(_, row)| row.is_err()) {
+        2
+    } else {
+        0
+    };
+    for (name, row) in &rows {
+        write!(out, "{}", row_text(name, row))?;
     }
     Ok(code)
 }
@@ -63,9 +62,7 @@ pub fn doctor_rows(
     )
 }
 
-/// Whether scry can run in PROJECT, a row each: `provider`, `jev`,
-/// `languages` (each language the project's files use loads), `steering`,
-/// `store`, `ledger`. Reads only; writes nothing.
+/// The rows of [`doctor_rows`] over these ports.
 fn check_setup(
     project: &Project,
     env: &dyn Env,
@@ -74,77 +71,88 @@ fn check_setup(
     ledger: &dyn Ledger,
     settings: &dyn Settings,
 ) -> Vec<(String, Result<String, String>)> {
-    let provider = default_provider_for(project, env)
+    vec![
+        ("provider".into(), provider_row(project, env)),
+        ("jev".into(), jev_row(project, env)),
+        ("languages".into(), languages_row(project, cache)),
+        ("steering".into(), steering_row(settings, &project.root)),
+        ("store".into(), store_row(store)),
+        ("ledger".into(), ledger_row(ledger)),
+    ]
+}
+
+/// The model provider a review would use, and why.
+fn provider_row(project: &Project, env: &dyn Env) -> Result<String, String> {
+    default_provider_for(project, env)
         .map(|(_, c)| format!("{} ({})", c.name, c.why))
-        .map_err(|e| e.to_string());
-    let jev = match Jev::from_env(&project.config.decide, env, None) {
+        .map_err(|e| e.to_string())
+}
+
+/// Whether Jev can be asked: its key, and the decider it would use.
+fn jev_row(project: &Project, env: &dyn Env) -> Result<String, String> {
+    match Jev::from_env(&project.config.decide, env, None) {
         Ok(_) => Ok(default_decider(&project.config.decide, env)
             .map(|c| format!("{} ({})", c.name, c.why))
             .unwrap_or_else(|| "jev".into())),
         Err(e) => Err(format!("{e}; scry does not run without Jev")),
-    };
-    let steering_row = settings
-        .steering()
-        .map(|s| match settings.steering_source() {
-            None => "no .sorcerer/scry.toml: no rules".to_string(),
-            Some(file) => format!(
-                "{}, {}, {}, {}; {}",
-                count(s.rules.len(), "rule"),
-                count(s.includes.len(), "include"),
-                if s.context.trim().is_empty() {
-                    "no context".to_string()
-                } else {
-                    format!("context {}", bytes(s.context.trim().len()))
-                },
-                bytes(s.size()),
-                file.strip_prefix(&project.root).unwrap_or(&file).display()
-            ),
-        })
-        .map_err(|e| e.to_string());
-    let store_row = {
-        let st = store;
-        match st.read() {
-            Ok(Snapshot::Absent) => Ok("no findings yet".into()),
-            Ok(Snapshot::Current(s)) => {
-                let open = s
-                    .findings
-                    .iter()
-                    .filter(|f| f.status == Status::Open)
-                    .count();
-                Ok(format!(
-                    "{}, {open} open",
-                    count(s.findings.len(), "finding")
-                ))
-            }
-            Ok(Snapshot::Unreadable(why)) => Err(format!(
-                "{} cannot be read ({why}); scry does not run until it is fixed or moved aside",
-                st.path().display()
-            )),
-            Err(e) => Err(e.to_string()),
+    }
+}
+
+/// The steering understood: its rules, includes, context and size, and
+/// its file.
+fn steering_row(settings: &dyn Settings, root: &Path) -> Result<String, String> {
+    let s = settings.steering().map_err(|e| e.to_string())?;
+    Ok(match settings.steering_source() {
+        None => "no .sorcerer/scry.toml: no rules".to_string(),
+        Some(file) => format!(
+            "{}, {}, {}, {}; {}",
+            count(s.rules.len(), "rule"),
+            count(s.includes.len(), "include"),
+            if s.context.trim().is_empty() {
+                "no context".to_string()
+            } else {
+                format!("context {}", bytes(s.context.trim().len()))
+            },
+            bytes(s.size()),
+            file.strip_prefix(root).unwrap_or(&file).display()
+        ),
+    })
+}
+
+/// The store's findings and how many are open; an unreadable store fails.
+fn store_row(store: &dyn FindingStore) -> Result<String, String> {
+    match store.read().map_err(|e| e.to_string())? {
+        Snapshot::Absent => Ok("no findings yet".into()),
+        Snapshot::Current(s) => {
+            let open = s
+                .findings
+                .iter()
+                .filter(|f| f.status == Status::Open)
+                .count();
+            Ok(format!(
+                "{}, {open} open",
+                count(s.findings.len(), "finding")
+            ))
         }
-    };
-    let ledger_row = match ledger.read() {
-        Ok(rows) => {
-            let scry = rows.errands.iter().filter(|e| e.product == "scry").count();
-            let mut s = format!(
-                "{}, {scry} of them scry's",
-                count(rows.errands.len(), "row")
-            );
-            if rows.skipped > 0 {
-                s.push_str(&format!("; {} did not read", count(rows.skipped, "line")));
-            }
-            Ok(s)
-        }
-        Err(e) => Err(e.to_string()),
-    };
-    vec![
-        ("provider".into(), provider),
-        ("jev".into(), jev),
-        ("languages".into(), languages_row(project, cache)),
-        ("steering".into(), steering_row),
-        ("store".into(), store_row),
-        ("ledger".into(), ledger_row),
-    ]
+        Snapshot::Unreadable(why) => Err(format!(
+            "{} cannot be read ({why}); scry does not run until it is fixed or moved aside",
+            store.path().display()
+        )),
+    }
+}
+
+/// The ledger's rows, how many are scry's, and lines that did not read.
+fn ledger_row(ledger: &dyn Ledger) -> Result<String, String> {
+    let rows = ledger.read().map_err(|e| e.to_string())?;
+    let scry = rows.errands.iter().filter(|e| e.product == "scry").count();
+    let mut s = format!(
+        "{}, {scry} of them scry's",
+        count(rows.errands.len(), "row")
+    );
+    if rows.skipped > 0 {
+        s.push_str(&format!("; {} did not read", count(rows.skipped, "line")));
+    }
+    Ok(s)
 }
 
 /// The project's languages (`[languages] names`, else those covering a
@@ -177,5 +185,15 @@ fn languages_row(project: &Project, cache: &GrammarCache) -> Result<String, Stri
         Ok(format!("{} load", names.join(", ")))
     } else {
         Err(failed.join("; "))
+    }
+}
+
+// The command's text.
+
+/// `provider   ok    claude (…)`, or `FAIL` and why.
+fn row_text(name: &str, row: &Result<String, String>) -> String {
+    match row {
+        Ok(s) => format!("{name:<10} ok    {s}\n"),
+        Err(s) => format!("{name:<10} FAIL  {s}\n"),
     }
 }
