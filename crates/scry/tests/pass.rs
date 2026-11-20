@@ -20,7 +20,7 @@ use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::json_store::Snapshot;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::domain::claim::{Checked, Claim};
+use sorcerer_models::domain::claim::{Checked, Claim, Escalation};
 use sorcerer_models::domain::decide::Answer;
 use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
@@ -673,7 +673,7 @@ fn a_new_finding_whose_id_was_taken_meanwhile_is_re_ided() {
 /// say what was sent, what came back and what each step decided.
 #[test]
 fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
-    use sorcerer_models::domain::claim::{Cited, RawCitation, Verdict};
+    use sorcerer_models::domain::claim::{CitationCheck, Cited, RawCitation, Verdict};
     use std::cell::RefCell;
 
     let f = Fixture::new();
@@ -692,8 +692,7 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
                         unit: Some("cancel".into()),
                         line: Some(2),
                     },
-                    confirmed: true,
-                    unit_missed: false,
+                    check: CitationCheck::Confirmed,
                 },
                 Cited {
                     raw: RawCitation {
@@ -701,11 +700,10 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
                         unit: Some("Order.refund".into()),
                         line: None,
                     },
-                    confirmed: false,
-                    unit_missed: false,
+                    check: CitationCheck::NotConfirmed,
                 },
             ],
-            escalated: true,
+            escalation: Escalation::ToTheStrongModel,
             errands: vec![
                 support::errand("check", "haiku", 0.01),
                 support::errand("check", "sonnet", 0.03),
@@ -1475,7 +1473,7 @@ fn an_id_taken_before_the_mid_round_write_stays_renamed_at_the_end() {
             why: "it does".into(),
             citations: Vec::new(),
             cited: Vec::new(),
-            escalated: false,
+            escalation: Escalation::No,
             errands: vec![support::errand("check", "haiku", 0.01)],
         })
     };

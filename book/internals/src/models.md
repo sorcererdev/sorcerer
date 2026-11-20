@@ -3,9 +3,9 @@
 `crates/sorcerer-models`: everything that can spend money, in four layers.
 
 - `domain/`: the data, no I/O. `model.rs` (a call: `ModelId`, `Message`, `Completion`,
-  `Reply`, `Usage`, `price`, `errand`), `research.rs` (`Tool`, `Research`, `Researched`),
-  `decide.rs` (`Question`, `Shape`, `Answer`, `Confidence`, `Weighed`), `claim.rs` (`Claim`,
-  `Citation`, `Verdict`, `Checked`, the cascade's constants) and `claim_prompt.rs` (the
+  `Reply`, `Usage`, `price`), `research.rs` (`Tool`, `Research`, `Researched`),
+  `decide.rs` (`Question`, `Shape`, `UnsureAnswer`, `Answer`, `Confidence`, `Weighed`), `claim.rs` (`Claim`,
+  `Citation`, `Verdict`, `CitationCheck`, `Escalation`, `Checked`, the cascade's constants `FIRST_MODEL`, `STRONG_MODEL`, `GUARD_THRESHOLD`) and `claim_prompt.rs` (the
   checker's prompt, its parser and the guard questions).
 - `ports/`: the seams. `provider.rs` (`Provider`), `researcher.rs` (`Researcher`),
   `decider.rs` (`Decider`).
@@ -25,8 +25,7 @@ and how long it took.
 Products name models by alias (`sonnet`, `haiku`, `strong`, `cheap`) and the provider's
 `resolve` turns an alias into the id it sends, so no product names a vendor's model id.
 
-`errand(product, verb, provider, model, &result, at)` (`domain/model.rs`) makes the ledger row for a call, success
-or failure. `price(prices, model, usage)` turns usage into dollars from a table of
+Each adapter builds the ledger row (`Errand`) for its own calls. `price(prices, model, usage)` turns usage into dollars from a table of
 `[input, output]` dollars per million tokens.
 
 `ScriptedProvider` (`adapters/scripted_provider.rs`) is the test double: its replies in order, each request recorded in
@@ -124,8 +123,8 @@ the file. Fenced `grep` hits and `glob` paths are dropped, and `grep` says how m
 
 `ports/decider.rs` and `domain/decide.rs`. A `Decider` answers typed questions with calibrated probabilities and never
 writes text: a `Question` has a kind (its name in the batch), instructions, a `Shape`
-(`Choice`, `Noul` with its yes and no sides, or `Score`), named context texts, and whether
-"none of these fits" is allowed. `ask` sends a batch as one call with one shared state and
+(`Choice`, `Noul` with its yes and no sides, or `Score`), named context texts, and `unsure` (an `UnsureAnswer`): whether
+a choice may be answered "none of these fits". `ask` sends a batch as one call with one shared state and
 returns a `Weighed` per question: the `Answer` and, for a choice, the distribution.
 
 `adapters/jev.rs` is Jev. `jev_body` builds the request
@@ -141,10 +140,10 @@ of the question's own Jev body. Given a live `Jev`, it records what is missing.
 
 `usecases/check_claim.rs`, `domain/claim.rs` and `domain/claim_prompt.rs`: a cascade whose
 prompt and guard texts are the ones a prose corpus measured. `claim_prompt(claim, languages)` names a unit the way the language of the
-claim's files (`claim.about`) does: `unit_sentence` looks each file up with
+claim's files (`claim.about`) does: `unit_sentence` groups the files by their wording (`files_by_unit_words`), looking each file up with
 `Languages::for_path` and uses its `unit_words` (a claim across languages gets each one's,
 after the files it covers), else `NEUTRAL_UNIT_WORDS`; and it asks for the line beside a unit,
-since a citation can stand on its line. `tests/golden/claim-prompt.txt` is the prompt the
+since a citation can stand on its line. The prompt is built from its sections in order (`task_lines`, `hint_line`, `how_to_check_lines`, `answer_shape_lines`, `unit_sentence`). `parse_reply` reads the reply: the answer object (`answer_object`: the last fenced JSON block, else the first bare object), then `verdict_in`, `why_in` and `citations_in`; `citation_in` reads a path written `orders.py:42` or `orders.py:cancel` as a line or a unit (`path_and_suffix`). `guard_questions` asks the three guards over one shared context (`guard_context`). `tests/golden/claim-prompt.txt` is the prompt the
 corpus measured, in the neutral wording (its claim points at no file).
 `CheckClaimDeps::languages` is `None` in `defaults`; scry's `claim_checker` sets the project's.
 
@@ -157,12 +156,12 @@ corpus measured, in the neutral wording (its claim points at no file).
    citations with twelve lines of code each. If any guard is under the threshold (0.60,
    where the prose corpus met every passing score), or unsure, or the first verdict is
    `cannot_tell`, or the first check failed, the strong model (`sonnet`) checks again and
-   its verdict stands (`escalated`).
+   its verdict stands (`Escalation::ToTheStrongModel`).
 2. **Without a decider**, the strong model checks alone.
 3. **Citations are confirmed** (`confirm_one`): inside the root, not fenced and readable,
    then the named unit's span; when the unit does not resolve (or none is named), the cited
    line if it is inside the file, and a citation that stood on its line although its unit
-   was not found is marked `unit_missed`; with neither unit nor line, the whole file. A unit
+   was not found is `CitationCheck::ConfirmedOnTheLineOnly`; with neither unit nor line, the whole file. A unit
    not found with no usable line, a fenced or outside path, an unreadable file or a line past
    the end does not confirm, and makes the verdict `cannot_tell` ("cited code not found").
    `unit_named` reads `.` and `::` alike, since a model may join a method either way whatever
@@ -172,8 +171,8 @@ corpus measured, in the neutral wording (its claim points at no file).
    the file, else the unit's start.
 
 `Checked` carries the confirmed `citations` (empty when any failed) and `cited`: every
-`RawCitation` of the reply the verdict came from, each a `Cited` with `confirmed` and
-`unit_missed`, so a `cannot_tell` can say which citation did not confirm and a kept verdict
+`RawCitation` of the reply the verdict came from, each a `Cited` with its `CitationCheck` (`Confirmed`, `ConfirmedOnTheLineOnly` or
+`NotConfirmed`), so a `cannot_tell` can say which citation did not confirm and a kept verdict
 which stood on a line because its unit name did not resolve. When the check escalated, `cited` is the
 strong model's; the first model's citations are not kept.
 

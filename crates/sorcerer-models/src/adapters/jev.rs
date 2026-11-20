@@ -15,7 +15,7 @@ use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::ledger::Ledger;
 
 use crate::adapters::http::{Post, post_json};
-use crate::domain::decide::{Answer, Confidence, Question, Shape, Weighed};
+use crate::domain::decide::{Answer, Confidence, Question, Shape, UnsureAnswer, Weighed};
 use crate::ports::decider::Decider;
 use crate::{Error, Result};
 
@@ -49,7 +49,7 @@ pub fn jev_body(qs: &[Question]) -> Result<Value> {
                     .iter()
                     .map(|(o, d)| (o.clone(), Value::String(d.clone())))
                     .collect();
-                if q.unsure_allowed {
+                if q.unsure == UnsureAnswer::Allowed {
                     c.insert("unsure".into(), json!("none of these fits"));
                 }
                 json!({"type": "choice", "instructions": q.instructions, "criteria": c})

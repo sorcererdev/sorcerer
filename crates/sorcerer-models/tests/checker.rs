@@ -12,7 +12,9 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::language::{GrammarSource, Languages};
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::Span;
-use sorcerer_models::domain::claim::{Citation, Claim, ClaimKind, Verdict};
+use sorcerer_models::domain::claim::{
+    Citation, CitationCheck, Claim, ClaimKind, Escalation, Verdict,
+};
 use sorcerer_models::domain::claim_prompt::claim_prompt;
 use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
 use sorcerer_models::domain::research::{Research, Researched};
@@ -164,7 +166,7 @@ fn all_guards_pass_keeps_the_first_verdict() {
     ]);
     let g = Guards(vec![Some(0.9), Some(0.8), Some(0.7)], Mutex::new(vec![]));
     let c = check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
-    assert_eq!((c.verdict, c.escalated), (Verdict::Right, false));
+    assert_eq!((c.verdict, c.escalation), (Verdict::Right, Escalation::No));
     assert_eq!(*r.asked.lock().unwrap(), vec!["haiku"]);
     let asked = g.1.lock().unwrap();
     let kinds: Vec<_> = asked[0].iter().map(|q| q.kind.as_str()).collect();
@@ -196,7 +198,10 @@ fn one_guard_below_threshold_escalates_to_strong() {
     ]);
     let g = Guards(vec![Some(0.9), Some(0.59), Some(0.9)], Mutex::new(vec![]));
     let c = check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
-    assert_eq!((c.verdict, c.escalated), (Verdict::Wrong, true));
+    assert_eq!(
+        (c.verdict, c.escalation),
+        (Verdict::Wrong, Escalation::ToTheStrongModel)
+    );
     assert_eq!(*r.asked.lock().unwrap(), vec!["haiku", "sonnet"]);
     assert_eq!(c.errands.len(), 2);
 }
@@ -212,7 +217,8 @@ fn an_unsure_guard_escalates() {
     assert!(
         check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default())
             .unwrap()
-            .escalated
+            .escalation
+            == Escalation::ToTheStrongModel
     );
 }
 
@@ -225,7 +231,10 @@ fn cannot_tell_from_the_first_escalates_without_guards() {
     ]);
     let g = Guards(vec![Some(0.9), Some(0.9), Some(0.9)], Mutex::new(vec![]));
     let c = check_claim(&claim(), &deps(&w, &r, Some(&g)), &Cancel::default()).unwrap();
-    assert_eq!((c.verdict, c.escalated), (Verdict::Right, true));
+    assert_eq!(
+        (c.verdict, c.escalation),
+        (Verdict::Right, Escalation::ToTheStrongModel)
+    );
     assert!(g.1.lock().unwrap().is_empty());
 }
 
@@ -234,7 +243,7 @@ fn no_decider_checks_on_strong_alone() {
     let w = world();
     let r = stub(&[("sonnet", reply("wrong", GOOD))]);
     let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
-    assert_eq!((c.verdict, c.escalated), (Verdict::Wrong, false));
+    assert_eq!((c.verdict, c.escalation), (Verdict::Wrong, Escalation::No));
     assert_eq!(*r.asked.lock().unwrap(), vec!["sonnet"]);
 }
 
@@ -320,16 +329,16 @@ fn every_raw_citation_is_kept_with_whether_it_confirmed() {
     )]);
     let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::CannotTell);
-    let got: Vec<(&str, Option<&str>, bool)> = c
+    let got: Vec<(&str, Option<&str>, CitationCheck)> = c
         .cited
         .iter()
-        .map(|x| (x.raw.path.as_str(), x.raw.unit.as_deref(), x.confirmed))
+        .map(|x| (x.raw.path.as_str(), x.raw.unit.as_deref(), x.check))
         .collect();
     assert_eq!(
         got,
         vec![
-            ("src/orders.py", Some("cancel"), true),
-            ("src/orders.py", Some("refund"), false),
+            ("src/orders.py", Some("cancel"), CitationCheck::Confirmed),
+            ("src/orders.py", Some("refund"), CitationCheck::NotConfirmed),
         ]
     );
 }
@@ -423,7 +432,7 @@ fn an_unknown_unit_with_a_good_line_is_confirmed_on_the_line() {
     assert_eq!(c.verdict, Verdict::Right);
     assert_eq!(c.citations[0].lines, Span { start: 2, end: 2 });
     assert!(c.citations[0].print.is_some());
-    assert!(c.cited[0].confirmed && c.cited[0].unit_missed);
+    assert_eq!(c.cited[0].check, CitationCheck::ConfirmedOnTheLineOnly);
 }
 
 #[test]
@@ -431,7 +440,7 @@ fn a_found_unit_is_not_marked_missed() {
     let w = world();
     let r = stub(&[("sonnet", reply("right", GOOD))]);
     let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
-    assert!(c.cited[0].confirmed && !c.cited[0].unit_missed);
+    assert_eq!(c.cited[0].check, CitationCheck::Confirmed);
 }
 
 #[test]
@@ -446,7 +455,7 @@ fn an_unknown_unit_with_a_line_past_the_end_is_cannot_tell() {
     )]);
     let c = check_claim(&claim(), &deps(&w, &r, None), &Cancel::default()).unwrap();
     assert_eq!(c.verdict, Verdict::CannotTell);
-    assert!(!c.cited[0].confirmed);
+    assert_eq!(c.cited[0].check, CitationCheck::NotConfirmed);
 }
 
 #[test]

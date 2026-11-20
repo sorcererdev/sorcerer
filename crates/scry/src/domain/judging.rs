@@ -8,7 +8,7 @@ use std::path::Path;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::fnv::fnv64_hex;
 use sorcerer_core::domain::unit::{Span, Unit, unit_at};
-use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape, Weighed};
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape, UnsureAnswer, Weighed};
 
 use crate::domain::finding::{Finding, Place, Status};
 use crate::domain::findings::Findings;
@@ -151,7 +151,7 @@ pub fn same_problem(a: &str, b: &str, code_a: &str, code_b: &str) -> Question {
             ("code at A".into(), code_a.into()),
             ("code at B".into(), code_b.into()),
         ],
-        unsure_allowed: false,
+        unsure: UnsureAnswer::NotAllowed,
     }
 }
 
@@ -223,7 +223,7 @@ pub fn nitpick(steering: &Steering, raw: &RawFinding, cited: &str) -> Question {
             ("cited code".into(), cited.to_string()),
             rules_for(steering, raw),
         ],
-        unsure_allowed: false,
+        unsure: UnsureAnswer::NotAllowed,
     }
 }
 

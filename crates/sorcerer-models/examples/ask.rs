@@ -25,7 +25,7 @@ use sorcerer_models::adapters::claude_code::ClaudeCodeResearcher;
 use sorcerer_models::adapters::jev::Jev;
 use sorcerer_models::adapters::providers::provider_named;
 use sorcerer_models::adapters::tool_loop::LoopResearcher;
-use sorcerer_models::domain::decide::{Question, Shape};
+use sorcerer_models::domain::decide::{Question, Shape, UnsureAnswer};
 use sorcerer_models::domain::research::{Research, Tool};
 use sorcerer_models::ports::decider::Decider;
 use sorcerer_models::ports::researcher::Researcher;
@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
             "sentence".into(),
             "The function returns None when the order is missing.".into(),
         )],
-        unsure_allowed: false,
+        unsure: UnsureAnswer::NotAllowed,
     };
     let w = jev.ask(&[q], &cancel)?;
     println!("jev: {:?}\n", w[0].answer);

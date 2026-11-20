@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use sorcerer_core::domain::errand::Errand;
 
+/// A way the researcher may look at the project: read a file, search file
+/// contents (grep), or list files matching a pattern (glob).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Read,
@@ -17,7 +19,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    /// The name `claude` gives the tool.
+    /// The tool's name in `claude -p`'s `--allowedTools` list, such as `Read`.
     pub fn claude_name(&self) -> &'static str {
         match self {
             Tool::Read => "Read",
@@ -27,25 +29,36 @@ impl Tool {
     }
 }
 
-/// One research errand. The fences are the researcher's own, built from
-/// the project, so they cannot be forgotten here.
+/// One question for a researcher, with the limits it runs under.
+///
+/// Example: scry asks sonnet whether a claim about `orders.py` holds, with
+/// the read, grep and glob tools, at most $0.10 and 180 seconds. The ledger
+/// records the call under product `scry`, verb `check`.
+///
+/// What the researcher may not read (its fences) is not set here: each
+/// researcher builds its own from the project, so no caller can forget them.
 #[derive(Debug, Clone)]
 pub struct Research {
+    /// The product the ledger records the call under (`scry`).
     pub product: String,
+    /// What the call is for, in the ledger (`review`, `check`).
     pub verb: String,
     pub prompt: String,
     /// An alias the provider resolves (`sonnet`).
     pub model: String,
     pub tools: Vec<Tool>,
-    /// The most this errand may spend; a timeout is charged this.
+    /// The most this call may spend in dollars. A call that times out was
+    /// probably paid for, so the ledger charges it this much.
     pub cap_usd: f64,
     pub timeout: Duration,
 }
 
+/// A researcher's answer, the ledger row of the call, and what it read.
 #[derive(Debug, Clone)]
 pub struct Researched {
     pub answer: String,
     pub errand: Errand,
-    /// The project files it read (when the researcher can tell).
+    /// The project files it read, when the researcher can tell; `claude -p`
+    /// cannot, so its list is empty.
     pub reads: Vec<PathBuf>,
 }

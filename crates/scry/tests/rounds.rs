@@ -26,7 +26,7 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::Span;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
+use sorcerer_models::domain::claim::{Checked, Claim, Escalation, Verdict};
 use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
@@ -206,7 +206,7 @@ fn checked(verdict: Verdict) -> Checked {
         why: format!("{verdict:?}"),
         citations: Vec::new(),
         cited: Vec::new(),
-        escalated: false,
+        escalation: Escalation::No,
         errands: vec![support::errand("check", "haiku", 0.01)],
     }
 }
@@ -619,7 +619,7 @@ fn verification_text(log: &str) -> &str {
 
 #[test]
 fn the_run_log_of_the_rounds_is_as_recorded() {
-    use sorcerer_models::domain::claim::{Cited, RawCitation};
+    use sorcerer_models::domain::claim::{CitationCheck, Cited, RawCitation};
     let f = Fixture::new();
     // six findings waiting before the pass, `cancel` not yet reviewed
     let mut unsure = finding("00000a", "bug", 0.95, Status::Unverified);
@@ -661,8 +661,7 @@ fn the_run_log_of_the_rounds_is_as_recorded() {
                         unit: Some("cancel".into()),
                         line: Some(2),
                     },
-                    confirmed: true,
-                    unit_missed: false,
+                    check: CitationCheck::Confirmed,
                 }],
                 ..checked(Verdict::Right)
             }),

@@ -12,7 +12,7 @@ use sorcerer_core::domain::config::DecideConfig;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_models::adapters::jev::{Jev, jev_answers, jev_body, question_key};
 use sorcerer_models::adapters::recorded_decider::RecordedDecider;
-use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape};
+use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape, UnsureAnswer};
 use sorcerer_models::ports::decider::Decider;
 
 fn noul(kind: &str, ctx: &[(&str, &str)]) -> Question {
@@ -27,7 +27,7 @@ fn noul(kind: &str, ctx: &[(&str, &str)]) -> Question {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
-        unsure_allowed: false,
+        unsure: UnsureAnswer::NotAllowed,
     }
 }
 
@@ -40,7 +40,7 @@ fn choice(kind: &str) -> Question {
             ("b".into(), "second".into()),
         ]),
         context: vec![],
-        unsure_allowed: true,
+        unsure: UnsureAnswer::Allowed,
     }
 }
 
