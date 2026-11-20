@@ -11,7 +11,8 @@ use sorcerer_core::domain::unit::Unit;
 pub enum ScopeRequest {
     /// The files named.
     Files(Vec<PathBuf>),
-    /// The files a branch changed since it left REV (against their merge base).
+    /// The files a branch changed since it left the revision (compared with
+    /// their merge base).
     Since(String),
     /// The files that differ from HEAD, untracked ones too.
     Working,
@@ -37,12 +38,33 @@ pub struct ScopedFile {
     pub deleted: bool,
 }
 
+/// The revision a pass compares the code with, to see what changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Base {
+    /// `HEAD`, or for `--since` the commit where the branch left.
+    Revision(String),
+    /// The repository has no commit yet: every file is new, and every unit
+    /// in it is in scope.
+    NoCommitYet,
+}
+
+impl Base {
+    /// The revision, unless there is no commit yet.
+    pub fn revision(&self) -> Option<&str> {
+        match self {
+            Base::Revision(rev) => Some(rev),
+            Base::NoCommitYet => None,
+        }
+    }
+}
+
+/// What one pass looks at: the files, the units in them it reviews, and the
+/// files it left out (and why).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scope {
     pub request: ScopeRequest,
-    /// The rev compared against: `HEAD`, the merge base's commit id for
-    /// `Since`, or empty when the repository has no commit yet.
-    pub base: String,
+    /// What the code is compared with.
+    pub base: Base,
     pub units: Vec<ScopedUnit>,
     pub files: Vec<ScopedFile>,
     /// The files considered and left out, each with why (for the run log).
@@ -50,8 +72,9 @@ pub struct Scope {
 }
 
 impl Scope {
-    /// A scope for REQUEST, compared with BASE, that holds nothing yet.
-    pub fn empty(request: ScopeRequest, base: String) -> Scope {
+    /// A scope for the request, compared with the base, holding nothing
+    /// yet.
+    pub fn empty(request: ScopeRequest, base: Base) -> Scope {
         Scope {
             request,
             base,
@@ -62,8 +85,11 @@ impl Scope {
     }
 }
 
-/// The definition line, trimmed, of the innermost unit that encloses UNIT;
-/// None when nothing encloses it.
+/// The definition line, trimmed, of the innermost unit that encloses the
+/// unit; none when nothing encloses it.
+///
+/// Example: for the method `Order.cancel`, the header is `class Order:`, so
+/// the reviewer sees which class the method belongs to.
 pub fn header_of(lines: &[&str], units: &[Unit], unit: &Unit) -> Option<String> {
     let outer = units
         .iter()

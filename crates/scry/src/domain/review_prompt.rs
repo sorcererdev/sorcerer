@@ -298,10 +298,23 @@ pub fn parse_review(text: &str) -> Result<ReviewReply, String> {
 /// Units in order, batched into calls of at most 600 numbered lines; a unit
 /// longer than that goes alone.
 pub fn batch_units(units: Vec<ReviewUnit>) -> Vec<Vec<ReviewUnit>> {
-    let size = |u: &ReviewUnit| u.lines.end.saturating_sub(u.lines.start) + 1;
-    let mut batches: Vec<Vec<ReviewUnit>> = vec![];
+    batch_by_lines(units, |u| u.lines)
+}
+
+/// Items in order, grouped into batches of at most 600 lines, where `lines`
+/// says which lines an item covers; an item longer than 600 lines goes in a
+/// batch of its own.
+///
+/// Example: units of 300, 250 and 100 lines make two batches, [300, 250]
+/// and [100]; units of 700 and 10 lines make [700] and [10].
+pub fn batch_by_lines<U>(items: Vec<U>, lines: impl Fn(&U) -> Span) -> Vec<Vec<U>> {
+    let size = |u: &U| {
+        let span = lines(u);
+        span.end.saturating_sub(span.start) + 1
+    };
+    let mut batches: Vec<Vec<U>> = vec![];
     let mut n = 0;
-    for u in units {
+    for u in items {
         let s = size(&u);
         match batches.last_mut() {
             Some(p) if n + s <= BATCH_LINES => {

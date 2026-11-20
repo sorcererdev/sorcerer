@@ -1,15 +1,17 @@
-//! The review calls. `send`:
-//! 1. takes the scope's `units_not_yet_reviewed`;
-//! 2. groups them into batches (`batches_of`);
-//! 3. for each batch in turn, either holds it back for a later run
-//!    (`hold_back_for_a_later_run`), fails it as cancelled
-//!    (`fail_as_cancelled`), or has a call review it (`review_one_batch`:
-//!    `ask_for` the batch, under `cap_for_one_call`, charged `cost_of_call`,
-//!    the reply parsed and recorded in `ReviewResults` by `take_reply`).
+//! Sending the units to review to the reviewer, and collecting what it
+//! said.
+//!
+//! `send` picks the units not reviewed yet, groups them into batches of at
+//! most 600 lines (one call each), and takes the batches in order. Each
+//! batch is held back for a later run when the spending limit leaves no
+//! room, failed when the user cancelled, or else sent: `review_one_batch`
+//! asks the reviewer and records its findings and its answers on the open
+//! findings it was shown. What happened to each batch (`BatchOutcome`) is
+//! added up into `ReviewResults`.
 //!
 //! The run log's text is built last in the file.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use sorcerer_core::domain::fingerprint::Fingerprint;
@@ -19,61 +21,129 @@ use super::{Pass, Progress, SentUnit};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
-    RawFinding, ReviewAsk, ReviewReply, ReviewUnit, batch_units, parse_review, review_prompt,
+    RawFinding, ReviewAsk, ReviewReply, ReviewUnit, batch_by_lines, parse_review, review_prompt,
 };
 use crate::domain::scope::{Scope, ScopedUnit};
 use crate::ports::reviewer::Reviewed;
 
-/// What the review calls gave.
+/// What the review calls gave, added up over all the batches.
 #[derive(Default)]
 pub(super) struct ReviewResults {
-    /// The units sent to a call that answered.
+    /// The units the reviewer answered for, at the version they were sent.
     pub answered: Vec<SentUnit>,
-    /// The findings the calls reported.
+    /// The findings the reviewer raised.
     pub raw_findings: Vec<RawFinding>,
-    /// The open findings a call said no longer hold.
+    /// The ids of open findings the reviewer said no longer hold.
     pub no_longer_hold: HashSet<String>,
-    /// The open findings a call said still hold.
+    /// The ids of open findings the reviewer said still hold.
     pub still_hold: HashSet<String>,
-    /// How many units a cap held back for a later run.
+    /// How many units a spending limit held back for a later run.
     pub capped: usize,
     /// One line for each call that failed or was cancelled.
     pub failures: Vec<String>,
 }
 
-/// The fingerprint each unit was sent at, by its file, name and first line.
-/// A `ReviewUnit` (the prompt's data) carries no fingerprint, so it is kept
-/// here until the reply is recorded.
-type SentFingerprints = HashMap<(PathBuf, String, u32), Fingerprint>;
+impl ReviewResults {
+    /// Whether every unit that needed a review got one: no unit was held
+    /// back by a spending limit and no review call failed. Only then can a
+    /// finding the reviewer did not raise again be resolved.
+    pub(super) fn every_unit_was_reviewed(&self) -> bool {
+        self.capped == 0 && self.failures.is_empty()
+    }
+
+    /// These results with one more batch's outcome added.
+    fn with(self, outcome: BatchOutcome) -> ReviewResults {
+        match outcome {
+            BatchOutcome::HeldBack { units } => ReviewResults {
+                capped: self.capped + units,
+                ..self
+            },
+            BatchOutcome::Failed(line) => ReviewResults {
+                failures: [self.failures, vec![line]].concat(),
+                ..self
+            },
+            BatchOutcome::Answered {
+                units,
+                reply,
+                shown,
+            } => {
+                // an answer counts only for a finding this call was shown
+                let (still_hold, no_longer_hold): (Vec<_>, Vec<_>) = reply
+                    .open
+                    .into_iter()
+                    .filter(|o| shown.contains(&o.id))
+                    .partition(|o| o.holds);
+                ReviewResults {
+                    answered: [self.answered, units].concat(),
+                    raw_findings: [self.raw_findings, reply.findings].concat(),
+                    still_hold: self
+                        .still_hold
+                        .into_iter()
+                        .chain(still_hold.into_iter().map(|o| o.id))
+                        .collect(),
+                    no_longer_hold: self
+                        .no_longer_hold
+                        .into_iter()
+                        .chain(no_longer_hold.into_iter().map(|o| o.id))
+                        .collect(),
+                    ..self
+                }
+            }
+        }
+    }
+}
+
+/// A unit on its way to the reviewer: what the prompt shows of it, and the
+/// version of its code (fingerprint) it is sent at, so the answer is
+/// recorded against that version.
+struct UnitToSend {
+    prompt: ReviewUnit,
+    fingerprint: Fingerprint,
+}
+
+/// What happened to one batch.
+enum BatchOutcome {
+    /// Held back for a later run: the spending limit left no room.
+    HeldBack { units: usize },
+    /// The call failed, or the user cancelled before it: one line saying so.
+    Failed(String),
+    /// The reviewer answered. `shown` are the ids of the open findings it
+    /// was asked about: an answer on any other id is ignored.
+    Answered {
+        units: Vec<SentUnit>,
+        reply: ReviewReply,
+        shown: HashSet<String>,
+    },
+}
 
 /// What a review call returns: the reply and its errand, or why it failed.
 type CallResult = sorcerer_models::Result<Reviewed>;
 
 impl Pass<'_, '_> {
-    /// Sends the scope's unreviewed units to the reviewer, batch by batch,
-    /// within the caps; what the calls gave.
+    /// Sends the units not reviewed yet (every unit when `fresh`) to the
+    /// reviewer, in batches of at most 600 lines, within the spending
+    /// limits; returns what the calls gave.
+    ///
+    /// Example: three changed functions of 400, 400 and 300 lines make
+    /// three calls. If the budget covers two, the third batch is held back:
+    /// its unit is not marked reviewed and waits for the next run.
     pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> ReviewResults {
         let to_send = self.units_not_yet_reviewed(scope, fresh);
         self.log(&units_text(scope, &to_send, fresh));
-        let sent = sent_fingerprints(&to_send);
         let batches = self.batches_of(&to_send);
         self.log(&review_calls_heading_text(batches.is_empty()));
-        let mut asked = ReviewResults::default();
-        for (n, batch) in batches.into_iter().enumerate() {
-            self.log(&batch_heading_text(n, &batch));
-            if self.must_hold_back(&asked) {
-                self.hold_back_for_a_later_run(&batch, &mut asked);
-            } else if self.cancel.is_cancelled() {
-                self.fail_as_cancelled(&batch, &mut asked);
-            } else {
-                self.review_one_batch(scope, batch, &sent, &mut asked);
-            }
-        }
-        asked
+        batches
+            .into_iter()
+            .enumerate()
+            .fold(ReviewResults::default(), |so_far, (n, batch)| {
+                self.log(&batch_heading_text(n, &batch));
+                let outcome = self.send_batch(scope, batch, &so_far);
+                so_far.with(outcome)
+            })
     }
 
-    /// The scope's units, less those already reviewed at their fingerprint
-    /// (unless FRESH).
+    /// The scope's units, less those already reviewed at their current
+    /// fingerprint (unless `fresh`).
     fn units_not_yet_reviewed<'s>(&self, scope: &'s Scope, fresh: bool) -> Vec<&'s ScopedUnit> {
         let reviewed = |u: &ScopedUnit| {
             self.working_copy
@@ -88,99 +158,113 @@ impl Pass<'_, '_> {
             .collect()
     }
 
-    /// TO_SEND as the review call reads them, each with its lines of the
-    /// file, in batches of one call each.
-    fn batches_of(&mut self, to_send: &[&ScopedUnit]) -> Vec<Vec<ReviewUnit>> {
+    /// The units as the reviewer will read them (each with its own lines of
+    /// the file) and the fingerprint each is sent at, grouped into batches
+    /// of one call each.
+    fn batches_of(&mut self, to_send: &[&ScopedUnit]) -> Vec<Vec<UnitToSend>> {
         let units = to_send
             .iter()
-            .map(|u| ReviewUnit {
-                file: u.file.clone(),
-                name: u.unit.name.clone(),
-                lines: u.unit.span,
-                header: u.header.clone(),
-                text: lines_of(&self.text(&u.file), &u.unit),
-                in_progress: false,
+            .map(|u| UnitToSend {
+                prompt: ReviewUnit {
+                    file: u.file.clone(),
+                    name: u.unit.name.clone(),
+                    lines: u.unit.span,
+                    header: u.header.clone(),
+                    text: lines_of(&self.text(&u.file), &u.unit),
+                    in_progress: false,
+                },
+                fingerprint: u.unit.fingerprint,
             })
             .collect();
-        batch_units(units)
+        batch_by_lines(units, |u| u.prompt.lines)
     }
 
-    /// Whether the next batch waits for a later run: the caps leave no room
-    /// for a call's estimate. Once one batch is held back every later one is.
-    fn must_hold_back(&self, asked: &ReviewResults) -> bool {
-        asked.capped > 0 || !self.budget.allows(self.review_estimate)
-    }
-
-    /// Records BATCH's units as held back by a cap, for a later run.
-    fn hold_back_for_a_later_run(&mut self, batch: &[ReviewUnit], asked: &mut ReviewResults) {
-        self.log(&held_back_text(self.review_estimate, self.budget.room()));
-        asked.capped += batch.len();
-        for u in batch {
-            self.working_copy
-                .capped
-                .entry(u.file.clone())
-                .or_default()
-                .insert(u.name.clone());
+    /// One batch: held back, failed as cancelled, or reviewed.
+    fn send_batch(
+        &mut self,
+        scope: &Scope,
+        batch: Vec<UnitToSend>,
+        so_far: &ReviewResults,
+    ) -> BatchOutcome {
+        if self.must_hold_back(so_far) {
+            self.hold_back_for_a_later_run(&batch)
+        } else if self.deps.cancel.is_cancelled() {
+            self.log(CANCELLED_TEXT);
+            BatchOutcome::Failed(cancelled_text(&files_of(&batch)))
+        } else {
+            self.review_one_batch(scope, batch)
         }
     }
 
-    /// Records BATCH as a failed call: the pass was cancelled before it.
-    fn fail_as_cancelled(&mut self, batch: &[ReviewUnit], asked: &mut ReviewResults) {
-        self.log(CANCELLED_TEXT);
-        asked.record_cancelled(&files_of(batch));
+    /// Whether the next batch waits for a later run: the spending limits
+    /// leave no room for a call's estimated cost. Once one batch is held
+    /// back, every later one is too.
+    fn must_hold_back(&self, so_far: &ReviewResults) -> bool {
+        so_far.capped > 0 || !self.budget.allows(self.review_estimate)
     }
 
-    /// One review call on BATCH: asked, charged, and its reply parsed into
-    /// ASKED (or its failure recorded there).
-    fn review_one_batch(
-        &mut self,
-        scope: &Scope,
-        batch: Vec<ReviewUnit>,
-        sent: &SentFingerprints,
-        asked: &mut ReviewResults,
-    ) {
-        let ask = self.ask_for(scope, batch);
+    /// Records the batch's units as held back by a spending limit, so the
+    /// next run sends them.
+    fn hold_back_for_a_later_run(&mut self, batch: &[UnitToSend]) -> BatchOutcome {
+        self.log(&held_back_text(self.review_estimate, self.budget.room()));
+        for u in batch {
+            self.working_copy
+                .capped
+                .entry(u.prompt.file.clone())
+                .or_default()
+                .insert(u.prompt.name.clone());
+        }
+        BatchOutcome::HeldBack { units: batch.len() }
+    }
+
+    /// One review call on the batch:
+    ///
+    /// 1. builds the question: the units' code, the diffs, the project's
+    ///    rules, and the open findings on these units for the reviewer to
+    ///    answer (still holds, or no longer holds);
+    /// 2. asks the reviewer, under a cost cap for this one call;
+    /// 3. charges what the call cost;
+    /// 4. a call that failed, or a reply that is not the JSON asked for, is
+    ///    a failure; else the reply is the batch's answer.
+    fn review_one_batch(&mut self, scope: &Scope, batch: Vec<UnitToSend>) -> BatchOutcome {
+        let units: Vec<SentUnit> = batch.iter().map(UnitToSend::sent).collect();
+        let ask = self.ask_for(scope, batch.into_iter().map(|u| u.prompt).collect());
         let cap = self.cap_for_one_call();
         self.log(&ask_text(&self.cfg.review_model, cap, &ask));
         let found = self
             .deps
             .reviewer
-            .review(&ask, &self.cfg.review_model, cap, self.cancel);
+            .review(&ask, &self.cfg.review_model, cap, self.deps.cancel);
         self.log(&reply_text(&found));
         self.budget.charge(self.cost_of_call(&found, cap));
-        let files = files_of(&ask.units);
+        let files = files_of_prompt(&ask.units);
         let answer = match found {
             Ok(answer) => answer,
-            Err(e) => return asked.record_failure(&files, e.to_string()),
+            Err(e) => return BatchOutcome::Failed(failed_text(&files, &e.to_string())),
         };
         match parse_review(&answer.reply) {
             Err(why) => {
                 self.log(&parse_error_text(&why));
-                asked.record_failure(&files, why);
+                BatchOutcome::Failed(failed_text(&files, &why))
             }
-            Ok(reply) => self.take_reply(&ask, reply, sent, asked),
+            Ok(reply) => {
+                self.log(&parsed_text(&ask, &reply));
+                self.tell_progress(Progress::Reviewed(reply.findings.len()));
+                let shown = ask.open.iter().map(|f| f.id.0.clone()).collect();
+                BatchOutcome::Answered {
+                    units,
+                    reply,
+                    shown,
+                }
+            }
         }
     }
 
-    /// Logs a parsed REPLY to ASK, reports its findings and records it in
-    /// ASKED.
-    fn take_reply(
-        &mut self,
-        ask: &ReviewAsk,
-        reply: ReviewReply,
-        sent: &SentFingerprints,
-        asked: &mut ReviewResults,
-    ) {
-        self.log(&parsed_text(ask, &reply));
-        self.report(Progress::Reviewed(reply.findings.len()));
-        asked.record_reply(ask, reply, sent);
-    }
-
-    /// The review call's question about BATCH: its diffs, the steering, and
-    /// the open findings on its units to answer.
+    /// The question for one call about the batch: its diffs, the project's
+    /// rules (steering), and the open findings on its units to answer.
     fn ask_for(&self, scope: &Scope, batch: Vec<ReviewUnit>) -> ReviewAsk {
         ReviewAsk {
-            diff: diff_of(scope, &files_of(&batch)),
+            diff: diff_of(scope, &files_of_prompt(&batch)),
             steering: self.steering.steering_text(),
             // spellbook's slot: what was reported before; always empty in v1
             reported: Vec::new(),
@@ -189,7 +273,8 @@ impl Pass<'_, '_> {
         }
     }
 
-    /// The open and unverified findings on BATCH's units, for the review call to answer.
+    /// The open and unverified findings on the batch's units, for the
+    /// reviewer to say whether each still holds.
     fn open_on(&self, batch: &[ReviewUnit]) -> Vec<Finding> {
         self.working_copy
             .findings
@@ -204,17 +289,22 @@ impl Pass<'_, '_> {
             .collect()
     }
 
-    /// One call's cap: what the caps leave, never more than a pass may spend
-    /// (on the command line nothing else bounds it, and a timeout is charged
-    /// its cap).
+    /// The most one call may cost: what the spending limits leave, and never
+    /// more than one pass may spend (`[scry] budget_per_pass`). On the
+    /// command line nothing else bounds it, and a call that times out is
+    /// charged its whole cap.
+    ///
+    /// Example: the budget has $0.30 left and `budget_per_pass` is $0.25:
+    /// the call's cap is $0.25.
     fn cap_for_one_call(&self) -> f64 {
         self.budget.room().map_or(self.cfg.budget_per_pass, |r| {
             r.min(self.cfg.budget_per_pass)
         })
     }
 
-    /// What a call is charged: an unpriced answer its estimate, a timeout the
-    /// CAP it ran under (what its errand records), any other failure nothing.
+    /// What a call is charged: its recorded cost (its estimate when the
+    /// provider gave no price); a timeout, the cap it ran under (what its
+    /// record says); any other failure, nothing.
     fn cost_of_call(&self, found: &CallResult, cap: f64) -> f64 {
         match found {
             Ok(f) => f.errand.cost_usd.unwrap_or(self.review_estimate),
@@ -224,60 +314,18 @@ impl Pass<'_, '_> {
     }
 }
 
-impl ReviewResults {
-    /// Records a call's REPLY to ASK: its units as answered at the
-    /// fingerprints they were SENT at, its answers on the open findings it
-    /// was shown, and its findings.
-    fn record_reply(&mut self, ask: &ReviewAsk, reply: ReviewReply, sent: &SentFingerprints) {
-        for u in &ask.units {
-            let key = (u.file.clone(), u.name.clone(), u.lines.start);
-            // every unit of a batch came from to_send, so its key is in SENT
-            let fingerprint = sent[&key];
-            self.answered.push(SentUnit {
-                file: key.0,
-                name: key.1,
-                fingerprint,
-            });
+impl UnitToSend {
+    /// The unit as it was sent: its file, name and fingerprint.
+    fn sent(&self) -> SentUnit {
+        SentUnit {
+            file: self.prompt.file.clone(),
+            name: self.prompt.name.clone(),
+            fingerprint: self.fingerprint,
         }
-        // an answer counts only for a finding this call was shown
-        let shown: HashSet<&str> = ask.open.iter().map(|f| f.id.0.as_str()).collect();
-        for o in reply
-            .open
-            .into_iter()
-            .filter(|o| shown.contains(o.id.as_str()))
-        {
-            if o.holds {
-                self.still_hold.insert(o.id);
-            } else {
-                self.no_longer_hold.insert(o.id);
-            }
-        }
-        self.raw_findings.extend(reply.findings);
-    }
-
-    fn record_failure(&mut self, files: &[PathBuf], why: String) {
-        self.failures
-            .push(format!("review failed for {}: {why}", file_list(files)));
-    }
-
-    fn record_cancelled(&mut self, files: &[PathBuf]) {
-        self.failures
-            .push(format!("review cancelled for {}", file_list(files)));
     }
 }
 
-/// The fingerprint each unit of TO_SEND is sent at.
-fn sent_fingerprints(to_send: &[&ScopedUnit]) -> SentFingerprints {
-    to_send
-        .iter()
-        .map(|u| {
-            let key = (u.file.clone(), u.unit.name.clone(), u.unit.span.start);
-            (key, u.unit.fingerprint)
-        })
-        .collect()
-}
-
-/// The unit's own lines of TEXT.
+/// The unit's own lines of the file's text.
 fn lines_of(text: &str, u: &Unit) -> String {
     text.lines()
         .skip(u.span.start.saturating_sub(1) as usize)
@@ -287,17 +335,26 @@ fn lines_of(text: &str, u: &Unit) -> String {
 }
 
 /// The batch's files, in order, each once.
-fn files_of(batch: &[ReviewUnit]) -> Vec<PathBuf> {
+fn files_of(batch: &[UnitToSend]) -> Vec<PathBuf> {
+    first_of_each(batch.iter().map(|u| &u.prompt.file))
+}
+
+/// The files of the prompt's units, in order, each once.
+fn files_of_prompt(units: &[ReviewUnit]) -> Vec<PathBuf> {
+    first_of_each(units.iter().map(|u| &u.file))
+}
+
+/// The files in the order first seen, each once.
+fn first_of_each<'a>(files: impl Iterator<Item = &'a PathBuf>) -> Vec<PathBuf> {
     let mut seen = BTreeSet::new();
-    batch
-        .iter()
+    files
         // `insert` is false for a file already seen, so each file passes once
-        .filter(|u| seen.insert(u.file.clone()))
-        .map(|u| u.file.clone())
+        .filter(|f| seen.insert((*f).clone()))
+        .cloned()
         .collect()
 }
 
-/// FILES as one comma-separated list, for the log and failure text.
+/// The files as one comma-separated list, for the log and failure text.
 fn file_list(files: &[PathBuf]) -> String {
     files
         .iter()
@@ -306,7 +363,7 @@ fn file_list(files: &[PathBuf]) -> String {
         .join(", ")
 }
 
-/// The diffs of FILES, as the scope holds them.
+/// The diffs of the files, as the scope holds them.
 fn diff_of(scope: &Scope, files: &[PathBuf]) -> String {
     files
         .iter()
@@ -354,11 +411,11 @@ fn review_calls_heading_text(nothing_to_send: bool) -> String {
     text
 }
 
-/// Batch N's heading (counted from one) and its units.
-fn batch_heading_text(n: usize, batch: &[ReviewUnit]) -> String {
+/// A batch's heading (`n` counted from zero, shown from one) and its units.
+fn batch_heading_text(n: usize, batch: &[UnitToSend]) -> String {
     let unit_names: Vec<String> = batch
         .iter()
-        .map(|u| format!("`{}` `{}`", u.file.display(), u.name))
+        .map(|u| format!("`{}` `{}`", u.prompt.file.display(), u.prompt.name))
         .collect();
     format!(
         "{}- units: {}\n",
@@ -376,6 +433,16 @@ fn held_back_text(estimate: f64, room: Option<f64>) -> String {
 }
 
 const CANCELLED_TEXT: &str = "- cancelled before the call\n";
+
+/// The failure line of a call on the files that failed, and why.
+fn failed_text(files: &[PathBuf], why: &str) -> String {
+    format!("review failed for {}: {why}", file_list(files))
+}
+
+/// The failure line of a batch the user cancelled before its call.
+fn cancelled_text(files: &[PathBuf]) -> String {
+    format!("review cancelled for {}", file_list(files))
+}
 
 /// The call's model and cap, the open findings it is to answer, and its
 /// whole prompt.

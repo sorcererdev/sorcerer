@@ -340,7 +340,7 @@ mod tests {
         };
         let scope = Scope {
             request: ScopeRequest::Working,
-            base: "HEAD".into(),
+            base: crate::domain::scope::Base::Revision("HEAD".into()),
             units: vec![unit("f")],
             files: vec![],
             skipped: vec![],

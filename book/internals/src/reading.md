@@ -187,25 +187,25 @@ step is a helper below it:
 pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> ReviewResults {
     let to_send = self.units_not_yet_reviewed(scope, fresh);
     self.log(&units_text(scope, &to_send, fresh));
-    let sent = sent_fingerprints(&to_send);
     let batches = self.batches_of(&to_send);
     self.log(&review_calls_heading_text(batches.is_empty()));
-    let mut asked = ReviewResults::default();
-    for (n, batch) in batches.into_iter().enumerate() {
-        self.log(&batch_heading_text(n, &batch));
-        if self.must_hold_back(&asked) {
-            self.hold_back_for_a_later_run(&batch, &mut asked);
-        } else if self.cancel.is_cancelled() {
-            self.fail_as_cancelled(&batch, &mut asked);
-        } else {
-            self.review_one_batch(scope, batch, &sent, &mut asked);
-        }
-    }
-    asked
+    batches.into_iter().enumerate().fold(
+        ReviewResults::default(),
+        |so_far, (n, batch)| {
+            self.log(&batch_heading_text(n, &batch));
+            let outcome = self.send_batch(scope, batch, &so_far);
+            so_far.with(outcome)
+        },
+    )
 }
 ```
 
 `self.log(…)` writes to the run log.
+
+A later pass (rules 9 and 10) made two more things explicit: each unit carries the version it
+is sent at (`UnitToSend`), instead of a side table keyed by its file, name and first line; and
+each batch returns what happened to it (`BatchOutcome`: held back, failed, or answered), which
+`ReviewResults::with` adds up, instead of every step changing the results in place.
 
 The rules the old comments recorded now sit on the helpers that keep them: `must_hold_back`
 (once one batch is held back every later one is), `cap_for_one_call` (never more than a pass

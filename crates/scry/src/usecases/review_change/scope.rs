@@ -1,11 +1,17 @@
-//! Working out a pass's scope from the request, through the view.
+//! Working out what a pass reviews: its scope.
 //!
-//! `scope_of` sets up the `Scoping` (the fences, the `[scry] exclude` set
-//! and the `base_revision`), takes the `candidate_files`, and has it
-//! `look_at` each one. A file is skipped (`reason_to_skip`, or not text:
-//! `text_unless_binary`), deleted (`no_longer_in_the_tree`), or present:
-//! its `units_in_scope` become `scoped_units`, and the file a
-//! `scoped_file`.
+//! `scope_of` sets up a `Scoping` (the fenced-off files, the `[scry]
+//! exclude` globs, and the `Base` to compare with), lists the candidate
+//! files, and looks at each one. A file is skipped (no language covers it,
+//! it is excluded or fenced off, or it is not text), deleted since the
+//! base, or present: then its units in scope are every unit (with `--all`,
+//! or when there is no commit yet) or only the ones added or changed since
+//! the base.
+//!
+//! Example: you changed `cancel` in `orders.py` and added `notes.txt`.
+//! With the working tree as the request, the base is `HEAD`; `notes.txt`
+//! is skipped (no language), and `orders.py` is present with one unit in
+//! scope, `cancel`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -19,12 +25,11 @@ use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Error, Result};
 
 use crate::domain::config::ScryConfig;
-use crate::domain::scope::{Scope, ScopeRequest, ScopedFile, ScopedUnit, header_of};
+use crate::domain::scope::{Base, Scope, ScopeRequest, ScopedFile, ScopedUnit, header_of};
 
-/// The scope of a pass for REQUEST. With ALL, every unit of each file is in
-/// scope, not only the added and changed ones. A file is left out when no
-/// language covers it, `[scry] exclude` matches it, it is fenced, or it is
-/// not text.
+/// The scope of a pass for the request: the candidate files, each looked at
+/// in turn. With `all`, every unit of each file is in scope, not only the
+/// added and changed ones.
 pub fn scope_of(
     project: &Project,
     view: &dyn CodebaseView,
@@ -34,18 +39,29 @@ pub fn scope_of(
 ) -> Result<Scope> {
     let scoping = Scoping::new(project, view, &request, all, cfg)?;
     let files = scoping.candidate_files(&request)?;
-    let mut scope = Scope::empty(request, scoping.base.clone());
-    for file in files {
-        match scoping.look_at(file)? {
-            FileInScope::Skipped(file, why) => scope.skipped.push((file, why)),
-            FileInScope::Deleted(scoped) => scope.files.push(scoped),
-            FileInScope::Present(scoped, units) => {
-                scope.units.extend(units);
-                scope.files.push(scoped);
-            }
-        }
+    let empty = Scope::empty(request, scoping.base.clone());
+    files.into_iter().try_fold(empty, |scope, file| {
+        Ok(with_file(scope, scoping.look_at(file)?))
+    })
+}
+
+/// The scope with one more file's place in it.
+fn with_file(scope: Scope, file: FileInScope) -> Scope {
+    match file {
+        FileInScope::Skipped(file, why) => Scope {
+            skipped: [scope.skipped, vec![(file, why)]].concat(),
+            ..scope
+        },
+        FileInScope::Deleted(scoped) => Scope {
+            files: [scope.files, vec![scoped]].concat(),
+            ..scope
+        },
+        FileInScope::Present(scoped, units) => Scope {
+            files: [scope.files, vec![scoped]].concat(),
+            units: [scope.units, units].concat(),
+            ..scope
+        },
     }
-    Ok(scope)
 }
 
 /// What deciding each file's place in a pass's scope needs.
@@ -54,9 +70,8 @@ struct Scoping<'a> {
     view: &'a dyn CodebaseView,
     fences: Fences,
     exclude: GlobSet,
-    /// The revision units are compared with; empty when the repository has
-    /// no commit.
-    base: String,
+    /// What the code is compared with.
+    base: Base,
     /// Every unit of a file is in scope, not only the added and changed ones.
     all: bool,
 }
@@ -87,26 +102,29 @@ impl<'a> Scoping<'a> {
         })
     }
 
-    /// The revision units are compared with: the merge base for `Since`,
-    /// else `HEAD`; empty when the repository has no commit.
-    fn base_revision(view: &dyn CodebaseView, request: &ScopeRequest) -> Result<String> {
+    /// What the code is compared with: for `--since`, the commit where the
+    /// branch left; else `HEAD`; when the repository has no commit yet,
+    /// nothing.
+    fn base_revision(view: &dyn CodebaseView, request: &ScopeRequest) -> Result<Base> {
         Ok(match request {
-            ScopeRequest::Since(rev) => view.merge_base(rev)?,
-            _ if has_a_commit(view) => "HEAD".to_string(),
-            _ => String::new(),
+            ScopeRequest::Since(rev) => Base::Revision(view.merge_base(rev)?),
+            _ if has_a_commit(view) => Base::Revision("HEAD".to_string()),
+            _ => Base::NoCommitYet,
         })
     }
 
-    /// The files named, or every file when there is no base, or the files
-    /// changed since the base; each once, in order.
+    /// The files to look at: the ones named, or every file when there is no
+    /// commit yet, or the files changed since the base; each once, in order.
     fn candidate_files(&self, request: &ScopeRequest) -> Result<Vec<PathBuf>> {
         let files = match request {
             ScopeRequest::Files(named) => named
                 .iter()
                 .filter_map(|p| self.relative_to_the_project(p))
                 .collect(),
-            _ if self.base.is_empty() => self.view.glob("**")?,
-            _ => self.view.changed_since(&self.base)?,
+            _ => match self.base.revision() {
+                None => self.view.glob("**")?,
+                Some(rev) => self.view.changed_since(rev)?,
+            },
         };
         let mut seen = HashSet::new();
         Ok(files
@@ -116,8 +134,8 @@ impl<'a> Scoping<'a> {
             .collect())
     }
 
-    /// PATH relative to the project's root; None for an absolute path
-    /// outside it.
+    /// The path relative to the project's root; none for an absolute path
+    /// outside the project.
     fn relative_to_the_project(&self, path: &Path) -> Option<PathBuf> {
         if path.is_absolute() {
             self.fences.relative(path)
@@ -126,7 +144,8 @@ impl<'a> Scoping<'a> {
         }
     }
 
-    /// Where FILE stands in the scope, read only as far as that needs.
+    /// Where the file stands in the scope; it is read only as far as that
+    /// needs.
     fn look_at(&self, file: PathBuf) -> Result<FileInScope> {
         if let Some(why) = self.reason_to_skip(&file) {
             return Ok(FileInScope::Skipped(file, why.into()));
@@ -143,8 +162,8 @@ impl<'a> Scoping<'a> {
         Ok(FileInScope::Present(scoped, units))
     }
 
-    /// Why FILE is left out without being read, if it is; the first reason
-    /// that holds wins.
+    /// Why the file is left out without being read, if it is; the first
+    /// reason that holds wins.
     fn reason_to_skip(&self, file: &Path) -> Option<&'static str> {
         if self.project.languages.for_path(file).is_none() {
             Some("no language")
@@ -160,24 +179,25 @@ impl<'a> Scoping<'a> {
     /// A file no longer in the tree: deleted, with its diff, when it was at
     /// the base; else left out.
     fn no_longer_in_the_tree(&self, file: PathBuf) -> Result<FileInScope> {
-        let was_at_the_base =
-            !self.base.is_empty() && self.view.text_at(&file, &self.base)?.is_some();
-        if !was_at_the_base {
-            return Ok(FileInScope::Skipped(
-                file,
-                "deleted, and not at the base".into(),
-            ));
-        }
+        let base = match self.base.revision() {
+            Some(rev) if self.view.text_at(&file, rev)?.is_some() => rev,
+            _ => {
+                return Ok(FileInScope::Skipped(
+                    file,
+                    "deleted, and not at the base".into(),
+                ));
+            }
+        };
         Ok(FileInScope::Deleted(ScopedFile {
-            diff: self.view.diff(&file, &self.base)?,
+            diff: self.view.diff(&file, base)?,
             file,
             units_now: Vec::new(),
             deleted: true,
         }))
     }
 
-    /// FILE's text; None when the view finds it is not text; any other read
-    /// error is returned.
+    /// The file's text; none when the view finds it is not text (an image,
+    /// say). Any other read error is returned.
     fn text_unless_binary(&self, file: &Path) -> Result<Option<String>> {
         match self.view.text(file) {
             Ok(text) => Ok(Some(text)),
@@ -186,22 +206,24 @@ impl<'a> Scoping<'a> {
         }
     }
 
-    /// The units of FILE a pass looks at: all of them with `all` or when
-    /// there is no base, else the ones added or changed since the base.
+    /// The file's units a pass reviews: all of them with `--all` or when
+    /// there is no commit yet, else the ones added or changed since the
+    /// base.
     fn units_in_scope(&self, file: &Path, units_now: &[Unit]) -> Vec<Unit> {
-        if self.all || self.base.is_empty() {
-            return units_now.to_vec();
-        }
+        let rev = match self.base.revision() {
+            Some(rev) if !self.all => rev,
+            _ => return units_now.to_vec(),
+        };
         // Units at the base that do not read count as none: all added.
-        let units_at_base = self.view.units_at(file, &self.base).unwrap_or_default();
+        let units_at_base = self.view.units_at(file, rev).unwrap_or_default();
         compare_units(&units_at_base, units_now)
             .into_iter()
             .filter_map(UnitChange::unit_now)
             .collect()
     }
 
-    /// The units of FILE in scope as the scope holds them, each with the
-    /// first line of the unit that encloses it.
+    /// The file's units in scope as the scope holds them, each with the
+    /// definition line of the unit that encloses it (`header_of`).
     fn scoped_units(&self, file: &Path, text: &str, units_now: &[Unit]) -> Vec<ScopedUnit> {
         let lines: Vec<&str> = text.lines().collect();
         self.units_in_scope(file, units_now)
@@ -214,14 +236,13 @@ impl<'a> Scoping<'a> {
             .collect()
     }
 
-    /// FILE as the scope holds it: its diff against the base, or its whole
-    /// TEXT when that diff is empty (no base, untracked, or unchanged), and
-    /// the name of every unit it has now.
+    /// The file as the scope holds it: its diff against the base, or its
+    /// whole text when that diff is empty (no commit yet, untracked, or
+    /// unchanged), and the name of every unit it has now.
     fn scoped_file(&self, file: PathBuf, text: String, units_now: Vec<Unit>) -> Result<ScopedFile> {
-        let diff = if self.base.is_empty() {
-            String::new()
-        } else {
-            self.view.diff(&file, &self.base)?
+        let diff = match self.base.revision() {
+            None => String::new(),
+            Some(rev) => self.view.diff(&file, rev)?,
         };
         Ok(ScopedFile {
             diff: if diff.is_empty() { text } else { diff },

@@ -3,7 +3,7 @@
 //! log goes is the run log port's business.
 
 use crate::domain::finding::StoredCitation;
-use crate::domain::scope::{Scope, ScopeRequest};
+use crate::domain::scope::{Base, Scope, ScopeRequest};
 
 /// A level-two heading, a blank line either side.
 pub fn section(title: &str) -> String {
@@ -77,10 +77,9 @@ pub fn scope_text(scope: &Scope) -> String {
         ScopeRequest::Working => "the working tree".into(),
     };
     s.push_str(&format!("- scope: {why}\n"));
-    let base = if scope.base.is_empty() {
-        "none (no commit yet: every file is new)".to_string()
-    } else {
-        format!("`{}`", scope.base)
+    let base = match &scope.base {
+        Base::NoCommitYet => "none (no commit yet: every file is new)".to_string(),
+        Base::Revision(rev) => format!("`{rev}`"),
     };
     s.push_str(&format!("- base: {base}\n"));
     for f in &scope.files {

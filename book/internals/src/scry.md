@@ -22,7 +22,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 - `review_change/scope.rs`: `scope_of`; `ask.rs`: the review calls (`Pass::send`, `ReviewResults`);
   `judge.rs`: each finding placed, matched, merged or added (`Pass::judge_all`, `judge`,
   `merge`, `add`); `remember.rs`: resolved, gone, moved, not found again, the reviewed marks
-  (`Pass::remember`, `sweep_gone`, `drop_moved`, `mark_reviewed`); `verify.rs`: the
+  (`Pass::remember`, `sweep_gone`, `drop_new_findings_in_changed_units`, `mark_reviewed`, `ChangedUnits`, `NotFoundAgain`); `verify.rs`: the
   verification rounds (`Pass::verify_findings_per_file`, `verify_findings_in_file`, `verify_round`, `PrioritizedFindings`, `FindingsToVerify`, `DisplaySlots`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
@@ -40,7 +40,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   `STEERING_CAP`.
 - `scope.rs`: `ScopeRequest`, `Scope`, `ScopedUnit`, `ScopedFile`, `header_of`.
 - `review_prompt.rs`: `ReviewUnit`, `ReviewAsk`, `RawFinding`, `ReviewReply`, `review_prompt`,
-  `parse_review`, `batch_units`, `REVIEW_TIMEOUT`.
+  `parse_review`, `batch_units`, `batch_by_lines`, `REVIEW_TIMEOUT`.
 - `judging.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_THRESHOLD`,
   `Placement`, `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
 - `budget.rs`: `Caps`, `Budget`, `review_estimate`, `check_estimate`, `cost_of`.
@@ -183,16 +183,16 @@ through the same trait.
 `usecases/review_change/scope.rs`. `scope_of(project, view, request, all, cfg)` turns a
 `ScopeRequest` (`Files`, `Working`, `Since(rev)`; `domain/scope.rs`) into a `Scope`: the `base` compared against, the `ScopedUnit`s to
 review and the `ScopedFile`s the pass touched. The base is `HEAD`, or for `Since` the view's
-`merge_base(rev)` (a bad rev is that `Error::Git`, naming it); with no commit yet it is empty
-and every file is all new. The files are the named ones, or the view's `changed_since(base)`
+`merge_base(rev)` (a bad rev is that `Error::Git`, naming it), each a `Base::Revision`; with no commit yet it is
+`Base::NoCommitYet` and every file is all new. The files are the named ones, or the view's `changed_since(base)`
 (every file, by `glob("**")`, with no commit). A file is dropped when no language covers it,
 `[scry] exclude` matches it, `Fences::allows` refuses it, or its text is `NotText`.
 
 The file reads top to bottom as these steps. `scope_of` builds a `Scoping` (the project, the
 view, the `Fences`, the `[scry] exclude` set, the base from `Scoping::base_revision`, and
 `all`), takes its `candidate_files` (each once; an absolute path outside the project is
-dropped by `relative_to_the_project`), starts from `Scope::empty` and asks `look_at` about each
-file. `look_at` answers a `FileInScope`: `Skipped` with `reason_to_skip`'s reason (the
+dropped by `relative_to_the_project`), starts from `Scope::empty` and folds in `look_at`'s answer about each
+file (`with_file`). `look_at` answers a `FileInScope`: `Skipped` with `reason_to_skip`'s reason (the
 first that holds, in the order above) or `not text` (`text_unless_binary`); `Deleted` from
 `no_longer_in_the_tree`; or `Present`, with `units_in_scope` turned into `scoped_units` (which calls it) and
 the file into a `scoped_file`.
@@ -280,9 +280,10 @@ carries the `scope` so the caller prints what was in it. The command line
 a provider) and exits 0, so a pre-commit hook
 in a project that turned scry off lets the commit through; any other `Skipped` exits 2.
 `review_change` itself reads as the frame of the pass: lock, `findings_on_disk`,
-`SpentSoFar::read`, the Pass section (`pass_text`), `Pass::new`, `Pass::go`, its halts (`Halt::Silent`
-is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unlock. The steps, in
-`Pass::go` (`mod.rs`), each in its own file:
+`SpentSoFar::read`, the Pass section (`pass_text`), `Pass::new`, `Pass::run`, its halts (`Halt::JevDidNotAnswer`
+is `Skipped`, `Halt::Failed` the error), `Progress::Stored`, unlock. `Pass::run` consumes the pass and ends
+by saving it and making the report (`Pass::report`). The steps, in
+`Pass::run` (`mod.rs`), each in its own file:
 
 1. **Lock and read.** `FindingStore::hold` takes `state/scry/pass.lock` with `File::lock`
    (blocking) for the whole pass, so two passes never interleave. The store is read once (`findings_on_disk`); `Unreadable` is
@@ -306,9 +307,12 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    unreviewed; the reviewer has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
    other failure. In the code, `Pass::send` is that story in order: `units_not_yet_reviewed`,
-   `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
-   `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
-   `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Pass::report`, `ReviewResults::record_reply`)).
+   `batches_of` (each a `UnitToSend`: the prompt's `ReviewUnit` and the fingerprint it is sent at,
+   batched by `batch_by_lines`), then `send_batch` per batch: `must_hold_back` →
+   `hold_back_for_a_later_run`, a cancel → a failure line, or `review_one_batch` (`ask_for`,
+   `cap_for_one_call`, the call, `cost_of_call`, the reply parsed, `Pass::tell_progress`). Each
+   returns a `BatchOutcome` (`HeldBack`, `Failed`, `Answered`), and `ReviewResults::with` adds it to
+   the results so far (an answer on an open finding the call was not shown is ignored there).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (`with_cited_rule_looked_up`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
    `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
@@ -322,22 +326,22 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    dismissals; a withheld one is asked
    again when `asked_on` changed (`asked_again_if_changed`), a refuted or unsure one is unverified again when its evidence prints
    moved (`unverified_again_if_evidence_moved`); each returns the finding rather than changing it in place, and `Finding::seen_again` counts the sighting. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
-   with nothing written (`Halt::Silent`).
+   with nothing written (`Halt::JevDidNotAnswer`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
    unverified) are `resolved` (`resolve_what_no_longer_holds`); those it said *still holds* go into `still_hold`.
-   `Pass::drop_moved` (over `Pass::moved`, which reads each sent file's units again): a unit
+   `Pass::drop_new_findings_in_changed_units` (over `units_changed_since_sent`, which reads each sent file's units again, giving `ChangedUnits`): a unit
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or unverified finding from before the pass
    whose unit was sent at a fingerprint other than its place's, and that nothing merged into,
-   kept (`still_hold`) or resolved, is `resolved` (not found again: `resolve_not_found_again`, over the
-   answered units `not_moved`). The prompt tells the reviewer not
+   kept (`still_hold`) or resolved, is `resolved` (not found again: `resolve_not_found_again` and `was_fixed`, over the
+   answered units `ChangedUnits::not_changed`; `NotFoundAgain::NotChecked` when not every unit was reviewed). The prompt tells the reviewer not
    to raise an open finding again, so `still_hold` is what keeps an unfixed finding open across an
    edit of its unit.
 6. **Verify.** `Pass::verify_findings_in_file` for each scoped file that still exists, sharing the pass's
    `Budget` (below). It runs even when nothing in the file was sent, so an unverified finding
    opens once the file has room.
-7. **Write.** `Pass::drop_moved` again (a unit may have changed while the checks ran); the
+7. **Write.** `Pass::drop_new_findings_in_changed_units` again (a unit may have changed while the checks ran); the
    fingerprints of the sent, answered, unmoved units join `reviewed` and leave `capped`
    (`Pass::mark_reviewed`, `mark_one_reviewed`). Each
    write (the one before a round's checks, and this last one) is a `FindingStore::update` applying
@@ -347,8 +351,8 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    are appended; `reviewed` sets are joined; `capped` is the pass's when it changed it. A new
    finding whose id another writer took meanwhile gets a fresh one (`free_id`); `merge_into`
    records it in `Pass::renamed_ids`, applies the map to `working_copy` on every later write (`last_written` is
-   kept in written ids through `renamed`). The last write is `Pass::finish`, which also fills `touched`
-   and maps `ReviewReport::new` and `touched` through the renames (`apply_renames`).
+   kept in written ids through `renamed`). The last write ends `Pass::run`; `Pass::report` then fills `touched`
+   (`touched_since` the pass's `stored_before`) and gives `ReviewReport::new` and `touched` as written (`as_written`). Whether every unit was reviewed is `ReviewResults::every_unit_was_reviewed`.
 
 ## The run log
 
