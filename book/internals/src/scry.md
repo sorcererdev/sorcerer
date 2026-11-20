@@ -537,7 +537,10 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   replies cite them) and a config with `[languages] names = ["<language>"]` and
   `[scry] budget_per_pass = 5.0, budget_per_day = 1000.0`. The project's grammars point at core's
   vendored sources; the request is `ScopeRequest::Working` with the caps
-  `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`.
+  `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`. `run_case` reads as a
+  case's story: `project_for_case`, the replaying ports (`CorpusReviewer`, `recorded_decider`,
+  `CorpusChecker`), the pass (`pass_over`), its log written (`case_log`, `write_case_log`),
+  `assert_ran`, a look (`print_for_a_look`) and the row (`shown_statements`).
 - `reviews/<id>.json`, the recorded review replies in the batches form
   `{"batches": [{"files", "reply", "cost_usd"}]}` (`recorded_findings` reads every batch's findings,
   each citing a rule by id; `the_recorded_replies_cite_the_corpus_rule_ids` checks bistro's are all in
@@ -545,7 +548,7 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   whose `file` is one of the batch's files (an empty reply otherwise), at $0.04, so a change in
   batching still replays. A case with no file, or a batch with a file no recorded batch holds, fails naming the case and the batch.
 - `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
-  the checker closure answers from it, `CannotTell` for a statement it does not hold.
+  `CorpusChecker` answers from it (`replayed`), `CannotTell` for a statement it does not hold.
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
   `question_key` (FNV-1a over the Jev body without the model, so a question asked the same
   way has the same key). A question with no file
@@ -575,9 +578,9 @@ of the recorded batches (a recording that stopped part way through the case, `re
 `CorpusReviewer` asks the live reviewer with the pass's own `ReviewAsk` and model and appends
 `{"files", "reply", "cost_usd"}` for each batch (batches sorted by their files). A statement not in
 `checks.json` is checked live and its verdict word (`right`, `wrong`, `cannot_tell`) written back,
-sorted. Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
-case prints the running total, and the end prints `recorded: N reviews $X, M checks $Y, K jev
-answers`. Without `SCRY_RECORD=all`, a miss fails naming the case and the batch's files
+sorted (`CorpusChecker::record_check`). Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
+case prints the running total (`stop_past_the_ceiling`), and the end prints `recorded: N reviews $X, M checks $Y, K jev
+answers` (`recorded_text`). Without `SCRY_RECORD=all`, a miss fails naming the case and the batch's files
 (`a_partly_recorded_case_asks_for_the_missing_batch` covers the partial case).
 `record_mode_from` refuses any `SCRY_RECORD` when `CI` is set, before the first case. The tests
 `recording_writes_each_batch_and_the_verdict_word`, `a_miss_without_record_names_the_case_and_batch`

@@ -92,7 +92,9 @@ fn research(…)
 
 `expect`, not `allow`: when the function is shortened and the mark is left behind, the build
 fails, so marks cannot go stale. Tests are exempt (`#![allow(clippy::too_many_lines)]` at the top
-of each `tests/*.rs` and on each `mod tests`): a test is one story told in order.
+of a `tests/*.rs` and on each `mod tests`): a test is one story told in order. The eval's harness
+(`crates/scry/tests/eval.rs`) is not: its helpers are code like any other, and a `#[test]` there
+that passes 100 lines carries its own `#[allow]` with a reason.
 
 **scry, the rules themselves.** The rules a linter cannot measure are `[[rule]]`s in sorcerer's
 own `.sorcerer/scry.toml` (`one-level-per-body`, `helpers-say-intent`, `log-text-apart`,
