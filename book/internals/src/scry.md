@@ -23,7 +23,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   `judge.rs`: each finding placed, matched, merged or added (`Pass::judge_all`, `judge`,
   `merge`, `add`); `remember.rs`: resolved, gone, moved, not found again, the reviewed marks
   (`Pass::remember`, `sweep_gone`, `drop_moved`, `mark_reviewed`); `verify.rs`: the
-  verification rounds (`Pass::verify_files`, `verify`) and `citations`, `cites`.
+  verification rounds (`Pass::verify_files`, `verify_file`, `Room`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
   `DayCost`).
@@ -334,7 +334,7 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    answered units `not_moved`). The prompt tells the reviewer not
    to raise an open finding again, so `still_hold` is what keeps an unfixed finding open across an
    edit of its unit.
-6. **Verify.** `rounds::verify` for each scoped file that still exists, sharing the pass's
+6. **Verify.** `Pass::verify_file` for each scoped file that still exists, sharing the pass's
    `Budget` (below). It runs even when nothing in the file was sent, so a waiting finding
    opens once the file has room.
 7. **Write.** `Pass::drop_moved` again (a unit may have changed while the checks ran); the
@@ -371,7 +371,7 @@ decides reads it: the eval's table is the same with or without it. The calls:
 - `Pass::judge` and `Pass::merge`: the statement, the rule as cited and as resolved, the
   evidence, the placement, each same-problem question's P(yes) and the outcome, the nitpick
   question's P(yes) with the confidence against `confidence_threshold`, and the id and status given.
-- `verify`: a **Verification** section for a file with waiting findings, then per
+- `Pass::verify_file`: a **Verification** section for a file with waiting findings, then per
   round the room, the candidates and the rest; each finding's citations (`cites`
   names the one that failed); each claim check's models (its errands'), escalation, verdict
   and reason, cost, resulting status, and every `Checked::cited` through `citation`.
@@ -388,20 +388,21 @@ model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)
 `budget` (when set) or `today + spent + e` passes `day`; `charge` adds a cost; `room` is the
 least left under any finite cap. `cost_of(errands)` sums a call's priced errands.
 
-`verify(store, file, cfg, budget, deps, cancel, around)` takes the file's waiting findings,
-best confidence first, in rounds. A round takes the candidates that would fit if all passed: one
-that was waiting before the pass (`Around::old_waiting`) only while the file's open findings
+`Pass::verify_file(file, old_waiting)` takes the file's waiting findings,
+best confidence first (`waiting_best_first`), in rounds. A round takes the candidates that would fit if all passed
+(`Room::split`, from the file's `Room`: its open findings and how many the pass's own opened): one
+that was waiting before the pass (`old_waiting`) only while the file's open findings
 of shown issue types are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
-pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding: `citations`
+pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding (`check_citations`): `citations`
 (failure → `unsure`, the reason as verdict); a `Verify::Citations` issue type opens at once; a
 `CitationsThenClaim` issue type's check is reserved against the budget at `check_estimate`, and one
-that does not fit leaves its finding waiting and stops the rounds (`Verified { capped }`).
-When there are checks to run the store is written (`Around::save`) and `Progress::Stored`
+that does not fit leaves its finding waiting and stops the rounds (`Citations::HeldBack`; `verify_file` returns true).
+When there are checks to run the store is written (`Pass::save_working_copy`) and `Progress::Stored`
 sent, so what opened shows before the checks finish. The round's checks run side by side on
-`std::thread::scope`, each a `Claim` of the statement about its evidence: `Right` opens,
+`std::thread::scope` (`claim_checks_side_by_side`), each recorded in the order started (`record_check`), each a `Claim` of the statement about its evidence: `Right` opens,
 `Wrong` is `refuted`, `CannotTell` is `unsure` (verdict, reason and `Checked::cited` stored, the cost
 charged and added to the finding's `cost_usd`); an `Err` leaves it waiting, its place free for the
-next round, which takes the rest. The rounds end when a round takes nobody.
+next round, which takes the rest; `Room::count_opened` counts what opened. The rounds end when a round takes nobody.
 
 ## Wiring
 

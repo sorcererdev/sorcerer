@@ -40,7 +40,7 @@ use sorcerer_models::ports::decider::Decider;
 use crate::domain::budget::{Budget, Caps, check_estimate, review_estimate};
 use crate::domain::config::ScryConfig;
 use crate::domain::finding::{Finding, FindingId, Status};
-use crate::domain::findings::{Findings, merge_into};
+use crate::domain::findings::{Findings, merge_into, renamed};
 use crate::domain::log_text::{count, scope_text, section, usd};
 use crate::domain::scope::{Scope, ScopeRequest};
 use crate::domain::steering::Steering;
@@ -338,6 +338,16 @@ impl<'r, 'd> Pass<'r, 'd> {
     /// findings this pass added or changed since START, each under the id
     /// it was written as.
     fn finish(mut self, mut report: ReviewReport, start: &Findings) -> Result<ReviewReport> {
+        self.save_working_copy()?;
+        report.touched = touched_since(start, &self.working_copy);
+        apply_renames(&mut report.new, &self.renamed_ids);
+        apply_renames(&mut report.touched, &self.renamed_ids);
+        Ok(report)
+    }
+
+    /// Lays the working copy over the store as it is now; `last_written`
+    /// becomes the working copy, in written ids.
+    fn save_working_copy(&mut self) -> Result<()> {
         self.disk.update(&mut |current| {
             *current = merge_into(
                 &self.last_written,
@@ -346,10 +356,8 @@ impl<'r, 'd> Pass<'r, 'd> {
                 &mut self.renamed_ids,
             );
         })?;
-        report.touched = touched_since(start, &self.working_copy);
-        apply_renames(&mut report.new, &self.renamed_ids);
-        apply_renames(&mut report.touched, &self.renamed_ids);
-        Ok(report)
+        self.last_written = renamed(&self.working_copy, &self.renamed_ids);
+        Ok(())
     }
 
     fn log(&self, text: &str) {
