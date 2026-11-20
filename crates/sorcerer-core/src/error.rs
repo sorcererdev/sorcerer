@@ -46,7 +46,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
-    /// An I/O error at PATH.
+    /// A failed read or write, with the path it was about so the message can name it.
     pub fn io(path: impl Into<PathBuf>, source: std::io::Error) -> Error {
         Error::Io {
             path: path.into(),

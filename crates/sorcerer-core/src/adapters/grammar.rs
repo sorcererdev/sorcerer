@@ -1,7 +1,7 @@
-//! Grammars at run time. No grammar is compiled into a binary: a language
-//! file names `{ git, rev }` (or a local directory), which is fetched once
-//! into the user's cache, compiled with `cc` into a shared library, and
-//! loaded with `dlopen`.
+//! Grammars at run time. No grammar is compiled into sorcerer: a language file names where its
+//! grammar's C sources are, `{ git, rev }` or a local directory. The first time the grammar is
+//! needed, the sources are fetched into the user's cache, compiled with `cc` into a shared
+//! library, and the library is loaded into the running process.
 //!
 //! Layout under the cache directory:
 //!
@@ -10,9 +10,9 @@
 //! <name>-<key>.<dylib|so>     the compiled grammar
 //! ```
 //!
-//! Every write goes to a temporary name first and is renamed into place, so
-//! a reader never sees half a checkout or half a library, and two processes
-//! building the same grammar at once race harmlessly.
+//! Every write goes to a temporary name first and is renamed into place, so a reader never sees
+//! half a checkout or half a library, and two processes building the same grammar at once do no
+//! harm: the second rename simply replaces the first, or is dropped.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -21,18 +21,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::domain::fnv::fnv64_hex;
-use crate::domain::language::{GrammarSource, Languages, Layer, Loaded};
+use crate::domain::language::{GrammarSource, Languages, Layer, Loaded, parse_toml};
+use crate::domain::query::compile;
 use crate::ports::env::Env;
 use crate::{Error, Result};
 
-/// Where grammars are fetched and built: per user, not per project.
+/// Where grammars are fetched and built: one per user, shared by all their projects.
 #[derive(Debug, Clone)]
 pub struct GrammarCache {
     pub dir: PathBuf,
 }
 
 impl GrammarCache {
-    /// `$XDG_CACHE_HOME/sorcerer/grammars`, else `~/.cache/sorcerer/grammars`.
+    /// The user's cache: `$XDG_CACHE_HOME/sorcerer/grammars`, else
+    /// `~/.cache/sorcerer/grammars`.
     pub fn user(env: &dyn Env) -> GrammarCache {
         let base = env
             .var("XDG_CACHE_HOME")
@@ -44,6 +46,7 @@ impl GrammarCache {
         }
     }
 
+    /// A cache in any directory, for tests.
     pub fn at(dir: PathBuf) -> GrammarCache {
         GrammarCache { dir }
     }
@@ -55,62 +58,59 @@ const EXT: &str = if cfg!(target_os = "macos") {
     "so"
 };
 
-/// Loads NAME's grammar from SOURCE, fetching and building it first when
-/// the cache has no library for it. Once per process per library: a
-/// failure is remembered too (a missing compiler is reported once), except
-/// a failed fetch or a file error, which may pass (offline at first start).
+/// What this process got when it last tried to load each library: the grammar, or the error
+/// text.
+type TriedLibraries = HashMap<PathBuf, std::result::Result<tree_sitter::Language, String>>;
+
+/// Loads a language's grammar, fetching and building it first when the cache has no library
+/// for it.
+///
+/// Each library is tried once per process, and a failure is remembered too, so a missing
+/// compiler is reported once rather than for every file. A failed fetch or a file error is not
+/// remembered: it may pass (offline when sorcerer first starts), so the next call tries again.
 pub fn load(
     cache: &GrammarCache,
     name: &str,
     source: &GrammarSource,
 ) -> Result<tree_sitter::Language> {
-    static LOADED: OnceLock<
-        Mutex<HashMap<PathBuf, std::result::Result<tree_sitter::Language, String>>>,
-    > = OnceLock::new();
+    static TRIED: OnceLock<Mutex<TriedLibraries>> = OnceLock::new();
     let path = library_path(cache, name, source)?;
-    let mut loaded = LOADED
+    let mut tried = TRIED
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if let Some(r) = loaded.get(&path) {
-        return r.clone().map_err(|why| Error::GrammarLoad {
+    if let Some(earlier) = tried.get(&path) {
+        return earlier.clone().map_err(|why| Error::GrammarLoad {
             name: name.into(),
             why,
         });
     }
-    let r = build_if_absent(cache, name, source, "cc").and_then(|lib| open_library(name, &lib));
-    // a fetch or a file error may be passing (offline at first start): try again next time
-    if !matches!(r, Err(Error::GrammarFetch { .. } | Error::Io { .. })) {
-        loaded.insert(
+    let result =
+        build_if_absent(cache, name, source, "cc").and_then(|lib| open_library(name, &lib));
+    if !may_pass(&result) {
+        tried.insert(
             path,
-            r.as_ref().map(Clone::clone).map_err(ToString::to_string),
+            result
+                .as_ref()
+                .map(Clone::clone)
+                .map_err(ToString::to_string),
         );
     }
-    r
+    result
 }
 
-/// The compiled library's path: `<dir>/<name>-<key>.<ext>`, where the key
-/// hashes the source's identity, the runtime's ABI, the OS and the arch. A
-/// changed key is a new file; the old one is left.
+fn may_pass(result: &Result<tree_sitter::Language>) -> bool {
+    matches!(result, Err(Error::GrammarFetch { .. } | Error::Io { .. }))
+}
+
+/// Where the compiled library for these sources is: `<cache>/<name>-<key>.<dylib|so>`.
+///
+/// The key is a hash of the sources' identity (the git revision, or a local directory's path
+/// and its C files' sizes and times), tree-sitter's ABI version, the operating system and the
+/// processor. Anything that would need a rebuild changes the key, so the new library gets a new
+/// file; the old file is left in place.
 pub fn library_path(cache: &GrammarCache, name: &str, source: &GrammarSource) -> Result<PathBuf> {
-    let identity = match source {
-        GrammarSource::Git { rev, .. } => rev.clone(),
-        GrammarSource::Local(dir) => {
-            let src = local_src(dir);
-            let canon = src.canonicalize().map_err(|e| Error::io(&src, e))?;
-            let stamp = |f: &str| {
-                std::fs::metadata(src.join(f))
-                    .map(|m| format!("{}:{:?}", m.len(), m.modified().ok()))
-                    .unwrap_or_default()
-            };
-            format!(
-                "{}|{}|{}",
-                canon.display(),
-                stamp("parser.c"),
-                stamp("scanner.c")
-            )
-        }
-    };
+    let identity = sources_identity(source)?;
     let key = fnv64_hex(
         format!(
             "{identity}|{}|{}|{}",
@@ -123,9 +123,32 @@ pub fn library_path(cache: &GrammarCache, name: &str, source: &GrammarSource) ->
     Ok(cache.dir.join(format!("{name}-{key}.{EXT}")))
 }
 
-/// Builds NAME's library with the compiler CC unless the cache has it;
-/// returns its path. Exposed for tests (the compiler is a parameter so a
-/// missing one can be simulated).
+/// What names a version of the sources: a git revision, or for a local directory its full path
+/// plus the size and time of `parser.c` and `scanner.c`, so editing either means a rebuild.
+fn sources_identity(source: &GrammarSource) -> Result<String> {
+    match source {
+        GrammarSource::Git { rev, .. } => Ok(rev.clone()),
+        GrammarSource::Local(dir) => {
+            let src = local_src(dir);
+            let canonical = src.canonicalize().map_err(|e| Error::io(&src, e))?;
+            let stamp = |file: &str| {
+                std::fs::metadata(src.join(file))
+                    .map(|m| format!("{}:{:?}", m.len(), m.modified().ok()))
+                    .unwrap_or_default()
+            };
+            Ok(format!(
+                "{}|{}|{}",
+                canonical.display(),
+                stamp("parser.c"),
+                stamp("scanner.c")
+            ))
+        }
+    }
+}
+
+/// Builds the grammar's library with the C compiler `cc` unless the cache already has it, and
+/// returns the library's path. Public for tests, which pass a compiler name that does not exist
+/// to see the missing-compiler error.
 #[doc(hidden)]
 pub fn build_if_absent(
     cache: &GrammarCache,
@@ -142,17 +165,27 @@ pub fn build_if_absent(
         GrammarSource::Git { url, rev } => fetch(cache, name, url, rev)?.join("src"),
     };
     std::fs::create_dir_all(&cache.dir).map_err(|e| Error::io(&cache.dir, e))?;
-    let tmp = aside(&lib);
-    let mut cmd = Command::new(cc);
-    cmd.args(["-shared", "-fPIC", "-O2", "-I"])
-        .arg(&src)
+    let temporary = aside(&lib);
+    compile_library(name, cc, &src, &temporary)?;
+    std::fs::rename(&temporary, &lib).map_err(|e| Error::io(&lib, e))?;
+    Ok(lib)
+}
+
+/// Compiles `parser.c` (and `scanner.c`, when there is one) into a shared library at `out`. A
+/// missing compiler is `NoCompiler` with how to install one; a failed compile is
+/// `GrammarBuild` with the compiler's output, and leaves no file behind.
+fn compile_library(name: &str, cc: &str, src: &Path, out: &Path) -> Result<()> {
+    let mut command = Command::new(cc);
+    command
+        .args(["-shared", "-fPIC", "-O2", "-I"])
+        .arg(src)
         .arg(src.join("parser.c"));
     if src.join("scanner.c").exists() {
-        cmd.arg(src.join("scanner.c"));
+        command.arg(src.join("scanner.c"));
     }
-    let out = cmd
+    let output = command
         .arg("-o")
-        .arg(&tmp)
+        .arg(out)
         .output()
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => Error::NoCompiler {
@@ -163,15 +196,14 @@ pub fn build_if_absent(
                 stderr: e.to_string(),
             },
         })?;
-    if !out.status.success() {
-        let _ = std::fs::remove_file(&tmp);
+    if !output.status.success() {
+        let _ = std::fs::remove_file(out);
         return Err(Error::GrammarBuild {
             name: name.into(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         });
     }
-    std::fs::rename(&tmp, &lib).map_err(|e| Error::io(&lib, e))?;
-    Ok(lib)
+    Ok(())
 }
 
 fn compiler_hint() -> &'static str {
@@ -191,13 +223,58 @@ fn local_src(dir: &Path) -> PathBuf {
     }
 }
 
-/// A unique temporary name beside PATH.
+/// A temporary name beside the path, unique to this process and this call:
+/// `rust-1a2b.dylib.tmp-4242-0`.
 fn aside(path: &Path) -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     let n = N.fetch_add(1, Ordering::SeqCst);
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(format!(".tmp-{}-{n}", std::process::id()));
     path.with_file_name(name)
+}
+
+/// Fetches the grammar's repository at one commit into `<cache>/src/<name>-<first 7 of rev>`,
+/// once, and returns that directory.
+///
+/// Only a commit hash (at least 7 hex digits) is accepted, and the fetched commit is checked
+/// against it, so the language file pins exactly what gets compiled.
+fn fetch(cache: &GrammarCache, name: &str, url: &str, rev: &str) -> Result<PathBuf> {
+    let failed = |why: String| Error::GrammarFetch {
+        name: name.into(),
+        why,
+    };
+    check_fetchable(url, rev).map_err(failed)?;
+    let checkout = cache.dir.join("src").join(format!("{name}-{}", &rev[..7]));
+    if checkout.exists() {
+        return Ok(checkout);
+    }
+    let parent = cache.dir.join("src");
+    std::fs::create_dir_all(&parent).map_err(|e| Error::io(&parent, e))?;
+    let temporary = aside(&checkout);
+    if let Err(why) = fetch_commit_into(&temporary, url, rev) {
+        let _ = std::fs::remove_dir_all(&temporary);
+        return Err(failed(format!(
+            "fetching {url} @{} failed: {why}",
+            &rev[..7]
+        )));
+    }
+    if std::fs::rename(&temporary, &checkout).is_err() {
+        // another process put the same checkout in place first
+        let _ = std::fs::remove_dir_all(&temporary);
+    }
+    Ok(checkout)
+}
+
+/// Refuses a URL git would treat as a command (`ext::…`) and a revision that is not a commit
+/// hash of at least 7 hex digits.
+fn check_fetchable(url: &str, rev: &str) -> std::result::Result<(), String> {
+    if !allowed_url(url) {
+        return Err(format!("{url} is not an https, ssh, git or file URL"));
+    }
+    if rev.len() < 7 || !rev.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("rev {rev} is not a commit hash"));
+    }
+    Ok(())
 }
 
 /// Git's own transports only: a URL like `ext::…` would run a command.
@@ -207,85 +284,43 @@ fn allowed_url(url: &str) -> bool {
         .any(|p| url.starts_with(p))
 }
 
-/// Fetches URL at REV into `<dir>/src/<name>-<rev7>` (once) and returns it.
-fn fetch(cache: &GrammarCache, name: &str, url: &str, rev: &str) -> Result<PathBuf> {
-    let failed = |why: String| Error::GrammarFetch {
-        name: name.into(),
-        why,
-    };
-    if !allowed_url(url) {
-        return Err(failed(format!(
-            "{url} is not an https, ssh, git or file URL"
-        )));
+/// A fresh repository in `dir` with only that commit fetched and checked out (no history),
+/// failing when what arrived is not the commit asked for.
+fn fetch_commit_into(dir: &Path, url: &str, rev: &str) -> std::result::Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    git_in(dir, &["init", "-q"])?;
+    git_in(
+        dir,
+        &["fetch", "--quiet", "--depth", "1", "--no-tags", url, rev],
+    )?;
+    git_in(dir, &["checkout", "--quiet", "FETCH_HEAD"])?;
+    let head = git_in(dir, &["rev-parse", "HEAD"])?;
+    if head.starts_with(rev) {
+        Ok(())
+    } else {
+        Err(format!("fetched {head}, not {rev}"))
     }
-    if rev.len() < 7 || !rev.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(failed(format!("rev {rev} is not a commit hash")));
-    }
-    let checkout = cache.dir.join("src").join(format!("{name}-{}", &rev[..7]));
-    if checkout.exists() {
-        return Ok(checkout);
-    }
-    let parent = cache.dir.join("src");
-    std::fs::create_dir_all(&parent).map_err(|e| Error::io(&parent, e))?;
-    let tmp = aside(&checkout);
-    let git = |args: &[&str]| -> std::result::Result<String, String> {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&tmp)
-            .args(args)
-            .output()
-            .map_err(|e| e.to_string())?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-        } else {
-            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-        }
-    };
-    let result = std::fs::create_dir_all(&tmp)
-        .map_err(|e| e.to_string())
-        .and_then(|_| git(&["init", "-q"]))
-        .and_then(|_| git(&["fetch", "--quiet", "--depth", "1", "--no-tags", url, rev]))
-        .and_then(|_| git(&["checkout", "--quiet", "FETCH_HEAD"]))
-        .and_then(|_| git(&["rev-parse", "HEAD"]))
-        .and_then(|head| {
-            if head.starts_with(rev) {
-                Ok(())
-            } else {
-                Err(format!("fetched {head}, not {rev}"))
-            }
-        });
-    if let Err(why) = result {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(failed(format!(
-            "fetching {url} @{} failed: {why}",
-            &rev[..7]
-        )));
-    }
-    if std::fs::rename(&tmp, &checkout).is_err() {
-        // another process put the same checkout in place first
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-    Ok(checkout)
 }
 
+/// Runs git in a directory: its trimmed output, or what it printed to stderr.
+fn git_in(dir: &Path, args: &[&str]) -> std::result::Result<String, String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// Loads a compiled grammar into the process and checks that this sorcerer's tree-sitter can
+/// read it.
 fn open_library(name: &str, lib: &Path) -> Result<tree_sitter::Language> {
-    let fail = |why: String| Error::GrammarLoad {
-        name: name.into(),
-        why,
-    };
-    let symbol = format!("tree_sitter_{}", name.replace('-', "_"));
-    // SAFETY: the library is a tree-sitter grammar we compiled; its one
-    // exported function takes nothing and returns a `TSLanguage` pointer.
-    let language = unsafe {
-        let library = libloading::Library::new(lib).map_err(|e| fail(e.to_string()))?;
-        let f: libloading::Symbol<unsafe extern "C" fn() -> *const ()> = library
-            .get(symbol.as_bytes())
-            .map_err(|e| fail(format!("{symbol}: {e}")))?;
-        let language = tree_sitter::Language::new(tree_sitter_language::LanguageFn::from_raw(*f));
-        // the language points into the library: it must outlive every parser
-        std::mem::forget(library);
-        language
-    };
+    let language = load_language_symbol(name, lib)?;
     let abi = language.abi_version();
     let (min, max) = (
         tree_sitter::MIN_COMPATIBLE_LANGUAGE_VERSION,
@@ -302,32 +337,48 @@ fn open_library(name: &str, lib: &Path) -> Result<tree_sitter::Language> {
     Ok(language)
 }
 
+/// Calls the library's `tree_sitter_<name>` function (a `-` in the name becomes `_`), which
+/// hands back the grammar. The library stays loaded for the rest of the process.
+fn load_language_symbol(name: &str, lib: &Path) -> Result<tree_sitter::Language> {
+    let fail = |why: String| Error::GrammarLoad {
+        name: name.into(),
+        why,
+    };
+    let symbol = format!("tree_sitter_{}", name.replace('-', "_"));
+    // SAFETY: the library is a tree-sitter grammar we compiled; its one
+    // exported function takes nothing and returns a `TSLanguage` pointer.
+    unsafe {
+        let library = libloading::Library::new(lib).map_err(|e| fail(e.to_string()))?;
+        let f: libloading::Symbol<unsafe extern "C" fn() -> *const ()> = library
+            .get(symbol.as_bytes())
+            .map_err(|e| fail(format!("{symbol}: {e}")))?;
+        let language = tree_sitter::Language::new(tree_sitter_language::LanguageFn::from_raw(*f));
+        // the language points into the library: it must outlive every parser
+        std::mem::forget(library);
+        Ok(language)
+    }
+}
+
 /// The languages' disk side: the project's layers and loading a grammar.
 impl Languages {
-    /// The shipped languages, layered with the project's under
-    /// `<root>/.sorcerer/languages/`. Every name in EXTRA (`[languages]
-    /// names`) must have a layer somewhere.
-    pub fn assemble(root: &Path, extra: &[String]) -> Result<Languages> {
+    /// The languages sorcerer ships, with the project's own under
+    /// `<root>/.sorcerer/languages/<name>/` laid on top. Every name in `[languages] names` must
+    /// have a language file somewhere.
+    pub fn assemble(root: &Path, named_in_config: &[String]) -> Result<Languages> {
         let mut layers = Languages::shipped_layers()?;
-        let project = root.join(".sorcerer/languages");
-        if let Ok(entries) = std::fs::read_dir(&project) {
-            for e in entries.flatten().filter(|e| e.path().is_dir()) {
-                let name = e.file_name().to_string_lossy().into_owned();
-                layers
-                    .entry(name.clone())
-                    .or_default()
-                    .push(("project", project_layer(&name, &e.path())?));
-            }
+        for (name, layer) in project_layers(root)? {
+            layers.entry(name).or_default().push(("project", layer));
         }
-        Languages::from_layers(layers, extra)
+        Languages::from_layers(layers, named_in_config)
     }
 
-    /// NAME loaded: its grammar fetched, built and loaded through CACHE, and
-    /// its queries compiled. Once per name per `Languages`.
+    /// A language ready to parse: its grammar fetched, built and loaded through the cache, and
+    /// its query files compiled. Done once per language per `Languages`; later calls get the
+    /// same one.
     pub fn load(&self, name: &str, cache: &GrammarCache) -> Result<Arc<Loaded>> {
         let mut loaded = self.loaded.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(l) = loaded.get(name) {
-            return Ok(l.clone());
+        if let Some(earlier) = loaded.get(name) {
+            return Ok(earlier.clone());
         }
         let language = self
             .get(name)
@@ -337,49 +388,87 @@ impl Languages {
             })?
             .clone();
         let grammar = load(cache, name, &language.grammar)?;
-        let queries = language
-            .queries
-            .iter()
-            .map(|(file, text)| {
-                Ok((
-                    file.clone(),
-                    crate::domain::query::compile(&grammar, file, text)?,
-                ))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let l = Arc::new(Loaded {
+        let queries = compile_queries(&grammar, &language.queries)?;
+        let ready = Arc::new(Loaded {
             language,
             grammar,
             queries,
         });
-        loaded.insert(name.to_string(), l.clone());
-        Ok(l)
+        loaded.insert(name.to_string(), ready.clone());
+        Ok(ready)
     }
 }
 
-fn project_layer(name: &str, dir: &Path) -> Result<Layer> {
-    let file = dir.join("language.toml");
-    let mut table = match std::fs::read_to_string(&file) {
-        Ok(text) => crate::domain::language::parse_toml(name, &text)?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
-        Err(e) => return Err(Error::io(file, e)),
+/// Each query file compiled for the grammar, in file-name order; the first that fails stops it.
+fn compile_queries(
+    grammar: &tree_sitter::Language,
+    queries: &BTreeMap<String, String>,
+) -> Result<Vec<(String, tree_sitter::Query)>> {
+    queries
+        .iter()
+        .map(|(file, text)| Ok((file.clone(), compile(grammar, file, text)?)))
+        .collect()
+}
+
+/// The project's language layers, one per directory under `.sorcerer/languages/`, by
+/// language name. A project without that directory has none.
+fn project_layers(root: &Path) -> Result<Vec<(String, Layer)>> {
+    let Ok(entries) = std::fs::read_dir(root.join(".sorcerer/languages")) else {
+        return Ok(Vec::new());
     };
-    // A local grammar's path is relative to this layer's directory.
-    if let Some(toml::Value::Table(g)) = table.get_mut("grammar")
-        && let Some(toml::Value::String(p)) = g.get("path")
+    entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let layer = project_layer(&name, &entry.path())?;
+            Ok((name, layer))
+        })
+        .collect()
+}
+
+/// One project layer: its `language.toml` (either file may be missing) and its query files.
+fn project_layer(name: &str, dir: &Path) -> Result<Layer> {
+    let table = with_absolute_grammar_path(project_language_table(name, dir)?, dir);
+    Ok(Layer {
+        table,
+        queries: project_queries(dir)?,
+    })
+}
+
+fn project_language_table(name: &str, dir: &Path) -> Result<toml::Table> {
+    let file = dir.join("language.toml");
+    match std::fs::read_to_string(&file) {
+        Ok(text) => parse_toml(name, &text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(toml::Table::new()),
+        Err(e) => Err(Error::io(file, e)),
+    }
+}
+
+/// A local grammar's `path` is written relative to its layer's directory; this makes it
+/// absolute, so it still means the same place once the layers are laid together.
+fn with_absolute_grammar_path(mut table: toml::Table, dir: &Path) -> toml::Table {
+    if let Some(toml::Value::Table(grammar)) = table.get_mut("grammar")
+        && let Some(toml::Value::String(relative)) = grammar.get("path")
     {
-        let abs = dir.join(p).to_string_lossy().into_owned();
-        g.insert("path".into(), toml::Value::String(abs));
+        let absolute = dir.join(relative).to_string_lossy().into_owned();
+        grammar.insert("path".into(), toml::Value::String(absolute));
     }
-    let mut queries = BTreeMap::new();
-    if let Ok(entries) = std::fs::read_dir(dir.join("queries")) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == "scm") {
-                let text = std::fs::read_to_string(&p).map_err(|err| Error::io(&p, err))?;
-                queries.insert(e.file_name().to_string_lossy().into_owned(), text);
-            }
-        }
-    }
-    Ok(Layer { table, queries })
+    table
+}
+
+/// The `.scm` files in the layer's `queries/` directory, by file name.
+fn project_queries(dir: &Path) -> Result<BTreeMap<String, String>> {
+    let Ok(entries) = std::fs::read_dir(dir.join("queries")) else {
+        return Ok(BTreeMap::new());
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|x| x == "scm"))
+        .map(|entry| {
+            let path = entry.path();
+            let text = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
+            Ok((entry.file_name().to_string_lossy().into_owned(), text))
+        })
+        .collect()
 }

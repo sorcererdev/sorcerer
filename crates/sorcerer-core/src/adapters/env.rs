@@ -26,11 +26,13 @@ pub struct MapEnv {
 }
 
 impl MapEnv {
+    /// This environment with one more variable set.
     pub fn var_set(mut self, key: &str, value: &str) -> MapEnv {
         self.vars.insert(key.to_string(), value.to_string());
         self
     }
 
+    /// This environment with one more executable on PATH (at `/fake/bin/<name>`).
     pub fn on_path(mut self, exe: &str) -> MapEnv {
         self.on_path.push(exe.to_string());
         self

@@ -1,4 +1,4 @@
-//! The ledger as `.sorcerer/state/ledger.jsonl`, one JSON line per errand.
+//! The ledger as a file, `.sorcerer/state/ledger.jsonl`: one line of JSON per paid call.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -9,19 +9,21 @@ use crate::domain::project::Project;
 use crate::ports::ledger::Ledger;
 use crate::{Error, Result};
 
+/// The ledger kept in one file of JSON lines.
 #[derive(Debug, Clone)]
 pub struct JsonlLedger {
     path: PathBuf,
 }
 
 impl JsonlLedger {
-    /// The project's ledger, `<state>/ledger.jsonl`.
+    /// The project's ledger, `.sorcerer/state/ledger.jsonl`.
     pub fn for_project(p: &Project) -> Result<JsonlLedger> {
         Ok(JsonlLedger {
             path: p.state_dir()?.join("ledger.jsonl"),
         })
     }
 
+    /// A ledger kept in any file, for tests.
     pub fn at(path: PathBuf) -> JsonlLedger {
         JsonlLedger { path }
     }
@@ -32,36 +34,42 @@ impl Ledger for JsonlLedger {
         &self.path
     }
 
-    /// Appends one line in one write, so lines from two processes never interleave.
-    fn append(&self, e: &Errand) -> Result<()> {
-        let mut line = serde_json::to_vec(e).map_err(|err| Error::Config {
+    /// Writes the line in one write call, so lines from two processes never interleave.
+    fn append(&self, errand: &Errand) -> Result<()> {
+        let mut line = serde_json::to_vec(errand).map_err(|err| Error::Config {
             file: self.path.clone(),
             why: err.to_string(),
         })?;
         line.push(b'\n');
-        let mut f = OpenOptions::new()
+        let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)
             .map_err(|err| Error::io(&self.path, err))?;
-        f.write_all(&line).map_err(|err| Error::io(&self.path, err))
+        file.write_all(&line)
+            .map_err(|err| Error::io(&self.path, err))
     }
 
+    /// A ledger file that is not there yet has no rows. A line that does not parse (a crash
+    /// mid-write, a hand edit) is counted and skipped, so one bad line never hides the rest.
     fn read(&self) -> Result<LedgerRows> {
-        let text = match std::fs::read_to_string(&self.path) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(LedgerRows::default()),
-            Err(e) => return Err(Error::io(&self.path, e)),
-        };
-        let mut rows = LedgerRows::default();
-        for line in text.lines().filter(|l| !l.trim().is_empty()) {
-            match serde_json::from_str(line) {
-                Ok(e) => rows.errands.push(e),
-                Err(_) => rows.skipped += 1,
-            }
+        match std::fs::read_to_string(&self.path) {
+            Ok(text) => Ok(rows_of(&text)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(LedgerRows::default()),
+            Err(e) => Err(Error::io(&self.path, e)),
         }
-        Ok(rows)
     }
+}
+
+fn rows_of(text: &str) -> LedgerRows {
+    let lines = text.lines().filter(|line| !line.trim().is_empty());
+    lines.fold(LedgerRows::default(), |mut rows, line| {
+        match serde_json::from_str(line) {
+            Ok(errand) => rows.errands.push(errand),
+            Err(_) => rows.skipped += 1,
+        }
+        rows
+    })
 }
 
 #[allow(clippy::too_many_lines)]
