@@ -21,7 +21,8 @@ use super::{Pass, Progress, SentUnit};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
-    RawFinding, ReviewAsk, ReviewReply, ReviewUnit, batch_by_lines, parse_review, review_prompt,
+    Holds, RawFinding, ReviewAsk, ReviewReply, ReviewUnit, batch_by_lines, parse_review,
+    review_prompt,
 };
 use crate::domain::scope::{Scope, ScopedUnit};
 use crate::ports::reviewer::Reviewed;
@@ -72,7 +73,7 @@ impl ReviewResults {
                     .open
                     .into_iter()
                     .filter(|o| shown.contains(&o.id))
-                    .partition(|o| o.holds);
+                    .partition(|o| o.holds == Holds::Still);
                 ReviewResults {
                     answered: [self.answered, units].concat(),
                     raw_findings: [self.raw_findings, reply.findings].concat(),
@@ -491,10 +492,9 @@ fn parsed_text(ask: &ReviewAsk, reply: &ReviewReply) -> String {
         .open
         .iter()
         .map(|o| {
-            let said = if o.holds {
-                "still holds"
-            } else {
-                "no longer holds"
+            let said = match o.holds {
+                Holds::Still => "still holds",
+                Holds::NoLonger => "no longer holds",
             };
             let counted = if ask.open.iter().any(|f| f.id.0 == o.id) {
                 ""

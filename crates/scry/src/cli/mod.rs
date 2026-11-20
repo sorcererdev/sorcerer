@@ -27,6 +27,7 @@ use sorcerer_core::ports::env::Env;
 
 use crate::adapters::wiring::{LiveWiring, Wiring};
 use crate::domain::config::scry_config;
+use crate::domain::finding::Dismissal;
 pub use doctor::doctor_rows;
 
 #[derive(Parser, Debug)]
@@ -201,7 +202,12 @@ fn go<W: Wiring>(
         }
         Some(Cmd::Dismiss { id, everywhere }) => {
             let (now, _) = clock_of(&project, &wire);
-            dismiss::dismiss(&project, &id, everywhere, now, out, err)
+            let dismissal = if everywhere {
+                Dismissal::Everywhere
+            } else {
+                Dismissal::Here
+            };
+            dismiss::dismiss(&project, &id, dismissal, now, out, err)
         }
         Some(Cmd::Why { id }) => why::why(&project, env, &id, out),
         Some(Cmd::Log { n, list, path }) => {

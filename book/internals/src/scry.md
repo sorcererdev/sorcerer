@@ -33,13 +33,14 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 - `config.rs`: `ScryConfig`, `MAX_SHOWN`, `scry_config`.
 - `issue_type.rs`: `IssueType`, `Verify`, `ISSUE_TYPES`, `issue_type`.
 - `finding.rs`: `Finding`, `FindingId`, `Status`, `Place`, `Evidence`, `Scores`,
-  `StoredVerdict`, `StoredCitation`, `status_word`.
+  `StoredVerdict`, `StoredCitation`, `Dismissal` (`Here`, `Everywhere`), `status_word`.
 - `findings.rs`: `Findings` (`new_id`, `get`, `dismiss`, `shown_in`, `shown_in_scope`),
   `merge_into`, `renamed`.
 - `steering.rs`: `Steering`, `Rule`, `Include`, `RawSteering`, `parse_steering`,
   `STEERING_CAP`.
 - `scope.rs`: `ScopeRequest`, `Scope`, `ScopedUnit`, `ScopedFile`, `header_of`.
-- `review_prompt.rs`: `ReviewUnit`, `ReviewAsk`, `RawFinding`, `ReviewReply`, `review_prompt`,
+- `review_prompt.rs`: `ReviewUnit`, `ReviewAsk`, `RawFinding`, `ReviewReply`, `OpenAnswer` (its `holds` a
+  `Holds::Still` or `Holds::NoLonger`), `review_prompt`,
   `parse_review`, `batch_units`, `batch_by_lines`, `REVIEW_TIMEOUT`.
 - `judging.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_THRESHOLD`,
   `Placement`, `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
@@ -461,7 +462,7 @@ over the adapters it builds (`JsonFindingStore`, `JsonlLedger`, `ScryToml`) and 
 cell). `report_cost` groups the ledger's `scry` errands by local day in the clock's offset
 (`BTreeMap` by date): `review` and `check` are counted and summed, `decide` only added to the
 total; the waiting units are the store's `capped` sets (a store that does not read is a
-`scry:` line on stderr and no waiting line, `waiting_units: null`). `dismiss_finding` is `Findings::dismiss`
+`scry:` line on stderr and no waiting line, `waiting_units: null`). `dismiss_finding` is `Findings::dismiss` (with a `Dismissal`, from the `--everywhere` flag)
 inside `FindingStore::update`; `explain_finding` re-reads the steering for the rule's text by its id (`why` says when the id
 is no longer in `scry.toml`) and each cited file through the view (the
 command line prints `cited_range`), reading a cited path only when it is relative and `Fences::allows` it (inside

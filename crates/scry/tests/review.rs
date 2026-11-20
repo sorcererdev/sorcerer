@@ -156,7 +156,7 @@ fn parses_a_bare_object_after_prose() {
         got.open,
         vec![OpenAnswer {
             id: "abc123".into(),
-            holds: false,
+            holds: Holds::NoLonger,
             why: "fixed".into()
         }]
     );
@@ -215,12 +215,12 @@ fn open_answers_need_exact_holds_words() {
         vec![
             OpenAnswer {
                 id: "7".into(),
-                holds: false,
+                holds: Holds::NoLonger,
                 why: "x".into()
             },
             OpenAnswer {
                 id: "c".into(),
-                holds: true,
+                holds: Holds::Still,
                 why: String::new()
             },
         ]

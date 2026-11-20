@@ -14,7 +14,7 @@ use sorcerer_core::domain::fnv::fnv64_hex;
 use sorcerer_core::domain::unit::Span;
 
 use crate::domain::config::{MAX_SHOWN, ScryConfig};
-use crate::domain::finding::{Finding, FindingId, Status};
+use crate::domain::finding::{Dismissal, Finding, FindingId, Status};
 use crate::domain::scope::Scope;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -93,22 +93,17 @@ impl Findings {
         }
     }
 
-    /// Marks a finding dismissed, found as [`Findings::get`] finds it: in
-    /// its own unit only, or everywhere. The change goes into its history.
+    /// Marks a finding dismissed, here or everywhere, found as
+    /// [`Findings::get`] finds it. The change goes into its history.
     /// An id that finds no finding is an error saying so.
     pub fn dismiss(
         &mut self,
         id: &str,
-        everywhere: bool,
+        dismissal: Dismissal,
         at: DateTime<Utc>,
     ) -> std::result::Result<(), String> {
         let i = self.position_of(id)?;
-        let status = if everywhere {
-            Status::DismissedEverywhere
-        } else {
-            Status::DismissedHere
-        };
-        self.findings[i].set_status(status, at);
+        self.findings[i].set_status(dismissal.status(), at);
         Ok(())
     }
 
@@ -395,13 +390,13 @@ mod tests {
         let mut s = Findings::default();
         s.findings.push(finding("abcdef", "bug", 0.9, Status::Open));
         let t = at("2026-11-19T00:00:00Z");
-        s.dismiss("abcdef", false, t).unwrap();
+        s.dismiss("abcdef", Dismissal::Here, t).unwrap();
         let f = s.get("abcdef").unwrap();
         assert_eq!(f.status, Status::DismissedHere);
         assert_eq!(f.history.last(), Some(&(t, Status::DismissedHere)));
-        s.dismiss("abcd", true, t).unwrap();
+        s.dismiss("abcd", Dismissal::Everywhere, t).unwrap();
         assert_eq!(s.findings[0].status, Status::DismissedEverywhere);
-        assert!(s.dismiss("ffffff", false, t).is_err());
+        assert!(s.dismiss("ffffff", Dismissal::Here, t).is_err());
     }
 
     #[test]
@@ -412,7 +407,7 @@ mod tests {
         s.findings.push(finding("ffee11", "bug", 0.9, Status::Open));
         assert!(s.get("abcd").is_none());
         assert!(
-            s.dismiss("abcd", false, at("2026-11-19T00:00:00Z"))
+            s.dismiss("abcd", Dismissal::Here, at("2026-11-19T00:00:00Z"))
                 .is_err()
         );
         assert_eq!(s.get("abcd02").unwrap().id.0, "abcd02");
