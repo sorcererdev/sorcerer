@@ -325,19 +325,21 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    with nothing written (`Halt::Silent`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
-   waiting) are `resolved`; those it said *still holds* go into `still_hold`.
+   waiting) are `resolved` (`resolve_what_no_longer_holds`); those it said *still holds* go into `still_hold`.
    `Pass::drop_moved` (over `Pass::moved`, which reads each sent file's units again): a unit
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or waiting finding from before the pass
    whose unit was sent at a fingerprint other than its place's, and that nothing merged into,
-   kept (`still_hold`) or resolved, is `resolved` (not found again). The prompt tells the reviewer not
+   kept (`still_hold`) or resolved, is `resolved` (not found again: `resolve_not_found_again`, over the
+   answered units `not_moved`). The prompt tells the reviewer not
    to raise an open finding again, so `still_hold` is what keeps an unfixed finding open across an
    edit of its unit.
 6. **Verify.** `rounds::verify` for each scoped file that still exists, sharing the pass's
    `Budget` (below). It runs even when nothing in the file was sent, so a waiting finding
    opens once the file has room.
 7. **Write.** `Pass::drop_moved` again (a unit may have changed while the checks ran); the
-   fingerprints of the sent, answered, unmoved units join `reviewed` and leave `capped`. Each
+   fingerprints of the sent, answered, unmoved units join `reviewed` and leave `capped`
+   (`Pass::mark_reviewed`, `mark_one_reviewed`). Each
    write (the one before a round's checks, and this last one) is a `FindingStore::update` applying
    `merge_into(last_written, working_copy, current)`, `last_written` being what the pass last wrote: each finding
    in the store as it is now takes the pass's version only when its status there is still the
@@ -365,7 +367,7 @@ decides reads it: the eval's table is the same with or without it. The calls:
   built by one of `ask.rs`'s `…_text` functions, last in the file);
   `Pass::judge_all`: **Findings** (a `sub` heading a raw finding, then `Pass::judge`);
   `Pass::remember`: **Remember** (resolved by the reply, not found again, swept gone by
-  `sweep_gone`, dropped as moved); and after the rounds `Pass::mark_reviewed`: **Reviewed**.
+  `sweep_gone`, dropped as moved; `remember_text`); and after the rounds `Pass::mark_reviewed`: **Reviewed** (`reviewed_text`).
 - `Pass::judge` and `Pass::merge`: the statement, the rule as cited and as resolved, the
   evidence, the placement, each same-problem question's P(yes) and the outcome, the nitpick
   question's P(yes) with the confidence against `confidence_threshold`, and the id and status given.
