@@ -393,11 +393,11 @@ best confidence first (`waiting_best_first`), in rounds. A round takes the candi
 (`Room::split`, from the file's `Room`: its open findings and how many the pass's own opened): one
 that was waiting before the pass (`old_waiting`) only while the file's open findings
 of shown issue types are under `MAX_SHOWN`; one this pass found while fewer than `MAX_SHOWN` of the
-pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding (`check_citations`): `citations`
+pass's own have opened (only issue types in `cfg.issue_types` count). Then, per finding (`check_round_citations`, over `check_citations`): `citations`
 (failure → `unsure`, the reason as verdict); a `Verify::Citations` issue type opens at once; a
 `CitationsThenClaim` issue type's check is reserved against the budget at `check_estimate`, and one
 that does not fit leaves its finding waiting and stops the rounds (`Citations::HeldBack`; `verify_file` returns true).
-When there are checks to run the store is written (`Pass::save_working_copy`) and `Progress::Stored`
+When there are checks to run the store is written and `Progress::Stored` (`store_what_passed`, over `Pass::save_working_copy`)
 sent, so what opened shows before the checks finish. The round's checks run side by side on
 `std::thread::scope` (`claim_checks_side_by_side`), each recorded in the order started (`record_check`), each a `Claim` of the statement about its evidence: `Right` opens,
 `Wrong` is `refuted`, `CannotTell` is `unsure` (verdict, reason and `Checked::cited` stored, the cost

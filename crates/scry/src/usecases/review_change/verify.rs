@@ -3,12 +3,13 @@
 //! their citations and claim checks until `MAX_SHOWN` are open, within the
 //! caps. Each round:
 //! 1. takes the candidates that fit if all passed (`Room::split`);
-//! 2. checks each one's citations (`check_citations`): a failure is
+//! 2. checks each one's citations (`check_round_citations`, over
+//!    `check_citations`): a failure is
 //!    `unsure`, an issue type verified by citations alone opens at once,
 //!    the rest have their claim check reserved against the caps or held
 //!    back;
 //! 3. stores what passed before any claim check starts
-//!    (`Pass::save_working_copy`);
+//!    (`store_what_passed`, over `Pass::save_working_copy`);
 //! 4. runs the round's claim checks side by side
 //!    (`claim_checks_side_by_side`) and records each (`record_check`);
 //! 5. counts what opened (`Room::count_opened`); a held-back check stops
@@ -96,20 +97,9 @@ impl Pass<'_, '_> {
                 self.log(NOBODY_FITS_TEXT);
                 break;
             }
-            let mut to_check = Vec::new();
-            let mut reserved = 0.0;
-            let mut held = false;
-            for id in &this_round {
-                match self.check_citations(id, &mut reserved) {
-                    Citations::ToCheck(claim) => to_check.push((id.clone(), claim)),
-                    Citations::HeldBack => held = true,
-                    Citations::Failed | Citations::OpenWithoutCheck => {}
-                }
-            }
-            // shown now, before the checks: what passed without one
+            let (to_check, held) = self.check_round_citations(&this_round);
             if !to_check.is_empty() {
-                self.save_working_copy()?;
-                self.report(Progress::Stored);
+                self.store_what_passed()?;
             }
             for (id, result) in claim_checks_side_by_side(self.deps.checker, to_check) {
                 self.record_check(&id, result);
@@ -121,6 +111,30 @@ impl Pass<'_, '_> {
             candidates = later;
         }
         Ok(false)
+    }
+
+    /// Each of ROUND's citations checked (`check_citations`): the claims
+    /// to check, reserved within the caps, and whether one was held back.
+    fn check_round_citations(&mut self, round: &[FindingId]) -> (Vec<(FindingId, Claim)>, bool) {
+        let mut to_check = Vec::new();
+        let mut reserved = 0.0;
+        let mut held = false;
+        for id in round {
+            match self.check_citations(id, &mut reserved) {
+                Citations::ToCheck(claim) => to_check.push((id.clone(), claim)),
+                Citations::HeldBack => held = true,
+                Citations::Failed | Citations::OpenWithoutCheck => {}
+            }
+        }
+        (to_check, held)
+    }
+
+    /// Writes the store and tells `Stored`, so what passed without a claim
+    /// check shows before the round's checks finish.
+    fn store_what_passed(&mut self) -> std::result::Result<(), Halt> {
+        self.save_working_copy()?;
+        self.report(Progress::Stored);
+        Ok(())
     }
 
     /// FILE's waiting findings, the most confident first.
