@@ -1,23 +1,23 @@
 {
   "The check `input.party >= table.seats` refuses a party that exactly fills the table (party 4 on a 4-seat table), and `create_booking` allows that case with `>`. A guest can book a full table but cannot change an existing booking to one, and the tests don't cover the boundary.": {
     "verdict": "right",
-    "why": "ChangePartySize.handle refuses party >= seats while CreateBooking.handle refuses only party > seats, and the change tests cover only party 3 and party 5 on a 4-seat table, never the exact-fill case of 4.",
+    "why": "change_party_size uses `>=` and so refuses a party equal to the seat count, while create_booking uses `>` and allows it; the change tests only try parties of 3 and 5 on a 4-seat table, never 4.",
     "evidence": [
       {
         "path": "src/bistro/booking/commands/change_party_size.py",
-        "unit": "ChangePartySize.handle",
+        "unit": null,
         "line": 43,
         "confirmed": true
       },
       {
         "path": "src/bistro/booking/commands/create_booking.py",
-        "unit": "CreateBooking.handle",
+        "unit": null,
         "line": 53,
         "confirmed": true
       },
       {
         "path": "src/bistro/booking/commands/change_party_size__test.py",
-        "unit": null,
+        "unit": "test_a_party_larger_than_the_table_is_refused",
         "line": 33,
         "confirmed": true
       }
@@ -25,7 +25,7 @@
   },
   "The conflict loop calls booking_at with input.slot (the first week) on every iteration instead of the loop variable slot. A taken slot in a later week is never detected, so the command saves overlapping bookings, which breaks the all-or-nothing promise. The existing test only passes because it pre-books the first week.": {
     "verdict": "right",
-    "why": "The loop at line 53 calls booking_at with input.slot on every iteration, so a taken later week is never detected and the save loop at lines 59-60 writes overlapping bookings; the test only passes because it pre-books the first week (test lines 43-49).",
+    "why": "The loop at line 53 calls booking_at with input.slot instead of the loop variable slot, so a taken later week is never detected and all bookings are saved, while the test only pre-books the first week, which is the one slot the bug still checks.",
     "evidence": [
       {
         "path": "src/bistro/booking/commands/create_weekly_booking.py",
@@ -36,62 +36,62 @@
       {
         "path": "src/bistro/booking/commands/create_weekly_booking__test.py",
         "unit": "test_one_taken_week_books_nothing",
-        "line": 45,
+        "line": 43,
         "confirmed": true
       }
     ]
   },
   "The guest check also requires `b.table_id == input.table_id`, so it only catches a repeat booking at the same table. A guest with a booking at t1 can still book t2 the same day, which contradicts the rule and the message 'already has a booking on <day>'.": {
     "verdict": "right",
-    "why": "The guest check in CreateBooking.handle requires b.table_id == input.table_id, so a guest with a booking at t1 is not blocked from booking t2 on the same day, despite the 'already has a booking' message.",
+    "why": "The guest check in CreateBooking.handle filters on b.table_id == input.table_id, so a guest booked at t1 passes the check when booking t2 the same day, while the GuestAlreadyBooked message still says they already have a booking on that day.",
     "evidence": [
       {
         "path": "src/bistro/booking/commands/create_booking.py",
         "unit": "CreateBooking.handle",
         "line": 63,
         "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/create_booking.py",
+        "unit": "CreateBooking.handle",
+        "line": 64,
+        "confirmed": true
       }
     ]
   },
   "The party-size check looks up `booking.table_id`, which is the booking's current table, and compares the party to that table's seats. After the swap the booking sits on `other.table_id`, so the check should use that table. A party of 4 moving from a 4-seat table to a 2-seat table passes, and a party that does fit the new table can be refused.": {
     "verdict": "right",
-    "why": "The party-size check at line 52-53 uses booking.table_id, the table before the swap, and never checks the table at other.table_id that the booking moves to, so a party of 4 moving to a 2-seat table passes.",
+    "why": "The check at line 52-53 uses the booking's current table_id and its seats, and the swap only reassigns table_id afterward (lines 58-59), so a party that fits the new table can be refused and a party too big for the new table can pass.",
     "evidence": [
       {
         "path": "src/bistro/booking/commands/swap_tables.py",
         "unit": "SwapTables.handle",
-        "line": 53,
+        "line": 52,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/swap_tables.py",
+        "unit": "SwapTables.handle",
+        "line": 58,
         "confirmed": true
       }
     ]
   },
   "`OPENING < input.slot.start` uses a strict comparison, so a booking at exactly 17:00 is refused as outside opening hours. The error message says bookings are taken from 17:00, and the upper bound is inclusive, so the lower bound is off by one. Guests cannot book the first slot of the evening.": {
     "verdict": "right",
-    "why": "The strict `OPENING <` comparison in CreateBooking.handle rejects a start of exactly 17:00 with the message 'bookings are taken from 17:00 to 21:30', while the `<= LAST_BOOKING` upper bound is inclusive, and the web layer offers 17:00 as a slot.",
+    "why": "The lower bound is a strict `OPENING < input.slot.start`, so a 17:00 booking is refused while the upper bound `<= LAST_BOOKING` is inclusive, and the error message does say 17:00.",
     "evidence": [
       {
         "path": "src/bistro/booking/commands/create_booking.py",
         "unit": "CreateBooking.handle",
         "line": 64,
         "confirmed": true
-      },
-      {
-        "path": "src/bistro/booking/commands/create_booking.py",
-        "unit": "CreateBooking.handle",
-        "line": 65,
-        "confirmed": true
-      },
-      {
-        "path": "src/bistro/web/bookings/routes.py",
-        "unit": null,
-        "line": 19,
-        "confirmed": true
       }
     ]
   },
   "booked_tables is built from booking ids (b.id) but is then compared with table ids (t.id), so no table is ever treated as booked. empty_tables always equals the total number of tables, and the summary page shows the wrong number. It should use b.table_id.": {
     "verdict": "right",
-    "why": "GetDaySummary.handle builds booked_tables from b.id and filters tables by t.id, so no table is ever excluded and empty_tables equals the total table count, which the summary template displays.",
+    "why": "handle builds booked_tables from b.id (booking ids) and filters tables by t.id, so no table is ever matched as booked and empty_tables equals the total number of tables.",
     "evidence": [
       {
         "path": "src/bistro/booking/queries/get_day_summary.py",
@@ -104,29 +104,17 @@
         "unit": "GetDaySummary.handle",
         "line": 24,
         "confirmed": true
-      },
-      {
-        "path": "src/bistro/web/bookings/templates/summary.html",
-        "unit": null,
-        "line": 8,
-        "confirmed": true
       }
     ]
   },
   "save and _select now use a `phone` column, but the schema only adds it through `create table if not exists`. An existing bistro.sqlite3 (the default path in main.py) keeps its old bookings table without `phone`, so inserts and selects raise OperationalError. No migration or `alter table` handles this.": {
     "verdict": "right",
-    "why": "The bookings table with a phone column is created only by 'create table if not exists' in SCHEMA, which is run from __init__, and no alter table, PRAGMA, or user_version migration exists, so save and _select, which use phone, fail against an older bistro.sqlite3 that lacks the column.",
+    "why": "The bookings table is created only by `create table if not exists`, which skips an existing table, and `save` and `_select` both reference `phone`. No `alter table` or migration exists anywhere in the repository, so an existing database without the column would make these statements fail.",
     "evidence": [
       {
         "path": "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
         "unit": null,
         "line": 12,
-        "confirmed": true
-      },
-      {
-        "path": "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
-        "unit": "SqliteBookingRepository.__init__",
-        "line": 23,
         "confirmed": true
       },
       {

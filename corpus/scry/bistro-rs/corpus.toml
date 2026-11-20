@@ -19,7 +19,9 @@ recorded = "2026-11-19"
 scry = "4df22b0"
 review_model = "sonnet"
 v_must = 10
-b = 4
+# 2026-11-20: the checker judges a finding's main claim, not its side remarks; b03 shows (was refused
+# over a wrong aside about what the test covers).
+b = 5
 # 2026-11-20: true findings nobody planted (labelled `unplanted`) are left out of the shown count:
 # V-must reads 1.000 (vm06), T 0.0 (t06), N 0.0 (n01); the recording is unchanged.
 t_mean = 0.0

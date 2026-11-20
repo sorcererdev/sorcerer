@@ -159,7 +159,7 @@ claim's files (`claim.about`) does: `unit_sentence` groups the files by their wo
 `Languages::for_path` and uses its `unit_words` (a claim across languages gets each one's,
 after the files it covers), else `NEUTRAL_UNIT_WORDS`; and it asks for the line beside a unit,
 since a citation can stand on its line. The prompt is built from its sections in order (`task_lines`, `hint_line`, `how_to_check_lines`, `answer_shape_lines`, `unit_sentence`). `parse_reply` reads the reply: the answer object (`answer_object`: the last fenced JSON block, else the first bare object), then `verdict_in`, `why_in` and `citations_in`; `citation_in` reads a path written `orders.py:42` or `orders.py:cancel` as a line or a unit (`path_and_suffix`). `guard_questions` asks the three guards over one shared context (`guard_context`). `tests/golden/claim-prompt.txt` is the prompt the
-corpus measured, in the neutral wording (its claim points at no file).
+corpus measured, in the neutral wording (its claim points at no file), with one rule added since (2026-11-20, scry's eval case b03): the verdict is about the sentence's main claim, so a wrong side remark (what a test covers) no longer refutes a true finding.
 `CheckClaimDeps::languages` is `None` in `defaults`; scry's `claim_checker` sets the project's.
 
 `check_claim(claim, deps, cancel)` checks a statement about code. Its body is the cascade: `refuse_web_claims`, then `ClaimCheck::by_model` (research, parse, `verdict_with_citations_looked_for`, giving a `ModelVerdict`) for the first model, `guards_trust` for Jev's three guards, and `by_model` again for the strong model:

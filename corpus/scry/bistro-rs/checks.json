@@ -1,14 +1,8 @@
 {
   "A booking on an earlier day is always reported as over, even when its 90-minute sitting runs past midnight. A 23:00 or 23:30 booking is reported over at 00:10 the next day, while the table is still held until 00:30 or 01:00. Callers that free the table or treat the guest as gone would act too early.": {
     "verdict": "right",
-    "why": "Booking::is_over returns true for any booking whose day is before today without checking the 90-minute sitting, so a 23:00 booking is reported over at 00:10 the next day while its table is still held until 00:30.",
+    "why": "Booking::is_over returns true for any booking whose day is before today without checking its start time or the 90-minute sitting, so a 23:00 or 23:30 booking is reported over at 00:10 while it is still held until 00:30 or 01:00.",
     "evidence": [
-      {
-        "path": "src/booking/models/booking.rs",
-        "unit": "Booking::is_over",
-        "line": 20,
-        "confirmed": true
-      },
       {
         "path": "src/booking/models/booking.rs",
         "unit": "Booking::is_over",
@@ -19,73 +13,55 @@
   },
   "The availability loop iterates over `&slots[..slots.len() - 1]`, so the last week's slot is never checked. If the table is already booked in the final week (or for any single-week request), `handle` saves a double booking instead of returning `SlotTaken`, which breaks the all-or-nothing guarantee.": {
     "verdict": "right",
-    "why": "handle skips the last week's slot in its availability loop (slice ends at len-1), and the repository save methods do no conflict check, so a taken final-week slot or any single-week request is saved as a double booking instead of returning SlotTaken.",
+    "why": "The availability loop at line 80 skips the last generated slot via `slots[..slots.len() - 1]`, so a conflict in the final week (or any conflict in a one-week request) is never checked and both bookings are saved unconditionally at lines 100-102.",
     "evidence": [
       {
         "path": "src/booking/commands/create_weekly_booking.rs",
         "unit": "CreateWeeklyBooking::handle",
         "line": 80,
-        "confirmed": true
-      },
-      {
-        "path": "src/booking/ports/booking_repository/in_memory.rs",
-        "unit": "InMemoryBookingRepository::save",
-        "line": 50,
-        "confirmed": true
-      },
-      {
-        "path": "src/booking/ports/booking_repository/file.rs",
-        "unit": null,
-        "line": 77,
         "confirmed": true
       }
     ]
   },
   "The check `input.party >= table.seats` refuses a party that exactly fills the table, so on a 4-seat table a party of 4 fails with PartyTooLarge (\"seats 4, not 4\"). It should be `>`. The tests only try 3 and 5, so the boundary is not covered.": {
     "verdict": "right",
-    "why": "ChangePartySize::handle refuses with PartyTooLarge whenever input.party >= table.seats, so a party of 4 on a 4-seat table fails with the message \"table t1 seats 4, not 4\", and the only tests use parties of 3 and 5.",
+    "why": "The check at change_party_size.rs:49 is `input.party >= table.seats`, so a party equal to the table's seat count is refused with PartyTooLarge, and the tests only use parties of 3 and 5.",
     "evidence": [
       {
         "path": "src/booking/commands/change_party_size.rs",
         "unit": "ChangePartySize::handle",
         "line": 49,
         "confirmed": true
-      },
-      {
-        "path": "src/booking/commands/change_party_size.rs",
-        "unit": null,
-        "line": 52,
-        "confirmed": true
-      },
-      {
-        "path": "src/booking/commands/change_party_size.rs",
-        "unit": null,
-        "line": 101,
-        "confirmed": true
-      },
-      {
-        "path": "src/booking/commands/change_party_size.rs",
-        "unit": null,
-        "line": 109,
-        "confirmed": true
       }
     ]
   },
   "The check filters bookings to the day, then also requires `existing.slot == input.slot`, and `Slot` includes the start time. A guest can therefore still book 19:00 and 21:00 on the same day, even though the failure reason and the test name `a_guest_may_book_once_a_day` say one booking per day. The check only catches the same guest at the same time on a different table, and the day filter does nothing.": {
     "verdict": "right",
-    "why": "The guest check filters to the day via bookings_on but then requires full Slot equality (day and start time), so the same guest can book 19:00 and 21:00 on one day, and only an identical slot is caught, despite the 'once a day' reason text and test name.",
+    "why": "The guest check requires existing.slot == input.slot, and Slot contains the start Time, so a guest can book 19:00 and 21:00 on the same day; the day filter is redundant rather than literally absent, and the test name and reason text overstate the rule, but the main claim holds.",
     "evidence": [
       {
         "path": "src/booking/commands/create_booking.rs",
         "unit": "CreateBooking::handle",
         "line": 70,
         "confirmed": true
+      },
+      {
+        "path": "src/booking/models/slot.rs",
+        "unit": "Slot",
+        "line": 124,
+        "confirmed": true
+      },
+      {
+        "path": "src/booking/commands/create_booking.rs",
+        "unit": null,
+        "line": 148,
+        "confirmed": true
       }
     ]
   },
   "The lower bound uses `<=` against 17:00, so a 17:00 booking is refused, yet the reason says bookings are taken from 17:00 to 21:30 and the upper bound 21:30 is inclusive. Guests asking for 17:00 get a refusal that contradicts its own message. The test checks only 16:30 and 17:30, so the boundary is untested.": {
-    "verdict": "wrong",
-    "why": "The `<=` 17:00 bound refusing 17:00, the reason text, and the inclusive 21:30 bound are all accurate, but the test does not check only 16:30 and 17:30: it also checks 21:30 (accepted), 22:00 and a Monday slot (refused).",
+    "verdict": "right",
+    "why": "The lower bound `start <= Time::new(17, 0)` refuses a 17:00 booking while the refusal message says bookings run from 17:00, and the inclusive 21:30 upper bound and the untested 17:00 boundary also hold; the side remark that the test checks only 16:30 and 17:30 is imprecise, since it also checks 21:30, 22:00 and a Monday.",
     "evidence": [
       {
         "path": "src/booking/commands/create_booking.rs",
@@ -95,15 +71,21 @@
       },
       {
         "path": "src/booking/commands/create_booking.rs",
+        "unit": "CreateBooking::handle",
+        "line": 54,
+        "confirmed": true
+      },
+      {
+        "path": "src/booking/commands/create_booking.rs",
         "unit": "bookings_outside_opening_hours_are_refused",
-        "line": 161,
+        "line": 183,
         "confirmed": true
       }
     ]
   },
   "`weeks` is only checked for zero, with no upper limit. A guest posting a huge `weeks` value (for example 4000000000) makes `handle` allocate a Vec of that many slots and probe each one, which can exhaust memory or hang the process. The limit should be a returned failure variant.": {
     "verdict": "right",
-    "why": "handle only rejects weeks == 0 and has no upper bound, then collects weeks slots into a Vec and probes each one with booking_at, so a huge u32 value drives that allocation and loop.",
+    "why": "handle only refuses weeks == 0, then builds a Vec of weeks slots and probes each one with no upper limit, and the u32 parse accepts values like 4000000000.",
     "evidence": [
       {
         "path": "src/booking/commands/create_weekly_booking.rs",
@@ -115,26 +97,44 @@
         "path": "src/booking/commands/create_weekly_booking.rs",
         "unit": "CreateWeeklyBooking::handle",
         "line": 74,
+        "confirmed": true
+      },
+      {
+        "path": "src/web/bookings/routes.rs",
+        "unit": "create_weekly_booking_input",
+        "line": 92,
         "confirmed": true
       }
     ]
   },
   "handle validates only first_moved; second_moved (moving onto the first booking's table) is saved without the party-size or slot-taken check. A party larger than the first table's seats, or a clash with a third booking at that slot, is silently saved.": {
     "verdict": "right",
-    "why": "SwapTables::handle runs check() only on first_moved (line 51) and then saves second_moved (line 53) and returns Ok, so the party-size and slot-taken checks never run for second_moved.",
+    "why": "`handle` runs `check` only on `first_moved` (line 51) and then saves `second_moved` unconditionally (line 53), so a party too big for the first table or a slot clash on that table is saved without any check.",
     "evidence": [
       {
         "path": "src/booking/commands/swap_tables.rs",
         "unit": "SwapTables::handle",
         "line": 51,
         "confirmed": true
+      },
+      {
+        "path": "src/booking/commands/swap_tables.rs",
+        "unit": "SwapTables::handle",
+        "line": 53,
+        "confirmed": true
       }
     ]
   },
   "weeks is only checked for zero, and the route parses it from the form as any u32. A guest sending a huge value such as 4294967295 makes handle allocate a vector of billions of slots and query the repository for each one, which can exhaust memory or hang the server. There is no upper bound and no failure variant for it.": {
     "verdict": "right",
-    "why": "handle only refuses weeks == 0, the route parses weeks as any u32, and handle collects one slot per week into a Vec and calls booking_at for each with no upper bound, while CreateWeeklyBookingFailure has no variant for an oversized request.",
+    "why": "The route parses weeks as any u32 and handle only rejects zero, then collects one Slot per week into a Vec and runs booking_at on each, with no upper bound and no failure variant for a too-large count.",
     "evidence": [
+      {
+        "path": "src/web/bookings/routes.rs",
+        "unit": "create_weekly_booking",
+        "line": 86,
+        "confirmed": true
+      },
       {
         "path": "src/booking/commands/create_weekly_booking.rs",
         "unit": "CreateWeeklyBooking::handle",
@@ -149,20 +149,8 @@
       },
       {
         "path": "src/booking/commands/create_weekly_booking.rs",
-        "unit": "CreateWeeklyBooking::handle",
-        "line": 80,
-        "confirmed": true
-      },
-      {
-        "path": "src/booking/commands/create_weekly_booking.rs",
         "unit": "CreateWeeklyBookingFailure",
-        "line": 20,
-        "confirmed": true
-      },
-      {
-        "path": "src/web/bookings/routes.rs",
-        "unit": "create_weekly_booking",
-        "line": 86,
+        "line": 21,
         "confirmed": true
       }
     ]
