@@ -47,14 +47,14 @@ impl Pass<'_, '_> {
         self.log(&remember_text(&resolved, gone, &moved, not_found_again));
     }
 
-    /// Resolves the open and waiting findings a review call said no longer
+    /// Resolves the open and unverified findings a review call said no longer
     /// hold (NO_LONGER_HOLD, by id); their ids.
     fn resolve_what_no_longer_holds(&mut self, no_longer_hold: &HashSet<String>) -> Vec<FindingId> {
         let now = self.now;
         let mut resolved = Vec::new();
         for f in &mut self.working_copy.findings {
             if no_longer_hold.contains(&f.id.0)
-                && matches!(f.status, Status::Open | Status::Waiting)
+                && matches!(f.status, Status::Open | Status::Unverified)
             {
                 f.set_status(Status::Resolved, now);
                 resolved.push(f.id.clone());
@@ -63,7 +63,7 @@ impl Pass<'_, '_> {
         resolved
     }
 
-    /// Not found again: an open or waiting finding whose unit this pass
+    /// Not found again: an open or unverified finding whose unit this pass
     /// looked at (one of KEPT) with a new fingerprint, that the review call
     /// neither re-raised, said still holds, nor resolved, is resolved. Only
     /// when the pass was whole: the caller does not ask otherwise. Their ids.
@@ -86,7 +86,7 @@ impl Pass<'_, '_> {
                 .as_deref()
                 .and_then(|u| at.get(&(f.place.file.as_path(), u)));
             let not_found = base_ids.contains(&f.id)
-                && matches!(f.status, Status::Open | Status::Waiting)
+                && matches!(f.status, Status::Open | Status::Unverified)
                 && !self.merged.contains(&f.id)
                 && !asked.no_longer_hold.contains(&f.id.0)
                 && !asked.still_hold.contains(&f.id.0)
@@ -145,7 +145,7 @@ impl Pass<'_, '_> {
         moved
     }
 
-    /// Open, waiting and withheld findings of a file in scope whose unit is
+    /// Open, unverified and withheld findings of a file in scope whose unit is
     /// no longer in it (or whose file was deleted) are gone.
     pub(super) fn sweep_gone(&mut self, scope: &Scope) -> Vec<FindingId> {
         let now = self.now;
@@ -159,7 +159,10 @@ impl Pass<'_, '_> {
                         .is_some_and(|u| !sf.units_now.contains(u));
                 if f.place.file == sf.file
                     && left
-                    && matches!(f.status, Status::Open | Status::Waiting | Status::Withheld)
+                    && matches!(
+                        f.status,
+                        Status::Open | Status::Unverified | Status::Withheld
+                    )
                 {
                     f.set_status(Status::Gone, now);
                     gone.push(f.id.clone());

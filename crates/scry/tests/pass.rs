@@ -69,7 +69,7 @@ impl Fixture {
         decider: &StubDecider,
         fresh: bool,
     ) -> sorcerer_core::Result<ReviewOutcome> {
-        // a claim check that fails: a waiting finding stays waiting
+        // a claim check that fails: an unverified finding stays unverified
         let checker = |_: &Claim| -> sorcerer_models::Result<Checked> {
             Err(sorcerer_models::Error::Reply {
                 provider: "stub".into(),
@@ -258,8 +258,8 @@ fn a_bug_waits_for_its_claim_check() {
     ));
     let s = f.store();
     let g = only(&s);
-    assert_eq!(g.status, Status::Waiting);
-    assert_eq!(g.history, [(t0(), Status::Waiting)]);
+    assert_eq!(g.status, Status::Unverified);
+    assert_eq!(g.history, [(t0(), Status::Unverified)]);
 }
 
 #[test]
@@ -363,7 +363,7 @@ fn the_same_problem_merges_into_the_stored_id() {
     assert_eq!(g.id, id);
     assert_eq!(g.seen, 2);
     assert_eq!(g.statement, "cancel() gives back None, not the order.");
-    assert_eq!(g.status, Status::Waiting);
+    assert_eq!(g.status, Status::Unverified);
     let kinds: Vec<String> = decider.asked().into_iter().map(|q| q.kind).collect();
     assert_eq!(kinds, ["same"]);
 }
@@ -468,7 +468,7 @@ fn still_holds_keeps_the_finding() {
     assert!(r.whole);
     assert_eq!(reviewer.asks()[0].open[0].id, id);
     let s = f.store();
-    assert_eq!(only(&s).status, Status::Waiting);
+    assert_eq!(only(&s).status, Status::Unverified);
     assert!(s.reviewed[Path::new("orders.py")].contains(&cancel_print(&f)));
 }
 
@@ -480,7 +480,7 @@ fn no_longer_holds_resolves_only_a_finding_the_call_was_shown() {
         &StubDecider::new(),
         false,
     ));
-    // a waiting finding on `place`, which this pass does not send
+    // an unverified finding on `place`, which this pass does not send
     support::update_store(&f.project, |s| {
         let mut other = s.findings[0].clone();
         other.id = scry::domain::finding::FindingId("abcdef".into());
@@ -499,7 +499,7 @@ fn no_longer_holds_resolves_only_a_finding_the_call_was_shown() {
     assert!(reviewer.asks()[0].open.iter().all(|o| o.id.0 != "abcdef"));
     let s = f.store();
     let other = s.findings.iter().find(|g| g.id.0 == "abcdef").unwrap();
-    assert_eq!(other.status, Status::Waiting);
+    assert_eq!(other.status, Status::Unverified);
 }
 
 #[test]
@@ -515,7 +515,7 @@ fn not_found_again_at_a_new_fingerprint_resolves_only_when_whole() {
         &StubDecider::new(),
         false,
     ));
-    assert_eq!(only(&f.store()).status, Status::Waiting);
+    assert_eq!(only(&f.store()).status, Status::Unverified);
 
     // cancel changes again and big too; big's call fails: nothing resolves
     f.edit("cancel(now=False)", "cancel(now=True)");
@@ -525,7 +525,7 @@ fn not_found_again_at_a_new_fingerprint_resolves_only_when_whole() {
     assert_eq!(failing.asks().len(), 2);
     assert!(!r.whole);
     assert_eq!(r.failures.len(), 1);
-    assert_eq!(only(&f.store()).status, Status::Waiting);
+    assert_eq!(only(&f.store()).status, Status::Unverified);
 
     // the same tree again, every call answering: not found again, resolved
     let r = ran(f.run(&StubReviewer::new(), &StubDecider::new(), true));
@@ -749,7 +749,7 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
         &reviewer.asks()[0],
     ));
     has(&reply("bug", 2, "cancel ignores the order's state", ""));
-    has("nitpick? P(yes) 0.20 → confidence 0.80, threshold 0.70 → waiting");
+    has("nitpick? P(yes) 0.20 → confidence 0.80, threshold 0.70 → unverified");
     has(&format!("id {}", r.new[0].0));
     has("cannot_tell");
     has("escalated: yes");
@@ -898,7 +898,7 @@ fn reply_on(file: &str, line: u32, statement: &str, open: serde_json::Value) -> 
 #[test]
 fn the_run_log_of_the_review_calls_is_as_recorded() {
     let f = three_batches();
-    // the first pass leaves a waiting finding on alpha and every unit reviewed
+    // the first pass leaves an unverified finding on alpha and every unit reviewed
     let first = StubReviewer::new().reply(
         &["a.py"],
         &reply_on(
@@ -1088,7 +1088,7 @@ fn pass_with(
     }
 }
 
-/// A claim check that fails: a waiting finding stays waiting.
+/// A claim check that fails: an unverified finding stays unverified.
 fn failing_check(_: &Claim) -> sorcerer_models::Result<Checked> {
     Err(sorcerer_models::Error::Reply {
         provider: "stub".into(),
@@ -1338,7 +1338,7 @@ fn the_run_log_of_the_findings_is_as_recorded() {
     );
     let r = ran(pass.outcome.unwrap());
     assert!(r.whole);
-    let st = |s: &str| (s.to_string(), Status::Waiting);
+    let st = |s: &str| (s.to_string(), Status::Unverified);
     let mut want = vec![
         ("alpha adds one".to_string(), Status::Resolved),
         ("delta drops the remainder".to_string(), Status::Gone),
@@ -1616,13 +1616,13 @@ fn the_run_log_lines_the_goldens_do_not_reach_are_as_recorded() {
     assert_line(
         &log,
         &format!(
-            "- same problem as {a} (waiting, bug at orders.py:2; rule: none; first)? P(yes) 0.90 → the same: the first at or past the threshold wins"
+            "- same problem as {a} (unverified, bug at orders.py:2; rule: none; first)? P(yes) 0.90 → the same: the first at or past the threshold wins"
         ),
     );
     assert_line(
         &log,
         &format!(
-            "- same problem as {b} (waiting, bug at orders.py:1; rule: none; second)? P(yes) 0.90 → the same, but an earlier one won"
+            "- same problem as {b} (unverified, bug at orders.py:1; rule: none; second)? P(yes) 0.90 → the same, but an earlier one won"
         ),
     );
 

@@ -8,7 +8,7 @@
 //! 4. runs the pass (`Pass::new`, `Pass::go`): the scope's units not yet
 //!    reviewed go to the review call in batches (`ask`); each finding is
 //!    placed, matched against the store, filtered by Jev's nitpick question
-//!    and remembered (`judge`, `remember`); then each file's waiting
+//!    and remembered (`judge`, `remember`); then each file's unverified
 //!    findings go through the verification rounds (`verify`), within the
 //!    caps;
 //! 5. stops on a halt (Jev silent: skipped; an error: returned), else lays
@@ -120,7 +120,7 @@ pub struct ReviewReport {
     pub failures: Vec<String>,
     /// Nothing capped and every review call answered.
     pub whole: bool,
-    /// A claim check did not fit the caps; its finding waits.
+    /// A claim check did not fit the caps; its finding stays unverified.
     pub checks_capped: bool,
     /// Every finding this pass added or changed, in store order.
     pub touched: Vec<FindingId>,
@@ -313,13 +313,13 @@ impl<'r, 'd> Pass<'r, 'd> {
 
     fn go(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<ReviewReport, Halt> {
         let base_ids = ids_of(&self.working_copy);
-        let old_waiting = waiting_ids(&self.working_copy);
+        let unverified_from_earlier_runs = unverified_ids(&self.working_copy);
         let gone = self.sweep_gone(scope);
         let mut asked = self.send(scope, fresh);
         self.judge_all(std::mem::take(&mut asked.raw_findings), scope)?;
         let whole = asked.capped == 0 && asked.failures.is_empty();
         self.remember(&asked, &gone, &base_ids, whole);
-        let checks_capped = self.verify_files(scope, &old_waiting)?;
+        let checks_capped = self.verify_findings_per_file(scope, &unverified_from_earlier_runs)?;
         self.mark_reviewed(&asked.answered);
         Ok(ReviewReport {
             looked_at: asked.answered.len(),
@@ -388,11 +388,12 @@ fn ids_of(findings: &Findings) -> HashSet<FindingId> {
     findings.findings.iter().map(|f| f.id.clone()).collect()
 }
 
-fn waiting_ids(findings: &Findings) -> HashSet<FindingId> {
+/// The findings nobody has verified yet.
+fn unverified_ids(findings: &Findings) -> HashSet<FindingId> {
     findings
         .findings
         .iter()
-        .filter(|f| f.status == Status::Waiting)
+        .filter(|f| f.status == Status::Unverified)
         .map(|f| f.id.clone())
         .collect()
 }

@@ -189,12 +189,12 @@ impl Pass<'_, '_> {
         }
     }
 
-    /// The open and waiting findings on BATCH's units, for the review call to answer.
+    /// The open and unverified findings on BATCH's units, for the review call to answer.
     fn open_on(&self, batch: &[ReviewUnit]) -> Vec<Finding> {
         self.working_copy
             .findings
             .iter()
-            .filter(|f| matches!(f.status, Status::Open | Status::Waiting))
+            .filter(|f| matches!(f.status, Status::Open | Status::Unverified))
             .filter(|f| {
                 batch.iter().any(|u| {
                     u.file == f.place.file && f.place.unit.as_deref() == Some(u.name.as_str())

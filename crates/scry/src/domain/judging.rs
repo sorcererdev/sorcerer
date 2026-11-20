@@ -123,7 +123,7 @@ pub enum Match {
 pub fn match_stored(stored: &Finding, new_unit: Option<&str>) -> Match {
     match stored.status {
         Status::Open
-        | Status::Waiting
+        | Status::Unverified
         | Status::Withheld
         | Status::Refuted
         | Status::Unsure
