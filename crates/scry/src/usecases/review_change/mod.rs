@@ -159,30 +159,42 @@ pub fn review_change(
     req: &ReviewRequest,
     deps: &ReviewDeps,
 ) -> Result<ReviewOutcome> {
+    // 1. Read the project's [scry] settings. If scry is turned off, stop.
     let cfg = deps.settings.scry_config()?;
     if !cfg.enabled {
         return Ok(ReviewOutcome::Skipped(
             "scry is off ([scry] enabled = false)".into(),
         ));
     }
+    // 2. Work out what to review: which files, and which units (functions,
+    //    methods) in them. Log it.
     let scope = scope_of(project, deps.view, req.scope.clone(), req.all, &cfg)?;
     deps.log.put(&scope_text(&scope));
+    // 3. Work out the spending limits, and read the project's rules
+    //    (steering) and the files scry must not read (fences).
     let caps = caps_for(req, &cfg);
     let steering = deps.settings.steering()?;
     let fences = Fences::for_project(project)?;
 
+    // 4. Lock the store, so two reviews never run at once.
     let held = deps.store.hold()?;
+    // 5. Read the stored findings and what scry has spent today. Log them.
     let start = findings_on_disk(deps.store)?;
     let spent = SpentSoFar::read(deps.ledger, deps.clock, &cfg)?;
     deps.log
         .put(&pass_text(&caps, &spent, &cfg.review_model, &start));
+    // 6. Run the pass: review, judge, remember, verify.
     let mut pass = Pass::new(&cfg, &steering, &fences, deps, &caps, &spent, start.clone());
     let report = match pass.go(&scope, req.fresh) {
         Ok(report) => report,
+        // Jev could not answer a question: skip the whole review, write nothing.
         Err(Halt::Silent) => return Ok(ReviewOutcome::Skipped("Jev did not answer".into())),
         Err(Halt::Failed(e)) => return Err(e),
     };
+    // 7. Save the result over the store as it is now (someone may have
+    //    dismissed a finding meanwhile), and list what changed.
     let report = pass.finish(report, &start)?;
+    // 8. Tell the caller the store was written, and unlock it.
     (deps.progress)(&Progress::Stored);
     drop(held);
     Ok(ReviewOutcome::Ran(report))
@@ -312,15 +324,26 @@ impl<'r, 'd> Pass<'r, 'd> {
     }
 
     fn go(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<ReviewReport, Halt> {
+        // 1. Note which findings were stored before this run, and which of
+        //    them were still unverified.
         let base_ids = ids_of(&self.working_copy);
         let unverified_from_earlier_runs = unverified_ids(&self.working_copy);
+        // 2. A finding whose unit was deleted is gone.
         let gone = self.sweep_gone(scope);
+        // 3. Send the units not yet reviewed to the reviewer, in batches.
         let mut asked = self.send(scope, fresh);
+        // 4. Judge each finding it raised (same as a stored one? nitpick?).
         self.judge_all(std::mem::take(&mut asked.raw_findings), scope)?;
+        // 5. Remember what the review settled: findings the reviewer said no
+        //    longer hold, findings that are gone, and, only if every unit
+        //    was reviewed, findings it did not raise again.
         let whole = asked.capped == 0 && asked.failures.is_empty();
         self.remember(&asked, &gone, &base_ids, whole);
+        // 6. Verify the unverified findings, file by file.
         let checks_capped = self.verify_findings_per_file(scope, &unverified_from_earlier_runs)?;
+        // 7. Mark the units the reviewer answered for as reviewed.
         self.mark_reviewed(&asked.answered);
+        // 8. Report what happened (what changed is filled in by `finish`).
         Ok(ReviewReport {
             looked_at: asked.answered.len(),
             new: self.new.clone(),
