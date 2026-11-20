@@ -7,14 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use scry::adapters::wiring::{LiveWiring, Wiring, claim_checker, jev_for};
+use scry::adapters::wiring::{LiveWiring, claim_checker, jev_for};
 use scry::cli::{doctor_rows, main_with};
-use scry::ports::claim_checker::ClaimChecker;
-use scry::ports::run_log::Quiet;
-use scry::usecases::review_change::{Progress, ReviewDeps};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::MapEnv;
-use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
@@ -25,14 +21,10 @@ use sorcerer_models::domain::decide::{Question, Shape, UnsureAnswer};
 use sorcerer_models::domain::research::{Research, Researched};
 use sorcerer_models::ports::decider::Decider;
 use sorcerer_models::ports::researcher::Researcher;
-use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
+use support::{Doubles, FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
-
-fn t0() -> DateTime<Utc> {
-    "2026-11-18T23:00:00Z".parse().unwrap()
-}
 
 /// orders.py committed, then `cancel` changed in the working tree.
 fn changed_project() -> TempDir {
@@ -60,63 +52,6 @@ fn bug_reply(statement: &str) -> String {
         "open": [],
     })
     .to_string()
-}
-
-/// The pass's doubles: the vendored grammars' view, a stub reviewer and
-/// decider, a fixed clock and a claim checker that says right.
-struct Doubles {
-    view: FilesView,
-    reviewer: StubReviewer,
-    decider: StubDecider,
-    clock: FixedClock,
-    checker: Box<dyn ClaimChecker>,
-    ports: support::Ports,
-    cancel: Cancel,
-}
-
-fn quiet(_: &Progress) {}
-
-impl Doubles {
-    fn new(dir: &Path, reviewer: StubReviewer) -> Doubles {
-        let (project, view) = support::project_with_vendored_grammars(dir);
-        Doubles {
-            view,
-            ports: support::Ports::of(&project),
-            cancel: Cancel::default(),
-            reviewer,
-            decider: StubDecider::new(),
-            clock: FixedClock::at(t0()),
-            checker: Box::new(|_: &Claim| {
-                Ok(Checked {
-                    verdict: Verdict::Right,
-                    why: "it does".into(),
-                    citations: Vec::new(),
-                    cited: Vec::new(),
-                    escalation: Escalation::No,
-                    errands: Vec::new(),
-                })
-            }),
-        }
-    }
-}
-
-impl Wiring for &Doubles {
-    fn deps(&self) -> ReviewDeps<'_> {
-        ReviewDeps {
-            view: &self.view,
-            reviewer: &self.reviewer,
-            decider: &self.decider,
-            checker: &*self.checker,
-            store: &self.ports.store,
-            ledger: &self.ports.ledger,
-            settings: &self.ports.settings,
-            clock: &self.clock,
-            log: &Quiet,
-            progress: &quiet,
-            cancel: &self.cancel,
-            review_cancel: &self.cancel,
-        }
-    }
 }
 
 struct Ran {

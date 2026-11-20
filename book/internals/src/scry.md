@@ -69,7 +69,8 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 the real environment.
 
 Tests: `tests/support/mod.rs` holds git fixtures, `project_with_vendored_grammars`, the
-doubles `StubReviewer`, `StubDecider`, `FixedClock`, and `Ports` (the store, ledger and
+doubles `StubReviewer`, `StubDecider`, `FixedClock`, `Doubles` (all of them as one `Wiring`),
+`open_finding` and `put_findings` (a store seeded by hand), and `Ports` (the store, ledger and
 settings adapters over a fixture project). `.sorcerer/scry.toml` at the repository root is
 sorcerer's own steering.
 
@@ -559,7 +560,8 @@ straight into the store with `cancel` already reviewed, so no review call runs, 
 claim checker closure; the pass tests use one that always errs (an unverified finding stays
 unverified).
 
-The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar view, `StubReviewer`,
+The command line tests (`tests/cli.rs`) wire a `Doubles` (in `tests/support/`, shared with the
+editor's server tests: a vendored-grammar view, `StubReviewer`,
 `StubDecider`, `FixedClock`, a checker that says right and the fixture's `Ports`) into `main_with` through
 `impl Wiring for &Doubles`, so the reviewer's asks can be read after two runs.
 
