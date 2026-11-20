@@ -15,7 +15,8 @@ use crate::adapters::openai::OpenAiCompatible;
 use crate::ports::provider::Provider;
 use crate::{Error, Result};
 
-/// Which provider or decider was chosen, and why (for `doctor`).
+/// Which provider or decider was chosen, and why, such as `claude` because "claude is on
+/// PATH" (`doctor` shows both).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderChoice {
     pub name: String,
@@ -52,6 +53,12 @@ pub fn default_decider(cfg: &DecideConfig, env: &dyn Env) -> Option<ProviderChoi
         .and_then(|_| choice("jev", &format!("{var} is set")))
 }
 
+/// The provider `[model.providers.<name>]` describes. Its `kind` says which adapter
+/// speaks to it and defaults to the name, so `[model.providers.anthropic]` needs no kind
+/// and a missing table means the provider of that kind with no settings.
+///
+/// Example: `[model.providers.ollama]` with `kind = "openai-compatible"` and a `url` is a
+/// local Ollama server.
 pub fn provider_named(project: &Project, name: &str, env: &dyn Env) -> Result<Arc<dyn Provider>> {
     let cfg = project
         .config
@@ -75,6 +82,8 @@ pub fn provider_named(project: &Project, name: &str, env: &dyn Env) -> Result<Ar
     })
 }
 
+/// The project's default provider (see `default_provider`), built, and why it was chosen.
+/// With none available the error says how to get one.
 pub fn default_provider_for(
     project: &Project,
     env: &dyn Env,

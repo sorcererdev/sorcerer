@@ -229,7 +229,10 @@ mod tests {
 
     #[test]
     fn first_of_keeps_lines_up_to_the_cap() {
-        assert_eq!(first_of(lines(2), 2, |more| format!("{more} more")), lines(2));
+        assert_eq!(
+            first_of(lines(2), 2, |more| format!("{more} more")),
+            lines(2)
+        );
     }
 
     #[test]

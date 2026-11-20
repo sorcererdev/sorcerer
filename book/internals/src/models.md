@@ -39,9 +39,12 @@ from `ANTHROPIC_API_KEY` (or the table's `api_key_env`), tools native. `ALIASES`
 per million tokens from Anthropic's pricing page (dated in the source). Both can be
 overridden in `[model.providers.anthropic]`.
 
-Every HTTP provider sends through `post_json` in `adapters/http.rs`: a 429 or 529 is retried
-twice (after one and two seconds), and the request runs on its own thread so a cancel
-returns within a tenth of a second.
+Every HTTP provider sends through `post_json` in `adapters/http.rs`, which returns a
+`JsonReply` (the JSON and the seconds taken). `send_until_not_busy` retries a 429 or 529
+twice (after one and two seconds); `send` builds the request (`build_request`), runs it on
+its own thread (`send_on_its_own_thread`) and checks for a cancel every tenth of a second
+while it waits (`await_answer`). Each adapter's `complete` reads the reply with small
+helpers named for what they take out (`text_of`, `tool_calls_of`, `stop_reason`).
 
 ### claude
 
@@ -52,9 +55,11 @@ tools (`--tools ""`), no session saved, no settings files, and the child gets
 Code is not refused as nested). The reply's `result` is the text, `total_cost_usd` the cost
 and `duration_ms` the time; `is_error` is an error with the result's text.
 
-`run_claude` is shared with the claude researcher. It runs the child in its own process
-group and kills the group on timeout or cancel, so nothing `claude` started is left
-running. Aliases pass straight through: `claude` understands `sonnet` and `haiku` itself.
+`ClaudeRun` (the runner, its arguments, folder, prompt, timeout and extra environment) is
+shared with the claude researcher. `ClaudeRun::run` reads as its steps: `start` the child
+in its own process group, `Printing::start` (the prompt in, the output read on threads of
+their own), `wait_for_exit` (which kills the group on timeout or cancel, so nothing
+`claude` started is left running), then `reply_from` what it printed. Aliases pass straight through: `claude` understands `sonnet` and `haiku` itself.
 
 ### openai-compatible
 
@@ -108,6 +113,13 @@ the prompt; while the model asks for tools it runs them and sends the results ba
 stops when the model answers, at `MAX_TURNS` (12), or when the spend reaches the cap. One
 errand covers the whole research, its usage and cost summed over the turns.
 
+`research` builds a `ResearchRun` and calls `take_turns`, which resolves the model and
+calls `turn` once per model call, recursively. A turn carries `SoFar` (the conversation,
+the `Spent` tokens and dollars, the files read) and ends in `Ended` with a `HowItEnded`
+(`Answered`, `TurnCapReached`, `SpendCapReached`) or in `Failed` with what was spent by
+then. `after_running_tools` adds the model's turn and the tools' results to the
+conversation. `charged_for_failure` charges a timeout the whole cap.
+
 The three tools run over the `CodebaseView`, under fences:
 
 | tool | gives the model | limits |
@@ -116,7 +128,9 @@ The three tools run over the `CodebaseView`, under fences:
 | `grep` | `path:line: text` for each hit | 100 hits, 200 characters a line |
 | `glob` | matching paths | 200 paths |
 
-A fenced `read` returns exactly `refused: <path> is fenced (not evidence)` and never opens
+`tools::run` returns a `ToolOutput`: the text the model sees and the file read, if any.
+`first_of` keeps the first lines up to a cap and adds one line saying how many were left
+out. A fenced `read` returns exactly `refused: <path> is fenced (not evidence)` and never opens
 the file. Fenced `grep` hits and `glob` paths are dropped, and `grep` says how many.
 
 ## The decider
@@ -127,8 +141,9 @@ writes text: a `Question` has a kind (its name in the batch), instructions, a `S
 a choice may be answered "none of these fits". `ask` sends a batch as one call with one shared state and
 returns a `Weighed` per question: the `Answer` and, for a choice, the distribution.
 
-`adapters/jev.rs` is Jev. `jev_body` builds the request
-(context names shared across the batch must agree), the model is pinned (`jev-1.14.0`),
+`adapters/jev.rs` is Jev. `jev_body` builds the request from `shared_state` (context names
+shared across the batch must agree) and `questions_by_kind`, each from `question_body`;
+`jev_answers` reads each answer with `chosen_option`, `yes_or_no` or `level`; the model is pinned (`jev-1.14.0`),
 and 429 and 529 are retried twice. A reply that does not fit a question's shape, or a call
 that fails, makes the whole batch `Unsure`: a decider never guesses, and a pass that gets
 `Unsure` stops. Each call is a ledger row with verb `decide`.
