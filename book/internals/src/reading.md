@@ -1,7 +1,7 @@
 # How the code reads
 
 A reader opening a file must be able to tell what each block is for without first working out
-how it does it. Sorcerer's code is held to eight rules so that the top of a file tells the story
+how it does it. Sorcerer's code is held to ten rules so that the top of a file tells the story
 and the detail sits below, one step at a time. `CLAUDE.md` holds the same rules for anyone, or
 any agent, changing the code.
 
@@ -65,14 +65,43 @@ fn units_not_yet_reviewed(…)   // not: fn filter_units(…)
 let batches = batch_units(units);   // the established word for a group sent together
 ```
 
-**8. Doc comments.** One plain sentence of intent on every function whose name does not already
-say it all. A module's opening comment lists its steps in order, using the helpers' names. A
-comment inside a body explains a *why* the code cannot (a rule, a trap), never a *what*.
+**8. Doc comments in plain words, with an example.** Every function, type and module whose
+name does not say everything gets a doc comment a newcomer can follow: full sentences, the real
+numbers and limits ("at most 3 findings per file"), what the return value means, and a short
+worked example where the behaviour is not obvious. No CAPITALISED argument names, no compressed
+jargon. A comment inside a body explains a *why* the code cannot (a rule, a trap), never a
+*what*.
 
 ```rust
-/// The revision units are compared with; empty when the repository has no commit.
-fn base_revision(…) -> Result<String>
+/// A file's unverified findings, most confident first.
+///
+/// The order is the point: the findings most likely to be real are checked
+/// first, so the file's 3 display slots go to them. The only way to make one
+/// is `unverified_in`, which sorts, so a `PrioritizedFindings` is always in
+/// order.
+///
+/// Example: `orders.py` has unverified findings at confidence 0.7, 0.95 and
+/// 0.8; as `PrioritizedFindings` they are 0.95, 0.8, 0.7.
+struct PrioritizedFindings(Vec<FindingId>);
 ```
+
+**9. What the code relies on is a type.** When a value must be in an order, or one step's result is
+the next step's only input, make it a type whose constructor guarantees it
+(`PrioritizedFindings`, `FindingsToVerify`), instead of a `Vec` and a sentence in a comment. A
+`bool` that means something gets an enum (`RoundsEnded::BudgetRanOut`, not `true`).
+
+**10. Immutable by default, where it stays readable.** Prefer values that are built once and
+replaced over values changed in place: a method that returns the new value (`slots.taken_by(f)`)
+over one that takes `&mut self`; a fold over a loop with a flag; a function that calls itself with
+what is left over a loop that reassigns. Keep a local `mut` when the immutable form reads worse,
+and keep the pass's shared working copy mutable: it is the engine's design.
+
+**How to apply them: comments first, then refactor.** Write the function's story into its body as
+numbered, plain comments (what happens, in order). Then refactor (extract and name helpers,
+rename types and variables, make types of what the comments promise) until each comment is
+obvious from the code alone. Then move the story into the doc comment and delete the inline ones
+the code now says. `verify.rs`'s `verify_findings_in_file` was rewritten this way; its history
+(`git log -p crates/scry/src/usecases/review_change/verify.rs`) shows each step.
 
 What the rules do not ask for: a wrapper that only renames one call; a helper named after
 mechanics (`process_item`, `handle_reply_2`); a split so fine that the detail is more than two
@@ -98,7 +127,7 @@ that passes 100 lines carries its own `#[allow]` with a reason.
 
 **scry, the rules themselves.** The rules a linter cannot measure are `[[rule]]`s in sorcerer's
 own `.sorcerer/scry.toml` (`one-level-per-body`, `helpers-say-intent`, `log-text-apart`,
-`plain-names`, `comments-say-why`), so `scry` reviews each changed function against them. When a
+`plain-names`, `comments-say-why`, `invariants-are-types`, `immutable-by-default`), so `scry` reviews each changed function against them. When a
 rule yields nitpicks, its text is what gets fixed.
 
 ## Before and after: the review calls

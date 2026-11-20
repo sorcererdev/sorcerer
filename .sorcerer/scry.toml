@@ -82,7 +82,17 @@ Names use the established word for a thing, and no abbreviation a newcomer could
 [[rule]]
 id = "comments-say-why"
 text = """
-A function whose name does not say everything has a doc comment giving its intent in one plain sentence. A comment inside a body explains a why the code cannot show (a rule, a trap); a comment that repeats what the code does is a finding."""
+A function, type or module whose name does not say everything has a doc comment a newcomer can follow: plain full sentences, the real numbers and limits, what the return value means, and a short worked example where the behaviour is not obvious. Compressed jargon or CAPITALISED argument names are a finding. A comment inside a body explains a why the code cannot show (a rule, a trap); a comment that repeats what the code does is a finding."""
+
+[[rule]]
+id = "invariants-are-types"
+text = """
+What the code relies on is a type, not a sentence in a comment: a list that must stay sorted, or one step's result that is the next step's only input, has its own type whose constructor guarantees it; a bool whose meaning a reader must look up is an enum. A Vec or bool carrying such a promise is a finding; say what the type would be called."""
+
+[[rule]]
+id = "immutable-by-default"
+text = """
+Values are built once and replaced rather than changed in place, where that reads at least as well: a method returning the new value over one taking &mut self, a fold over a loop with a flag. A loop that reassigns several variables when a fold or a call with what is left would read as clearly is a finding. A shared working copy the design mutates on purpose is not."""
 
 [[rule]]
 id = "the-engine-knows-no-language"
