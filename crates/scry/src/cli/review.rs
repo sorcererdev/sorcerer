@@ -120,8 +120,8 @@ fn head(
 /// include, the rule ids and the rendered size against the cap.
 fn steering_section(settings: &dyn Settings, root: &Path) -> String {
     let mut s = section("Steering");
-    let st = match settings.steering() {
-        Ok(st) => st,
+    let steering = match settings.steering() {
+        Ok(steering) => steering,
         Err(e) => {
             s.push_str(&format!("- error: {e}\n"));
             return s;
@@ -134,7 +134,7 @@ fn steering_section(settings: &dyn Settings, root: &Path) -> String {
         )),
         None => s.push_str(&format!("- none: no {STEERING_FILE}\n")),
     }
-    let context = st.context.trim();
+    let context = steering.context.trim();
     s.push_str(&format!(
         "- context: {}\n",
         if context.is_empty() {
@@ -143,14 +143,14 @@ fn steering_section(settings: &dyn Settings, root: &Path) -> String {
             bytes(context.len())
         }
     ));
-    for i in &st.includes {
+    for i in &steering.includes {
         s.push_str(&format!(
             "- include {}: {}\n",
             i.path.display(),
             bytes(i.text.len())
         ));
     }
-    let ids: Vec<&str> = st.rules.iter().map(|r| r.id.as_str()).collect();
+    let ids: Vec<&str> = steering.rules.iter().map(|r| r.id.as_str()).collect();
     s.push_str(&format!(
         "- rules: {}\n- size: {} of {}\n",
         if ids.is_empty() {
@@ -158,7 +158,7 @@ fn steering_section(settings: &dyn Settings, root: &Path) -> String {
         } else {
             ids.join(", ")
         },
-        bytes(st.size()),
+        bytes(steering.size()),
         bytes(STEERING_CAP)
     ));
     s

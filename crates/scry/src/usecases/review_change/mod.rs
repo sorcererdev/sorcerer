@@ -162,7 +162,7 @@ pub fn review_change(
         budget: req.budget,
     });
     let caps = &caps;
-    let st = deps.settings.steering()?;
+    let steering = deps.settings.steering()?;
     let fences = Fences::for_project(project)?;
     let held = deps.store.hold()?;
     let base = match deps.store.read()? {
@@ -212,7 +212,7 @@ pub fn review_change(
     let start = base.clone();
     let mut run = Run {
         cfg: &cfg,
-        st: &st,
+        steering: &steering,
         fences: &fences,
         deps,
         cancel: deps.cancel,
@@ -256,11 +256,21 @@ pub fn review_change(
 
 /// A unit sent to the review call: its file, name, first line and the
 /// fingerprint it was sent at.
-type Sent = (PathBuf, String, u32, Fingerprint);
+#[derive(Debug, Clone)]
+struct SentUnit {
+    file: PathBuf,
+    name: String,
+    #[expect(
+        dead_code,
+        reason = "part of the unit's key; nothing reads it back yet"
+    )]
+    first_line: u32,
+    fingerprint: Fingerprint,
+}
 
 struct Run<'r, 'd> {
     cfg: &'r ScryConfig,
-    st: &'r Steering,
+    steering: &'r Steering,
     fences: &'r Fences,
     deps: &'r ReviewDeps<'d>,
     cancel: &'r Cancel,

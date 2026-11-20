@@ -291,14 +291,14 @@ fn confidence_of_values() {
 
 #[test]
 fn asked_on_changes_with_the_unit_and_the_rule_text() {
-    let fp = Fingerprint::parse("abcdef0").unwrap();
+    let fingerprint = Fingerprint::parse("abcdef0").unwrap();
     let other = Fingerprint::parse("1234567").unwrap();
-    let h = asked_on(Some(&fp), "rule");
+    let h = asked_on(Some(&fingerprint), "rule");
     assert_eq!(h.len(), 7);
-    assert_eq!(h, asked_on(Some(&fp), "rule"));
+    assert_eq!(h, asked_on(Some(&fingerprint), "rule"));
     assert_ne!(h, asked_on(Some(&other), "rule"));
     assert_ne!(h, asked_on(None, "rule"));
-    assert_ne!(h, asked_on(Some(&fp), "rule 2"));
+    assert_ne!(h, asked_on(Some(&fingerprint), "rule 2"));
 }
 
 #[test]

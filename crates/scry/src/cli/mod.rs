@@ -25,7 +25,7 @@ use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
-use crate::adapters::wiring::{Wiring, LiveWiring};
+use crate::adapters::wiring::{LiveWiring, Wiring};
 use crate::domain::config::scry_config;
 pub use doctor::doctor_rows;
 
@@ -125,7 +125,9 @@ pub fn main(args: Vec<OsString>, env: &dyn Env, out: &mut dyn Write, err: &mut d
     } else {
         100
     };
-    main_with(args, &cwd, env, out, err, width, |p| LiveWiring::open(p, env))
+    main_with(args, &cwd, env, out, err, width, |p| {
+        LiveWiring::open(p, env)
+    })
 }
 
 /// [`main`] with the directory, width and wiring given (the tests' doubles).

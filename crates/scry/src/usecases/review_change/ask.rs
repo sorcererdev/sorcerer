@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
-use super::{Progress, Run, Sent};
+use super::{Progress, Run, SentUnit};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
@@ -28,7 +28,7 @@ use crate::ports::reviewer::Reviewed;
 #[derive(Default)]
 pub(super) struct ReviewResults {
     /// The units sent to a call that answered.
-    pub answered: Vec<Sent>,
+    pub answered: Vec<SentUnit>,
     /// The findings the calls reported.
     pub raw_findings: Vec<RawFinding>,
     /// The open findings a call said no longer hold.
@@ -181,7 +181,7 @@ impl Run<'_, '_> {
     fn ask_for(&self, scope: &Scope, batch: Vec<ReviewUnit>) -> ReviewAsk {
         ReviewAsk {
             diff: diff_of(scope, &files_of(&batch)),
-            steering: self.st.steering_text(),
+            steering: self.steering.steering_text(),
             // spellbook's slot: what was reported before; always empty in v1
             reported: Vec::new(),
             open: self.open_on(&batch),
@@ -233,7 +233,12 @@ impl ReviewResults {
             let key = (u.file.clone(), u.name.clone(), u.lines.start);
             // every unit of a batch came from to_send, so its key is in SENT
             let fingerprint = sent[&key];
-            self.answered.push((key.0, key.1, key.2, fingerprint));
+            self.answered.push(SentUnit {
+                file: key.0,
+                name: key.1,
+                first_line: key.2,
+                fingerprint,
+            });
         }
         // an answer counts only for a finding this call was shown
         let shown: HashSet<&str> = ask.open.iter().map(|f| f.id.0.as_str()).collect();

@@ -65,7 +65,7 @@ impl Run<'_, '_> {
         unit_fp: Option<&Fingerprint>,
         code: &str,
     ) -> std::result::Result<(f64, String, Weighed), Halt> {
-        let q = nitpick(self.st, raw, code);
+        let q = nitpick(self.steering, raw, code);
         let on = asked_on(unit_fp, rule_context(&q));
         let w = self.ask(std::slice::from_ref(&q))?;
         let w = w.into_iter().next().expect("one answer for one question");
@@ -78,7 +78,7 @@ impl Run<'_, '_> {
         raw.rule = raw
             .rule
             .as_deref()
-            .and_then(|r| self.st.lookup(r))
+            .and_then(|r| self.steering.lookup(r))
             .map(String::from);
         let evidence: Vec<String> = raw
             .evidence
@@ -283,7 +283,7 @@ impl Run<'_, '_> {
             Status::Withheld => {
                 let r = raw_of(&f);
                 let code = cited_code(&self.text(&f.place.file), f.place.lines.start);
-                let q = nitpick(self.st, &r, &code);
+                let q = nitpick(self.steering, &r, &code);
                 let on = asked_on(f.place.fingerprint.as_ref(), rule_context(&q));
                 if f.scores.asked_on.as_deref() != Some(on.as_str()) {
                     let w = self.ask(std::slice::from_ref(&q))?;
@@ -302,7 +302,9 @@ impl Run<'_, '_> {
                         status_word(f.status)
                     ));
                 } else {
-                    self.log("- withheld, asked on the same unit, rule and sides: not asked again\n");
+                    self.log(
+                        "- withheld, asked on the same unit, rule and sides: not asked again\n",
+                    );
                 }
             }
             Status::Refuted | Status::Unsure => {

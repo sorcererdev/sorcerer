@@ -142,7 +142,7 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result
         units_text.push_str("- no unit in scope\n");
     }
     self.t(&units_text);
-    let mut prints: HashMap<(PathBuf, String, u32), Fingerprint> = HashMap::new();
+    let mut fingerprints: HashMap<(PathBuf, String, u32), Fingerprint> = HashMap::new();
     let mut units = Vec::new();
     for u in &to_send {
     …

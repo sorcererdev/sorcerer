@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use scry::adapters::wiring::{Wiring, LiveWiring, claim_checker, jev_for};
+use scry::adapters::wiring::{LiveWiring, Wiring, claim_checker, jev_for};
 use scry::cli::{doctor_rows, main_with};
 use scry::ports::claim_checker::ClaimChecker;
 use scry::ports::run_log::Quiet;

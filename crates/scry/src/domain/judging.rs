@@ -147,7 +147,7 @@ pub const WORTH_SAYING_IS: &str = "ignoring it leaves wrong behaviour, a failure
 /// Jev's nitpick question, with the text of the rule RAW cites (its id,
 /// looked up already), or all the rules when it cites none. CITED is
 /// [`cited_code`] at the finding's first line.
-pub fn nitpick(st: &Steering, raw: &RawFinding, cited: &str) -> Question {
+pub fn nitpick(steering: &Steering, raw: &RawFinding, cited: &str) -> Question {
     let mut context = vec![
         ("issue type".to_string(), raw.issue_type.clone()),
         ("finding".to_string(), raw.statement.clone()),
@@ -157,9 +157,9 @@ pub fn nitpick(st: &Steering, raw: &RawFinding, cited: &str) -> Question {
         ),
         ("cited code".to_string(), cited.to_string()),
     ];
-    context.push(match raw.rule.as_deref().and_then(|id| st.rule(id)) {
+    context.push(match raw.rule.as_deref().and_then(|id| steering.rule(id)) {
         Some(r) => ("project rule".into(), r.text.trim().to_string()),
-        None => ("project rules".into(), st.rules_text()),
+        None => ("project rules".into(), steering.rules_text()),
     });
     Question {
         kind: "nitpick".into(),

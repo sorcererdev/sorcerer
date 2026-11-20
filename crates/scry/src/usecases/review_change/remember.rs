@@ -9,7 +9,7 @@ use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
 use super::ask::ReviewResults;
-use super::{Run, Sent};
+use super::{Run, SentUnit};
 use crate::domain::finding::{FindingId, Place, Status};
 use crate::domain::log_text::section;
 use crate::domain::scope::Scope;
@@ -55,9 +55,9 @@ impl Run<'_, '_> {
                 name
             ));
         }
-        let kept: Vec<&Sent> = answered
+        let kept: Vec<&SentUnit> = answered
             .iter()
-            .filter(|(file, name, _, _)| !moved.contains(&(file.clone(), name.clone())))
+            .filter(|u| !moved.contains(&(u.file.clone(), u.name.clone())))
             .collect();
 
         // not found again: an open or waiting finding whose unit this pass
@@ -67,7 +67,7 @@ impl Run<'_, '_> {
         if whole {
             let at: HashMap<(&Path, &str), Fingerprint> = kept
                 .iter()
-                .map(|(file, name, _, fp)| ((file.as_path(), name.as_str()), *fp))
+                .map(|u| ((u.file.as_path(), u.name.as_str()), u.fingerprint))
                 .collect();
             for f in &mut self.mine.findings {
                 let sent_at = f
@@ -80,7 +80,7 @@ impl Run<'_, '_> {
                     && !self.merged.contains(&f.id)
                     && !no_longer.contains(&f.id.0)
                     && !held.contains(&f.id.0)
-                    && matches!((sent_at, f.place.fingerprint), (Some(now_fp), Some(was)) if *now_fp != was);
+                    && matches!((sent_at, f.place.fingerprint), (Some(now_fingerprint), Some(was)) if *now_fingerprint != was);
                 if not_found {
                     f.set_status(Status::Resolved, now);
                     remember.push_str(&format!(
@@ -102,7 +102,7 @@ impl Run<'_, '_> {
 
     /// The units answered and not moved since, marked reviewed at the
     /// fingerprint sent (and no longer capped); the Reviewed section.
-    pub(super) fn mark_reviewed(&mut self, answered: &[Sent]) {
+    pub(super) fn mark_reviewed(&mut self, answered: &[SentUnit]) {
         // checked again: a unit may have changed while the checks ran
         let moved = self.drop_moved(answered);
         let mut written = section("Reviewed");
@@ -113,19 +113,24 @@ impl Run<'_, '_> {
                 name
             ));
         }
-        for (file, name, _, fp) in answered
+        for SentUnit {
+            file,
+            name,
+            fingerprint,
+            ..
+        } in answered
             .iter()
-            .filter(|(file, name, _, _)| !moved.contains(&(file.clone(), name.clone())))
+            .filter(|u| !moved.contains(&(u.file.clone(), u.name.clone())))
         {
             written.push_str(&format!(
-                "- `{}` `{name}` reviewed at {fp}\n",
+                "- `{}` `{name}` reviewed at {fingerprint}\n",
                 file.display()
             ));
             self.mine
                 .reviewed
                 .entry(file.clone())
                 .or_default()
-                .insert(fp.to_string());
+                .insert(fingerprint.to_string());
             if let Some(names) = self.mine.capped.get_mut(file) {
                 names.remove(name);
                 if names.is_empty() {
@@ -142,7 +147,7 @@ impl Run<'_, '_> {
 
     /// Drops this pass's new findings in units whose text changed since
     /// they were sent; returns those units.
-    pub(super) fn drop_moved(&mut self, answered: &[Sent]) -> HashSet<(PathBuf, String)> {
+    pub(super) fn drop_moved(&mut self, answered: &[SentUnit]) -> HashSet<(PathBuf, String)> {
         let moved = self.moved(answered);
         let new_ids: HashSet<FindingId> = self.new.iter().cloned().collect();
         let dropped: HashSet<FindingId> = self
@@ -183,19 +188,19 @@ impl Run<'_, '_> {
 
     /// The sent units whose fingerprint is not what was sent (or that are
     /// no longer in their file).
-    fn moved(&self, sent: &[Sent]) -> HashSet<(PathBuf, String)> {
+    fn moved(&self, sent: &[SentUnit]) -> HashSet<(PathBuf, String)> {
         let mut now: BTreeMap<&Path, Vec<Unit>> = BTreeMap::new();
-        for (file, _, _, _) in sent {
-            now.entry(file.as_path())
-                .or_insert_with(|| self.deps.view.units(file).unwrap_or_default());
+        for unit in sent {
+            now.entry(unit.file.as_path())
+                .or_insert_with(|| self.deps.view.units(&unit.file).unwrap_or_default());
         }
         sent.iter()
-            .filter(|(file, name, _, fp)| {
-                !now[file.as_path()]
+            .filter(|sent_unit| {
+                !now[sent_unit.file.as_path()]
                     .iter()
-                    .any(|u| u.name == *name && u.fingerprint == *fp)
+                    .any(|u| u.name == sent_unit.name && u.fingerprint == sent_unit.fingerprint)
             })
-            .map(|(file, name, _, _)| (file.clone(), name.clone()))
+            .map(|u| (u.file.clone(), u.name.clone()))
             .collect()
     }
 }
