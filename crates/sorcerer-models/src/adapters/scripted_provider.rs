@@ -9,7 +9,9 @@ use crate::domain::model::{Completion, ModelId, Reply};
 use crate::ports::provider::Provider;
 use crate::{Error, Result};
 
-/// Replies in order; every request recorded.
+/// A provider for tests. It gives back the replies it was made with, one per call, in
+/// order, and keeps every request in `seen` so a test can check what was sent. A call
+/// after the last reply is an error.
 pub struct ScriptedProvider {
     replies: Mutex<VecDeque<Reply>>,
     pub seen: Mutex<Vec<Completion>>,

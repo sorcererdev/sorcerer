@@ -19,74 +19,158 @@ use crate::domain::decide::{Answer, Confidence, Question, Shape, UnsureAnswer, W
 use crate::ports::decider::Decider;
 use crate::{Error, Result};
 
+/// The Jev model sorcerer pins, unless `[decide] model` names another.
 pub const MODEL: &str = "jev-1.14.0";
 pub const URL: &str = "https://api.typesafe.ai";
 
-/// The body of a batch, without the model.
+/// The request for a batch of questions, without the model. Jev takes one `state` map that
+/// every question in the batch shares, and the questions keyed by their kind.
+///
+/// Example: two questions whose context both name `code` must carry the same `code` text;
+/// if they differ, or two questions share a kind, the batch is an error.
 pub fn jev_body(qs: &[Question]) -> Result<Value> {
-    let bad = |why: String| Error::Reply {
+    let state = shared_state(qs)?;
+    let questions = questions_by_kind(qs)?;
+    Ok(json!({"state": state, "questions": questions}))
+}
+
+fn batch_error(why: String) -> Error {
+    Error::Reply {
         provider: "jev".into(),
         why,
-    };
-    let mut state = Map::new();
-    let mut questions = Map::new();
-    for q in qs {
-        for (k, v) in &q.context {
-            match state.get(k) {
-                Some(Value::String(w)) if w != v => {
-                    return Err(bad(format!(
-                        "the context `{k}` has two values in one batch"
-                    )));
-                }
+    }
+}
+
+fn shared_state(qs: &[Question]) -> Result<Map<String, Value>> {
+    qs.iter()
+        .flat_map(|q| &q.context)
+        .try_fold(Map::new(), |mut state, (name, text)| {
+            match state.get(name) {
+                Some(earlier) if earlier != text.as_str() => Err(batch_error(format!(
+                    "the context `{name}` has two values in one batch"
+                ))),
                 _ => {
-                    state.insert(k.clone(), Value::String(v.clone()));
+                    state.insert(name.clone(), Value::String(text.clone()));
+                    Ok(state)
                 }
             }
-        }
-        let body = match &q.shape {
-            Shape::Choice(os) => {
-                let mut c: Map<String, Value> = os
-                    .iter()
-                    .map(|(o, d)| (o.clone(), Value::String(d.clone())))
-                    .collect();
-                if q.unsure == UnsureAnswer::Allowed {
-                    c.insert("unsure".into(), json!("none of these fits"));
-                }
-                json!({"type": "choice", "instructions": q.instructions, "criteria": c})
-            }
-            Shape::Noul { yes, no } => {
-                json!({"type": "noul", "instructions": q.instructions, "criteria": {"true": yes, "false": no}})
-            }
-            Shape::Score(ls) => {
-                json!({"type": "score", "instructions": q.instructions, "criteria": ls})
-            }
-        };
-        if questions.insert(q.kind.clone(), body).is_some() {
-            return Err(bad(format!(
+        })
+}
+
+fn questions_by_kind(qs: &[Question]) -> Result<Map<String, Value>> {
+    qs.iter().try_fold(Map::new(), |mut questions, q| {
+        if questions.insert(q.kind.clone(), question_body(q)).is_some() {
+            return Err(batch_error(format!(
                 "two questions of kind `{}` in one batch",
                 q.kind
             )));
         }
-    }
-    Ok(json!({"state": state, "questions": questions}))
+        Ok(questions)
+    })
 }
 
-/// Jev's reply, one answer a question in order, each validated. A reply
-/// that is not JSON, lacks a question, or answers one outside its shape
-/// makes the whole batch unsure.
-pub fn jev_answers(qs: &[Question], raw: &[u8]) -> Vec<Weighed> {
-    let all_unsure = || qs.iter().map(|_| Weighed::unsure()).collect();
-    let Ok(v) = serde_json::from_slice::<Value>(raw) else {
-        return all_unsure();
-    };
-    let mut out = Vec::new();
-    for q in qs {
-        match v["answers"].get(&q.kind).and_then(|a| answer(q, a)) {
-            Some(w) => out.push(w),
-            None => return all_unsure(),
+/// One question in Jev's shape. A choice that allows unsure gets an extra option,
+/// `unsure`, meaning "none of these fits".
+fn question_body(q: &Question) -> Value {
+    match &q.shape {
+        Shape::Choice(options) => {
+            let unsure = (q.unsure == UnsureAnswer::Allowed)
+                .then(|| ("unsure".to_string(), json!("none of these fits")));
+            let criteria: Map<String, Value> = options
+                .iter()
+                .map(|(name, meaning)| (name.clone(), Value::String(meaning.clone())))
+                .chain(unsure)
+                .collect();
+            json!({"type": "choice", "instructions": q.instructions, "criteria": criteria})
+        }
+        Shape::Noul { yes, no } => {
+            json!({"type": "noul", "instructions": q.instructions, "criteria": {"true": yes, "false": no}})
+        }
+        Shape::Score(levels) => {
+            json!({"type": "score", "instructions": q.instructions, "criteria": levels})
         }
     }
-    out
+}
+
+/// Jev's answers, one per question in the order asked. A decider never guesses: a reply
+/// that is not JSON, leaves a question out, or answers one outside its shape (a choice
+/// that is not an option, a level past the last) makes every answer in the batch unsure.
+pub fn jev_answers(qs: &[Question], raw: &[u8]) -> Vec<Weighed> {
+    serde_json::from_slice::<Value>(raw)
+        .ok()
+        .and_then(|reply| {
+            qs.iter()
+                .map(|q| reply["answers"].get(&q.kind).and_then(|a| answer(q, a)))
+                .collect::<Option<Vec<_>>>()
+        })
+        .unwrap_or_else(|| qs.iter().map(|_| Weighed::unsure()).collect())
+}
+
+/// One answer, or None when it does not fit the question's shape. For a choice, the
+/// probability Jev gave each option comes along, most likely first.
+fn answer(q: &Question, a: &Value) -> Option<Weighed> {
+    let answer = match (&q.shape, a["type"].as_str()?) {
+        (Shape::Choice(options), "choice") => chosen_option(options, a)?,
+        (Shape::Noul { .. }, "noul") => yes_or_no(a)?,
+        (Shape::Score(levels), "score") => level(levels, a)?,
+        _ => return None,
+    };
+    let distribution = match &q.shape {
+        Shape::Choice(_) => options_most_likely_first(a),
+        _ => Vec::new(),
+    };
+    Some(Weighed {
+        answer,
+        distribution,
+    })
+}
+
+/// `unsure`, or one of the question's options; any other name does not fit.
+fn chosen_option(options: &[(String, String)], a: &Value) -> Option<Answer> {
+    match a["choice"].as_str()? {
+        "unsure" => Some(Answer::Unsure),
+        name if options.iter().any(|(option, _)| option == name) => {
+            Some(Answer::Chosen(name.into(), confidence(a)))
+        }
+        _ => None,
+    }
+}
+
+/// Jev gives the probability of yes: 0.5 or more is yes with that confidence, below it
+/// is no with the rest (0.2 → no, confidence 0.8).
+fn yes_or_no(a: &Value) -> Option<Answer> {
+    let yes = a["noul"].as_f64()?;
+    Some(if yes >= 0.5 {
+        Answer::Yes(Confidence::Known(yes))
+    } else {
+        Answer::No(Confidence::Known(1.0 - yes))
+    })
+}
+
+/// The most likely level, which must be one of the question's levels, with Jev's score
+/// on the scale (the level itself when Jev gives none).
+fn level(levels: &[String], a: &Value) -> Option<Answer> {
+    let (most_likely, _) = a["probabilities"]
+        .as_object()?
+        .iter()
+        .filter_map(|(level, p)| Some((level.parse::<u8>().ok()?, p.as_f64()?)))
+        .max_by(|x, y| x.1.total_cmp(&y.1))?;
+    if usize::from(most_likely) >= levels.len() {
+        return None;
+    }
+    let score = a["score"].as_f64().unwrap_or(f64::from(most_likely));
+    Some(Answer::Level(most_likely, score, confidence(a)))
+}
+
+fn options_most_likely_first(a: &Value) -> Vec<(String, f64)> {
+    let mut options: Vec<(String, f64)> = a["probabilities"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, p)| Some((name.clone(), p.as_f64()?)))
+        .collect();
+    options.sort_by(|x, y| y.1.total_cmp(&x.1));
+    options
 }
 
 fn confidence(a: &Value) -> Confidence {
@@ -95,56 +179,8 @@ fn confidence(a: &Value) -> Confidence {
         .map_or(Confidence::Unknown, Confidence::Known)
 }
 
-/// One answer, or None when it does not fit the question's shape.
-fn answer(q: &Question, a: &Value) -> Option<Weighed> {
-    let t = a["type"].as_str()?;
-    let ans = match (&q.shape, t) {
-        (Shape::Choice(os), "choice") => match a["choice"].as_str()? {
-            "unsure" => Answer::Unsure,
-            c if os.iter().any(|(o, _)| o == c) => Answer::Chosen(c.into(), confidence(a)),
-            _ => return None,
-        },
-        (Shape::Noul { .. }, "noul") => {
-            let p = a["noul"].as_f64()?;
-            if p >= 0.5 {
-                Answer::Yes(Confidence::Known(p))
-            } else {
-                Answer::No(Confidence::Known(1.0 - p))
-            }
-        }
-        (Shape::Score(ls), "score") => {
-            let ps = a["probabilities"].as_object()?;
-            let (n, _) = ps
-                .iter()
-                .filter_map(|(k, v)| Some((k.parse::<u8>().ok()?, v.as_f64()?)))
-                .max_by(|x, y| x.1.total_cmp(&y.1))?;
-            if usize::from(n) >= ls.len() {
-                return None;
-            }
-            Answer::Level(
-                n,
-                a["score"].as_f64().unwrap_or(f64::from(n)),
-                confidence(a),
-            )
-        }
-        _ => return None,
-    };
-    let mut distribution: Vec<(String, f64)> = match (&q.shape, a["probabilities"].as_object()) {
-        (Shape::Choice(_), Some(ps)) => ps
-            .iter()
-            .filter_map(|(k, v)| Some((k.clone(), v.as_f64()?)))
-            .collect(),
-        _ => Vec::new(),
-    };
-    distribution.sort_by(|x, y| y.1.total_cmp(&x.1));
-    Some(Weighed {
-        answer: ans,
-        distribution,
-    })
-}
-
-/// A question's identity for a recording: sixteen hex digits of FNV-1a 64
-/// over its Jev body alone.
+/// A question's identity in a recording: sixteen hex digits of an FNV-1a 64 hash of its
+/// Jev request alone, so the same question finds its recorded answer in any batch.
 pub fn question_key(q: &Question) -> String {
     let body = jev_body(std::slice::from_ref(q)).unwrap_or(Value::Null);
     fnv64_hex(&serde_json::to_vec(&body).unwrap_or_default())
@@ -161,7 +197,8 @@ pub struct Jev {
 }
 
 impl Jev {
-    /// Jev with its key from `[decide] key_env` (default `JEV_API_KEY`).
+    /// Jev with its key read from the variable `[decide] key_env` names (`JEV_API_KEY`
+    /// by default). With a ledger, every call is recorded there with its cost.
     pub fn from_env(
         cfg: &DecideConfig,
         env: &dyn Env,
@@ -182,7 +219,7 @@ impl Jev {
         })
     }
 
-    /// The same Jev, recording its calls as PRODUCT's.
+    /// The same Jev, recording its calls in the ledger under the given product (`scry`).
     pub fn for_product(&self, product: &str) -> Jev {
         Jev {
             product: product.into(),
@@ -202,7 +239,9 @@ impl Jev {
         self
     }
 
-    /// The raw reply's `answers` object for QS (for recording).
+    /// Asks Jev the batch and returns its whole reply unread, so it can be recorded.
+    /// The model is pinned in the request, and the call (its tokens, cost, time and
+    /// whether it failed) goes into the ledger before the result comes back.
     pub fn ask_raw(&self, qs: &[Question], cancel: &Cancel) -> Result<Value> {
         let mut body = jev_body(qs)?;
         body["model"] = json!(self.model);
@@ -214,42 +253,50 @@ impl Jev {
             backoff: self.backoff,
         };
         let started = Instant::now();
-        let result = post_json(&post, &body, cancel);
-        if let Some(l) = &self.ledger {
-            let (input, cost) = match &result {
-                Ok((v, _)) => (
-                    v["usage"]["input_tokens"]
-                        .as_u64()
-                        .unwrap_or(body.to_string().len() as u64 / 4),
-                    v["usage"]["cost_usd"].as_f64(),
-                ),
-                Err(_) => (0, None),
-            };
-            l.append(&Errand {
-                at: chrono::Utc::now(),
-                product: self.product.clone(),
-                verb: "decide".into(),
-                model: self.model.clone(),
-                provider: "jev".into(),
-                cost_usd: cost,
-                input_tokens: input,
-                output_tokens: 0,
-                seconds: started.elapsed().as_secs_f64(),
-                ok: result.is_ok(),
-                note: result.as_ref().err().map(ToString::to_string),
-            })?;
+        let result = post_json(&post, &body, cancel).map(|reply| reply.json);
+        if let Some(ledger) = &self.ledger {
+            ledger.append(&self.errand(&body, &result, started))?;
         }
-        result.map(|(v, _)| v)
+        result
+    }
+
+    /// The ledger line for one call. When Jev does not say how many tokens it read, they
+    /// are estimated at one per four characters of the request.
+    fn errand(&self, body: &Value, result: &Result<Value>, started: Instant) -> Errand {
+        let (input_tokens, cost_usd) = match result {
+            Ok(reply) => (
+                reply["usage"]["input_tokens"]
+                    .as_u64()
+                    .unwrap_or(body.to_string().len() as u64 / 4),
+                reply["usage"]["cost_usd"].as_f64(),
+            ),
+            Err(_) => (0, None),
+        };
+        Errand {
+            at: chrono::Utc::now(),
+            product: self.product.clone(),
+            verb: "decide".into(),
+            model: self.model.clone(),
+            provider: "jev".into(),
+            cost_usd,
+            input_tokens,
+            output_tokens: 0,
+            seconds: started.elapsed().as_secs_f64(),
+            ok: result.is_ok(),
+            note: result.as_ref().err().map(ToString::to_string),
+        }
     }
 }
 
 impl Decider for Jev {
+    /// An empty batch asks nothing. A call that fails makes every answer unsure, except a
+    /// cancel or a ledger that cannot be written, which stop the caller.
     fn ask(&self, qs: &[Question], cancel: &Cancel) -> Result<Vec<Weighed>> {
         if qs.is_empty() {
             return Ok(Vec::new());
         }
         match self.ask_raw(qs, cancel) {
-            Ok(v) => Ok(jev_answers(qs, v.to_string().as_bytes())),
+            Ok(reply) => Ok(jev_answers(qs, reply.to_string().as_bytes())),
             Err(Error::Cancelled) => Err(Error::Cancelled),
             Err(Error::Core(e)) => Err(Error::Core(e)),
             Err(_) => Ok(qs.iter().map(|_| Weighed::unsure()).collect()),

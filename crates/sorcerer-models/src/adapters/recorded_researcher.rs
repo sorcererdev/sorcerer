@@ -3,10 +3,10 @@
 //! and the prompt. A missing recording is an error, unless a live
 //! researcher is given to record it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use sorcerer_core::Cancel;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::fnv::fnv64_hex;
@@ -20,7 +20,8 @@ pub struct RecordedResearcher {
     record_with: Option<Arc<dyn Researcher>>,
 }
 
-/// Sixteen hex digits of FNV-1a 64 over `MODEL + "\n" + PROMPT`.
+/// A research's identity in a recording: sixteen hex digits of an FNV-1a 64 hash of the
+/// model, a newline, and the prompt. The same prompt to another model is another recording.
 pub fn recording_key(model: &str, prompt: &str) -> String {
     fnv64_hex(format!("{model}\n{prompt}").as_bytes())
 }
@@ -33,48 +34,65 @@ impl RecordedResearcher {
         }
     }
 
-    /// Records a missing answer by asking LIVE (once).
+    /// Fills in a missing recording by asking the live researcher once and saving its
+    /// answer and cost, so the next run finds it.
     pub fn recording_with(mut self, live: Arc<dyn Researcher>) -> RecordedResearcher {
         self.record_with = Some(live);
         self
     }
-}
 
-impl Researcher for RecordedResearcher {
-    fn research(&self, r: Research, cancel: &Cancel) -> Result<Researched> {
-        let key = recording_key(&r.model, &r.prompt);
-        let file = self.dir.join(format!("{key}.json"));
-        if let Ok(text) = std::fs::read_to_string(&file) {
-            let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| Error::Reply {
-                provider: "recorded".into(),
-                why: format!("{}: {e}", file.display()),
-            })?;
-            let answer = v["answer"].as_str().unwrap_or_default().to_string();
-            return Ok(Researched {
-                answer,
-                errand: errand_for(&r, v["cost_usd"].as_f64()),
-                reads: Vec::new(),
-            });
-        }
+    fn replay(&self, r: &Research, text: &str, file: &Path) -> Result<Researched> {
+        let recording: Value = serde_json::from_str(text).map_err(|e| Error::Reply {
+            provider: "recorded".into(),
+            why: format!("{}: {e}", file.display()),
+        })?;
+        Ok(Researched {
+            answer: recording["answer"].as_str().unwrap_or_default().to_string(),
+            errand: errand_for(r, recording["cost_usd"].as_f64()),
+            reads: Vec::new(),
+        })
+    }
+
+    fn record_live(&self, r: Research, file: &Path, cancel: &Cancel) -> Result<Researched> {
         let Some(live) = &self.record_with else {
             return Err(Error::Reply {
                 provider: "recorded".into(),
-                why: format!("no recording {key} ({} for {})", file.display(), r.verb),
+                why: format!(
+                    "no recording {} ({} for {})",
+                    recording_key(&r.model, &r.prompt),
+                    file.display(),
+                    r.verb
+                ),
             });
         };
-        let got = live.research(r, cancel)?;
+        let researched = live.research(r, cancel)?;
+        let recording =
+            json!({"answer": researched.answer, "cost_usd": researched.errand.cost_usd});
         std::fs::create_dir_all(&self.dir).map_err(|e| sorcerer_core::Error::io(&self.dir, e))?;
-        let body = json!({"answer": got.answer, "cost_usd": got.errand.cost_usd});
         std::fs::write(
-            &file,
-            serde_json::to_string_pretty(&body).unwrap_or_default(),
+            file,
+            serde_json::to_string_pretty(&recording).unwrap_or_default(),
         )
-        .map_err(|e| sorcerer_core::Error::io(&file, e))?;
-        Ok(got)
+        .map_err(|e| sorcerer_core::Error::io(file, e))?;
+        Ok(researched)
     }
 }
 
-/// A ledger row for R with only a cost (the recorded double's).
+impl Researcher for RecordedResearcher {
+    /// The recorded answer and cost for this model and prompt; when there is none, the
+    /// live researcher's, recorded now, or an error naming the missing file.
+    fn research(&self, r: Research, cancel: &Cancel) -> Result<Researched> {
+        let file = self
+            .dir
+            .join(format!("{}.json", recording_key(&r.model, &r.prompt)));
+        match std::fs::read_to_string(&file) {
+            Ok(text) => self.replay(&r, &text, &file),
+            Err(_) => self.record_live(r, &file, cancel),
+        }
+    }
+}
+
+/// The ledger line a recording stands for: who asked and what it cost, nothing more.
 fn errand_for(r: &Research, cost: Option<f64>) -> Errand {
     Errand {
         at: chrono::Utc::now(),

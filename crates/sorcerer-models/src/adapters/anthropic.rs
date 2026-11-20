@@ -9,7 +9,7 @@ use sorcerer_core::Cancel;
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_core::ports::env::Env;
 
-use crate::adapters::http::{Post, post_json};
+use crate::adapters::http::{JsonReply, Post, post_json};
 use crate::domain::model::{
     Completion, Content, ModelId, Reply, Role, StopReason, ToolCall, Usage, price,
 };
@@ -43,43 +43,94 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
+    /// From `[model.providers.anthropic]`. The key is read from `ANTHROPIC_API_KEY`, or from
+    /// the variable the table's `api_key_env` names; without it there is no provider. The
+    /// table's aliases and prices are added to the shipped ones and win over them.
+    ///
+    /// Example: `prices.sonnet = [3.0, 15.0]` replaces the shipped price of
+    /// `claude-sonnet-5-5`, because a price may be keyed by an alias or by a model id.
     pub fn from_config(cfg: &ProviderConfig, env: &dyn Env) -> Result<Anthropic> {
-        let var = cfg
-            .api_key_env
-            .clone()
-            .unwrap_or_else(|| "ANTHROPIC_API_KEY".into());
-        let key = env.var(&var).ok_or(Error::NoKey {
-            provider: "anthropic".into(),
-            var,
-        })?;
-        let mut aliases: BTreeMap<String, String> = ALIASES
-            .iter()
-            .map(|(a, m)| (a.to_string(), m.to_string()))
-            .collect();
-        aliases.extend(cfg.aliases.clone());
-        let mut prices: BTreeMap<String, [f64; 2]> =
-            PRICES.iter().map(|(m, p)| (m.to_string(), *p)).collect();
-        for (k, p) in &cfg.prices {
-            // a price may be keyed by alias or by id
-            prices.insert(aliases.get(k).cloned().unwrap_or_else(|| k.clone()), *p);
-        }
+        let aliases = shipped_aliases_and(cfg);
+        let prices = shipped_prices_and(cfg, &aliases);
         let url = cfg
             .url
             .clone()
             .unwrap_or_else(|| "https://api.anthropic.com".into());
         Ok(Anthropic {
             url: url.trim_end_matches('/').into(),
-            key,
+            key: api_key(cfg, env)?,
             aliases,
             prices,
             backoff: Duration::from_secs(1),
         })
     }
 
-    /// The base wait before a retry (tests set zero).
+    /// The wait before the first retry when Anthropic is busy (tests set zero).
     pub fn with_backoff(mut self, backoff: Duration) -> Anthropic {
         self.backoff = backoff;
         self
+    }
+}
+
+fn api_key(cfg: &ProviderConfig, env: &dyn Env) -> Result<String> {
+    let var = cfg
+        .api_key_env
+        .clone()
+        .unwrap_or_else(|| "ANTHROPIC_API_KEY".into());
+    env.var(&var).ok_or(Error::NoKey {
+        provider: "anthropic".into(),
+        var,
+    })
+}
+
+fn shipped_aliases_and(cfg: &ProviderConfig) -> BTreeMap<String, String> {
+    ALIASES
+        .iter()
+        .map(|(alias, id)| (alias.to_string(), id.to_string()))
+        .chain(cfg.aliases.clone())
+        .collect()
+}
+
+fn shipped_prices_and(
+    cfg: &ProviderConfig,
+    aliases: &BTreeMap<String, String>,
+) -> BTreeMap<String, [f64; 2]> {
+    let from_table = cfg.prices.iter().map(|(alias_or_id, price)| {
+        let id = aliases.get(alias_or_id).unwrap_or(alias_or_id);
+        (id.clone(), *price)
+    });
+    PRICES
+        .iter()
+        .map(|(id, price)| (id.to_string(), *price))
+        .chain(from_table)
+        .collect()
+}
+
+/// The Messages API request: the model, the system prompt, the token limit, the
+/// conversation, and the tools when there are any.
+pub(crate) fn body(req: &Completion) -> Value {
+    let messages: Vec<Value> = req
+        .messages
+        .iter()
+        .map(|m| json!({"role": role_name(m.role), "content": m.content.iter().map(block).collect::<Vec<_>>()}))
+        .collect();
+    let mut body = json!({"model": req.model.0, "system": req.system, "max_tokens": req.max_tokens, "messages": messages});
+    if !req.tools.is_empty() {
+        body["tools"] = req
+            .tools
+            .iter()
+            .map(
+                |t| json!({"name": t.name, "description": t.description, "input_schema": t.schema}),
+            )
+            .collect();
+    }
+    body
+}
+
+fn role_name(role: Role) -> &'static str {
+    match role {
+        Role::User => "user",
+        Role::Assistant => "assistant",
     }
 }
 
@@ -95,37 +146,13 @@ fn block(c: &Content) -> Value {
     }
 }
 
-pub(crate) fn body(req: &Completion) -> Value {
-    let messages: Vec<Value> = req
-        .messages
-        .iter()
-        .map(|m| {
-            let role = if m.role == Role::User {
-                "user"
-            } else {
-                "assistant"
-            };
-            json!({"role": role, "content": m.content.iter().map(block).collect::<Vec<_>>()})
-        })
-        .collect();
-    let mut b = json!({"model": req.model.0, "system": req.system, "max_tokens": req.max_tokens, "messages": messages});
-    if !req.tools.is_empty() {
-        b["tools"] = req
-            .tools
-            .iter()
-            .map(
-                |t| json!({"name": t.name, "description": t.description, "input_schema": t.schema}),
-            )
-            .collect();
-    }
-    b
-}
-
 impl Provider for Anthropic {
     fn name(&self) -> &str {
         "anthropic"
     }
 
+    /// A full model id (`claude-...`) as it is; an alias through the shipped and the
+    /// table's aliases (`sonnet` → `claude-sonnet-5-5`).
     fn resolve(&self, alias: &str) -> Result<ModelId> {
         if alias.starts_with("claude-") {
             return Ok(ModelId(alias.into()));
@@ -140,6 +167,8 @@ impl Provider for Anthropic {
             })
     }
 
+    /// Sends the conversation to the Messages API and reads the reply: the text blocks
+    /// joined, the tool calls, the tokens used and their price, and why the model stopped.
     fn complete(&self, req: Completion, cancel: &Cancel) -> Result<Reply> {
         let post = Post {
             provider: "anthropic",
@@ -151,50 +180,56 @@ impl Provider for Anthropic {
             timeout: req.timeout,
             backoff: self.backoff,
         };
-        let (v, seconds) = post_json(&post, &body(&req), cancel)?;
-        let bad = |why: &str| Error::Reply {
+        let JsonReply { json, seconds } = post_json(&post, &body(&req), cancel)?;
+        let content = json["content"].as_array().ok_or_else(|| Error::Reply {
             provider: "anthropic".into(),
-            why: why.into(),
-        };
-        let content = v["content"]
-            .as_array()
-            .ok_or_else(|| bad("no content in the reply"))?;
-        let text = content
-            .iter()
-            .filter(|b| b["type"] == "text")
-            .filter_map(|b| b["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("");
-        let tool_calls = content
-            .iter()
-            .filter(|b| b["type"] == "tool_use")
-            .map(|b| ToolCall {
-                id: b["id"].as_str().unwrap_or_default().into(),
-                name: b["name"].as_str().unwrap_or_default().into(),
-                input: b["input"].clone(),
-            })
-            .collect();
+            why: "no content in the reply".into(),
+        })?;
         let usage = Usage {
-            input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
-            output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
-        };
-        let stop = match v["stop_reason"].as_str().unwrap_or_default() {
-            "end_turn" | "stop_sequence" => StopReason::End,
-            "tool_use" => StopReason::ToolUse,
-            "max_tokens" => StopReason::MaxTokens,
-            other => StopReason::Other(other.into()),
+            input_tokens: json["usage"]["input_tokens"].as_u64().unwrap_or(0),
+            output_tokens: json["usage"]["output_tokens"].as_u64().unwrap_or(0),
         };
         Ok(Reply {
-            text,
-            tool_calls,
+            text: text_of(content),
+            tool_calls: tool_calls_of(content),
             usage,
             cost_usd: price(&self.prices, &req.model.0, &usage),
-            stop,
+            stop: stop_reason(json["stop_reason"].as_str().unwrap_or_default()),
             seconds,
         })
     }
 
     fn supports_tools(&self) -> bool {
         true
+    }
+}
+
+fn text_of(content: &[Value]) -> String {
+    content
+        .iter()
+        .filter(|b| b["type"] == "text")
+        .filter_map(|b| b["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn tool_calls_of(content: &[Value]) -> Vec<ToolCall> {
+    content
+        .iter()
+        .filter(|b| b["type"] == "tool_use")
+        .map(|b| ToolCall {
+            id: b["id"].as_str().unwrap_or_default().into(),
+            name: b["name"].as_str().unwrap_or_default().into(),
+            input: b["input"].clone(),
+        })
+        .collect()
+}
+
+fn stop_reason(anthropic_reason: &str) -> StopReason {
+    match anthropic_reason {
+        "end_turn" | "stop_sequence" => StopReason::End,
+        "tool_use" => StopReason::ToolUse,
+        "max_tokens" => StopReason::MaxTokens,
+        other => StopReason::Other(other.into()),
     }
 }

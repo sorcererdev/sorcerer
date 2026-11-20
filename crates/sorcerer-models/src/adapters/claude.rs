@@ -5,7 +5,8 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -22,7 +23,7 @@ pub struct Claude {
 }
 
 impl Claude {
-    /// The table's `runner`, or `claude` on PATH.
+    /// The program the table's `runner` names, or `claude` on PATH.
     pub fn from_config(cfg: &ProviderConfig) -> Claude {
         Claude {
             runner: cfg.runner.clone().unwrap_or_else(|| "claude".into()),
@@ -46,109 +47,169 @@ pub(crate) struct ClaudeReply {
     pub usage: Usage,
 }
 
-/// Runs RUNNER with ARGS in CWD, STDIN as its input, under TIMEOUT and
-/// CANCEL (either kills it). `CLAUDECODE` is removed and CLAUDE.md files
-/// are turned off for the child, after ENVS are applied.
-pub(crate) fn run_claude(
-    runner: &Path,
-    args: &[String],
-    cwd: Option<&Path>,
-    stdin: &str,
-    timeout: Duration,
-    cancel: &Cancel,
-    envs: &[(String, String)],
-) -> Result<ClaudeReply> {
-    let name = runner.display().to_string();
-    let mut cmd = Command::new(runner);
-    cmd.args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    cmd.envs(envs.iter().map(|(k, v)| (k, v)));
-    cmd.env_remove("CLAUDECODE")
-        .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1");
-    if let Some(d) = cwd {
-        cmd.current_dir(d);
+/// One run of `claude`: the program, its arguments, the folder it runs in (the current
+/// one when none), the prompt it reads on its input, how long it may take, and extra
+/// environment variables (tests use these to script a fake `claude`).
+pub(crate) struct ClaudeRun<'a> {
+    pub runner: &'a Path,
+    pub args: Vec<String>,
+    pub cwd: Option<&'a Path>,
+    pub prompt: &'a str,
+    pub timeout: Duration,
+    pub envs: &'a [(String, String)],
+}
+
+impl ClaudeRun<'_> {
+    /// Runs `claude` and reads the JSON it prints. A cancel or the timeout kills it and
+    /// everything it started. Output that is not JSON is an error quoting the first 500
+    /// characters of what it printed (its error output when it printed nothing else),
+    /// and so is a reply that says it is an error.
+    ///
+    /// Example: `claude` exits 1 printing only "Not logged in" as an error: the error
+    /// reads "exited exit status: 1 with no JSON reply: Not logged in".
+    pub(crate) fn run(&self, cancel: &Cancel) -> Result<ClaudeReply> {
+        let mut child = self.start()?;
+        let printing = Printing::start(&mut child, self.prompt);
+        let status = self.wait_for_exit(&mut child, cancel)?;
+        reply_from(&printing.finish(), status)
     }
-    // its own process group, so a kill reaches whatever it started
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-    let mut child = cmd.spawn().map_err(|e| Error::Subprocess {
-        runner: name.clone(),
-        why: e.to_string(),
-    })?;
-    let mut input = child.stdin.take().expect("piped");
-    let stdin = stdin.to_string();
-    std::thread::spawn(move || {
-        let _ = input.write_all(stdin.as_bytes());
-    });
-    let mut out = child.stdout.take().expect("piped");
-    let reader = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = out.read_to_string(&mut s);
-        s
-    });
-    let mut err = child.stderr.take().expect("piped");
-    let err_reader = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s);
-        s
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|e| Error::Subprocess {
-            runner: name.clone(),
+
+    fn runner_name(&self) -> String {
+        self.runner.display().to_string()
+    }
+
+    /// Starts `claude` in its own process group, so a kill reaches whatever it started.
+    /// `CLAUDECODE` is removed, so a run from inside Claude Code is not refused as nested,
+    /// and CLAUDE.md files are turned off.
+    fn start(&self) -> Result<Child> {
+        let mut command = Command::new(self.runner);
+        command
+            .args(&self.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .envs(self.envs.iter().map(|(name, value)| (name, value)))
+            .env_remove("CLAUDECODE")
+            .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1");
+        if let Some(folder) = self.cwd {
+            command.current_dir(folder);
+        }
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        command.spawn().map_err(|e| Error::Subprocess {
+            runner: self.runner_name(),
             why: e.to_string(),
-        })? {
-            break status;
-        }
-        if cancel.is_cancelled() || Instant::now() >= deadline {
-            kill_group(&mut child);
-            return Err(if cancel.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Timeout {
+        })
+    }
+
+    /// Checks every 50 milliseconds whether `claude` has exited, killing it on a cancel
+    /// or once the timeout has passed.
+    fn wait_for_exit(&self, child: &mut Child, cancel: &Cancel) -> Result<ExitStatus> {
+        let deadline = Instant::now() + self.timeout;
+        loop {
+            let exited = child.try_wait().map_err(|e| Error::Subprocess {
+                runner: self.runner_name(),
+                why: e.to_string(),
+            })?;
+            if let Some(status) = exited {
+                return Ok(status);
+            }
+            if cancel.is_cancelled() {
+                kill_group(child);
+                return Err(Error::Cancelled);
+            }
+            if Instant::now() >= deadline {
+                kill_group(child);
+                return Err(Error::Timeout {
                     provider: "claude".into(),
-                    seconds: timeout.as_secs(),
-                }
-            });
+                    seconds: self.timeout.as_secs(),
+                });
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    let stdout = reader.join().unwrap_or_default();
-    let stderr = err_reader.join().unwrap_or_default();
-    let bad = |why: String| Error::Reply {
-        provider: "claude".into(),
-        why,
-    };
-    let v: Value = serde_json::from_str(stdout.trim()).map_err(|_| {
-        let said = if stdout.trim().is_empty() {
-            stderr.trim()
+    }
+}
+
+/// `claude`'s output and error output, each read on a thread of its own so a full pipe
+/// never stalls it.
+struct Printing {
+    stdout: JoinHandle<String>,
+    stderr: JoinHandle<String>,
+}
+
+/// Everything `claude` printed, once it has exited.
+struct Printed {
+    stdout: String,
+    stderr: String,
+}
+
+impl Printing {
+    /// Writes the prompt to the child's input and starts reading what it prints.
+    fn start(child: &mut Child, prompt: &str) -> Printing {
+        let mut input = child.stdin.take().expect("piped");
+        let prompt = prompt.to_string();
+        std::thread::spawn(move || {
+            let _ = input.write_all(prompt.as_bytes());
+        });
+        Printing {
+            stdout: read_all_on_its_own_thread(child.stdout.take().expect("piped")),
+            stderr: read_all_on_its_own_thread(child.stderr.take().expect("piped")),
+        }
+    }
+
+    fn finish(self) -> Printed {
+        Printed {
+            stdout: self.stdout.join().unwrap_or_default(),
+            stderr: self.stderr.join().unwrap_or_default(),
+        }
+    }
+}
+
+fn read_all_on_its_own_thread(mut pipe: impl Read + Send + 'static) -> JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = pipe.read_to_string(&mut text);
+        text
+    })
+}
+
+fn reply_from(printed: &Printed, status: ExitStatus) -> Result<ClaudeReply> {
+    let stdout = printed.stdout.trim();
+    let reply: Value = serde_json::from_str(stdout).map_err(|_| {
+        let said = if stdout.is_empty() {
+            printed.stderr.trim()
         } else {
-            stdout.trim()
+            stdout
         };
-        bad(format!(
+        reply_error(format!(
             "exited {status} with no JSON reply: {}",
             said.chars().take(500).collect::<String>()
         ))
     })?;
-    let text = v["result"].as_str().unwrap_or_default().to_string();
-    if v["is_error"].as_bool().unwrap_or(false) {
-        return Err(bad(text));
+    let text = reply["result"].as_str().unwrap_or_default().to_string();
+    if reply["is_error"].as_bool().unwrap_or(false) {
+        return Err(reply_error(text));
     }
     Ok(ClaudeReply {
         text,
-        cost_usd: v["total_cost_usd"].as_f64(),
-        seconds: v["duration_ms"].as_f64().map_or(0.0, |ms| ms / 1000.0),
+        cost_usd: reply["total_cost_usd"].as_f64(),
+        seconds: reply["duration_ms"].as_f64().map_or(0.0, |ms| ms / 1000.0),
         usage: Usage {
-            input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
-            output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
+            input_tokens: reply["usage"]["input_tokens"].as_u64().unwrap_or(0),
+            output_tokens: reply["usage"]["output_tokens"].as_u64().unwrap_or(0),
         },
     })
 }
 
-/// Kills CHILD and its process group.
-fn kill_group(child: &mut std::process::Child) {
+fn reply_error(why: String) -> Error {
+    Error::Reply {
+        provider: "claude".into(),
+        why,
+    }
+}
+
+/// Kills the child and every process in its group.
+fn kill_group(child: &mut Child) {
     #[cfg(unix)]
     let _ = Command::new("kill")
         .args(["-KILL", "--", &format!("-{}", child.id())])
@@ -167,52 +228,24 @@ impl Provider for Claude {
         Ok(ModelId(alias.into()))
     }
 
+    /// Runs `claude -p` with no tools, the conversation's text as one prompt.
     fn complete(&self, req: Completion, cancel: &Cancel) -> Result<Reply> {
-        let args: Vec<String> = [
-            "-p",
-            "--output-format",
-            "json",
-            "--model",
-            &req.model.0,
-            "--permission-prompts",
-            "none",
-            "--system-prompt",
-            &req.system,
-            "--tools",
-            "",
-            "--no-session-persistence",
-            "--setting-sources",
-            "",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        let prompt = req
-            .messages
-            .iter()
-            .flat_map(|m| m.content.iter())
-            .filter_map(|c| match c {
-                Content::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let r = run_claude(
-            &self.runner,
-            &args,
-            None,
-            &prompt,
-            req.timeout,
-            cancel,
-            &self.envs,
-        )?;
+        let reply = ClaudeRun {
+            runner: &self.runner,
+            args: completion_args(&req),
+            cwd: None,
+            prompt: &text_of_every_message(&req),
+            timeout: req.timeout,
+            envs: &self.envs,
+        }
+        .run(cancel)?;
         Ok(Reply {
-            text: r.text,
+            text: reply.text,
             tool_calls: Vec::new(),
-            usage: r.usage,
-            cost_usd: r.cost_usd,
+            usage: reply.usage,
+            cost_usd: reply.cost_usd,
             stop: StopReason::End,
-            seconds: r.seconds,
+            seconds: reply.seconds,
         })
     }
 
@@ -220,4 +253,39 @@ impl Provider for Claude {
     fn supports_tools(&self) -> bool {
         false
     }
+}
+
+fn completion_args(req: &Completion) -> Vec<String> {
+    [
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        &req.model.0,
+        "--permission-prompts",
+        "none",
+        "--system-prompt",
+        &req.system,
+        "--tools",
+        "",
+        "--no-session-persistence",
+        "--setting-sources",
+        "",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// The text of every message, joined by a blank line: `claude -p` takes one prompt.
+fn text_of_every_message(req: &Completion) -> String {
+    req.messages
+        .iter()
+        .flat_map(|m| m.content.iter())
+        .filter_map(|c| match c {
+            Content::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
