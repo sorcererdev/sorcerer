@@ -1,6 +1,6 @@
-//! Scry's settings from the project: `[scry]` in `.sorcerer/config.toml`
-//! (already parsed with the project) and the steering in
-//! `.sorcerer/scry.toml`, its includes read under the fences.
+//! scry's settings, read from the project: the `[scry]` table of
+//! `.sorcerer/config.toml` (parsed when the project opens), and the
+//! steering in `.sorcerer/scry.toml` with the files it includes.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -15,8 +15,8 @@ use crate::ports::settings::Settings;
 /// Where the steering lives, relative to the project root.
 pub const STEERING_FILE: &str = ".sorcerer/scry.toml";
 
-/// Where it lived before; still there is an error, so it is not silently
-/// ignored.
+/// Where the steering lived before. A file still there is an error, so
+/// that it is not silently ignored.
 const OLD_STEERING_FILE: &str = ".sorcerer/scry.md";
 
 pub struct ScryToml {
@@ -24,6 +24,7 @@ pub struct ScryToml {
 }
 
 impl ScryToml {
+    /// The project's settings, read when asked for.
     pub fn for_project(project: &Project) -> ScryToml {
         ScryToml {
             project: project.clone(),
@@ -36,78 +37,92 @@ impl Settings for ScryToml {
         scry_config(&self.project)
     }
 
-    /// `.sorcerer/scry.toml` checked, each include read in order (relative,
-    /// inside the root, not fenced, text), and the whole under the cap.
-    /// No file is no steering; an old `.sorcerer/scry.md` is an error.
+    /// The project's steering, read and checked:
+    ///
+    /// 1. an old `.sorcerer/scry.md` is an error, so it is not silently
+    ///    ignored;
+    /// 2. no `.sorcerer/scry.toml` means no steering;
+    /// 3. the file is parsed and checked ([`parse_steering`]);
+    /// 4. each file it includes is read, in order. An include must be a
+    ///    path inside the project, not fenced off, and UTF-8 text;
+    /// 5. the whole must fit under the 32 KB cap.
     fn steering(&self) -> Result<Steering> {
-        let root = &self.project.root;
-        let old = root.join(OLD_STEERING_FILE);
-        if old.exists() {
-            return Err(Error::Config {
-                file: old,
-                why: "no longer read: steering is .sorcerer/scry.toml (context, include, [[rule]] with id and text); see the user book's Steering section".into(),
-            });
-        }
-        let file = root.join(STEERING_FILE);
+        self.refuse_old_steering_file()?;
+        let file = self.project.root.join(STEERING_FILE);
         let text = match std::fs::read_to_string(&file) {
-            Ok(t) => t,
+            Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Steering::default()),
             Err(e) => return Err(Error::io(&file, e)),
         };
         let raw = parse_steering(&text, &file)?;
-        let bad = |n: usize, p: &Path, why: &str| Error::Config {
-            file: file.clone(),
-            why: format!("include[{n}] {}: {why}", p.display()),
-        };
         let fences = Fences::for_project(&self.project)?;
-        let mut includes = Vec::new();
-        for (i, p) in raw.include.iter().enumerate() {
-            let n = i + 1;
-            if p.is_absolute() {
-                return Err(bad(
-                    n,
-                    p,
-                    "an include is a path relative to the project root",
-                ));
-            }
-            if p.components().any(|c| c == Component::ParentDir) {
-                return Err(bad(n, p, "an include may not leave the project root"));
-            }
-            if !fences.allows(p) {
-                return Err(bad(
-                    n,
-                    p,
-                    "fenced (outside the root, under .sorcerer/ or .git/, a secret, or [model] not_evidence)",
-                ));
-            }
-            let full = root.join(p);
-            let bytes = match std::fs::read(&full) {
-                Ok(b) => b,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    return Err(bad(n, p, "not found"));
-                }
-                Err(e) => return Err(bad(n, p, &e.to_string())),
-            };
-            let text = String::from_utf8(bytes).map_err(|_| bad(n, p, "not UTF-8"))?;
-            includes.push(Include {
-                path: p.clone(),
-                text,
-            });
-        }
+        let includes = raw
+            .include
+            .iter()
+            .enumerate()
+            .map(|(i, path)| self.read_include(&file, &fences, i + 1, path))
+            .collect::<Result<Vec<Include>>>()?;
         let steering = Steering {
             context: raw.context,
             includes,
             rules: raw.rules,
         };
-        if let Some(why) = steering.over_cap() {
-            return Err(Error::Config { file, why });
+        match steering.over_cap() {
+            Some(why) => Err(Error::Config { file, why }),
+            None => Ok(steering),
         }
-        Ok(steering)
     }
 
+    /// The steering file, when the project has one.
     fn steering_source(&self) -> Option<PathBuf> {
         let file = self.project.root.join(STEERING_FILE);
         file.exists().then_some(file)
+    }
+}
+
+impl ScryToml {
+    fn refuse_old_steering_file(&self) -> Result<()> {
+        let old = self.project.root.join(OLD_STEERING_FILE);
+        if !old.exists() {
+            return Ok(());
+        }
+        Err(Error::Config {
+            file: old,
+            why: "no longer read: steering is .sorcerer/scry.toml (context, include, [[rule]] with id and text); see the user book's Steering section".into(),
+        })
+    }
+
+    /// The `n`th include (counting from 1) of the steering `file`, read.
+    /// An error names the include and why it cannot be read.
+    ///
+    /// Example: `include[2] ../notes.md: an include may not leave the
+    /// project root`.
+    fn read_include(&self, file: &Path, fences: &Fences, n: usize, path: &Path) -> Result<Include> {
+        let refuse = |why: &str| Error::Config {
+            file: file.to_path_buf(),
+            why: format!("include[{n}] {}: {why}", path.display()),
+        };
+        if path.is_absolute() {
+            return Err(refuse("an include is a path relative to the project root"));
+        }
+        if path.components().any(|c| c == Component::ParentDir) {
+            return Err(refuse("an include may not leave the project root"));
+        }
+        if !fences.allows(path) {
+            return Err(refuse(
+                "fenced (outside the root, under .sorcerer/ or .git/, a secret, or [model] not_evidence)",
+            ));
+        }
+        let bytes = match std::fs::read(self.project.root.join(path)) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(refuse("not found")),
+            Err(e) => return Err(refuse(&e.to_string())),
+        };
+        let text = String::from_utf8(bytes).map_err(|_| refuse("not UTF-8"))?;
+        Ok(Include {
+            path: path.to_path_buf(),
+            text,
+        })
     }
 }
 
