@@ -2,9 +2,9 @@
 //!
 //! `scope_of` sets up the `Scoping` (the fences, the `[scry] exclude` set
 //! and the `base_revision`), takes the `candidate_files`, and has it
-//! `look_at` each one. A file is left out (`reason_to_leave_out`, or not
-//! text: `text_if_it_is_text`), deleted (`deleted_since_the_base`), or
-//! present: its `units_in_scope` become `scoped_units`, and the file a
+//! `look_at` each one. A file is skipped (`reason_to_skip`, or not text:
+//! `text_unless_binary`), deleted (`no_longer_in_the_tree`), or present:
+//! its `units_in_scope` become `scoped_units`, and the file a
 //! `scoped_file`.
 
 use std::collections::HashSet;
@@ -37,7 +37,7 @@ pub fn scope_of(
     let mut scope = Scope::empty(request, scoping.base.clone());
     for file in files {
         match scoping.look_at(file)? {
-            FileInScope::LeftOut(file, why) => scope.skipped.push((file, why)),
+            FileInScope::Skipped(file, why) => scope.skipped.push((file, why)),
             FileInScope::Deleted(scoped) => scope.files.push(scoped),
             FileInScope::Present(scoped, units) => {
                 scope.units.extend(units);
@@ -61,10 +61,10 @@ struct Scoping<'a> {
     all: bool,
 }
 
-/// Where one candidate file stands: left out (and why), deleted since the
+/// Where one candidate file stands: skipped (and why), deleted since the
 /// base, or present with its units in scope.
 enum FileInScope {
-    LeftOut(PathBuf, String),
+    Skipped(PathBuf, String),
     Deleted(ScopedFile),
     Present(ScopedFile, Vec<ScopedUnit>),
 }
@@ -92,7 +92,7 @@ impl<'a> Scoping<'a> {
     fn base_revision(view: &dyn CodebaseView, request: &ScopeRequest) -> Result<String> {
         Ok(match request {
             ScopeRequest::Since(rev) => view.merge_base(rev)?,
-            _ if view.merge_base("HEAD").is_ok() => "HEAD".to_string(),
+            _ if has_a_commit(view) => "HEAD".to_string(),
             _ => String::new(),
         })
     }
@@ -111,6 +111,7 @@ impl<'a> Scoping<'a> {
         let mut seen = HashSet::new();
         Ok(files
             .into_iter()
+            // `insert` is false for a file already seen, so each file passes once
             .filter(|f| seen.insert(f.clone()))
             .collect())
     }
@@ -127,25 +128,24 @@ impl<'a> Scoping<'a> {
 
     /// Where FILE stands in the scope, read only as far as that needs.
     fn look_at(&self, file: PathBuf) -> Result<FileInScope> {
-        if let Some(why) = self.reason_to_leave_out(&file) {
-            return Ok(FileInScope::LeftOut(file, why.into()));
+        if let Some(why) = self.reason_to_skip(&file) {
+            return Ok(FileInScope::Skipped(file, why.into()));
         }
         if !self.view.exists(&file) {
-            return self.deleted_since_the_base(file);
+            return self.no_longer_in_the_tree(file);
         }
-        let Some(text) = self.text_if_it_is_text(&file)? else {
-            return Ok(FileInScope::LeftOut(file, "not text".into()));
+        let Some(text) = self.text_unless_binary(&file)? else {
+            return Ok(FileInScope::Skipped(file, "not text".into()));
         };
         let units_now = self.view.units(&file)?;
-        let in_scope = self.units_in_scope(&file, &units_now);
-        let units = Self::scoped_units(&file, &text, &units_now, in_scope);
+        let units = self.scoped_units(&file, &text, &units_now);
         let scoped = self.scoped_file(file, text, units_now)?;
         Ok(FileInScope::Present(scoped, units))
     }
 
     /// Why FILE is left out without being read, if it is; the first reason
     /// that holds wins.
-    fn reason_to_leave_out(&self, file: &Path) -> Option<&'static str> {
+    fn reason_to_skip(&self, file: &Path) -> Option<&'static str> {
         if self.project.languages.for_path(file).is_none() {
             Some("no language")
         } else if self.exclude.is_match(file) {
@@ -159,11 +159,11 @@ impl<'a> Scoping<'a> {
 
     /// A file no longer in the tree: deleted, with its diff, when it was at
     /// the base; else left out.
-    fn deleted_since_the_base(&self, file: PathBuf) -> Result<FileInScope> {
+    fn no_longer_in_the_tree(&self, file: PathBuf) -> Result<FileInScope> {
         let was_at_the_base =
             !self.base.is_empty() && self.view.text_at(&file, &self.base)?.is_some();
         if !was_at_the_base {
-            return Ok(FileInScope::LeftOut(
+            return Ok(FileInScope::Skipped(
                 file,
                 "deleted, and not at the base".into(),
             ));
@@ -176,7 +176,9 @@ impl<'a> Scoping<'a> {
         }))
     }
 
-    fn text_if_it_is_text(&self, file: &Path) -> Result<Option<String>> {
+    /// FILE's text; None when the view finds it is not text; any other read
+    /// error is returned.
+    fn text_unless_binary(&self, file: &Path) -> Result<Option<String>> {
         match self.view.text(file) {
             Ok(text) => Ok(Some(text)),
             Err(Error::NotText { .. }) => Ok(None),
@@ -194,23 +196,15 @@ impl<'a> Scoping<'a> {
         let units_at_base = self.view.units_at(file, &self.base).unwrap_or_default();
         compare_units(&units_at_base, units_now)
             .into_iter()
-            .filter_map(|change| match change {
-                UnitChange::Added(u) | UnitChange::Changed { after: u, .. } => Some(u),
-                _ => None,
-            })
+            .filter_map(UnitChange::unit_now)
             .collect()
     }
 
-    /// UNITS of FILE as the scope holds them, each with the first line of
-    /// the unit that encloses it.
-    fn scoped_units(
-        file: &Path,
-        text: &str,
-        units_now: &[Unit],
-        units: Vec<Unit>,
-    ) -> Vec<ScopedUnit> {
+    /// The units of FILE in scope as the scope holds them, each with the
+    /// first line of the unit that encloses it.
+    fn scoped_units(&self, file: &Path, text: &str, units_now: &[Unit]) -> Vec<ScopedUnit> {
         let lines: Vec<&str> = text.lines().collect();
-        units
+        self.units_in_scope(file, units_now)
             .into_iter()
             .map(|unit| ScopedUnit {
                 file: file.to_path_buf(),
@@ -236,6 +230,11 @@ impl<'a> Scoping<'a> {
             deleted: false,
         })
     }
+}
+
+/// Whether the repository has any commit, so `HEAD` names a revision.
+fn has_a_commit(view: &dyn CodebaseView) -> bool {
+    view.merge_base("HEAD").is_ok()
 }
 
 /// The `[scry] exclude` globs as one set; a bad glob is a config error.
