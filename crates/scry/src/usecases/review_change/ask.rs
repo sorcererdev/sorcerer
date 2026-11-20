@@ -206,7 +206,10 @@ impl Pass<'_, '_> {
     /// Records the batch's units as held back by a spending limit, so the
     /// next run sends them.
     fn hold_back_for_a_later_run(&mut self, batch: &[UnitToSend]) -> BatchOutcome {
-        self.log(&held_back_text(self.review_estimate, self.budget.room()));
+        self.log(&held_back_text(
+            self.review_estimate,
+            self.budget.money_left(),
+        ));
         for u in batch {
             self.working_copy
                 .capped
@@ -297,9 +300,11 @@ impl Pass<'_, '_> {
     /// Example: the budget has $0.30 left and `budget_per_pass` is $0.25:
     /// the call's cap is $0.25.
     fn cap_for_one_call(&self) -> f64 {
-        self.budget.room().map_or(self.cfg.budget_per_pass, |r| {
-            r.min(self.cfg.budget_per_pass)
-        })
+        self.budget
+            .money_left()
+            .map_or(self.cfg.budget_per_pass, |r| {
+                r.min(self.cfg.budget_per_pass)
+            })
     }
 
     /// What a call is charged: its recorded cost (its estimate when the
@@ -424,11 +429,11 @@ fn batch_heading_text(n: usize, batch: &[UnitToSend]) -> String {
     )
 }
 
-fn held_back_text(estimate: f64, room: Option<f64>) -> String {
+fn held_back_text(estimate: f64, money_left: Option<f64>) -> String {
     format!(
         "- capped: the estimate {} does not fit (room {}); these units wait for a later run\n",
         usd(estimate),
-        room.map_or("unbounded".into(), usd),
+        money_left.map_or("unbounded".into(), usd),
     )
 }
 

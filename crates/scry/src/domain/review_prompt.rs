@@ -89,7 +89,7 @@ pub fn review_prompt(ask: &ReviewAsk) -> String {
         &open_findings_section(&ask.open),
         in_progress_note(&ask.units),
         WHAT_TO_REPORT,
-        ISSUE_TYPES_TEXT,
+        &issue_types_text(),
         REPLY_FORMAT,
     ]
     .concat()
@@ -203,13 +203,14 @@ fn list_or(items: impl Iterator<Item = String>, separator: &str, empty: &str) ->
 
 const WHAT_TO_REPORT: &str = "Review the changed units. List problems this change has or introduces: nothing else. An empty list is a normal and often the right answer; do not look for something to say. Do not speculate: a finding needs a named code path (the line, the call and what happens), found with Read, Grep and Glob. Do not report style or taste unless it breaks a rule in the steering file.\n\n";
 
-const ISSUE_TYPES_TEXT: &str = "Issue types:
-- bug: the code does the wrong thing.
-- assumption: the code relies on something about other code that is not so.
-- convention: the code breaks a rule in the steering file.
-- design: readability, maintainability, testability or architecture with no rule behind it.
-
-";
+/// The issue types, each with the sentence that defines it.
+fn issue_types_text() -> String {
+    let types: String = ISSUE_TYPES
+        .iter()
+        .map(|known| format!("- {}: {}\n", known.name, known.sentence))
+        .collect();
+    format!("Issue types:\n{types}\n")
+}
 
 const REPLY_FORMAT: &str = r#"End your answer with one JSON object and nothing after it:
 {"findings": [{"issue_type": "bug|assumption|convention|design",

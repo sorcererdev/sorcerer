@@ -29,7 +29,7 @@ batches` marks where a helper belongs.
 ```rust
 // before: // one call's cap: what the caps leave, never more than a pass
 //         // may spend (…)
-//         let cap = self.budget.room().map_or(self.cfg.budget_per_pass, |r| { … });
+//         let cap = self.budget.money_left().map_or(self.cfg.budget_per_pass, |r| { … });
 // after:  let cap = self.cap_for_one_call();
 ```
 
@@ -37,8 +37,8 @@ batches` marks where a helper belongs.
 without it.
 
 ```rust
-self.log(&held_back_text(self.review_estimate, self.budget.room()));
-fn held_back_text(estimate: f64, room: Option<f64>) -> String { format!(…) }
+self.log(&held_back_text(self.review_estimate, self.budget.money_left()));
+fn held_back_text(estimate: f64, money_left: Option<f64>) -> String { format!(…) }
 ```
 
 **5. Helpers sit below their caller, private, in reading order.** A reader goes down the file and

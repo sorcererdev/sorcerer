@@ -23,7 +23,8 @@ pub struct ScryConfig {
     /// How sure Jev must be that a finding is worth saying before it is
     /// shown, from 0 to 1: 0.7 by default.
     pub confidence_threshold: f64,
-    /// The most one pass may spend, in dollars: 0.25 by default.
+    /// The most one pass started from the editor may spend, in dollars:
+    /// 0.25 by default.
     pub budget_per_pass: f64,
     /// The most all passes may spend in a day, in dollars: 3.00 by default.
     pub budget_per_day: f64,
