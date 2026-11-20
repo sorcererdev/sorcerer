@@ -188,6 +188,15 @@ and every file is all new. The files are the named ones, or the view's `changed_
 (every file, by `glob("**")`, with no commit). A file is dropped when no language covers it,
 `[scry] exclude` matches it, `Fences::allows` refuses it, or its text is `NotText`.
 
+The file reads top to bottom as these steps. `scope_of` builds a `Scoping` (the project, the
+view, the `Fences`, the `[scry] exclude` set, the base from `Scoping::base_revision`, and
+`all`), takes its `candidate_files` (each once; an absolute path outside the project is
+dropped by `relative_to_the_project`), starts from `Scope::empty` and asks `look_at` about each
+file. `look_at` answers a `FileInScope`: `LeftOut` with `reason_to_leave_out`'s reason (the
+first that holds, in the order above) or `not text` (`text_if_it_is_text`); `Deleted` from
+`deleted_since_the_base`; or `Present`, with `units_in_scope` turned into `scoped_units` and
+the file into a `scoped_file`.
+
 A file that is gone but was at the base is a `ScopedFile` with `deleted` and no units, so the
 pass can sweep its findings. A rename is a deletion and an addition (`changed_since` runs
 with `--no-renames`). Each file considered and left out goes to `Scope::skipped` with why

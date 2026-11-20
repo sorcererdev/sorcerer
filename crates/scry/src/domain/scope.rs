@@ -49,6 +49,19 @@ pub struct Scope {
     pub skipped: Vec<(PathBuf, String)>,
 }
 
+impl Scope {
+    /// A scope for REQUEST, compared with BASE, that holds nothing yet.
+    pub fn empty(request: ScopeRequest, base: String) -> Scope {
+        Scope {
+            request,
+            base,
+            units: Vec::new(),
+            files: Vec::new(),
+            skipped: Vec::new(),
+        }
+    }
+}
+
 /// The definition line, trimmed, of the innermost unit that encloses UNIT;
 /// None when nothing encloses it.
 pub fn header_of(lines: &[&str], units: &[Unit], unit: &Unit) -> Option<String> {
