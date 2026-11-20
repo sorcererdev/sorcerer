@@ -1,11 +1,13 @@
-//! A product's versioned state: one JSON file, `{"version": N, "data": …}`,
-//! updated under an exclusive lock on `<file>.lock` (an OS advisory lock,
-//! released if the process dies) and written to a temporary file that is
-//! renamed over the old one, so a reader never sees half a file.
+//! A product's saved state: one JSON file, `{"version": 2, "data": …}`.
 //!
-//! A file that cannot be read (corrupt, or written by a newer sorcerer) is
-//! `Unreadable` and is never overwritten: starting over would bring back
-//! everything the user dismissed.
+//! Two runs may update the same file at once (two editors, an editor and a terminal), so an
+//! update takes an exclusive lock on a file beside it (`findings.json.lock`) first. It is an
+//! operating-system lock, released even if the process dies. The new contents are written to a
+//! temporary file that is then renamed over the old one, so a reader never sees half a file.
+//!
+//! A file that cannot be read (damaged, or written by a newer sorcerer) is reported as
+//! unreadable and never overwritten: starting over would bring back everything the user
+//! dismissed.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -18,18 +20,21 @@ use crate::domain::project::Project;
 pub use crate::domain::versioned::{Snapshot, Versioned};
 use crate::{Error, Result};
 
+/// One saved state file holding a `T`.
 pub struct Store<T: Versioned> {
     path: PathBuf,
     lock: PathBuf,
     _t: PhantomData<fn() -> T>,
 }
 
+/// The file as read: its version number, and its data not yet read into `T`.
 #[derive(serde::Deserialize)]
 struct Envelope {
     version: u32,
     data: serde_json::Value,
 }
 
+/// The file as written.
 #[derive(Serialize)]
 struct EnvelopeOut<'a, T> {
     version: u32,
@@ -37,6 +42,7 @@ struct EnvelopeOut<'a, T> {
 }
 
 impl<T: Versioned> Store<T> {
+    /// A store kept in any file; its lock file is the same path with `.lock` added.
     pub fn at(path: PathBuf) -> Store<T> {
         let mut lock = path.clone().into_os_string();
         lock.push(".lock");
@@ -47,46 +53,51 @@ impl<T: Versioned> Store<T> {
         }
     }
 
-    /// A store at REL under the project's state directory, which is
-    /// created (with its `.gitignore`) first. Products open stores this way.
-    pub fn in_project(project: &Project, rel: &str) -> Result<Store<T>> {
-        Ok(Store::at(project.state_dir()?.join(rel)))
+    /// A store at a path under the project's state directory, such as
+    /// `in_project(&project, "scry/findings.json")`. The state directory is created (with its
+    /// `.gitignore`) first. Products open their stores this way.
+    pub fn in_project(project: &Project, relative: &str) -> Result<Store<T>> {
+        Ok(Store::at(project.state_dir()?.join(relative)))
     }
 
+    /// Where the file is.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Reads the saved state without taking the lock. A missing file is `Absent`; a file that
+    /// is not UTF-8, not a store file, of another version, or whose data does not fit `T` is
+    /// `Unreadable` with the reason. Only an error reading the disk itself is an `Err`.
     pub fn read(&self) -> Result<Snapshot<T>> {
-        let text = match std::fs::read_to_string(&self.path) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Snapshot::Absent),
+        match std::fs::read_to_string(&self.path) {
+            Ok(text) => Ok(snapshot_of(&text)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Snapshot::Absent),
             Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
-                return Ok(Snapshot::Unreadable("not UTF-8".into()));
+                Ok(Snapshot::Unreadable("not UTF-8".into()))
             }
-            Err(e) => return Err(Error::io(&self.path, e)),
-        };
-        let env: Envelope = match serde_json::from_str(&text) {
-            Ok(e) => e,
-            Err(e) => return Ok(Snapshot::Unreadable(format!("not a store file: {e}"))),
-        };
-        if env.version != T::VERSION {
-            return Ok(Snapshot::Unreadable(format!(
-                "version {}, and this sorcerer reads version {}",
-                env.version,
-                T::VERSION
-            )));
+            Err(e) => Err(Error::io(&self.path, e)),
         }
-        Ok(match serde_json::from_value(env.data) {
-            Ok(t) => Snapshot::Current(t),
-            Err(e) => {
-                Snapshot::Unreadable(format!("version {} data does not fit: {e}", env.version))
-            }
-        })
     }
 
-    /// Lock, read (absent is `T::default()`), apply F, write aside, rename.
-    pub fn update<R>(&self, f: impl FnOnce(&mut T) -> R) -> Result<R> {
+    /// Changes the saved state safely while other runs may be changing it too, and returns
+    /// what the change returned.
+    ///
+    /// It takes the lock, reads the state (a missing file starts from `T::default()`), applies
+    /// the change, writes the result, and lets go of the lock. An unreadable file is
+    /// `Error::StoreUnreadable`, and the change is not applied.
+    ///
+    /// Example: `store.update(|counter| counter.n += 1)` from eight threads, 50 times each,
+    /// leaves `n` at 400.
+    pub fn update<R>(&self, change: impl FnOnce(&mut T) -> R) -> Result<R> {
+        let _lock = self.take_lock()?;
+        let mut value = self.read_to_change()?;
+        let result = change(&mut value);
+        self.write(&value)?;
+        Ok(result)
+    }
+
+    /// Waits for the lock and holds it until the returned file is dropped.
+    fn take_lock(&self) -> Result<File> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
         }
@@ -97,26 +108,24 @@ impl<T: Versioned> Store<T> {
             .open(&self.lock)
             .map_err(|e| Error::io(&self.lock, e))?;
         lock.lock().map_err(|e| Error::io(&self.lock, e))?;
-        let mut value = match self.read()? {
-            Snapshot::Absent => T::default(),
-            Snapshot::Current(t) => t,
-            Snapshot::Unreadable(why) => {
-                return Err(Error::StoreUnreadable {
-                    path: self.path.clone(),
-                    why,
-                });
-            }
-        };
-        let r = f(&mut value);
-        self.write(&value)?;
-        drop(lock);
-        Ok(r)
+        Ok(lock)
     }
 
+    fn read_to_change(&self) -> Result<T> {
+        match self.read()? {
+            Snapshot::Absent => Ok(T::default()),
+            Snapshot::Current(value) => Ok(value),
+            Snapshot::Unreadable(why) => Err(Error::StoreUnreadable {
+                path: self.path.clone(),
+                why,
+            }),
+        }
+    }
+
+    /// Writes to a temporary file beside the store, flushes it to disk, then renames it over
+    /// the store, so the store is always either the old contents or the new.
     fn write(&self, value: &T) -> Result<()> {
-        let mut tmp = self.path.clone().into_os_string();
-        tmp.push(format!(".tmp-{}", std::process::id()));
-        let tmp = PathBuf::from(tmp);
+        let temporary = self.temporary_path();
         let bytes = serde_json::to_vec_pretty(&EnvelopeOut {
             version: T::VERSION,
             data: value,
@@ -125,11 +134,40 @@ impl<T: Versioned> Store<T> {
             file: self.path.clone(),
             why: e.to_string(),
         })?;
-        let mut f = File::create(&tmp).map_err(|e| Error::io(&tmp, e))?;
-        f.write_all(&bytes)
-            .and_then(|_| f.sync_all())
-            .map_err(|e| Error::io(&tmp, e))?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| Error::io(&self.path, e))
+        let mut file = File::create(&temporary).map_err(|e| Error::io(&temporary, e))?;
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|e| Error::io(&temporary, e))?;
+        std::fs::rename(&temporary, &self.path).map_err(|e| Error::io(&self.path, e))
+    }
+
+    /// `findings.json.tmp-<process id>`: one per process, so two processes never share one.
+    fn temporary_path(&self) -> PathBuf {
+        let mut temporary = self.path.clone().into_os_string();
+        temporary.push(format!(".tmp-{}", std::process::id()));
+        PathBuf::from(temporary)
+    }
+}
+
+/// What a store file's text holds: the state, or why it cannot be read.
+fn snapshot_of<T: Versioned>(text: &str) -> Snapshot<T> {
+    let envelope: Envelope = match serde_json::from_str(text) {
+        Ok(envelope) => envelope,
+        Err(e) => return Snapshot::Unreadable(format!("not a store file: {e}")),
+    };
+    if envelope.version != T::VERSION {
+        return Snapshot::Unreadable(format!(
+            "version {}, and this sorcerer reads version {}",
+            envelope.version,
+            T::VERSION
+        ));
+    }
+    match serde_json::from_value(envelope.data) {
+        Ok(value) => Snapshot::Current(value),
+        Err(e) => Snapshot::Unreadable(format!(
+            "version {} data does not fit: {e}",
+            envelope.version
+        )),
     }
 }
 
