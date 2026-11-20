@@ -31,14 +31,23 @@ impl Pass<'_, '_> {
     /// while the pass ran, and (only when the pass was WHOLE) not found again.
     pub(super) fn remember(&mut self, asked: &ReviewResults, gone: &[FindingId]) {
         let stored_before = ids_of(&self.stored_before);
+        // 1. The reviewer was shown the open findings in each unit and said
+        //    which no longer hold: resolve those.
         let resolved = self.resolve_what_no_longer_holds(&asked.no_longer_hold);
+        // 2. A unit the user edited while the reviewer was looking at it:
+        //    the new findings on it are stale, drop them.
         let moved = self.drop_moved(&asked.answered);
+        // 3. Only when every unit was reviewed: a stored finding in a unit
+        //    that changed, which the reviewer neither raised again nor said
+        //    still holds, was fixed: resolve it. (If some unit was skipped,
+        //    a finding not raised may just not have been looked at.)
         let not_found_again = if asked.every_unit_was_reviewed() {
             let kept = not_moved(&asked.answered, &moved);
             Some(self.resolve_not_found_again(&kept, asked, &stored_before))
         } else {
             None
         };
+        // 4. Log what was resolved, gone and dropped.
         self.log(&remember_text(&resolved, gone, &moved, not_found_again));
     }
 
@@ -68,6 +77,7 @@ impl Pass<'_, '_> {
         asked: &ReviewResults,
         stored_before: &HashSet<FindingId>,
     ) -> Vec<FindingId> {
+        // 1. Where each unit stood when it was sent (its fingerprint).
         let at: HashMap<(&Path, &str), Fingerprint> = kept
             .iter()
             .map(|u| ((u.file.as_path(), u.name.as_str()), u.fingerprint))
@@ -80,6 +90,11 @@ impl Pass<'_, '_> {
                 .unit
                 .as_deref()
                 .and_then(|u| at.get(&(f.place.file.as_path(), u)));
+            // 2. A finding is fixed when: it was stored before this run, it
+            //    is still live, nothing this run merged into it, the
+            //    reviewer said nothing about it, and its unit was sent with
+            //    a different fingerprint than the one the finding was made
+            //    on (the code changed).
             let not_found = stored_before.contains(&f.id)
                 && matches!(f.status, Status::Open | Status::Unverified)
                 && !self.merged.contains(&f.id)
@@ -97,8 +112,11 @@ impl Pass<'_, '_> {
     /// The units answered and not moved since, marked reviewed at the
     /// fingerprint sent (and no longer capped); the Reviewed section.
     pub(super) fn mark_reviewed(&mut self, answered: &[SentUnit]) {
-        // checked again: a unit may have changed while the checks ran
+        // 1. Check again for units the user edited, now while the paid checks
+        //    ran; drop their new findings.
         let moved = self.drop_moved(answered);
+        // 2. Mark the rest reviewed at the fingerprint they were sent at, so
+        //    the next run does not send them again until they change.
         let reviewed = not_moved(answered, &moved);
         for unit in &reviewed {
             self.mark_one_reviewed(unit);
