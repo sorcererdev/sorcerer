@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
-use super::ask::Asked;
+use super::ask::ReviewResults;
 use super::{Run, Sent};
 use crate::domain::finding::{FindingId, Place, Status};
 use crate::domain::log_text::section;
@@ -19,7 +19,7 @@ impl Run<'_, '_> {
     /// while the pass ran, and (only when the pass was WHOLE) not found again.
     pub(super) fn remember(
         &mut self,
-        asked: &Asked,
+        asked: &ReviewResults,
         gone: &[FindingId],
         base_ids: &HashSet<FindingId>,
         whole: bool,
@@ -97,7 +97,7 @@ impl Run<'_, '_> {
         if remember.trim_end().ends_with("## Remember") {
             remember.push_str("- nothing resolved or gone\n");
         }
-        self.t(&remember);
+        self.log(&remember);
     }
 
     /// The units answered and not moved since, marked reviewed at the
@@ -137,7 +137,7 @@ impl Run<'_, '_> {
         if written.trim_end().ends_with("## Reviewed") {
             written.push_str("- no unit newly reviewed\n");
         }
-        self.t(&written);
+        self.log(&written);
     }
 
     /// Drops this pass's new findings in units whose text changed since

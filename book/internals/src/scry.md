@@ -19,7 +19,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 
 - `review_change/mod.rs`: `review_change`, `ReviewRequest`, `ReviewDeps`, `ReviewReport`,
   `ReviewOutcome`, `Progress`; the private `Run` its steps share.
-- `review_change/scope.rs`: `scope_of`; `ask.rs`: the review calls (`Run::send`, `Asked`);
+- `review_change/scope.rs`: `scope_of`; `ask.rs`: the review calls (`Run::send`, `ReviewResults`);
   `judge.rs`: each finding placed, matched, merged or added (`Run::judge_all`, `judge`,
   `merge`, `add`); `remember.rs`: resolved, gone, moved, not found again, the reviewed marks
   (`Run::remember`, `sweep_gone`, `drop_moved`, `mark_reviewed`); `verify.rs`: the
@@ -305,7 +305,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    other failure. In the code, `Run::send` is that story in order: `units_not_yet_reviewed`,
    `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
    `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
-   `cost_of_call`, then `Asked::record_failure`, or `take_reply` (the log, `Run::report`, `Asked::record_reply`)).
+   `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Run::report`, `ReviewResults::record_reply`)).
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one

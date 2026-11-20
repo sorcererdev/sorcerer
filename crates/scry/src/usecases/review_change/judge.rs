@@ -23,15 +23,15 @@ impl Run<'_, '_> {
     /// Judges RAWS in order.
     pub(super) fn judge_all(
         &mut self,
-        raws: Vec<RawFinding>,
+        raw_findings: Vec<RawFinding>,
         scope: &Scope,
     ) -> std::result::Result<(), Halt> {
-        self.t(&section("Findings"));
-        if raws.is_empty() {
-            self.t("- none found\n");
+        self.log(&section("Findings"));
+        if raw_findings.is_empty() {
+            self.log("- none found\n");
         }
-        for (n, raw) in raws.into_iter().enumerate() {
-            self.t(&sub(&format!(
+        for (n, raw) in raw_findings.into_iter().enumerate() {
+            self.log(&sub(&format!(
                 "Finding {}: {} at {}:{}-{}",
                 n + 1,
                 raw.issue_type,
@@ -92,7 +92,7 @@ impl Run<'_, '_> {
                 format!("cited \"{c}\": no rule has that id; dropped, the finding stays")
             }
         };
-        self.t(&format!(
+        self.log(&format!(
             "- statement: {}\n- rule: {rule}\n- evidence: {}\n",
             raw.statement,
             if evidence.is_empty() {
@@ -113,13 +113,13 @@ impl Run<'_, '_> {
             .map_or("no unit".into(), |u| format!("unit `{u}`"));
         if status == Status::Elsewhere {
             let id = self.add(&raw, pl, Status::Elsewhere, Scores::default());
-            self.t(&format!(
+            self.log(&format!(
                 "- placed: elsewhere (its lines are in no unit in scope; {unit} now): stored with no question\n- id {}, elsewhere\n",
                 id.0
             ));
             return Ok(());
         }
-        self.t(&format!(
+        self.log(&format!(
             "- placed: {unit} (fingerprint {})\n",
             pl.fingerprint.map_or("none".into(), |f| f.to_string())
         ));
@@ -173,19 +173,19 @@ impl Run<'_, '_> {
                     p_text(w),
                 ));
             }
-            self.t(&lines);
+            self.log(&lines);
             hit = cands
                 .into_iter()
                 .zip(ws)
                 .find(|(_, w)| p_yes(w) >= SAME_THRESHOLD);
         } else {
-            self.t(
+            self.log(
                 "- same-problem question: no stored finding shares its file, rule or cited code\n",
             );
         }
         match hit.map(|(c, _)| (match_stored(&c, pl.unit.as_deref()), c)) {
             Some((Match::Drop, c)) => {
-                self.t(&format!(
+                self.log(&format!(
                     "- result: dropped ({} was {} here)\n",
                     c.id.0,
                     status_word(c.status)
@@ -193,18 +193,18 @@ impl Run<'_, '_> {
                 Ok(())
             }
             Some((Match::Merge, c)) => {
-                self.t(&format!("- result: merge into {}\n", c.id.0));
+                self.log(&format!("- result: merge into {}\n", c.id.0));
                 self.merge(&c.id, raw, pl)
             }
             other => {
                 if let Some((_, c)) = other {
-                    self.t(&format!(
+                    self.log(&format!(
                         "- result: new ({} is {}: a match starts afresh)\n",
                         c.id.0,
                         status_word(c.status)
                     ));
                 } else {
-                    self.t("- result: new\n");
+                    self.log("- result: new\n");
                 }
                 let (confidence, on, w) =
                     self.confidence(&raw, pl.fingerprint.as_ref(), &code_a)?;
@@ -218,7 +218,7 @@ impl Run<'_, '_> {
                     asked_on: Some(on),
                 };
                 let id = self.add(&raw, pl, status, scores);
-                self.t(&format!(
+                self.log(&format!(
                     "- nitpick? {} → confidence {confidence:.2}, threshold {:.2} → {}\n- id {}, {}\n",
                     p_text(&w),
                     self.cfg.confidence_threshold,
@@ -295,14 +295,14 @@ impl Run<'_, '_> {
                     if confidence >= self.cfg.confidence_threshold {
                         f.set_status(Status::Waiting, self.now);
                     }
-                    self.t(&format!(
+                    self.log(&format!(
                         "- withheld, and what it was asked on changed: nitpick? {} → confidence {confidence:.2}, threshold {:.2} → {}\n",
                         p_text(&w[0]),
                         self.cfg.confidence_threshold,
                         status_word(f.status)
                     ));
                 } else {
-                    self.t("- withheld, asked on the same unit, rule and sides: not asked again\n");
+                    self.log("- withheld, asked on the same unit, rule and sides: not asked again\n");
                 }
             }
             Status::Refuted | Status::Unsure => {
@@ -311,13 +311,13 @@ impl Run<'_, '_> {
                         new.iter().map(|e| e.print.clone()).collect();
                     if new_prints != old_prints {
                         f.set_status(Status::Waiting, self.now);
-                        self.t("- its evidence moved: it waits to be checked again\n");
+                        self.log("- its evidence moved: it waits to be checked again\n");
                     }
                 }
             }
             _ => {}
         }
-        self.t(&format!(
+        self.log(&format!(
             "- id {} (merged; seen {}), {}\n",
             f.id.0,
             count(f.seen as usize, "time"),

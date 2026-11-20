@@ -296,7 +296,7 @@ impl Run<'_, '_> {
             .collect();
         let gone = self.sweep_gone(scope);
         let mut asked = self.send(scope, fresh);
-        self.judge_all(std::mem::take(&mut asked.raws), scope)?;
+        self.judge_all(std::mem::take(&mut asked.raw_findings), scope)?;
         let whole = asked.capped == 0 && asked.failures.is_empty();
         self.remember(&asked, &gone, &base_ids, whole);
         let checks_capped = self.verify_files(scope, &old_waiting)?;
@@ -314,7 +314,7 @@ impl Run<'_, '_> {
         })
     }
 
-    fn t(&self, text: &str) {
+    fn log(&self, text: &str) {
         self.deps.log.put(text);
     }
 
