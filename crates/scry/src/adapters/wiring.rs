@@ -1,7 +1,8 @@
-//! The live wiring of a review: the project's view, the reviewer over a
-//! researcher on the chosen provider, Jev, the claim checker (each
-//! recording its errands as scry's `review`, `check`, `decide`), the
-//! finding store, the ledger, the settings and the system clock.
+//! The live wiring: everything a review needs, built for real. The
+//! project's files, the reviewer on the chosen model provider, Jev, the
+//! claim checker, the findings store, the ledger, the settings and the
+//! system clock. Each model call is recorded in the ledger as one of
+//! scry's errands: `review`, `check` or `decide`.
 
 use std::sync::Arc;
 
@@ -41,6 +42,7 @@ pub trait Wiring {
     fn deps(&self) -> ReviewDeps<'_>;
 }
 
+/// What a review needs, built from the real project, models and clock.
 pub struct LiveWiring {
     view: Arc<FilesView>,
     reviewer: ResearchReviewer,
@@ -53,13 +55,14 @@ pub struct LiveWiring {
     cancel: Cancel,
 }
 
+/// The live wiring reports no progress; the editor's server sets its own.
 fn quiet(_: &Progress) {}
 
 impl LiveWiring {
-    /// The live wiring for PROJECT: Jev from `[decide]` (its key is
-    /// required), the default provider (`claude` runs Claude Code as the
-    /// researcher; any other provider runs sorcerer's tool loop over it),
-    /// grammars from the user's cache.
+    /// The live wiring for the project. Jev comes from `[decide]`, and its
+    /// key must be set. The model provider is the project's default:
+    /// `claude` runs Claude Code; any other provider runs sorcerer's own
+    /// tool loop. Grammars come from the user's cache.
     pub fn open(project: &Project, env: &dyn Env) -> Result<LiveWiring> {
         let jev = jev_for(project, env)?;
         let view = Arc::new(FilesView::new(
@@ -109,25 +112,27 @@ impl Wiring for LiveWiring {
     }
 }
 
-/// The researcher on PROJECT's default provider: `claude` runs Claude Code;
-/// any other provider runs sorcerer's tool loop over it, reading through VIEW
-/// within the project's fences and recording into the project's ledger.
+/// The researcher on the project's default model provider. A provider of
+/// kind `claude` runs Claude Code; any other runs sorcerer's tool loop over
+/// the provider, reading the project's files through `view`, within its
+/// fences, and recording each call in its ledger.
 pub fn researcher_for(
     project: &Project,
     env: &dyn Env,
     view: Arc<dyn CodebaseView>,
 ) -> Result<Arc<dyn Researcher>> {
     let (provider, choice) = default_provider_for(project, env)?;
-    let cfg = project
+    let settings = project
         .config
         .model
         .providers
         .get(&choice.name)
         .cloned()
         .unwrap_or_default();
-    let kind = cfg.kind.clone().unwrap_or_else(|| choice.name.clone());
+    // a provider is of the kind its name says unless `kind` says otherwise
+    let kind = settings.kind.clone().unwrap_or_else(|| choice.name.clone());
     Ok(if kind == "claude" {
-        Arc::new(ClaudeCodeResearcher::new(project, &cfg)?)
+        Arc::new(ClaudeCodeResearcher::new(project, &settings)?)
     } else {
         Arc::new(LoopResearcher::new(
             provider,
@@ -138,8 +143,9 @@ pub fn researcher_for(
     })
 }
 
-/// Jev from `[decide]`, recording into the project's ledger as scry's
-/// `decide` errands. No key is an error naming the variable to set.
+/// Jev, set up from `[decide]`, recording each question in the project's
+/// ledger as one of scry's `decide` errands. With no key set, the error
+/// names the variable to set.
 pub fn jev_for(project: &Project, env: &dyn Env) -> Result<Jev> {
     let jev = Jev::from_env(
         &project.config.decide,
@@ -150,9 +156,11 @@ pub fn jev_for(project: &Project, env: &dyn Env) -> Result<Jev> {
     Ok(jev.for_product(PRODUCT))
 }
 
-/// The claim checker as a review calls it: `check_claim` with the shipped
-/// defaults, its errands recorded as scry's `check`, Jev guarding, a unit
-/// named the way the project's LANGUAGES name the claim's files' units.
+/// The claim checker a review calls: sorcerer's `check_claim` with its
+/// shipped defaults, each call recorded as one of scry's `check` errands,
+/// Jev asked whether a cheap model's verdict holds up (if not, a strong
+/// model checks again), and units named the way the project's languages
+/// name them.
 pub fn claim_checker(
     researcher: Arc<dyn Researcher>,
     decider: Arc<dyn Decider>,
@@ -162,9 +170,10 @@ pub fn claim_checker(
     cancel: Cancel,
 ) -> Box<dyn ClaimChecker> {
     Box::new(move |claim: &Claim| {
-        let mut deps =
-            CheckClaimDeps::defaults(&*researcher, Some(&*decider), &fences, &*view, PRODUCT);
-        deps.languages = Some(&languages);
+        let deps = CheckClaimDeps {
+            languages: Some(&languages),
+            ..CheckClaimDeps::defaults(&*researcher, Some(&*decider), &fences, &*view, PRODUCT)
+        };
         check_claim(claim, &deps, &cancel)
     })
 }

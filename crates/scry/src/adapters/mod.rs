@@ -1,6 +1,7 @@
-//! The ports implemented: the store as a JSON file, the run log as Markdown
-//! files, the settings from `.sorcerer/`, the reviewer over a researcher,
-//! the system clock, and the wiring that builds them for a project.
+//! The real things behind the ports: the findings store as a JSON file, the
+//! run log as Markdown files, the settings read from `.sorcerer/`, the
+//! reviewer as a research call, the system clock, and the wiring that
+//! builds them all for a project.
 
 pub mod json_finding_store;
 pub mod markdown_run_log;
