@@ -12,7 +12,9 @@
 //! `SCRY_RECORD=jev` (with `JEV_API_KEY`) asks Jev what is not recorded;
 //! `SCRY_RECORD=all` also records the review of a case with no
 //! `reviews/<case>.json` and the claim check of a statement not in
-//! `checks.json`, through the live researcher (`researcher_for`). Outward
+//! `checks.json`, through the live researcher (`researcher_for`);
+//! `SCRY_RECORD=checks` asks every check of the cases run again and
+//! overwrites its entry (reviews and Jev replay). Outward
 //! calls, run by hand, refused when `CI` is set.
 mod support;
 
@@ -35,7 +37,7 @@ use scry::ports::run_log::{Quiet, RunLog};
 use scry::usecases::review_change::{
     Progress, ReviewDeps, ReviewOutcome, ReviewRequest, review_change,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::SystemEnv;
@@ -44,7 +46,8 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_models::adapters::jev::question_key;
 use sorcerer_models::adapters::recorded_decider::RecordedDecider;
-use sorcerer_models::domain::claim::{Checked, Claim, Escalation, Verdict};
+use sorcerer_models::domain::claim::{Checked, CitationCheck, Cited, Claim, Escalation, Verdict};
+use sorcerer_models::domain::claim_prompt::RawCitation;
 use sorcerer_models::domain::decide::{Question, Weighed};
 use sorcerer_models::ports::decider::Decider;
 use support::{FixedClock, errand, git};
@@ -101,12 +104,14 @@ fn corpus_at(dir: &Path) -> Corpus {
     }
 }
 
-/// What `SCRY_RECORD` asks for: nothing (replay only), Jev's answers, or
-/// everything that has no recording.
+/// What `SCRY_RECORD` asks for: nothing (replay only), Jev's answers, the
+/// claim checks asked again (reviews and Jev replay), or everything that has
+/// no recording.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Record {
     Nothing,
     Jev,
+    Checks,
     All,
 }
 
@@ -116,8 +121,9 @@ fn record_mode_from(record: Option<&str>, ci: bool) -> Record {
     let mode = match record {
         None | Some("") => return Record::Nothing,
         Some("jev") => Record::Jev,
+        Some("checks") => Record::Checks,
         Some("all") => Record::All,
-        Some(other) => panic!("SCRY_RECORD={other}: expected jev or all"),
+        Some(other) => panic!("SCRY_RECORD={other}: expected jev, checks or all"),
     };
     assert!(!ci, "SCRY_RECORD is refused when CI is set");
     mode
@@ -475,7 +481,10 @@ fn count(c: &Case, shown: &[String]) -> Counted {
 /// Everything a corpus run shares between its cases.
 struct Run<'a> {
     corpus: &'a Corpus,
-    checks: Mutex<BTreeMap<String, String>>,
+    checks: Mutex<BTreeMap<String, RecordedCheck>>,
+    /// The statements a `SCRY_RECORD=checks` run has asked already: each is
+    /// asked once a run, however many cases show it.
+    asked_this_run: Mutex<BTreeSet<String>>,
     record: Record,
     look: bool,
     live_for: LiveFor<'a>,
@@ -488,15 +497,20 @@ fn run_case(run: &Run, c: &Case) -> Row {
     let corpus = run.corpus;
     let (_dir, project, view) = project_for_case(corpus, c);
     let cfg = scry_config(&project).unwrap();
-    let live = (run.record == Record::All).then(|| (run.live_for)(corpus, &project, &view));
+    let asks_live = matches!(run.record, Record::All | Record::Checks);
+    let live = asks_live.then(|| (run.live_for)(corpus, &project, &view));
+    // a checks recording uses only the live checker: reviews and Jev replay
+    let live_beyond_checks = (run.record == Record::All)
+        .then_some(live.as_ref())
+        .flatten();
     let reviewer = CorpusReviewer::for_case(
         corpus,
         &c.id,
-        live.as_ref().map(|l| &*l.reviewer),
+        live_beyond_checks.map(|l| &*l.reviewer),
         &run.tally,
     );
     let recorded = recorded_decider(corpus, run.record, &project);
-    let decider: &dyn Decider = match &live {
+    let decider: &dyn Decider = match live_beyond_checks {
         Some(l) => &*l.decider,
         None => &recorded,
     };
@@ -575,9 +589,64 @@ fn recorded_decider(corpus: &Corpus, record: Record, project: &Project) -> Recor
     }
 }
 
-/// The claim check replayed: the verdict `checks.json` holds for the
-/// statement (none: cannot tell). When recording (`SCRY_RECORD=all`) a
-/// statement it does not hold is asked live and written there.
+/// What the checker said about one statement, as `checks.json` keeps it.
+#[derive(Serialize, Deserialize, Clone)]
+struct RecordedCheck {
+    /// `right`, `wrong` or `cannot_tell`.
+    verdict: String,
+    /// The checker's own explanation of the verdict.
+    why: String,
+    /// The places the checker cited: kept for people to read; replay does
+    /// not hand them to the engine.
+    evidence: Vec<RecordedEvidence>,
+}
+
+/// One place the checker cited, and whether scry found it in the project.
+#[derive(Serialize, Deserialize, Clone)]
+struct RecordedEvidence {
+    path: String,
+    unit: Option<String>,
+    line: Option<u32>,
+    confirmed: bool,
+}
+
+impl RecordedCheck {
+    fn of(checked: &Checked) -> Self {
+        RecordedCheck {
+            verdict: verdict_word(&checked.verdict).to_string(),
+            why: checked.why.clone(),
+            evidence: checked
+                .cited
+                .iter()
+                .map(|c| RecordedEvidence {
+                    path: c.raw.path.clone(),
+                    unit: c.raw.unit.clone(),
+                    line: c.raw.line,
+                    confirmed: c.check != CitationCheck::NotConfirmed,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The recordings in FILE, refusing the older form (a verdict word alone).
+fn read_recorded_checks(file: &Path) -> BTreeMap<String, RecordedCheck> {
+    let json = read_json(file);
+    let old_form = json
+        .as_object()
+        .is_some_and(|o| o.values().any(Value::is_string));
+    assert!(
+        !old_form,
+        "{}: check recordings in the old form; re-record with SCRY_RECORD=checks",
+        file.display()
+    );
+    serde_json::from_value(json).unwrap_or_else(|e| panic!("{}: {e}", file.display()))
+}
+
+/// The claim check replayed: the verdict and `why` `checks.json` holds for
+/// the statement (none: cannot tell). When recording, a statement it does
+/// not hold (`SCRY_RECORD=all`), or every statement once a run
+/// (`SCRY_RECORD=checks`), is asked live and written there.
 struct CorpusChecker<'a> {
     run: &'a Run<'a>,
     live: Option<&'a Live>,
@@ -587,22 +656,38 @@ impl ClaimChecker for CorpusChecker<'_> {
     fn check(&self, claim: &Claim) -> sorcerer_models::Result<Checked> {
         let key = collapse(&claim.statement);
         let known = self.run.checks.lock().unwrap().get(&key).cloned();
-        match (known, self.live) {
-            (None, Some(live)) => {
+        match self.live.filter(|_| self.should_ask(&key, known.is_some())) {
+            Some(live) => {
                 let checked = live.checker.check(claim)?;
                 self.record_check(key, &checked);
                 Ok(checked)
             }
-            (known, _) => Ok(replayed(known.as_deref())),
+            None => Ok(replayed(known.as_ref())),
         }
     }
 }
 
 impl CorpusChecker<'_> {
-    /// CHECKED's verdict under KEY in `checks.json`, and its cost tallied.
+    /// Whether the live checker is asked about KEY now: when recording
+    /// everything, if nothing is recorded; when recording checks, if this run
+    /// has not asked it yet.
+    fn should_ask(&self, key: &str, is_recorded: bool) -> bool {
+        match self.run.record {
+            Record::All => !is_recorded,
+            Record::Checks => self
+                .run
+                .asked_this_run
+                .lock()
+                .unwrap()
+                .insert(key.to_string()),
+            Record::Nothing | Record::Jev => false,
+        }
+    }
+
+    /// CHECKED as the recording under KEY in `checks.json`, and its cost tallied.
     fn record_check(&self, key: String, checked: &Checked) {
         let mut checks = self.run.checks.lock().unwrap();
-        checks.insert(key, verdict_word(&checked.verdict).to_string());
+        checks.insert(key, RecordedCheck::of(checked));
         std::fs::write(
             self.run.corpus.dir.join("checks.json"),
             serde_json::to_string_pretty(&*checks).unwrap() + "\n",
@@ -618,16 +703,16 @@ impl CorpusChecker<'_> {
     }
 }
 
-/// A recorded verdict word as a check's result.
-fn replayed(known: Option<&str>) -> Checked {
-    let verdict = match known {
+/// A recording as a check's result: its verdict and `why`, no citations.
+fn replayed(known: Option<&RecordedCheck>) -> Checked {
+    let verdict = match known.map(|k| k.verdict.as_str()) {
         Some("right") => Verdict::Right,
         Some("wrong") => Verdict::Wrong,
         _ => Verdict::CannotTell,
     };
     Checked {
         verdict,
-        why: "1a's claim check".into(),
+        why: known.map_or_else(|| "no recorded check".into(), |k| k.why.clone()),
         citations: Vec::new(),
         cited: Vec::new(),
         escalation: Escalation::No,
@@ -809,12 +894,13 @@ fn run_corpus_with(
     record: Record,
     live_for: LiveFor,
 ) -> (String, BySet) {
-    let checks = serde_json::from_value(read_json(&corpus.dir.join("checks.json"))).unwrap();
+    let checks = read_recorded_checks(&corpus.dir.join("checks.json"));
     let jev_files = || std::fs::read_dir(corpus.dir.join("jev")).map_or(0, |d| d.count());
     let jev_before = jev_files();
     let run = Run {
         corpus,
         checks: Mutex::new(checks),
+        asked_this_run: Mutex::new(BTreeSet::new()),
         record,
         look: only.is_some(),
         live_for,
@@ -828,7 +914,7 @@ fn run_corpus_with(
         .filter(|c| only.as_ref().is_none_or(|o| o.contains(&c.id)))
     {
         rows.push(run_case(&run, c));
-        if record == Record::All {
+        if matches!(record, Record::All | Record::Checks) {
             stop_past_the_ceiling(&c.id, &run.tally.lock().unwrap());
         }
     }
@@ -1054,7 +1140,14 @@ fn stub_live(_: &Corpus, _: &Arc<Project>, _: &Arc<FilesView>) -> Live {
             verdict: Verdict::Right,
             why: "stub".into(),
             citations: Vec::new(),
-            cited: Vec::new(),
+            cited: vec![Cited {
+                raw: RawCitation {
+                    path: "a.py".into(),
+                    unit: None,
+                    line: Some(1),
+                },
+                check: CitationCheck::Confirmed,
+            }],
             escalation: Escalation::No,
             errands: vec![errand("check", "haiku", 0.01)],
         })
@@ -1067,7 +1160,7 @@ fn stub_live(_: &Corpus, _: &Arc<Project>, _: &Arc<FilesView>) -> Live {
 }
 
 #[test]
-fn recording_writes_each_batch_and_the_verdict_word() {
+fn recording_writes_each_batch_and_the_checkers_reply() {
     let c = fixture_corpus("eval-fixture-record");
     run_corpus_with(&c, None, Record::All, &stub_live);
     let batches = |id: &str| -> Vec<Vec<String>> {
@@ -1083,11 +1176,11 @@ fn recording_writes_each_batch_and_the_verdict_word() {
         batches("c2"),
         vec![vec!["c.py".to_string()], vec!["d.py".to_string()]]
     );
-    let checks: BTreeMap<String, String> =
-        serde_json::from_value(read_json(&c.dir.join("checks.json"))).unwrap();
+    let written = read_json(&c.dir.join("checks.json"));
     assert_eq!(
-        checks.get("f returns 2, not 1.").map(String::as_str),
-        Some("right")
+        written["f returns 2, not 1."],
+        json!({"verdict": "right", "why": "stub",
+               "evidence": [{"path": "a.py", "unit": null, "line": 1, "confirmed": true}]})
     );
     // a second run replays them: no review or check is asked again (the stub
     // Jev recorded nothing, so it stays live)
@@ -1197,4 +1290,100 @@ fn the_table_has_the_unplanted_column_and_the_to_read_list() {
     assert!(text.contains("- n9: y"));
     let (text, _) = table(&corpus, &[row("n8", "V-must", &[])]);
     assert!(!text.contains("to read"));
+}
+
+#[test]
+fn record_checks_re_asks_a_recorded_check_and_replays_the_review() {
+    let c = fixture_corpus("eval-fixture-checks");
+    let jev_dir = c.dir.join("jev");
+    run_corpus_with(&c, None, Record::All, &|corpus, project, view| Live {
+        decider: Box::new(RecordsNoAnswers {
+            jev_dir: jev_dir.clone(),
+        }),
+        ..stub_live(corpus, project, view)
+    });
+    let before = read_json(&c.dir.join("reviews/c1.json"));
+    // a recorded `wrong` the live checker now calls right
+    let mut checks = read_json(&c.dir.join("checks.json"));
+    checks["f returns 2, not 1."]["verdict"] = json!("wrong");
+    std::fs::write(c.dir.join("checks.json"), checks.to_string()).unwrap();
+    run_corpus_with(&c, None, Record::Checks, &|_, _, _| Live {
+        reviewer: Box::new(RefuseReview),
+        checker: Box::new(|_: &Claim| -> sorcerer_models::Result<Checked> {
+            Ok(Checked {
+                verdict: Verdict::Right,
+                why: "asked again".into(),
+                citations: Vec::new(),
+                cited: Vec::new(),
+                escalation: Escalation::No,
+                errands: Vec::new(),
+            })
+        }),
+        decider: Box::new(support::StubDecider::new()),
+    });
+    let after = read_json(&c.dir.join("checks.json"));
+    assert_eq!(after["f returns 2, not 1."]["verdict"], "right");
+    assert_eq!(after["f returns 2, not 1."]["why"], "asked again");
+    assert_eq!(read_json(&c.dir.join("reviews/c1.json")), before);
+}
+
+/// A decider that answers no and leaves a recording for each question, as a
+/// live recording of Jev would, so a later replay finds it.
+struct RecordsNoAnswers {
+    jev_dir: PathBuf,
+}
+impl Decider for RecordsNoAnswers {
+    fn ask(&self, qs: &[Question], cancel: &Cancel) -> sorcerer_models::Result<Vec<Weighed>> {
+        for q in qs {
+            let file = self.jev_dir.join(format!("{}.json", question_key(q)));
+            std::fs::write(file, r#"{"noul": 0.0, "type": "noul"}"#).unwrap();
+        }
+        support::StubDecider::new().ask(qs, cancel)
+    }
+}
+
+/// A reviewer that fails the test when asked.
+struct RefuseReview;
+impl Reviewer for RefuseReview {
+    fn review(
+        &self,
+        _: &ReviewAsk,
+        _: &str,
+        _: f64,
+        _: &Cancel,
+    ) -> sorcerer_models::Result<Reviewed> {
+        panic!("a recorded review was asked again")
+    }
+}
+
+#[test]
+fn replay_gives_the_recorded_why() {
+    let known = RecordedCheck {
+        verdict: "wrong".into(),
+        why: "the loop skips the last slot".into(),
+        evidence: Vec::new(),
+    };
+    let checked = replayed(Some(&known));
+    assert_eq!(checked.verdict, Verdict::Wrong);
+    assert_eq!(checked.why, "the loop skips the last slot");
+    assert!(checked.cited.is_empty());
+}
+
+#[test]
+#[should_panic(expected = "check recordings in the old form")]
+fn an_old_form_file_is_refused_by_name() {
+    let c = fixture_corpus("eval-fixture-old-form");
+    support::write(&c.dir, "checks.json", r#"{"f returns 2, not 1.": "right"}"#);
+    run_corpus_with(&c, None, Record::Nothing, &stub_live);
+}
+
+#[test]
+#[should_panic(expected = "expected jev, checks or all")]
+fn an_unknown_record_word_is_refused() {
+    record_mode_from(Some("everything"), false);
+}
+
+#[test]
+fn record_checks_is_a_record_mode() {
+    assert!(record_mode_from(Some("checks"), false) == Record::Checks);
 }

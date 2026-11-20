@@ -21,9 +21,9 @@ nitpick: nothing shown), **V-taste** (breaks a rule of taste: shown is allowed, 
 | `base/` | the project every case starts from, as plain files |
 | `cases/<id>.toml`, `cases/<id>.patch` | one case each: the patch is the change, applied to `base/` uncommitted |
 | `scry.toml` | the steering the reviewer reads |
-| `labels.json` | per case: its set, the statements that count as a hit, and its changed files |
+| `labels.json` | per case: its set, the statements that count as a hit, the `unplanted` ones (true findings nobody planted, left out of the shown count) and its changed files |
 | `reviews/<case>.json` | the recorded review replies: `{"batches": [{"files": [...], "reply": "...", "cost_usd": …}]}`. Replayed by file: a batch's reply is every recorded finding (over all the case's batches) whose `file` is one of the batch's files, so a change in batching still replays. A case with no file, or a batch with a file no recorded batch holds (a recording stopped part way), fails the eval. |
-| `checks.json` | the recorded claim-check verdicts (`right`, `wrong`, `cannot_tell`), by the statement checked (whitespace collapsed) |
+| `checks.json` | the checker's recorded reply by the statement checked (whitespace collapsed): `verdict` (`right`, `wrong`, `cannot_tell`), `why` and the `evidence` it cited |
 | `jev/<key>.json` | Jev's recorded answers, one file per question, named by its `question_key` |
 
 ## Running it
@@ -40,6 +40,8 @@ nitpick: nothing shown), **V-taste** (breaks a rule of taste: shown is allowed, 
   `checks.json`, and Jev's answers; name one corpus (`… --test eval bistro_rs`). It prints a running
   total a case and stops past `SCRY_RECORD_CEILING` (default 5, claude-reported USD); recorded cases
   are kept, so a rerun asks only for the rest.
+- `SCRY_RECORD=checks` (same keys) asks every claim check of the cases run again and overwrites its
+  entry in `checks.json`; reviews and Jev replay. Name the cases with `SCRY_EVAL_CASES`.
 - `SCRY_RECORD=jev` with `JEV_API_KEY` set asks Jev the questions that have no recording and writes
   them under `jev/`: a paid call (a fraction of a cent a question), run by hand, never in CI (the eval
   refuses `SCRY_RECORD` when `CI` is set). Delete a file to ask its question again.
