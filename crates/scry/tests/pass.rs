@@ -1037,3 +1037,489 @@ fn a_cancel_before_the_pass_fails_every_batch_and_asks_nothing() {
     assert_eq!(pass.log.matches("- cancelled before the call\n").count(), 3);
     assert!(f.store().capped.is_empty());
 }
+
+// ---- the findings' run log, Jev's later silences, the mid-round write ----
+
+/// One pass over PROJECT's working tree, every unit changed sent again,
+/// with these doubles and STORE; no cap.
+fn pass_with(
+    project: &Arc<Project>,
+    view: &FilesView,
+    reviewer: &StubReviewer,
+    decider: &StubDecider,
+    checker: &dyn scry::ports::claim_checker::ClaimChecker,
+    store: &dyn FindingStore,
+) -> Logged {
+    use std::sync::Mutex;
+    let log = Mutex::new(String::new());
+    let trace = |s: &str| log.lock().unwrap().push_str(s);
+    let progress = Mutex::new(Vec::new());
+    let on_progress = |p: &Progress| progress.lock().unwrap().push(p.clone());
+    let clock = FixedClock::at(t0());
+    let ports = support::Ports::of(project);
+    let cancel = Cancel::default();
+    let deps = ReviewDeps {
+        view,
+        reviewer,
+        decider,
+        checker,
+        store,
+        ledger: &ports.ledger,
+        settings: &ports.settings,
+        clock: &clock,
+        log: &trace,
+        progress: &on_progress,
+        cancel: &cancel,
+    };
+    let req = ReviewRequest {
+        fresh: true,
+        caps: Some(Caps {
+            pass: None,
+            day: f64::INFINITY,
+            budget: None,
+        }),
+        ..ReviewRequest::of(ScopeRequest::Working)
+    };
+    let outcome = review_change(project, &req, &deps);
+    Logged {
+        outcome,
+        log: log.into_inner().unwrap(),
+        progress: progress.into_inner().unwrap(),
+    }
+}
+
+/// A claim check that fails: a waiting finding stays waiting.
+fn failing_check(_: &Claim) -> sorcerer_models::Result<Checked> {
+    Err(sorcerer_models::Error::Reply {
+        provider: "stub".into(),
+        why: "no claim check in these tests".into(),
+    })
+}
+
+/// The run log from its `FIRST` heading to the end of its `LAST` section.
+fn sections_text<'l>(log: &'l str, first: &str, last: &str) -> &'l str {
+    let start = log
+        .find(&format!("\n## {first}"))
+        .unwrap_or_else(|| panic!("no {first} section in:\n{log}"));
+    let at = start
+        + log[start..]
+            .find(&format!("\n## {last}"))
+            .unwrap_or_else(|| panic!("no {last} section in:\n{log}"));
+    let end = log[at + 1..]
+        .find("\n## ")
+        .map_or(log.len(), |e| at + 1 + e);
+    &log[start..end]
+}
+
+/// TEXT equals the golden file NAME; SCRY_BLESS=1 rewrites it.
+fn assert_golden(name: &str, text: &str) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(name);
+    if std::env::var_os("SCRY_BLESS").is_some() {
+        std::fs::write(&path, text).unwrap();
+    }
+    let golden = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        text, golden,
+        "the run log drifted from {name}; SCRY_BLESS=1 rewrites the golden file"
+    );
+}
+
+/// A review reply of FINDINGS, each (file, line, statement, rule), and OPEN.
+fn reply_of(findings: &[(&str, u32, &str, &str)], open: serde_json::Value) -> String {
+    let findings: Vec<serde_json::Value> = findings
+        .iter()
+        .map(|(file, line, statement, rule)| {
+            serde_json::json!({
+                "issue_type": "bug",
+                "file": file,
+                "lines": [line, line],
+                "statement": statement,
+                "rule": rule,
+                "evidence": [{"file": file, "lines": [line, line]}],
+            })
+        })
+        .collect();
+    serde_json::json!({"findings": findings, "open": open}).to_string()
+}
+
+/// Jev says yes to the same-problem question only for these pairs of
+/// (new statement, stored statement); NITPICKS answer the nitpick question
+/// by statement.
+fn judging_decider(pairs: &[(&str, &str)], nitpicks: &[(&str, Answer)]) -> StubDecider {
+    let mut d = StubDecider::new();
+    for (new, stored) in pairs {
+        let (new, stored) = (new.to_string(), stored.to_string());
+        d = d.on(
+            "same",
+            move |q| {
+                StubDecider::context(q, "finding A").ends_with(&new)
+                    && StubDecider::context(q, "finding B").ends_with(&stored)
+            },
+            StubDecider::p_yes(0.9),
+        );
+    }
+    for (statement, answer) in nitpicks {
+        let statement = statement.to_string();
+        d = d.on(
+            "nitpick",
+            move |q| StubDecider::context(q, "finding") == statement,
+            answer.clone(),
+        );
+    }
+    d
+}
+
+const MANY_A: &str = "def alpha(x):\n    return x + 1\n\n\ndef beta(x):\n    return x * 2\n";
+const MANY_B: &str = "def gamma(x):\n    return x - 1\n\n\ndef delta(x):\n    return x / 2\n";
+const MANY_C: &str = "def eps(x):\n    return round(x)\n";
+const MANY_D: &str = "def zeta(x):\n    return x ** 2\n";
+const MANY_E: &str = "def iota(x):\n    return 1 / x\n";
+
+/// Five small files committed, then every unit changed once (`+ 0`), and
+/// a first pass that stored one finding per unit, each then set to the
+/// status the second pass starts from.
+fn many_findings() -> Fixture {
+    let dir = git_project();
+    write(dir.path(), ".sorcerer/scry.toml", STEERING);
+    let files = [
+        ("a.py", MANY_A),
+        ("b.py", MANY_B),
+        ("c.py", MANY_C),
+        ("d.py", MANY_D),
+        ("e.py", MANY_E),
+    ];
+    for (file, text) in files {
+        write(dir.path(), file, text);
+    }
+    commit(dir.path(), "five files");
+    for (file, text) in files {
+        write(dir.path(), file, &text.replace("\n\n\n", " + 0\n\n\n"));
+        let p = dir.path().join(file);
+        let t = std::fs::read_to_string(&p).unwrap();
+        if !t.ends_with(" + 0\n") {
+            std::fs::write(p, t.trim_end().to_string() + " + 0\n").unwrap();
+        }
+    }
+    let (project, view) = support::project_with_vendored_grammars(dir.path());
+    let f = Fixture { dir, project, view };
+    let seed = StubReviewer::new().reply(
+        &["a.py", "b.py", "c.py", "d.py", "e.py"],
+        &reply_of(
+            &[
+                ("a.py", 2, "alpha adds one", ""),
+                ("b.py", 6, "delta drops the remainder", ""),
+                ("c.py", 2, "eps rounds half to even", ""),
+                ("d.py", 2, "zeta overflows", ""),
+                ("a.py", 6, "beta doubles twice", ""),
+                ("b.py", 2, "gamma leaks", ""),
+                ("e.py", 2, "iota divides by zero", ""),
+            ],
+            serde_json::json!([]),
+        ),
+    );
+    let store = support::store_of(&f.project);
+    let first = pass_with(
+        &f.project,
+        &f.view,
+        &seed,
+        &StubDecider::new(),
+        &failing_check,
+        &store,
+    );
+    ran(first.outcome.unwrap());
+    support::update_store(&f.project, |s| {
+        for g in &mut s.findings {
+            match g.statement.as_str() {
+                "alpha adds one" | "beta doubles twice" | "gamma leaks" => {
+                    g.set_status(Status::Open, t0());
+                }
+                "eps rounds half to even" => {
+                    g.set_status(Status::Withheld, t0());
+                    g.scores.asked_on = Some("what it was asked on before".into());
+                }
+                "zeta overflows" => {
+                    g.set_status(Status::Refuted, t0());
+                    for e in &mut g.evidence {
+                        e.print = Some("an older print".into());
+                    }
+                }
+                "iota divides by zero" => g.set_status(Status::DismissedHere, t0()),
+                _ => {}
+            }
+        }
+    })
+    .unwrap();
+    f
+}
+
+/// The statuses of STORE's findings, by statement.
+fn statuses(s: &Findings) -> Vec<(String, Status)> {
+    s.findings
+        .iter()
+        .map(|g| (g.statement.clone(), g.status))
+        .collect()
+}
+
+#[test]
+fn the_run_log_of_the_findings_is_as_recorded() {
+    let f = many_findings();
+    let alpha_id = f
+        .store()
+        .findings
+        .iter()
+        .find(|g| g.statement == "alpha adds one")
+        .unwrap()
+        .id
+        .0
+        .clone();
+    // every unit changed again; delta removed from b.py
+    for (file, text) in [
+        ("a.py", MANY_A),
+        ("b.py", MANY_B),
+        ("c.py", MANY_C),
+        ("d.py", MANY_D),
+        ("e.py", MANY_E),
+    ] {
+        let text = text.replace("\n\n\n", " + 1\n\n\n");
+        let text = text.trim_end().to_string() + " + 1\n";
+        let text = if file == "b.py" {
+            "def gamma(x):\n    return x - 1 + 1\n".to_string()
+        } else {
+            text
+        };
+        write(f.root(), file, &text);
+    }
+    let answers = serde_json::json!([
+        {"id": alpha_id, "holds": "no longer holds", "why": "it adds two now"},
+    ]);
+    let reviewer = StubReviewer::new().reply(
+        &["a.py", "b.py", "c.py", "d.py", "e.py"],
+        &reply_of(
+            &[
+                ("a.py", 3, "a stray blank line", ""),
+                ("a.py", 2, "alpha ignores negatives", "no-such-rule"),
+                ("b.py", 2, "gamma leaks a handle", ""),
+                ("e.py", 2, "iota may divide by zero", ""),
+                ("a.py", 5, "beta has a long name", ""),
+                ("b.py", 2, "gamma never closes its file", ""),
+                ("c.py", 2, "eps rounds half to even again", ""),
+                ("d.py", 2, "zeta overflows on big input", ""),
+            ],
+            answers,
+        ),
+    );
+    let decider = judging_decider(
+        &[
+            ("gamma leaks a handle", "gamma leaks"),
+            ("iota may divide by zero", "iota divides by zero"),
+            ("eps rounds half to even again", "eps rounds half to even"),
+            ("zeta overflows on big input", "zeta overflows"),
+        ],
+        &[
+            ("beta has a long name", StubDecider::p_yes(0.9)),
+            ("gamma never closes its file", StubDecider::p_yes(0.2)),
+            ("eps rounds half to even again", StubDecider::p_yes(0.1)),
+        ],
+    );
+    let store = support::store_of(&f.project);
+    let pass = pass_with(
+        &f.project,
+        &f.view,
+        &reviewer,
+        &decider,
+        &failing_check,
+        &store,
+    );
+    assert_golden(
+        "run-log-findings.md",
+        sections_text(&pass.log, "Findings", "Reviewed"),
+    );
+    let r = ran(pass.outcome.unwrap());
+    assert!(r.whole);
+    let st = |s: &str| (s.to_string(), Status::Waiting);
+    let mut want = vec![
+        ("alpha adds one".to_string(), Status::Resolved),
+        ("delta drops the remainder".to_string(), Status::Gone),
+        st("eps rounds half to even again"),
+        st("zeta overflows on big input"),
+        ("beta doubles twice".to_string(), Status::Resolved),
+        ("gamma leaks a handle".to_string(), Status::Open),
+        ("iota divides by zero".to_string(), Status::DismissedHere),
+        ("a stray blank line".to_string(), Status::Elsewhere),
+        st("alpha ignores negatives"),
+        ("beta has a long name".to_string(), Status::Withheld),
+        st("gamma never closes its file"),
+    ];
+    let mut got = statuses(&f.store());
+    want.sort_by(|a, b| a.0.cmp(&b.0));
+    got.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(got, want);
+}
+
+/// A pass over F whose Jev is DECIDER is skipped for Jev's silence, leaves
+/// the store's file as it was and tells no `Stored`.
+fn assert_silent_pass_writes_nothing(f: &Fixture, reviewer: &StubReviewer, decider: &StubDecider) {
+    let before = std::fs::read(f.store_path()).unwrap();
+    let store = support::store_of(&f.project);
+    let pass = pass_with(
+        &f.project,
+        &f.view,
+        reviewer,
+        decider,
+        &failing_check,
+        &store,
+    );
+    match pass.outcome.unwrap() {
+        ReviewOutcome::Skipped(why) => assert_eq!(why, "Jev did not answer"),
+        ReviewOutcome::Ran(r) => panic!("ran: {r:?}"),
+    }
+    assert_eq!(std::fs::read(f.store_path()).unwrap(), before);
+    assert!(
+        !pass.progress.contains(&Progress::Stored),
+        "{:?}",
+        pass.progress
+    );
+}
+
+#[test]
+fn jev_silent_at_the_nitpick_question_writes_nothing() {
+    let f = Fixture::new();
+    ran(f.run(
+        &bug_reviewer("cancel() returns None."),
+        &StubDecider::new(),
+        false,
+    ));
+    // the same-problem question is answered (not the same); the nitpick not
+    let decider = StubDecider::new().on("nitpick", |_| true, Answer::Unsure);
+    assert_silent_pass_writes_nothing(&f, &bug_reviewer("cancel() ignores now."), &decider);
+    let kinds: Vec<String> = decider.asked().into_iter().map(|q| q.kind).collect();
+    assert_eq!(kinds, ["same", "nitpick"]);
+}
+
+#[test]
+fn jev_silent_at_a_withheld_merges_question_writes_nothing() {
+    let f = Fixture::new();
+    ran(f.run(
+        &bug_reviewer("cancel() returns None."),
+        &StubDecider::new(),
+        false,
+    ));
+    support::update_store(&f.project, |s| {
+        let g = &mut s.findings[0];
+        g.set_status(Status::Withheld, t0());
+        g.scores.asked_on = Some("what it was asked on before".into());
+    })
+    .unwrap();
+    let decider = StubDecider::new()
+        .on("same", |_| true, StubDecider::p_yes(0.9))
+        .on("nitpick", |_| true, Answer::Unsure);
+    assert_silent_pass_writes_nothing(&f, &bug_reviewer("cancel() gives back None."), &decider);
+    let kinds: Vec<String> = decider.asked().into_iter().map(|q| q.kind).collect();
+    assert_eq!(kinds, ["same", "nitpick"]);
+}
+
+/// The project's store, but before the pass's first write another writer
+/// takes the id the pass gives its new finding.
+struct TakenBeforeTheFirstWrite {
+    inner: scry::adapters::json_finding_store::JsonFindingStore,
+    taken: std::sync::Mutex<Option<scry::domain::finding::FindingId>>,
+}
+
+impl FindingStore for TakenBeforeTheFirstWrite {
+    fn read(&self) -> sorcerer_core::Result<Snapshot<Findings>> {
+        self.inner.read()
+    }
+
+    fn update(&self, f: &mut dyn FnMut(&mut Findings)) -> sorcerer_core::Result<()> {
+        let mut taken = self.taken.lock().unwrap();
+        self.inner.update(&mut |current| {
+            if taken.is_none() {
+                // what the pass would write: its new finding's id, taken first
+                let mut preview = current.clone();
+                f(&mut preview);
+                let ours = preview
+                    .findings
+                    .iter()
+                    .find(|g| !current.findings.iter().any(|c| c.id == g.id))
+                    .expect("the pass writes a new finding")
+                    .clone();
+                let mut theirs = ours.clone();
+                theirs.statement = "added from another terminal".into();
+                current.findings.push(theirs);
+                *taken = Some(ours.id);
+            }
+            f(current);
+        })
+    }
+
+    fn hold(&self) -> sorcerer_core::Result<Box<dyn scry::ports::finding_store::Held>> {
+        self.inner.hold()
+    }
+
+    fn path(&self) -> &Path {
+        self.inner.path()
+    }
+}
+
+#[test]
+fn an_id_taken_before_the_mid_round_write_stays_renamed_at_the_end() {
+    use sorcerer_models::domain::claim::Verdict;
+    let f = Fixture::new();
+    let right = |_: &Claim| -> sorcerer_models::Result<Checked> {
+        Ok(Checked {
+            verdict: Verdict::Right,
+            why: "it does".into(),
+            citations: Vec::new(),
+            cited: Vec::new(),
+            escalated: false,
+            errands: vec![support::errand("check", "haiku", 0.01)],
+        })
+    };
+    let store = TakenBeforeTheFirstWrite {
+        inner: support::store_of(&f.project),
+        taken: std::sync::Mutex::new(None),
+    };
+    let pass = pass_with(
+        &f.project,
+        &f.view,
+        &bug_reviewer("cancel() returns None."),
+        &StubDecider::new(),
+        &right,
+        &store,
+    );
+    let r = ran(pass.outcome.unwrap());
+    let taken = store
+        .taken
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("a write happened");
+    // the mid-round write came before the round's check
+    assert_eq!(
+        pass.progress
+            .iter()
+            .filter(|p| **p == Progress::Stored)
+            .count(),
+        2,
+        "{:?}",
+        pass.progress
+    );
+    let s = f.store();
+    assert_eq!(s.findings.len(), 2, "{:#?}", s.findings);
+    let theirs = s.findings.iter().find(|g| g.id == taken).unwrap();
+    assert_eq!(theirs.statement, "added from another terminal");
+    assert!(theirs.verdict.is_none());
+    let ours: Vec<&Finding> = s
+        .findings
+        .iter()
+        .filter(|g| g.statement == "cancel() returns None.")
+        .collect();
+    assert_eq!(ours.len(), 1);
+    assert_ne!(ours[0].id, taken);
+    assert!(ours[0].verdict.is_some());
+    assert_eq!(r.new, std::slice::from_ref(&ours[0].id));
+    assert!(r.touched.contains(&ours[0].id), "{:?}", r.touched);
+    assert!(!r.touched.contains(&taken), "{:?}", r.touched);
+}
