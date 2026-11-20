@@ -1,67 +1,106 @@
-//! How findings and tables are printed.
+//! How the commands print: findings as text or JSON, and tables.
 
 use serde_json::json;
 use sorcerer_core::domain::unit::Span;
 
 use crate::domain::finding::Finding;
 
-/// Columns padded to their widest cell, two spaces apart, no trailing space.
-pub(super) fn table(header: &[&str], rows: &[Vec<String>]) -> String {
-    let mut widths: Vec<usize> = header.iter().map(|h| h.chars().count()).collect();
-    for r in rows {
-        for (w, c) in widths.iter_mut().zip(r) {
-            *w = (*w).max(c.chars().count());
+/// How a command prints what it found: as text for a person, or as JSON for
+/// a program (`--json`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Output {
+    Text,
+    Json,
+}
+
+impl Output {
+    /// JSON when the `--json` flag is given, else text.
+    pub(super) fn json_if(json_flag: bool) -> Output {
+        if json_flag {
+            Output::Json
+        } else {
+            Output::Text
         }
     }
+}
+
+/// A table: each column as wide as its widest cell, columns two spaces
+/// apart, no space at the end of a line.
+///
+/// Example:
+/// ```text
+/// status  issue type  file
+/// open    bug         orders.py
+/// ```
+pub(super) fn table(header: &[&str], rows: &[Vec<String>]) -> String {
+    let widths: Vec<usize> = (0..header.len())
+        .map(|column| {
+            let cells = rows.iter().filter_map(|row| row.get(column));
+            let widest_cell = cells.map(|cell| cell.chars().count()).max().unwrap_or(0);
+            header[column].chars().count().max(widest_cell)
+        })
+        .collect();
     let line = |cells: Vec<&str>| {
         let padded: Vec<String> = cells
             .iter()
             .zip(&widths)
-            .map(|(c, w)| format!("{c:<w$}"))
+            .map(|(cell, width)| format!("{cell:<width$}"))
             .collect();
         format!("{}\n", padded.join("  ").trim_end())
     };
-    let mut out = line(header.to_vec());
-    for r in rows {
-        out.push_str(&line(r.iter().map(String::as_str).collect()));
-    }
-    out
+    let header_line = line(header.to_vec());
+    let row_lines = rows
+        .iter()
+        .map(|row| line(row.iter().map(String::as_str).collect()));
+    std::iter::once(header_line).chain(row_lines).collect()
 }
 
-/// S, cut to N characters (the last an ellipsis) when it is longer.
-pub(super) fn cut_to(n: usize, s: &str) -> String {
-    if s.chars().count() > n {
-        let mut t: String = s.chars().take(n - 1).collect();
-        t.push('…');
-        t
+/// The text, cut to at most `n` characters, ending in an ellipsis when it
+/// was longer: `cut_to(8, "cancel() returns None")` is `cancel(…`.
+pub(super) fn cut_to(n: usize, text: &str) -> String {
+    if text.chars().count() > n {
+        let kept: String = text.chars().take(n - 1).collect();
+        format!("{kept}…")
     } else {
-        s.to_string()
+        text.to_string()
     }
 }
 
-/// The cited lines whole, two either side, numbered as the claim prompt
-/// numbers them; a range past the end stops at the last line.
+/// The cited lines, with 2 lines either side, each numbered the way the
+/// claim prompt numbers them. A range past the end of the file stops at
+/// its last line.
+///
+/// Example: lines 5-6 of a long file show lines 3 to 8, as `   3 code`.
 pub(super) fn cited_range(text: &str, lines: Span) -> String {
-    let ls: Vec<&str> = text.lines().collect();
-    let lo = lines.start.saturating_sub(2).max(1) as usize;
-    let hi = (lines.end.max(lines.start) as usize + 2).min(ls.len());
-    (lo..=hi)
-        .filter_map(|n| ls.get(n - 1).map(|l| format!("{n:>4} {l}")))
+    let file_lines: Vec<&str> = text.lines().collect();
+    let first = lines.start.saturating_sub(2).max(1) as usize;
+    let last = (lines.end.max(lines.start) as usize + 2).min(file_lines.len());
+    (first..=last)
+        .filter_map(|n| file_lines.get(n - 1).map(|code| format!("{n:>4} {code}")))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-/// `2` for one line, `2-5` for a range.
-pub(super) fn lines_text(a: u32, z: u32) -> String {
-    if a == z {
-        a.to_string()
+/// A line range in short: `2` for one line, `2-5` for several.
+pub(super) fn lines_text(first: u32, last: u32) -> String {
+    if first == last {
+        first.to_string()
     } else {
-        format!("{a}-{z}")
+        format!("{first}-{last}")
     }
 }
 
-/// `file:line  issue type  statement  (confidence)`, the statement wrapped to WIDTH
-/// under itself, then the evidence and the `scry why` line.
+/// A finding as `scry` prints it: where it is, its issue type, its
+/// statement wrapped to the terminal's width with the confidence after it,
+/// then its evidence and how to read it in full.
+///
+/// Example:
+/// ```text
+/// orders.py:41  bug  cancel() returns None when the order was already
+///                    shipped, so the caller's refund is skipped.  (0.92)
+///   evidence: orders.py:41, orders.py:57-58
+///   scry why 3fa9c0
+/// ```
 pub(super) fn finding_text(f: &Finding, width: usize) -> String {
     let head = format!(
         "{}:{}  {}  ",
@@ -70,28 +109,28 @@ pub(super) fn finding_text(f: &Finding, width: usize) -> String {
         f.issue_type
     );
     let indent = head.chars().count();
-    let room = width.saturating_sub(indent).max(30);
-    let tag = format!("({:.2})", f.scores.confidence.unwrap_or(0.0));
-    let lines = wrapped_with_tag(&f.statement, &tag, room);
-    let mut text = head;
-    text.push_str(&lines.join(&format!("\n{}", " ".repeat(indent))));
-    text.push('\n');
-    if !f.evidence.is_empty() {
-        text.push_str(&evidence_line(f));
-    }
-    text.push_str(&format!("  scry why {}\n", f.id.0));
-    text
+    let statement_width = width.saturating_sub(indent).max(30);
+    let confidence = format!("({:.2})", f.scores.confidence.unwrap_or(0.0));
+    let statement = wrapped_with_tag(&f.statement, &confidence, statement_width)
+        .join(&format!("\n{}", " ".repeat(indent)));
+    let evidence = if f.evidence.is_empty() {
+        String::new()
+    } else {
+        evidence_line(f)
+    };
+    format!("{head}{statement}\n{evidence}  scry why {}\n", f.id.0)
 }
 
-/// STATEMENT's words in lines of at most ROOM characters, TAG two spaces
-/// after the last word, or on a line of its own when it does not fit.
-fn wrapped_with_tag(statement: &str, tag: &str, room: usize) -> Vec<String> {
+/// The statement's words in lines of at most `width` characters, with the
+/// tag two spaces after the last word, or on a line of its own when it
+/// does not fit there.
+fn wrapped_with_tag(statement: &str, tag: &str, width: usize) -> Vec<String> {
     let mut lines: Vec<String> = vec![String::new()];
     for word in statement.split_whitespace() {
         let last = lines.last_mut().expect("one line at least");
         if last.is_empty() {
             last.push_str(word);
-        } else if last.chars().count() + 1 + word.chars().count() <= room {
+        } else if last.chars().count() + 1 + word.chars().count() <= width {
             last.push(' ');
             last.push_str(word);
         } else {
@@ -99,7 +138,7 @@ fn wrapped_with_tag(statement: &str, tag: &str, room: usize) -> Vec<String> {
         }
     }
     let last = lines.last_mut().expect("one line at least");
-    if last.chars().count() + 2 + tag.len() <= room {
+    if last.chars().count() + 2 + tag.len() <= width {
         last.push_str("  ");
         last.push_str(tag);
     } else {
@@ -108,7 +147,7 @@ fn wrapped_with_tag(statement: &str, tag: &str, room: usize) -> Vec<String> {
     lines
 }
 
-/// `  evidence: orders.py:2, orders.py:5-6`.
+/// The finding's evidence on one line: `  evidence: orders.py:2, orders.py:5-6`.
 fn evidence_line(f: &Finding) -> String {
     let cited: Vec<String> = f
         .evidence
@@ -124,6 +163,7 @@ fn evidence_line(f: &Finding) -> String {
     format!("  evidence: {}\n", cited.join(", "))
 }
 
+/// A finding as one JSON object, as `scry --json` prints it.
 pub(super) fn finding_json(f: &Finding) -> serde_json::Value {
     json!({
         "id": f.id.0,

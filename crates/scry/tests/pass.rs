@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use scry::domain::budget::Caps;
-use scry::domain::finding::{Finding, Status};
+use scry::domain::finding::{Dismissal, Finding, Status};
 use scry::domain::findings::Findings;
 use scry::domain::findings::{merge_into, renamed};
 use scry::domain::scope::ScopeRequest;
@@ -410,9 +410,11 @@ fn dismissed_everywhere_drops_the_new_finding() {
         false,
     ));
     let id = only(&f.store()).id.clone();
-    support::update_store(&f.project, |s| s.dismiss(&id.0, true, t0()))
-        .unwrap()
-        .unwrap();
+    support::update_store(&f.project, |s| {
+        s.dismiss(&id.0, Dismissal::Everywhere, t0())
+    })
+    .unwrap()
+    .unwrap();
     let decider = StubDecider::new().on("same", |_| true, StubDecider::p_yes(0.8));
     let r = ran(f.run(
         &bug_reviewer("cancel() returns None again."),
@@ -593,7 +595,7 @@ fn a_dismissal_during_the_pass_stands() {
     let project = f.project.clone();
     let dismissed = id.clone();
     let reviewer = bug_reviewer("cancel() gives back None.").on_review(move |_| {
-        support::update_store(&project, |s| s.dismiss(&dismissed.0, false, t0()))
+        support::update_store(&project, |s| s.dismiss(&dismissed.0, Dismissal::Here, t0()))
             .unwrap()
             .unwrap();
     });
@@ -1636,7 +1638,7 @@ fn the_run_log_lines_the_goldens_do_not_reach_are_as_recorded() {
     let id = only(&f.store()).id.0.clone();
     support::update_store(&f.project, |s| {
         s.findings[0].place.unit = Some("place".into());
-        s.dismiss(&id, false, t0())
+        s.dismiss(&id, Dismissal::Here, t0())
     })
     .unwrap()
     .unwrap();

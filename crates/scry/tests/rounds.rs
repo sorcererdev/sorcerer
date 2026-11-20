@@ -10,7 +10,7 @@ use chrono::{DateTime, FixedOffset, Utc};
 use scry::domain::budget::Caps;
 use scry::domain::budget::{Budget, check_estimate, review_estimate};
 use scry::domain::config::ScryConfig;
-use scry::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
+use scry::domain::finding::{Dismissal, Evidence, Finding, FindingId, Place, Scores, Status};
 use scry::domain::findings::Findings;
 use scry::domain::scope::ScopeRequest;
 use scry::ports::claim_checker::ClaimChecker;
@@ -530,7 +530,7 @@ fn a_waiting_finding_is_verified_when_room_frees_with_nothing_to_review() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(status_of(&f.store(), "000011"), Status::Unverified);
 
-    support::update_store(&f.project, |s| s.dismiss("00000e", false, t0()))
+    support::update_store(&f.project, |s| s.dismiss("00000e", Dismissal::Here, t0()))
         .unwrap()
         .unwrap();
     f.run(&reviewer, &checker, &no_caps());

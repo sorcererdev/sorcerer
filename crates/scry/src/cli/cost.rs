@@ -1,6 +1,5 @@
-//! `scry cost`.
-
-use std::io::Write;
+//! `scry cost`: what scry spent, a day a row, and how many units wait for
+//! the next run because a cap stopped them.
 
 use anyhow::Result;
 use chrono::{FixedOffset, NaiveDate};
@@ -8,41 +7,43 @@ use serde_json::json;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::project::Project;
 
-use super::format::table;
+use super::Console;
+use super::format::{Output, table};
 use crate::adapters::json_finding_store::JsonFindingStore;
 use crate::domain::log_text::count;
 use crate::usecases::report_cost::{CostReport, report_cost};
 
-/// What scry spent, a local day (in OFFSET) a row, from SINCE on; `decide`
-/// errands count into the total only.
+/// Prints what scry spent in each of the user's local days (`offset` is
+/// their time zone), from the `--since` day on when given. Review calls and
+/// claim checks have their own columns; Jev's questions count only in the
+/// total.
 pub(super) fn cost(
     project: &Project,
     since: Option<&str>,
     offset: FixedOffset,
-    json: bool,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
+    output: Output,
+    console: &mut Console,
 ) -> Result<i32> {
     let since = since.map(day_of).transpose()?;
-    let r = report_cost(
+    let report = report_cost(
         &JsonlLedger::for_project(project)?,
         &JsonFindingStore::for_project(project)?,
         offset,
         since,
     )?;
     // a store that does not read is said, not counted as nothing waiting
-    if let Some(e) = &r.store_error {
-        writeln!(err, "scry: {e}")?;
+    if let Some(e) = &report.store_error {
+        writeln!(console.err, "scry: {e}")?;
     }
-    if json {
-        write!(out, "{}", cost_json_text(&r))?;
-    } else {
-        write!(out, "{}", cost_table_text(&r))?;
-    }
+    let text = match output {
+        Output::Json => cost_json_text(&report),
+        Output::Text => cost_table_text(&report),
+    };
+    write!(console.out, "{text}")?;
     Ok(0)
 }
 
-/// `--since`'s day.
+/// The `--since` day, written `2026-11-20`.
 fn day_of(since: &str) -> Result<NaiveDate> {
     NaiveDate::parse_from_str(since, "%Y-%m-%d")
         .map_err(|_| anyhow::anyhow!("--since {since}: give a day as YYYY-MM-DD"))
@@ -50,9 +51,9 @@ fn day_of(since: &str) -> Result<NaiveDate> {
 
 // The command's text.
 
-/// One JSON object: the days and the units waiting on the cap.
-fn cost_json_text(r: &CostReport) -> String {
-    let days: Vec<_> = r
+/// One JSON object: the days, and the units waiting on the cap.
+fn cost_json_text(report: &CostReport) -> String {
+    let days: Vec<_> = report
         .days
         .iter()
         .map(|d| {
@@ -68,13 +69,14 @@ fn cost_json_text(r: &CostReport) -> String {
         .collect();
     format!(
         "{}\n",
-        json!({ "days": days, "waiting_units": r.waiting_units })
+        json!({ "days": days, "waiting_units": report.waiting_units })
     )
 }
 
-/// A row a day, then the units waiting on the cap (when the store read).
-fn cost_table_text(r: &CostReport) -> String {
-    let rows: Vec<Vec<String>> = r
+/// A table with a row for each day, then how many units wait on the cap
+/// (left out when the store could not be read).
+fn cost_table_text(report: &CostReport) -> String {
+    let rows: Vec<Vec<String>> = report
         .days
         .iter()
         .map(|d| {
@@ -88,12 +90,13 @@ fn cost_table_text(r: &CostReport) -> String {
             ]
         })
         .collect();
-    let mut s = table(
+    let days = table(
         &["day", "reviews", "checks", "review $", "check $", "total $"],
         &rows,
     );
-    if let Some(n) = r.waiting_units {
-        s.push_str(&format!("waiting on the cap: {}\n", count(n, "unit")));
-    }
-    s
+    let waiting = report
+        .waiting_units
+        .map(|n| format!("waiting on the cap: {}\n", count(n, "unit")))
+        .unwrap_or_default();
+    format!("{days}{waiting}")
 }

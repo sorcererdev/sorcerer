@@ -1,4 +1,5 @@
-//! `scry why`: a finding in full, as Markdown.
+//! `scry why`: one finding in full, as Markdown: what it says, the rule
+//! and the unit, the code it cites, what the check said, and its history.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -15,31 +16,47 @@ use crate::adapters::scry_toml::{STEERING_FILE, ScryToml};
 use crate::domain::finding::{Evidence, Finding, status_word};
 use crate::usecases::explain_finding::{CitedText, Explanation, explain_finding};
 
-/// The finding ID (or an unambiguous prefix) explained on OUT: its
-/// statement, rule, unit, evidence, check, confidence, sightings and history.
+/// Prints the finding with this id (or the start of one, if only one
+/// finding has it) in full.
 pub(super) fn why(project: &Project, env: &dyn Env, id: &str, out: &mut dyn Write) -> Result<i32> {
     let view = FilesView::new(Arc::new(project.clone()), GrammarCache::user(env));
-    let x = explain_finding(
+    let explanation = explain_finding(
         project,
         &JsonFindingStore::for_project(project)?,
         &ScryToml::for_project(project),
         &view,
         id,
     )?;
-    write!(out, "{}", explanation_text(&x))?;
+    write!(out, "{}", explanation_text(&explanation))?;
     Ok(0)
 }
 
 // The command's text.
 
 /// The explanation as Markdown, a section at a time.
-fn explanation_text(x: &Explanation) -> String {
-    let f = &x.finding;
+///
+/// Example (shortened):
+/// ```text
+/// # bug: orders.py:41
+///
+/// cancel() returns None when the order was already shipped.
+///
+/// Unit: Order.cancel (starts at orders.py:30)
+///
+/// Evidence:
+/// orders.py:41
+///   39     if self.shipped:
+///   40         log.info("shipped")
+///   41         return
+/// ...
+/// ```
+fn explanation_text(explanation: &Explanation) -> String {
+    let f = &explanation.finding;
     [
         heading_text(f),
-        x.rule.as_ref().map_or(String::new(), rule_text),
+        explanation.rule.as_ref().map_or(String::new(), rule_text),
         unit_text(f),
-        evidence_text(&x.evidence),
+        evidence_text(&explanation.evidence),
         checked_text(f),
         seen_text(f),
         history_text(f),
@@ -47,7 +64,7 @@ fn explanation_text(x: &Explanation) -> String {
     .concat()
 }
 
-/// `# bug: orders.py:2-3` and the statement.
+/// The heading, `# bug: orders.py:2-3`, then the statement.
 fn heading_text(f: &Finding) -> String {
     format!(
         "# {}: {}:{}\n\n{}\n\n",
@@ -58,82 +75,97 @@ fn heading_text(f: &Finding) -> String {
     )
 }
 
-/// The rule cited, with its text, or a note that the steering no longer has it.
+/// The rule cited, with its text, or a note that the steering no longer
+/// has it.
 fn rule_text((id, text): &(String, Option<String>)) -> String {
     match text {
-        Some(t) => format!("Rule: {id}\n{t}\n\n"),
+        Some(text) => format!("Rule: {id}\n{text}\n\n"),
         None => format!("Rule: {id} (not in {STEERING_FILE} now)\n\n"),
     }
 }
 
+/// The unit the finding is in, and where it starts, when it is in one.
 fn unit_text(f: &Finding) -> String {
     match (&f.place.unit, f.place.unit_start) {
-        (Some(u), Some(at)) => format!("Unit: {u} (starts at {}:{at})\n\n", f.place.file.display()),
-        (Some(u), None) => format!("Unit: {u}\n\n"),
+        (Some(unit), Some(start)) => {
+            format!(
+                "Unit: {unit} (starts at {}:{start})\n\n",
+                f.place.file.display()
+            )
+        }
+        (Some(unit), None) => format!("Unit: {unit}\n\n"),
         _ => String::new(),
     }
 }
 
-/// Each cited range and its lines, or why they are not shown.
+/// Each cited range with its code around it, or why the code is not
+/// shown. Nothing when the finding cites no evidence.
 fn evidence_text(evidence: &[(Evidence, CitedText)]) -> String {
     if evidence.is_empty() {
         return String::new();
     }
-    let mut s = "Evidence:\n".to_string();
-    for (e, text) in evidence {
-        s.push_str(&format!(
-            "{}:{}\n",
-            e.file.display(),
-            lines_text(e.lines.start, e.lines.end)
-        ));
-        s.push_str(&match text {
-            CitedText::NotShown => "(not shown: fenced or outside the project)\n".to_string(),
-            CitedText::Text(text) => format!("{}\n", cited_range(text, e.lines)),
-            CitedText::Unreadable => "(the file cannot be read)\n".to_string(),
-        });
-    }
-    s.push('\n');
-    s
+    let cited: String = evidence
+        .iter()
+        .map(|(e, text)| {
+            let range = lines_text(e.lines.start, e.lines.end);
+            let code = match text {
+                CitedText::NotShown => "(not shown: fenced or outside the project)".to_string(),
+                CitedText::Text(text) => cited_range(text, e.lines),
+                CitedText::Unreadable => "(the file cannot be read)".to_string(),
+            };
+            format!("{}:{range}\n{code}\n", e.file.display())
+        })
+        .collect();
+    format!("Evidence:\n{cited}\n")
 }
 
-/// The check's verdict and what it cited, then the confidence.
+/// What the claim check said and what it cited (when it ran), then the
+/// confidence (when there is one).
 fn checked_text(f: &Finding) -> String {
-    let mut s = String::new();
-    if let Some(v) = &f.verdict {
-        s.push_str(&format!("Checked: {}: {}\n", v.verdict, v.why));
-        if !v.cited.is_empty() {
-            s.push_str("Cited by the check:\n");
-            for c in &v.cited {
-                s.push_str(&format!("{}: {}\n", c.label(), c.outcome()));
-            }
-        }
-    }
-    if let Some(k) = f.scores.confidence {
-        s.push_str(&format!("Confidence: {k:.2}\n"));
-    }
-    s
-}
-
-fn seen_text(f: &Finding) -> String {
-    format!(
-        "Seen: {} since {}\n\n",
-        if f.seen == 1 {
-            "1 time".to_string()
+    let check = f.verdict.as_ref().map(|verdict| {
+        let cited: String = verdict
+            .cited
+            .iter()
+            .map(|c| format!("{}: {}\n", c.label(), c.outcome()))
+            .collect();
+        let cited = if cited.is_empty() {
+            cited
         } else {
-            format!("{} times", f.seen)
-        },
-        f.first.format("%Y-%m-%d")
+            format!("Cited by the check:\n{cited}")
+        };
+        format!("Checked: {}: {}\n{cited}", verdict.verdict, verdict.why)
+    });
+    let confidence = f
+        .scores
+        .confidence
+        .map(|confidence| format!("Confidence: {confidence:.2}\n"));
+    format!(
+        "{}{}",
+        check.unwrap_or_default(),
+        confidence.unwrap_or_default()
     )
 }
 
+/// How often passes have raised it, and since when: `Seen: 3 times since
+/// 2026-11-18`.
+fn seen_text(f: &Finding) -> String {
+    let times = if f.seen == 1 {
+        "1 time".to_string()
+    } else {
+        format!("{} times", f.seen)
+    };
+    format!("Seen: {times} since {}\n\n", f.first.format("%Y-%m-%d"))
+}
+
+/// Each status the finding has had, with when, one a line.
 fn history_text(f: &Finding) -> String {
-    let mut s = "History:\n".to_string();
-    for (at, status) in &f.history {
-        s.push_str(&format!(
-            "{}  {}\n",
-            at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-            status_word(*status)
-        ));
-    }
-    s
+    let lines: String = f
+        .history
+        .iter()
+        .map(|(at, status)| {
+            let at = at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            format!("{at}  {}\n", status_word(*status))
+        })
+        .collect();
+    format!("History:\n{lines}")
 }

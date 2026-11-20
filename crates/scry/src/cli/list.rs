@@ -1,4 +1,4 @@
-//! `scry list`.
+//! `scry list`: the stored findings, as a table or as JSON.
 
 use std::io::Write;
 
@@ -6,16 +6,17 @@ use anyhow::Result;
 use serde_json::json;
 use sorcerer_core::domain::project::Project;
 
-use super::format::{cut_to, table};
+use super::format::{Output, cut_to, table};
 use crate::adapters::json_finding_store::JsonFindingStore;
 use crate::domain::finding::{Finding, status_word};
 use crate::usecases::list_findings::{ListRequest, list_findings};
 
-/// The findings of STATUSES (all when none), open first, then file and line.
+/// Prints the stored findings with the given statuses (every finding when
+/// none are given), open ones first, then by file and line.
 pub(super) fn list(
     project: &Project,
     statuses: &[String],
-    json: bool,
+    output: Output,
     out: &mut dyn Write,
 ) -> Result<i32> {
     let findings = list_findings(
@@ -24,11 +25,11 @@ pub(super) fn list(
             statuses: statuses.to_vec(),
         },
     )?;
-    if json {
-        write!(out, "{}", findings_json_text(&findings))?;
-    } else {
-        write!(out, "{}", findings_table_text(&findings))?;
-    }
+    let text = match output {
+        Output::Json => findings_json_text(&findings),
+        Output::Text => findings_table_text(&findings),
+    };
+    write!(out, "{text}")?;
     Ok(0)
 }
 
@@ -56,7 +57,8 @@ fn findings_json_text(findings: &[Finding]) -> String {
     format!("{}\n", json!({ "findings": v }))
 }
 
-/// A row a finding, its statement cut to 80 characters.
+/// A table with a row for each finding, its statement cut to 80
+/// characters.
 fn findings_table_text(findings: &[Finding]) -> String {
     let rows: Vec<Vec<String>> = findings
         .iter()

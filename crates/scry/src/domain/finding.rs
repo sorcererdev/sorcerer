@@ -41,6 +41,26 @@ pub enum Status {
 }
 
 /// Where a finding is.
+/// How far the user's dismissal of a finding reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dismissal {
+    /// Only in the unit the finding is in: the same problem raised in
+    /// another unit is shown again.
+    Here,
+    /// In every unit: the same problem is never shown again.
+    Everywhere,
+}
+
+impl Dismissal {
+    /// The status a finding dismissed this way takes.
+    pub fn status(self) -> Status {
+        match self {
+            Dismissal::Here => Status::DismissedHere,
+            Dismissal::Everywhere => Status::DismissedEverywhere,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Place {
     pub file: PathBuf,

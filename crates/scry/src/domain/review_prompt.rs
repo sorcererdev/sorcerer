@@ -55,11 +55,22 @@ pub struct RawFinding {
     pub evidence: Vec<(PathBuf, Span)>,
 }
 
+/// The reviewer's answer about a finding still open from an earlier save.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpenAnswer {
     pub id: String,
-    pub holds: bool,
+    pub holds: Holds,
+    /// One line on why.
     pub why: String,
+}
+
+/// Whether the code still has an open finding's problem.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Holds {
+    /// "still holds": the problem is still there.
+    Still,
+    /// "no longer holds": the code no longer has it.
+    NoLonger,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -345,8 +356,8 @@ fn open_answer_of(value: &Value) -> Option<OpenAnswer> {
         _ => return None,
     };
     let holds = match object.get("holds")?.as_str()? {
-        "still holds" => true,
-        "no longer holds" => false,
+        "still holds" => Holds::Still,
+        "no longer holds" => Holds::NoLonger,
         _ => return None,
     };
     Some(OpenAnswer {
