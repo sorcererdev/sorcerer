@@ -24,7 +24,7 @@ kept current in the same branch as the code. A chapter that disagrees with the c
 1. **One level per body.** A function either names its steps or does one step's detail. Never both.
 2. **A function that tells a story is short.** The top function of a file reads as the list of
    what happens, in order; each line is a call whose name says the step.
-3. **Section comments become function names.** A comment such as `// the units to send, packed`
+3. **Section comments become function names.** A comment such as `// the units to send, in batches`
    marks where a helper belongs.
 4. **Run-log and report text lives in its own functions** (`log_…`, `…_text`), so the logic reads
    without it.
