@@ -26,7 +26,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   verification rounds (`Pass::verify_findings_per_file`, `verify_findings_in_file`, `verify_round`, `PrioritizedFindings`, `FindingsToVerify`, `DisplaySlots`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
-  `DayCost`).
+  `DayCost`), `show_findings.rs` (`Shown`, `shown_in_file`: what an editor shows in a file).
 
 **Domain** (`src/domain/`), data and rules, no I/O:
 
@@ -46,6 +46,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   `Placement`, `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
 - `budget.rs`: `Caps`, `Budget`, `review_estimate`, `check_estimate`, `cost_of`.
 - `verification.rs`: `needs_claim`, `claim_of`, `verdict_word`.
+- `placing.rs`: `Placed`, `placed`: where a stored finding sits in its file now.
 - `log_text.rs`: the run log's text: `section`, `sub`, `block`, `usd`, `count`, `citation`,
   `scope_text`.
 
@@ -156,6 +157,29 @@ keeps six digits, rehashing with a counter while taken. `get` takes an id or a u
 at least four characters. `dismiss` sets `dismissed-here` or `dismissed-everywhere`. `shown_in`
 is a file's open findings whose issue type is in `[scry] issue_types`, best confidence first, at most
 `MAX_SHOWN`.
+
+## Where a finding sits now
+
+The store keeps the line a finding had when it was reviewed; the file moves on. An editor
+needs the line as the file is now, so `domain/placing.rs` places a finding among the file's
+units now: `placed(finding, units_now, line_count) -> Option<Placed { line, stale }>`.
+
+- Its unit is the one named `place.unit`; of two with that name, the one at the stored
+  fingerprint, else the first. With none of that name it is not placed (`None`): the next
+  pass marks it gone.
+- Its line is the unit's start now plus its distance from the unit's start when it was
+  reviewed (`place.lines.start - place.unit_start`, 0 when `unit_start` was not stored), kept
+  inside the unit's lines.
+- It is stale when the unit's fingerprint differs from the stored one.
+- A finding with no unit (about the whole file) keeps its stored line, moved up to the last
+  line when the file got shorter, and is never stale.
+
+`usecases/show_findings.rs` is what an editor shows in a file: `shown_in_file(store,
+settings, view, file)` reads the store afresh, takes `Findings::shown_in` (exactly what
+`scry` shows there: open, of the shown issue types, most confident first, at most three),
+and places each with `placed`, dropping the ones whose unit is gone. It is empty when
+`[scry] enabled = false`. A file whose units cannot be read counts as having none. It adds
+no filter of its own, so the editor and `scry list` agree about what is open.
 
 ## The review call
 

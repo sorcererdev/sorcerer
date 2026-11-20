@@ -1693,3 +1693,78 @@ fn the_run_log_lines_the_goldens_do_not_reach_are_as_recorded() {
     let log = log_of(&f, &StubReviewer::new(), &StubDecider::new());
     assert_section_end(&log, "- nobody fits: the rounds end");
 }
+
+// ---- what an editor shows in a file ----
+
+/// The fingerprint of `cancel` in the fixture's orders.py as it is now.
+fn cancel_print_now(f: &Fixture) -> String {
+    let units = f.view.units(Path::new("orders.py")).unwrap();
+    let cancel = units.iter().find(|u| u.name == "cancel").unwrap();
+    cancel.fingerprint.as_str().to_string()
+}
+
+#[test]
+fn shown_in_file_places_what_scry_would_print() {
+    use scry::usecases::show_findings::shown_in_file;
+    let f = Fixture::new();
+    let print = cancel_print_now(&f);
+    let confidences = [0.5, 0.9, 0.7, 0.8];
+    let findings = confidences
+        .iter()
+        .enumerate()
+        .map(|(i, confidence)| {
+            let mut finding = support::open_finding(
+                &format!("f{i}"),
+                "bug",
+                "orders.py",
+                Some(("cancel", 1, &print)),
+                2,
+            );
+            finding.scores.confidence = Some(*confidence);
+            finding
+        })
+        .collect();
+    support::put_findings(&f.project, findings);
+    let ports = support::Ports::of(&f.project);
+    let shown = shown_in_file(
+        &ports.store,
+        &ports.settings,
+        &f.view,
+        Path::new("orders.py"),
+    )
+    .unwrap();
+    let ids: Vec<&str> = shown.iter().map(|s| s.finding.id.0.as_str()).collect();
+    assert_eq!(ids, vec!["f1", "f3", "f2"]);
+    assert!(shown.iter().all(|s| s.placed
+        == scry::domain::placing::Placed {
+            line: 2,
+            stale: false
+        }));
+}
+
+#[test]
+fn shown_in_file_is_empty_when_scry_is_off() {
+    use scry::usecases::show_findings::shown_in_file;
+    let f = Fixture::new();
+    let print = cancel_print_now(&f);
+    support::put_findings(
+        &f.project,
+        vec![support::open_finding(
+            "f0",
+            "bug",
+            "orders.py",
+            Some(("cancel", 1, &print)),
+            2,
+        )],
+    );
+    write(
+        f.root(),
+        ".sorcerer/config.toml",
+        "[scry]\nenabled = false\n",
+    );
+    let (project, view) = support::project_with_vendored_grammars(f.root());
+    let ports = support::Ports::of(&project);
+    let shown =
+        shown_in_file(&ports.store, &ports.settings, &view, Path::new("orders.py")).unwrap();
+    assert!(shown.is_empty());
+}

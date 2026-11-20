@@ -361,3 +361,66 @@ pub fn read_store(project: &Project) -> Findings {
         Snapshot::Unreadable(why) => panic!("{why}"),
     }
 }
+
+/// An open finding as a pass would store it: ID, of ISSUE_TYPE, about FILE on LINE, in the
+/// unit UNIT (a file-level finding when `None`) that started on UNIT_START and had the
+/// fingerprint PRINT, citing its own line as evidence, with confidence 0.9.
+pub fn open_finding(
+    id: &str,
+    issue_type: &str,
+    file: &str,
+    unit: Option<(&str, u32, &str)>,
+    line: u32,
+) -> scry::domain::finding::Finding {
+    use scry::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
+    use sorcerer_core::domain::fingerprint::Fingerprint;
+    use sorcerer_core::domain::unit::Span;
+    let t: DateTime<Utc> = "2026-11-20T12:00:00Z".parse().unwrap();
+    Finding {
+        id: FindingId(id.into()),
+        issue_type: issue_type.into(),
+        rule: None,
+        statement: format!("statement of {id}"),
+        place: Place {
+            file: file.into(),
+            unit: unit.map(|(name, _, _)| name.to_string()),
+            lines: Span {
+                start: line,
+                end: line,
+            },
+            unit_start: unit.map(|(_, start, _)| start),
+            fingerprint: unit.and_then(|(_, _, print)| Fingerprint::parse(print)),
+        },
+        evidence: vec![Evidence {
+            file: file.into(),
+            lines: Span {
+                start: line,
+                end: line,
+            },
+            print: None,
+        }],
+        scores: Scores {
+            confidence: Some(0.9),
+            asked_on: None,
+        },
+        verdict: None,
+        status: Status::Open,
+        seen: 1,
+        first: t,
+        last: t,
+        history: vec![(t, Status::Open)],
+        model: "sonnet".into(),
+        cost_usd: 0.0,
+    }
+}
+
+/// PROJECT's store holding exactly FINDINGS.
+pub fn put_findings(project: &Project, findings: Vec<scry::domain::finding::Finding>) {
+    update_store(project, |s| {
+        *s = Findings {
+            findings,
+            ..Default::default()
+        };
+    })
+    .unwrap();
+}
