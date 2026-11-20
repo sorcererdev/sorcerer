@@ -234,8 +234,8 @@ impl Steering {
     }
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod tests {
     use super::*;
 

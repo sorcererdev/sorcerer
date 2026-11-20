@@ -228,8 +228,8 @@ fn free_id(id: &FindingId, taken: &HashSet<String>) -> FindingId {
         .expect("an unbounded counter finds a free id")
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use sorcerer_core::domain::fingerprint::Fingerprint;

@@ -299,8 +299,8 @@ fn guard_evidence(raw: &[RawCitation], view: &dyn CodebaseView, fences: &Fences)
         .join("\n\n")
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use sorcerer_core::domain::fingerprint::Fingerprint;

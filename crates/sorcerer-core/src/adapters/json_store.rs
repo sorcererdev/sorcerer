@@ -133,8 +133,8 @@ impl<T: Versioned> Store<T> {
     }
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::path::Path;

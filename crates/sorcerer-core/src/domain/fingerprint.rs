@@ -124,8 +124,8 @@ pub fn reflowed(lines: &[&str]) -> String {
     acc
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::unit::Span;

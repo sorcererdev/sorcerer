@@ -111,8 +111,8 @@ impl Settings for ScryToml {
     }
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -67,8 +67,8 @@ pub fn scry_config(p: &Project) -> Result<ScryConfig> {
     Ok(c)
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
