@@ -270,21 +270,24 @@ the `CodebaseView`, the `Reviewer`, the `Decider` (Jev), the `ClaimChecker`, the
 in tests), the `RunLog` (below), a `progress` callback told `Progress::Reviewed(n)` after each
 review call that answered and `Progress::Stored` after the write, and the `Cancel`. It reads
 `[scry]` and returns `Skipped` when it is off, works out the scope (`scope_of`, logged with
-`scope_text`), then returns `ReviewOutcome::Ran(ReviewReport)` (`looked_at` units sent and answered, the `new` ids,
+`scope_text`) and the caps (`caps_for`), then returns `ReviewOutcome::Ran(ReviewReport)` (`looked_at` units sent and answered, the `new` ids,
 `spent`, `capped` units, one `failures` line per failed call, `whole`, `checks_capped`
 when a claim check did not fit, and `touched`, every finding the pass added or changed: those
-of `Pass::working_copy` not equal to the store as read, mapped through the renames), or
+of `Pass::working_copy` not equal to the store as read (`touched_since`), mapped through the renames), or
 `ReviewOutcome::Skipped` when `[scry] enabled` is false or Jev did not answer; the report
 carries the `scope` so the caller prints what was in it. The command line
 (`cli::go`) checks `enabled` itself before the wiring (`LiveWiring::open`, which needs a Jev key and
 a provider) and exits 0, so a pre-commit hook
-in a project that turned scry off lets the commit through; any other `Skipped` exits 2. The steps, in
+in a project that turned scry off lets the commit through; any other `Skipped` exits 2.
+`review_change` itself reads as the frame of the pass: lock, `findings_on_disk`,
+`SpentSoFar::read`, the Pass section (`pass_text`), `Pass::new`, `Pass::go`, its halts (`Halt::Silent`
+is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unlock. The steps, in
 `Pass::go` (`mod.rs`), each in its own file:
 
 1. **Lock and read.** `FindingStore::hold` takes `state/scry/pass.lock` with `File::lock`
-   (blocking) for the whole pass, so two passes never interleave. The store is read once; `Unreadable` is
+   (blocking) for the whole pass, so two passes never interleave. The store is read once (`findings_on_disk`); `Unreadable` is
    `Error::StoreUnreadable` and nothing is touched. The pass works on a copy, `Pass::working_copy`.
-   The ledger is read once too, through the `Ledger` port: its `review` and `check` rows give the estimates and, through
+   The ledger is read once too (`SpentSoFar::read`, which also fixes the pass's `now`), through the `Ledger` port: its `review` and `check` rows give the estimates and, through
    core's `cost::spent_in` in the `Clock`'s offset, what scry spent earlier in the local day,
    which starts the pass's `Budget` (Jev's `decide` rows are not counted: a fraction of a cent each).
 2. **What to send, and the gone sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
@@ -342,7 +345,8 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    are appended; `reviewed` sets are joined; `capped` is the pass's when it changed it. A new
    finding whose id another writer took meanwhile gets a fresh one (`free_id`); `merge_into`
    records it in `Pass::renamed_ids`, applies the map to `working_copy` on every later write (`last_written` is
-   kept in written ids through `renamed`), and `review_change` maps `ReviewReport::new` through it.
+   kept in written ids through `renamed`). The last write is `Pass::finish`, which also fills `touched`
+   and maps `ReviewReport::new` and `touched` through the renames (`apply_renames`).
 
 ## The run log
 
@@ -354,7 +358,7 @@ the pass's thread only (a round's claim checks are traced after they join), so i
 `Sync`, and the command line's can write to a stderr that is not `Send`. Nothing the pass
 decides reads it: the eval's table is the same with or without it. The calls:
 
-- `review_change`: the **Scope** section (`scope_text`), then the **Pass** section, the caps, what scry spent earlier today, the estimates.
+- `review_change`: the **Scope** section (`scope_text`), then the **Pass** section (`pass_text`), the caps, what scry spent earlier today, the estimates.
 - `Pass::send`: **Units** (each scope unit, to send or already reviewed), **Review calls** (per
   batch: units, model, cap, the open ids, `review_prompt(&ask)` and the reply each in
   `block`, the errand, then the parse or the failure, or the cap that held it back; each piece
