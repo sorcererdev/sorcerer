@@ -22,7 +22,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 - `review_change/scope.rs`: `scope_of`; `ask.rs`: the review calls (`Pass::send`, `ReviewResults`);
   `judge.rs`: each finding placed, matched, merged or added (`Pass::judge_all`, `judge`,
   `merge`, `add`); `remember.rs`: resolved, gone, moved, not found again, the reviewed marks
-  (`Pass::remember`, `sweep_gone`, `drop_moved`, `mark_reviewed`); `verify.rs`: the
+  (`Pass::remember`, `sweep_gone`, `drop_new_findings_in_changed_units`, `mark_reviewed`, `ChangedUnits`, `NotFoundAgain`); `verify.rs`: the
   verification rounds (`Pass::verify_findings_per_file`, `verify_findings_in_file`, `verify_round`, `PrioritizedFindings`, `FindingsToVerify`, `DisplaySlots`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
@@ -327,18 +327,18 @@ by saving it and making the report (`Pass::report`). The steps, in
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
    unverified) are `resolved` (`resolve_what_no_longer_holds`); those it said *still holds* go into `still_hold`.
-   `Pass::drop_moved` (over `Pass::moved`, which reads each sent file's units again): a unit
+   `Pass::drop_new_findings_in_changed_units` (over `units_changed_since_sent`, which reads each sent file's units again, giving `ChangedUnits`): a unit
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or unverified finding from before the pass
    whose unit was sent at a fingerprint other than its place's, and that nothing merged into,
-   kept (`still_hold`) or resolved, is `resolved` (not found again: `resolve_not_found_again`, over the
-   answered units `not_moved`). The prompt tells the reviewer not
+   kept (`still_hold`) or resolved, is `resolved` (not found again: `resolve_not_found_again` and `was_fixed`, over the
+   answered units `ChangedUnits::not_changed`; `NotFoundAgain::NotChecked` when not every unit was reviewed). The prompt tells the reviewer not
    to raise an open finding again, so `still_hold` is what keeps an unfixed finding open across an
    edit of its unit.
 6. **Verify.** `Pass::verify_findings_in_file` for each scoped file that still exists, sharing the pass's
    `Budget` (below). It runs even when nothing in the file was sent, so an unverified finding
    opens once the file has room.
-7. **Write.** `Pass::drop_moved` again (a unit may have changed while the checks ran); the
+7. **Write.** `Pass::drop_new_findings_in_changed_units` again (a unit may have changed while the checks ran); the
    fingerprints of the sent, answered, unmoved units join `reviewed` and leave `capped`
    (`Pass::mark_reviewed`, `mark_one_reviewed`). Each
    write (the one before a round's checks, and this last one) is a `FindingStore::update` applying

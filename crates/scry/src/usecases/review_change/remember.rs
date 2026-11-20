@@ -1,16 +1,15 @@
-//! What the pass remembers. `remember`, after the findings are judged:
-//! 1. resolves the findings the reviewer said no longer hold
-//!    (`resolve_what_no_longer_holds`);
-//! 2. names those whose unit is gone (`sweep_gone` found them before the
-//!    calls);
-//! 3. drops the new findings of units that changed while the pass ran
-//!    (`drop_moved`);
-//! 4. only when the pass was whole, resolves those not found again
-//!    (`resolve_not_found_again`).
+//! Remembering what a review settled, and which units are now reviewed.
 //!
-//! `mark_reviewed`, after the rounds, marks each answered unit that has not
-//! moved since reviewed at the fingerprint it was sent at
-//! (`mark_one_reviewed`).
+//! After the findings are judged, `remember` resolves the findings the
+//! reviewer said no longer hold, drops the new findings of units the user
+//! edited while scry was looking at them, and, only when every unit was
+//! reviewed, resolves the findings the reviewer did not raise again in a
+//! unit whose code changed (they were fixed). Findings whose unit was
+//! deleted were already found by `sweep_gone`, before the review.
+//!
+//! After the paid checks, `mark_reviewed` records each unit the reviewer
+//! answered for as reviewed at the version it saw, so the next run does
+//! not send it again until it changes.
 //!
 //! The run log's text is built last in the file.
 
@@ -22,109 +21,160 @@ use sorcerer_core::domain::unit::Unit;
 
 use super::ask::ReviewResults;
 use super::{Pass, SentUnit, ids_of};
-use crate::domain::finding::{FindingId, Place, Status};
+use crate::domain::finding::{Finding, FindingId, Place, Status};
 use crate::domain::log_text::section;
 use crate::domain::scope::Scope;
 
+/// The units the user edited while the pass was looking at them: their
+/// code is no longer what was sent to the reviewer, so what the reviewer
+/// said about them is stale.
+///
+/// Example: `cancel` was sent to the reviewer at fingerprint 0e41bd1, and
+/// while the call ran the user saved a change to it. `cancel` is a changed
+/// unit: the findings the reviewer raised on it are dropped, and it is not
+/// marked reviewed, so the next run sends it again.
+struct ChangedUnits(HashSet<(PathBuf, String)>);
+
+impl ChangedUnits {
+    /// Whether the unit `name` in `file` changed.
+    fn contains(&self, file: &Path, name: &str) -> bool {
+        self.0.contains(&(file.to_path_buf(), name.to_string()))
+    }
+
+    /// Whether the place is in a changed unit.
+    fn holds(&self, place: &Place) -> bool {
+        place
+            .unit
+            .as_deref()
+            .is_some_and(|u| self.contains(&place.file, u))
+    }
+
+    /// The sent units that did not change.
+    fn not_changed<'a>(&self, sent: &'a [SentUnit]) -> Vec<&'a SentUnit> {
+        sent.iter()
+            .filter(|u| !self.contains(&u.file, &u.name))
+            .collect()
+    }
+}
+
+/// What looking for findings the reviewer did not raise again settled.
+enum NotFoundAgain {
+    /// Every unit was reviewed: these findings were not raised again in
+    /// their changed unit, so they were fixed and are resolved.
+    Resolved(Vec<FindingId>),
+    /// Some unit was not reviewed (a spending limit, or a call that
+    /// failed): a finding not raised again may just not have been looked
+    /// at, so nothing is resolved this way.
+    NotChecked,
+}
+
 impl Pass<'_, '_> {
-    /// The Remember section: resolved by the reviewer's answer, gone, moved
-    /// while the pass ran, and (only when the pass was WHOLE) not found again.
-    pub(super) fn remember(&mut self, asked: &ReviewResults, gone: &[FindingId]) {
-        let stored_before = ids_of(&self.stored_before);
-        // 1. The reviewer was shown the open findings in each unit and said
-        //    which no longer hold: resolve those.
-        let resolved = self.resolve_what_no_longer_holds(&asked.no_longer_hold);
-        // 2. A unit the user edited while the reviewer was looking at it:
-        //    the new findings on it are stale, drop them.
-        let moved = self.drop_moved(&asked.answered);
-        // 3. Only when every unit was reviewed: a stored finding in a unit
-        //    that changed, which the reviewer neither raised again nor said
-        //    still holds, was fixed: resolve it. (If some unit was skipped,
-        //    a finding not raised may just not have been looked at.)
-        let not_found_again = if asked.every_unit_was_reviewed() {
-            let kept = not_moved(&asked.answered, &moved);
-            Some(self.resolve_not_found_again(&kept, asked, &stored_before))
+    /// Remembers what the review settled:
+    ///
+    /// 1. findings the reviewer said no longer hold are resolved;
+    /// 2. new findings in units the user edited during the review are
+    ///    dropped (they are about code that is no longer there);
+    /// 3. only when every unit was reviewed: a stored finding in a unit
+    ///    whose code changed, which the reviewer neither raised again nor
+    ///    said still holds, was fixed, and is resolved;
+    /// 4. all of it is logged, with the findings `sweep_gone` found gone.
+    ///
+    /// Example: `cancel` had an open finding "returns None". You changed
+    /// `cancel` and ran scry; the reviewer looked at the new `cancel` and
+    /// did not raise it again. Every unit was reviewed, so it is resolved.
+    pub(super) fn remember(&mut self, review: &ReviewResults, gone: &[FindingId]) {
+        let resolved = self.resolve_what_no_longer_holds(&review.no_longer_hold);
+        let changed = self.drop_new_findings_in_changed_units(&review.answered);
+        let not_found_again = if review.every_unit_was_reviewed() {
+            let still_as_sent = changed.not_changed(&review.answered);
+            NotFoundAgain::Resolved(self.resolve_not_found_again(&still_as_sent, review))
         } else {
-            None
+            NotFoundAgain::NotChecked
         };
-        // 4. Log what was resolved, gone and dropped.
-        self.log(&remember_text(&resolved, gone, &moved, not_found_again));
+        self.log(&remember_text(&resolved, gone, &changed, &not_found_again));
     }
 
-    /// Resolves the open and unverified findings a review call said no longer
-    /// hold (NO_LONGER_HOLD, by id); their ids.
+    /// Resolves the open and unverified findings the reviewer said no
+    /// longer hold (given by id); returns their ids.
     fn resolve_what_no_longer_holds(&mut self, no_longer_hold: &HashSet<String>) -> Vec<FindingId> {
-        let now = self.now;
-        let mut resolved = Vec::new();
-        for f in &mut self.working_copy.findings {
-            if no_longer_hold.contains(&f.id.0)
-                && matches!(f.status, Status::Open | Status::Unverified)
-            {
-                f.set_status(Status::Resolved, now);
-                resolved.push(f.id.clone());
-            }
-        }
-        resolved
+        let ids: Vec<FindingId> = self
+            .working_copy
+            .findings
+            .iter()
+            .filter(|f| no_longer_hold.contains(&f.id.0) && is_open_or_unverified(f))
+            .map(|f| f.id.clone())
+            .collect();
+        self.set_status_of(&ids, Status::Resolved);
+        ids
     }
 
-    /// Not found again: an open or unverified finding whose unit this pass
-    /// looked at (one of KEPT) with a new fingerprint, that the review call
-    /// neither re-raised, said still holds, nor resolved, is resolved. Only
-    /// when the pass was whole: the caller does not ask otherwise. Their ids.
+    /// Resolves the findings that were fixed: see `was_fixed`. The units
+    /// given are the ones the reviewer saw, unchanged since. Returns their
+    /// ids.
     fn resolve_not_found_again(
         &mut self,
-        kept: &[&SentUnit],
-        asked: &ReviewResults,
-        stored_before: &HashSet<FindingId>,
+        still_as_sent: &[&SentUnit],
+        review: &ReviewResults,
     ) -> Vec<FindingId> {
-        // 1. Where each unit stood when it was sent (its fingerprint).
-        let at: HashMap<(&Path, &str), Fingerprint> = kept
+        let sent_at: HashMap<(&Path, &str), Fingerprint> = still_as_sent
             .iter()
             .map(|u| ((u.file.as_path(), u.name.as_str()), u.fingerprint))
             .collect();
-        let now = self.now;
-        let mut resolved = Vec::new();
-        for f in &mut self.working_copy.findings {
-            let sent_at = f
-                .place
-                .unit
-                .as_deref()
-                .and_then(|u| at.get(&(f.place.file.as_path(), u)));
-            // 2. A finding is fixed when: it was stored before this run, it
-            //    is still live, nothing this run merged into it, the
-            //    reviewer said nothing about it, and its unit was sent with
-            //    a different fingerprint than the one the finding was made
-            //    on (the code changed).
-            let not_found = stored_before.contains(&f.id)
-                && matches!(f.status, Status::Open | Status::Unverified)
-                && !self.merged.contains(&f.id)
-                && !asked.no_longer_hold.contains(&f.id.0)
-                && !asked.still_hold.contains(&f.id.0)
-                && matches!((sent_at, f.place.fingerprint), (Some(now_fingerprint), Some(was)) if *now_fingerprint != was);
-            if not_found {
-                f.set_status(Status::Resolved, now);
-                resolved.push(f.id.clone());
-            }
-        }
-        resolved
+        let stored_before = ids_of(&self.stored_before);
+        let ids: Vec<FindingId> = self
+            .working_copy
+            .findings
+            .iter()
+            .filter(|f| self.was_fixed(f, &sent_at, &stored_before, review))
+            .map(|f| f.id.clone())
+            .collect();
+        self.set_status_of(&ids, Status::Resolved);
+        ids
     }
 
-    /// The units answered and not moved since, marked reviewed at the
-    /// fingerprint sent (and no longer capped); the Reviewed section.
+    /// Whether a finding was fixed: it was stored before this run and is
+    /// still open or unverified; the reviewer said nothing about it (did
+    /// not raise it again, nor say it holds or no longer holds); and its
+    /// unit was sent to the reviewer with different code than the finding
+    /// was made on.
+    fn was_fixed(
+        &self,
+        f: &Finding,
+        sent_at: &HashMap<(&Path, &str), Fingerprint>,
+        stored_before: &HashSet<FindingId>,
+        review: &ReviewResults,
+    ) -> bool {
+        let reviewer_said_nothing = !self.merged.contains(&f.id)
+            && !review.no_longer_hold.contains(&f.id.0)
+            && !review.still_hold.contains(&f.id.0);
+        let its_unit_changed = f
+            .place
+            .unit
+            .as_deref()
+            .and_then(|u| sent_at.get(&(f.place.file.as_path(), u)))
+            .zip(f.place.fingerprint)
+            .is_some_and(|(sent, made_on)| *sent != made_on);
+        stored_before.contains(&f.id)
+            && is_open_or_unverified(f)
+            && reviewer_said_nothing
+            && its_unit_changed
+    }
+
+    /// Marks the units the reviewer answered for as reviewed, at the
+    /// fingerprint they were sent at, so the next run does not send them
+    /// again until they change. A unit the user edited while the paid
+    /// checks ran is left out (and its new findings dropped).
     pub(super) fn mark_reviewed(&mut self, answered: &[SentUnit]) {
-        // 1. Check again for units the user edited, now while the paid checks
-        //    ran; drop their new findings.
-        let moved = self.drop_moved(answered);
-        // 2. Mark the rest reviewed at the fingerprint they were sent at, so
-        //    the next run does not send them again until they change.
-        let reviewed = not_moved(answered, &moved);
+        let changed = self.drop_new_findings_in_changed_units(answered);
+        let reviewed = changed.not_changed(answered);
         for unit in &reviewed {
             self.mark_one_reviewed(unit);
         }
-        self.log(&reviewed_text(&moved, &reviewed));
+        self.log(&reviewed_text(&changed, &reviewed));
     }
 
-    /// UNIT reviewed at the fingerprint it was sent at, and no longer capped.
+    /// Records the unit as reviewed at the fingerprint it was sent at, and
+    /// no longer held back by a spending limit.
     fn mark_one_reviewed(&mut self, unit: &SentUnit) {
         self.working_copy
             .reviewed
@@ -139,97 +189,99 @@ impl Pass<'_, '_> {
         }
     }
 
-    /// Drops this pass's new findings in units whose text changed since
+    /// Drops this run's new findings in the units the user edited since
     /// they were sent; returns those units.
-    pub(super) fn drop_moved(&mut self, answered: &[SentUnit]) -> HashSet<(PathBuf, String)> {
-        let moved = self.moved(answered);
-        let new_ids: HashSet<FindingId> = self.new.iter().cloned().collect();
+    fn drop_new_findings_in_changed_units(&mut self, sent: &[SentUnit]) -> ChangedUnits {
+        let changed = self.units_changed_since_sent(sent);
         let dropped: HashSet<FindingId> = self
             .working_copy
             .findings
             .iter()
-            .filter(|f| new_ids.contains(&f.id) && in_moved(&moved, &f.place))
+            .filter(|f| self.new.contains(&f.id) && changed.holds(&f.place))
             .map(|f| f.id.clone())
             .collect();
         self.working_copy
             .findings
             .retain(|f| !dropped.contains(&f.id));
-        self.new.retain(|i| !dropped.contains(i));
-        moved
+        self.new.retain(|id| !dropped.contains(id));
+        changed
     }
 
-    /// Open, unverified and withheld findings of a file in scope whose unit is
-    /// no longer in it (or whose file was deleted) are gone.
+    /// Before the review: open, unverified and withheld findings whose unit
+    /// is no longer in its file (or whose file was deleted) are gone.
+    /// Returns their ids.
     pub(super) fn sweep_gone(&mut self, scope: &Scope) -> Vec<FindingId> {
-        let now = self.now;
-        let mut gone = Vec::new();
-        for sf in &scope.files {
-            for f in &mut self.working_copy.findings {
-                let left = sf.deleted
-                    || f.place
-                        .unit
-                        .as_ref()
-                        .is_some_and(|u| !sf.units_now.contains(u));
-                if f.place.file == sf.file
-                    && left
-                    && matches!(
-                        f.status,
-                        Status::Open | Status::Unverified | Status::Withheld
-                    )
-                {
-                    f.set_status(Status::Gone, now);
-                    gone.push(f.id.clone());
-                }
-            }
-        }
-        gone
+        let ids: Vec<FindingId> = scope
+            .files
+            .iter()
+            .flat_map(|sf| {
+                self.working_copy.findings.iter().filter(move |f| {
+                    let unit_left = sf.deleted
+                        || f.place
+                            .unit
+                            .as_ref()
+                            .is_some_and(|u| !sf.units_now.contains(u));
+                    f.place.file == sf.file
+                        && unit_left
+                        && matches!(
+                            f.status,
+                            Status::Open | Status::Unverified | Status::Withheld
+                        )
+                })
+            })
+            .map(|f| f.id.clone())
+            .collect();
+        self.set_status_of(&ids, Status::Gone);
+        ids
     }
 
-    /// The sent units whose fingerprint is not what was sent (or that are
-    /// no longer in their file).
-    fn moved(&self, sent: &[SentUnit]) -> HashSet<(PathBuf, String)> {
+    /// The sent units whose code is not what was sent: their fingerprint
+    /// changed, or they are no longer in their file.
+    fn units_changed_since_sent(&self, sent: &[SentUnit]) -> ChangedUnits {
         let mut now: BTreeMap<&Path, Vec<Unit>> = BTreeMap::new();
         for unit in sent {
             now.entry(unit.file.as_path())
                 .or_insert_with(|| self.deps.view.units(&unit.file).unwrap_or_default());
         }
-        sent.iter()
-            .filter(|sent_unit| {
-                !now[sent_unit.file.as_path()]
-                    .iter()
-                    .any(|u| u.name == sent_unit.name && u.fingerprint == sent_unit.fingerprint)
-            })
-            .map(|u| (u.file.clone(), u.name.clone()))
-            .collect()
+        ChangedUnits(
+            sent.iter()
+                .filter(|sent_unit| {
+                    !now[sent_unit.file.as_path()]
+                        .iter()
+                        .any(|u| u.name == sent_unit.name && u.fingerprint == sent_unit.fingerprint)
+                })
+                .map(|u| (u.file.clone(), u.name.clone()))
+                .collect(),
+        )
+    }
+
+    /// Sets the status of each finding in `ids`, dated now.
+    fn set_status_of(&mut self, ids: &[FindingId], status: Status) {
+        let now = self.now;
+        for f in self
+            .working_copy
+            .findings
+            .iter_mut()
+            .filter(|f| ids.contains(&f.id))
+        {
+            f.set_status(status, now);
+        }
     }
 }
 
-/// The units of ANSWERED that are not in MOVED.
-fn not_moved<'a>(
-    answered: &'a [SentUnit],
-    moved: &HashSet<(PathBuf, String)>,
-) -> Vec<&'a SentUnit> {
-    answered
-        .iter()
-        .filter(|u| !moved.contains(&(u.file.clone(), u.name.clone())))
-        .collect()
-}
-
-fn in_moved(moved: &HashSet<(PathBuf, String)>, pl: &Place) -> bool {
-    pl.unit
-        .as_ref()
-        .is_some_and(|u| moved.contains(&(pl.file.clone(), u.clone())))
+fn is_open_or_unverified(f: &Finding) -> bool {
+    matches!(f.status, Status::Open | Status::Unverified)
 }
 
 // The run log's text for what the pass remembers.
 
-/// The Remember section. NOT_FOUND_AGAIN is None when the pass was not
-/// whole, so nothing was resolved for not being found again.
+/// The Remember section: resolved, gone, dropped, and what not being
+/// found again settled.
 fn remember_text(
     resolved: &[FindingId],
     gone: &[FindingId],
-    moved: &HashSet<(PathBuf, String)>,
-    not_found_again: Option<Vec<FindingId>>,
+    changed: &ChangedUnits,
+    not_found_again: &NotFoundAgain,
 ) -> String {
     let mut text = section("Remember");
     for id in resolved {
@@ -244,7 +296,7 @@ fn remember_text(
             id.0
         ));
     }
-    for (file, name) in moved {
+    for (file, name) in &changed.0 {
         text.push_str(&format!(
             "- `{}` `{}` changed while the pass ran: its new findings are dropped, it is not reviewed\n",
             file.display(),
@@ -252,7 +304,7 @@ fn remember_text(
         ));
     }
     match not_found_again {
-        Some(ids) => {
+        NotFoundAgain::Resolved(ids) => {
             for id in ids {
                 text.push_str(&format!(
                     "- {} resolved: its unit changed and the reviewer did not raise it again\n",
@@ -260,7 +312,7 @@ fn remember_text(
                 ));
             }
         }
-        None => text.push_str(
+        NotFoundAgain::NotChecked => text.push_str(
             "- the pass was not whole (a cap or a failure): nothing is resolved for not being found again\n",
         ),
     }
@@ -270,11 +322,11 @@ fn remember_text(
     text
 }
 
-/// The Reviewed section: the units that MOVED while the checks ran, then
-/// those REVIEWED.
-fn reviewed_text(moved: &HashSet<(PathBuf, String)>, reviewed: &[&SentUnit]) -> String {
+/// The Reviewed section: the units the user edited while the checks ran,
+/// then those now reviewed.
+fn reviewed_text(changed: &ChangedUnits, reviewed: &[&SentUnit]) -> String {
     let mut text = section("Reviewed");
-    for (file, name) in moved {
+    for (file, name) in &changed.0 {
         text.push_str(&format!(
             "- `{}` `{}` changed while the checks ran: not reviewed\n",
             file.display(),
