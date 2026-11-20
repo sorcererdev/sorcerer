@@ -257,6 +257,8 @@ mod tests {
                 "log-text-apart",
                 "plain-names",
                 "comments-say-why",
+                "invariants-are-types",
+                "immutable-by-default",
                 "the-engine-knows-no-language",
                 "nothing-outside-the-repository",
                 "books-change-with-the-code",
