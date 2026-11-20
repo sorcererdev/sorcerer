@@ -4,7 +4,7 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use scry::domain::config::ScryConfig;
-use scry::domain::scope::{Scope, ScopeRequest};
+use scry::domain::scope::{Base, Scope, ScopeRequest};
 use scry::usecases::review_change::scope::scope_of;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
@@ -45,7 +45,7 @@ fn working_scope_is_the_changed_and_added_units() {
         ),
     );
     let s = scope(d.path(), ScopeRequest::Working, false);
-    assert_eq!(s.base, "HEAD");
+    assert_eq!(s.base, Base::Revision("HEAD".into()));
     assert_eq!(names(&s), ["cancel", "refund"]);
     assert_eq!(files(&s), [PathBuf::from("orders.py")]);
     let f = &s.files[0];
@@ -106,7 +106,7 @@ fn since_compares_against_the_merge_base() {
     );
     support::commit(d.path(), "cancel on f");
     let s = scope(d.path(), ScopeRequest::Since("main".into()), false);
-    assert_eq!(s.base, base);
+    assert_eq!(s.base, Base::Revision(base));
     assert_eq!(names(&s), ["cancel"]);
 }
 

@@ -183,16 +183,16 @@ through the same trait.
 `usecases/review_change/scope.rs`. `scope_of(project, view, request, all, cfg)` turns a
 `ScopeRequest` (`Files`, `Working`, `Since(rev)`; `domain/scope.rs`) into a `Scope`: the `base` compared against, the `ScopedUnit`s to
 review and the `ScopedFile`s the pass touched. The base is `HEAD`, or for `Since` the view's
-`merge_base(rev)` (a bad rev is that `Error::Git`, naming it); with no commit yet it is empty
-and every file is all new. The files are the named ones, or the view's `changed_since(base)`
+`merge_base(rev)` (a bad rev is that `Error::Git`, naming it), each a `Base::Revision`; with no commit yet it is
+`Base::NoCommitYet` and every file is all new. The files are the named ones, or the view's `changed_since(base)`
 (every file, by `glob("**")`, with no commit). A file is dropped when no language covers it,
 `[scry] exclude` matches it, `Fences::allows` refuses it, or its text is `NotText`.
 
 The file reads top to bottom as these steps. `scope_of` builds a `Scoping` (the project, the
 view, the `Fences`, the `[scry] exclude` set, the base from `Scoping::base_revision`, and
 `all`), takes its `candidate_files` (each once; an absolute path outside the project is
-dropped by `relative_to_the_project`), starts from `Scope::empty` and asks `look_at` about each
-file. `look_at` answers a `FileInScope`: `Skipped` with `reason_to_skip`'s reason (the
+dropped by `relative_to_the_project`), starts from `Scope::empty` and folds in `look_at`'s answer about each
+file (`with_file`). `look_at` answers a `FileInScope`: `Skipped` with `reason_to_skip`'s reason (the
 first that holds, in the order above) or `not text` (`text_unless_binary`); `Deleted` from
 `no_longer_in_the_tree`; or `Present`, with `units_in_scope` turned into `scoped_units` (which calls it) and
 the file into a `scoped_file`.
