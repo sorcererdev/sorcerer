@@ -40,7 +40,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   `STEERING_CAP`.
 - `scope.rs`: `ScopeRequest`, `Scope`, `ScopedUnit`, `ScopedFile`, `header_of`.
 - `review_prompt.rs`: `ReviewUnit`, `ReviewAsk`, `RawFinding`, `ReviewReply`, `review_prompt`,
-  `parse_review`, `batch_units`, `REVIEW_TIMEOUT`.
+  `parse_review`, `batch_units`, `batch_by_lines`, `REVIEW_TIMEOUT`.
 - `judging.rs`: `place`, `candidates`, `same_problem`, `finding_text`, `SAME_THRESHOLD`,
   `Placement`, `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
 - `budget.rs`: `Caps`, `Budget`, `review_estimate`, `check_estimate`, `cost_of`.
@@ -307,9 +307,12 @@ by saving it and making the report (`Pass::report`). The steps, in
    unreviewed; the reviewer has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
    other failure. In the code, `Pass::send` is that story in order: `units_not_yet_reviewed`,
-   `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
-   `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
-   `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Pass::tell_progress`, `ReviewResults::record_reply`)).
+   `batches_of` (each a `UnitToSend`: the prompt's `ReviewUnit` and the fingerprint it is sent at,
+   batched by `batch_by_lines`), then `send_batch` per batch: `must_hold_back` →
+   `hold_back_for_a_later_run`, a cancel → a failure line, or `review_one_batch` (`ask_for`,
+   `cap_for_one_call`, the call, `cost_of_call`, the reply parsed, `Pass::tell_progress`). Each
+   returns a `BatchOutcome` (`HeldBack`, `Failed`, `Answered`), and `ReviewResults::with` adds it to
+   the results so far (an answer on an open finding the call was not shown is ignored there).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (`with_cited_rule_looked_up`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
    `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
