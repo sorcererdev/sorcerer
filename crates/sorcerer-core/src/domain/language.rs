@@ -1,12 +1,12 @@
-//! Languages as data. A language is layers of TOML merged in order
-//! (shipped, then the project's `.sorcerer/languages/<name>/`) plus its
-//! query files; the engine reads only the merged result and never names a
-//! language.
+//! Languages as data. Sorcerer's code never names a language: each one is a `language.toml`
+//! and some tree-sitter query files under `library/languages/<name>/`.
 //!
-//! Merge rule: a top-level key in a later layer replaces the earlier key
-//! whole (tables are not deep-merged); query files merge by file name (the
-//! same name replaces, a new name adds). `origins` says which layer set
-//! each key and each query file, for `doctor`.
+//! A project can change a shipped language, or add one, with the same files under
+//! `.sorcerer/languages/<name>/`. The two are laid one over the other, the project's on top: a
+//! top-level key in the project's file replaces the shipped key whole (a table is replaced, not
+//! merged key by key), and a query file with the same name replaces the shipped one while a new
+//! name adds a file. Each language remembers which layer set each key and each query file, so
+//! `doctor` can show it.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -41,26 +41,33 @@ pub enum GrammarSource {
     Local(PathBuf),
 }
 
+/// One language, its layers already laid together.
 #[derive(Debug, Clone)]
 pub struct Language {
     pub name: String,
     /// Globs over project-relative paths: which files are this language's.
     pub files: Vec<String>,
     pub grammar: GrammarSource,
+    /// How a line comment starts, such as `#` or `//`.
     pub comment: Option<String>,
+    /// How to tell a model what a unit is called in this language, used in prompts that ask
+    /// it to name one: "a top-level class or function name (Name) or a method (Class.method)".
     pub unit_words: Option<String>,
     /// Joins a unit's name to its parent's: `Order.cancel`, `Order::new`.
     pub unit_separator: String,
-    /// `[unit] name`: patterns reading a unit's name from its first line.
+    /// `[unit] name`: patterns that read a unit's name from its first line, for languages whose
+    /// queries do not find every unit.
     pub unit_name: Vec<String>,
     /// Query files by name (`tags.scm`) to their text.
     pub queries: BTreeMap<String, String>,
-    /// Each top-level key, and each `queries/<file>`, to the layer that set it.
+    /// Which layer set each top-level key and each query file (`queries/tags.scm`):
+    /// `shipped`, `project` or `override`.
     pub origins: BTreeMap<String, String>,
-    /// Tables core does not read, for the products that own them.
+    /// The keys core does not read, kept for the products that own them.
     pub rest: toml::Table,
 }
 
+/// Every language the project knows, and which one a file belongs to.
 #[derive(Debug, Clone, Default)]
 pub struct Languages {
     by_name: BTreeMap<String, Language>,
@@ -76,6 +83,21 @@ pub struct Loaded {
     pub queries: Vec<(String, tree_sitter::Query)>,
 }
 
+impl Loaded {
+    /// Parses a whole file into its syntax tree. `None` when tree-sitter gives up on it; an
+    /// error only when the grammar cannot be used at all.
+    pub fn parse(&self, text: &str) -> Result<Option<tree_sitter::Tree>> {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&self.grammar)
+            .map_err(|e| Error::GrammarLoad {
+                name: self.language.name.clone(),
+                why: e.to_string(),
+            })?;
+        Ok(parser.parse(text, None))
+    }
+}
+
 impl std::fmt::Debug for Loaded {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Loaded")
@@ -84,7 +106,8 @@ impl std::fmt::Debug for Loaded {
     }
 }
 
-/// One layer as read: its table (grammar paths made absolute) and queries.
+/// One layer of a language as read from disk: its `language.toml` (a local grammar path
+/// already made absolute) and its query files by name.
 pub(crate) struct Layer {
     pub(crate) table: toml::Table,
     pub(crate) queries: BTreeMap<String, String>,
@@ -104,43 +127,41 @@ impl Languages {
         Ok(layers)
     }
 
-    /// LAYERS merged per language, in order. Every name in EXTRA
-    /// (`[languages] names`) must have a layer.
+    /// Lays each language's layers together, in the order given, and indexes the result by
+    /// file pattern. Every name in `[languages] names` must have at least one layer; a language
+    /// whose file is missing `files` or `grammar` is an error.
     pub(crate) fn from_layers(
         layers: BTreeMap<String, Vec<(&str, Layer)>>,
-        extra: &[String],
+        named_in_config: &[String],
     ) -> Result<Languages> {
-        if let Some(missing) = extra.iter().find(|n| !layers.contains_key(*n)) {
+        if let Some(missing) = named_in_config.iter().find(|n| !layers.contains_key(*n)) {
             return Err(Error::Language {
                 name: missing.clone(),
                 why: "named in [languages] but no language file".into(),
             });
         }
-        let mut out = Languages::default();
-        for (name, ls) in layers {
-            let lang = merge(&name, ls)?;
-            let mut set = GlobSetBuilder::new();
-            for g in &lang.files {
-                set.add(Glob::new(g).map_err(|e| Error::Language {
-                    name: name.clone(),
-                    why: format!("files: {e}"),
-                })?);
-            }
-            let set = set.build().map_err(|e| Error::Language {
-                name: name.clone(),
-                why: format!("files: {e}"),
-            })?;
-            out.globs.push((name.clone(), set));
-            out.by_name.insert(name, lang);
-        }
-        Ok(out)
+        layers
+            .into_iter()
+            .try_fold(Languages::default(), |languages, (name, layers)| {
+                languages.with(merge(&name, layers)?)
+            })
     }
 
+    /// These languages and one more.
+    fn with(mut self, language: Language) -> Result<Languages> {
+        let files = files_glob_set(&language)?;
+        self.globs.push((language.name.clone(), files));
+        self.by_name.insert(language.name.clone(), language);
+        Ok(self)
+    }
+
+    /// The language with this name.
     pub fn get(&self, name: &str) -> Option<&Language> {
         self.by_name.get(name)
     }
 
-    /// The first language, in name order, whose `files` match REL.
+    /// The language a file belongs to, from its path relative to the project root: the first
+    /// language, in name order, whose `files` patterns match it.
     pub fn for_path(&self, rel: &Path) -> Option<&Language> {
         self.globs
             .iter()
@@ -148,8 +169,9 @@ impl Languages {
             .and_then(|(n, _)| self.by_name.get(n))
     }
 
-    /// Points NAME's grammar at SOURCE (vendored sources in tests, an
-    /// offline mirror). Does nothing when there is no such language.
+    /// Makes a language build its grammar from other sources, such as sources vendored for
+    /// tests or an offline mirror, and forgets the grammar already loaded. Does nothing when
+    /// there is no language with that name.
     pub fn override_grammar(&mut self, name: &str, source: GrammarSource) {
         if let Some(l) = self.by_name.get_mut(name) {
             l.grammar = source;
@@ -161,6 +183,7 @@ impl Languages {
         }
     }
 
+    /// Every language's name, in name order.
     pub fn names(&self) -> Vec<&str> {
         self.by_name.keys().map(String::as_str).collect()
     }
@@ -173,101 +196,181 @@ pub(crate) fn parse_toml(name: &str, text: &str) -> Result<toml::Table> {
     })
 }
 
+/// The `files` patterns of a language as one glob set; a bad pattern names the language.
+fn files_glob_set(language: &Language) -> Result<GlobSet> {
+    let bad_pattern = |e: globset::Error| Error::Language {
+        name: language.name.clone(),
+        why: format!("files: {e}"),
+    };
+    let set = language
+        .files
+        .iter()
+        .try_fold(GlobSetBuilder::new(), |mut set, pattern| {
+            set.add(Glob::new(pattern).map_err(bad_pattern)?);
+            Ok::<_, Error>(set)
+        })?;
+    set.build().map_err(bad_pattern)
+}
+
+/// A shipped language's layer, from the directory embedded in the binary.
 fn shipped_layer(name: &str, dir: &Dir<'_>) -> Result<Layer> {
     let table = match dir.get_file(dir.path().join("language.toml")) {
         Some(f) => parse_toml(name, f.contents_utf8().unwrap_or_default())?,
         None => toml::Table::new(),
     };
-    let mut queries = BTreeMap::new();
-    if let Some(q) = dir.get_dir(dir.path().join("queries")) {
-        for f in q
-            .files()
-            .filter(|f| f.path().extension().is_some_and(|x| x == "scm"))
-        {
-            let file = f.path().file_name().unwrap().to_string_lossy().into_owned();
-            queries.insert(file, f.contents_utf8().unwrap_or_default().to_string());
-        }
-    }
-    Ok(Layer { table, queries })
-}
-
-fn merge(name: &str, layers: Vec<(&str, Layer)>) -> Result<Language> {
-    let mut table = toml::Table::new();
-    let mut queries = BTreeMap::new();
-    let mut origins = BTreeMap::new();
-    for (origin, layer) in layers {
-        for (k, v) in layer.table {
-            origins.insert(k.clone(), origin.to_string());
-            table.insert(k, v);
-        }
-        for (k, v) in layer.queries {
-            origins.insert(format!("queries/{k}"), origin.to_string());
-            queries.insert(k, v);
-        }
-    }
-    let bad = |why: String| Error::Language {
-        name: name.into(),
-        why,
-    };
-    let files = match table.get("files") {
-        Some(v) => v
-            .clone()
-            .try_into::<Vec<String>>()
-            .map_err(|e| bad(format!("files: {}", e.message())))?,
-        None => return Err(bad("its language file has no files".into())),
-    };
-    let grammar = match table.get("grammar") {
-        Some(toml::Value::Table(g)) => {
-            grammar_of(g).ok_or_else(|| bad("grammar must be { git, rev } or { path }".into()))?
-        }
-        Some(_) => return Err(bad("grammar must be { git, rev } or { path }".into())),
-        None => return Err(bad("its language file has no grammar".into())),
-    };
-    let string = |k: &str| -> Result<Option<String>> {
-        match table.get(k) {
-            None => Ok(None),
-            Some(toml::Value::String(s)) => Ok(Some(s.clone())),
-            Some(_) => Err(bad(format!("{k} must be a string"))),
-        }
-    };
-    let comment = string("comment")?;
-    let unit_words = string("unit_words")?;
-    let unit_separator = string("unit_separator")?.unwrap_or_else(|| ".".into());
-    let mut rest: toml::Table = table
-        .iter()
-        .filter(|(k, _)| !CORE_KEYS.contains(&k.as_str()))
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    let mut unit_name = Vec::new();
-    if let Some(toml::Value::Table(unit)) = table.get("unit") {
-        let mut others = unit.clone();
-        match others.remove("name") {
-            None => {}
-            Some(toml::Value::String(s)) => unit_name.push(s),
-            Some(v) => {
-                unit_name = v
-                    .try_into::<Vec<String>>()
-                    .map_err(|e| bad(format!("[unit] name: {}", e.message())))?
-            }
-        }
-        if !others.is_empty() {
-            rest.insert("unit".into(), toml::Value::Table(others));
-        }
-    }
-    Ok(Language {
-        name: name.into(),
-        files,
-        grammar,
-        comment,
-        unit_words,
-        unit_separator,
-        unit_name,
-        queries,
-        origins,
-        rest,
+    Ok(Layer {
+        table,
+        queries: shipped_queries(dir),
     })
 }
 
+/// The `.scm` files in a shipped language's `queries/` directory, by file name.
+fn shipped_queries(dir: &Dir<'_>) -> BTreeMap<String, String> {
+    let Some(queries) = dir.get_dir(dir.path().join("queries")) else {
+        return BTreeMap::new();
+    };
+    queries
+        .files()
+        .filter(|f| f.path().extension().is_some_and(|x| x == "scm"))
+        .map(|f| {
+            let file = f.path().file_name().unwrap().to_string_lossy().into_owned();
+            (file, f.contents_utf8().unwrap_or_default().to_string())
+        })
+        .collect()
+}
+
+/// One language from its layers: the layers laid together, then core's keys read out of them.
+fn merge(name: &str, layers: Vec<(&str, Layer)>) -> Result<Language> {
+    let merged = LaidTogether::from(layers);
+    let keys = CoreKeys {
+        language: name,
+        table: &merged.table,
+    };
+    Ok(Language {
+        name: name.into(),
+        files: keys.files()?,
+        grammar: keys.grammar()?,
+        comment: keys.string("comment")?,
+        unit_words: keys.string("unit_words")?,
+        unit_separator: keys.string("unit_separator")?.unwrap_or_else(|| ".".into()),
+        unit_name: keys.unit_name()?,
+        rest: keys.not_for_core(),
+        queries: merged.queries,
+        origins: merged.origins,
+    })
+}
+
+/// A language's layers laid one over the other, with which layer set each key and query file.
+struct LaidTogether {
+    table: toml::Table,
+    queries: BTreeMap<String, String>,
+    origins: BTreeMap<String, String>,
+}
+
+impl LaidTogether {
+    /// A later layer's key or query file replaces an earlier one with the same name.
+    fn from(layers: Vec<(&str, Layer)>) -> LaidTogether {
+        let mut merged = LaidTogether {
+            table: toml::Table::new(),
+            queries: BTreeMap::new(),
+            origins: BTreeMap::new(),
+        };
+        for (origin, layer) in layers {
+            for (key, value) in layer.table {
+                merged.origins.insert(key.clone(), origin.to_string());
+                merged.table.insert(key, value);
+            }
+            for (file, text) in layer.queries {
+                merged
+                    .origins
+                    .insert(format!("queries/{file}"), origin.to_string());
+                merged.queries.insert(file, text);
+            }
+        }
+        merged
+    }
+}
+
+/// Reads core's keys out of a language's laid-together table; every error names the language.
+struct CoreKeys<'a> {
+    language: &'a str,
+    table: &'a toml::Table,
+}
+
+impl CoreKeys<'_> {
+    /// `files`: required, a list of glob patterns.
+    fn files(&self) -> Result<Vec<String>> {
+        let Some(files) = self.table.get("files") else {
+            return Err(self.error("its language file has no files".into()));
+        };
+        files
+            .clone()
+            .try_into::<Vec<String>>()
+            .map_err(|e| self.error(format!("files: {}", e.message())))
+    }
+
+    /// `grammar`: required, either `{ git, rev }` or `{ path }`.
+    fn grammar(&self) -> Result<GrammarSource> {
+        let wrong_shape = || self.error("grammar must be { git, rev } or { path }".into());
+        match self.table.get("grammar") {
+            Some(toml::Value::Table(grammar)) => grammar_of(grammar).ok_or_else(wrong_shape),
+            Some(_) => Err(wrong_shape()),
+            None => Err(self.error("its language file has no grammar".into())),
+        }
+    }
+
+    /// An optional key that must be a string when present.
+    fn string(&self, key: &str) -> Result<Option<String>> {
+        match self.table.get(key) {
+            None => Ok(None),
+            Some(toml::Value::String(s)) => Ok(Some(s.clone())),
+            Some(_) => Err(self.error(format!("{key} must be a string"))),
+        }
+    }
+
+    /// `[unit] name`: one pattern or a list of them; none when absent.
+    fn unit_name(&self) -> Result<Vec<String>> {
+        let Some(toml::Value::Table(unit)) = self.table.get("unit") else {
+            return Ok(Vec::new());
+        };
+        match unit.get("name") {
+            None => Ok(Vec::new()),
+            Some(toml::Value::String(pattern)) => Ok(vec![pattern.clone()]),
+            Some(patterns) => patterns
+                .clone()
+                .try_into::<Vec<String>>()
+                .map_err(|e| self.error(format!("[unit] name: {}", e.message()))),
+        }
+    }
+
+    /// Every key core does not read, for the products. Keys in `[unit]` other than `name`
+    /// stay, under `unit`.
+    fn not_for_core(&self) -> toml::Table {
+        let other_keys = self
+            .table
+            .iter()
+            .filter(|(key, _)| !CORE_KEYS.contains(&key.as_str()))
+            .map(|(key, value)| (key.clone(), value.clone()));
+        let other_unit_keys = match self.table.get("unit") {
+            Some(toml::Value::Table(unit)) => {
+                let mut others = unit.clone();
+                others.remove("name");
+                (!others.is_empty()).then(|| ("unit".to_string(), toml::Value::Table(others)))
+            }
+            _ => None,
+        };
+        other_keys.chain(other_unit_keys).collect()
+    }
+
+    fn error(&self, why: String) -> Error {
+        Error::Language {
+            name: self.language.into(),
+            why,
+        }
+    }
+}
+
+/// The grammar's source from its table: `{ git, rev }` or `{ path }`, nothing else.
 fn grammar_of(g: &toml::Table) -> Option<GrammarSource> {
     let s = |k: &str| g.get(k).and_then(toml::Value::as_str).map(String::from);
     match (s("git"), s("rev"), s("path")) {

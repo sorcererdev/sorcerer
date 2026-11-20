@@ -1,11 +1,11 @@
 //! Facts: what the code can tell about a unit without a model. Decided by
 //! node kinds tree-sitter grammars share, never by a language's name.
 
-use tree_sitter::{Node, Parser, Tree};
+use tree_sitter::{Node, Tree};
 
+use crate::Result;
 use crate::domain::language::Loaded;
 use crate::domain::unit::{Span, Unit, lines_of};
-use crate::{Error, Result};
 
 /// What the code alone says about one unit, without asking a model.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -34,7 +34,7 @@ const PLACEHOLDER_MACROS: &[&str] = &["todo", "unimplemented"];
 /// Example: for `def f():\n    # TODO: retry\n    pass\n`, the unit `f` has no parse errors,
 /// a TODO on line 2, and an empty body.
 pub fn facts_of(lang: &Loaded, text: &str, unit: &Unit) -> Result<Facts> {
-    let Some(tree) = parse(lang, text)? else {
+    let Some(tree) = lang.parse(text)? else {
         return Ok(Facts::default());
     };
     let nodes = nodes_sharing_lines_with(&tree, unit.span);
@@ -43,18 +43,6 @@ pub fn facts_of(lang: &Loaded, text: &str, unit: &Unit) -> Result<Facts> {
         todo_lines: todo_comment_lines(&nodes, unit.span, text),
         body_empty: body_is_empty(&nodes, unit, text),
     })
-}
-
-/// The syntax tree of the whole file; `None` when tree-sitter gives up on it.
-fn parse(lang: &Loaded, text: &str) -> Result<Option<Tree>> {
-    let mut parser = Parser::new();
-    parser
-        .set_language(&lang.grammar)
-        .map_err(|e| Error::GrammarLoad {
-            name: lang.language.name.clone(),
-            why: e.to_string(),
-        })?;
-    Ok(parser.parse(text, None))
 }
 
 /// A syntax node with the name of the field it fills in its parent (`body`, `name`, …), if any.
