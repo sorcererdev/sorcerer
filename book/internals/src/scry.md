@@ -61,9 +61,9 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`LiveWiring`, `Wiring`, `jev_for`,
 `researcher_for`, `claim_checker`, `PRODUCT`).
 
-**The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `go`,
-`clock_of`), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`,
-`doctor.rs` with `doctor_rows`, `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`table`, `cut_to`, `finding_text`,
+**The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `run_command`,
+`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`,
+`doctor.rs` with `doctor_rows`, `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`Output`: text or `--json`; `table`, `cut_to`, `finding_text`,
 `finding_json`, `cited_range`, `lines_text`). `src/main.rs` is the binary, `cli::main` with
 the real environment.
 
@@ -454,7 +454,7 @@ of a shown issue type whose place's file and unit are a scope unit, best confide
 one object a line. `exit_code` is 1 when a finding is shown, else 2 after a failure or a cap, else 0.
 The summary line (`summary_line`, said by `say_summary_line`: stdout, or stderr under `--json`) is skipped when nothing was shown, looked at or spent.
 
-The store commands (`list`, `cost`, `dismiss`, `why`, `log`, a file each in `src/cli/`) need no Jev, so `go` does
+The store commands (`list`, `cost`, `dismiss`, `why`, `log`, a file each in `src/cli/`) need no Jev, so `run_command` does
 not require the wiring: `clock_of` asks it for the clock (the tests' `FixedClock` carries the
 zone) and falls back to the system clock when `LiveWiring::open` fails. Each calls its use case
 over the adapters it builds (`JsonFindingStore`, `JsonlLedger`, `ScryToml`) and prints.
@@ -486,7 +486,7 @@ a summary (`error_summary_text`, `skipped_summary_text`). `write_run_log` then c
 (`create_new`, `-2`, `-3` on a clash) and deletes all but the newest `KEEP` (20), newest by
 `run_key` (the stamp, then the counter, so `-10` sorts after `-9`); a failure is one stderr
 line. A run with scry off writes no log. `scry log` (`cli/log.rs`, `show_log`) reads `runs` without
-creating the state directory: the Nth, `--list` (`table` of name, `run_time` in the clock's
+creating the state directory: what it is asked for is a `LogRequest` (`Text(n)`, `Path(n)` or `List`): the Nth, `--list` (`table` of name, `run_time` in the clock's
 offset, `result_of`) or `--path`; none is exit 2. `why` prints a verdict's `cited` under
 `Cited by the check:`, a `StoredCitation::label` and `confirmed` or `not found` each. Exit: `[scry] enabled = false` is 0 before any
 pass; `Skipped` or an error is 2; anything shown is

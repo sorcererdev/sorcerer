@@ -1,9 +1,12 @@
-//! The command line: `scry [FILES]...` runs a review and prints the open
-//! findings in its scope, writing a run log (`scry log` prints it, `-v`
-//! streams it); `scry doctor` says whether scry can run here. Each command
-//! parses, calls one use case and prints.
-//! Exit codes: 0 nothing open in scope, 1 open findings in scope, 2 could
-//! not run.
+//! The command line. `scry [FILES]...` reviews a change and prints the
+//! open findings in it, writing a run log as it goes (`scry log` prints
+//! the log afterwards, `-v` streams it as the run goes). The other
+//! commands look at what scry has stored: `list`, `why`, `dismiss`, `cost`,
+//! `log`, and `doctor`, which says whether scry can run here.
+//!
+//! Each command reads its arguments, calls one use case and prints what
+//! comes back. The exit code is 0 when nothing is open in the change, 1
+//! when findings are, and 2 when scry could not run.
 
 mod cost;
 mod dismiss;
@@ -29,6 +32,8 @@ use crate::adapters::wiring::{LiveWiring, Wiring};
 use crate::domain::config::scry_config;
 use crate::domain::finding::Dismissal;
 pub use doctor::doctor_rows;
+use format::Output;
+use log::LogRequest;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -109,8 +114,8 @@ enum Cmd {
     Doctor,
 }
 
-/// The binary's entry: the process's directory, the live wiring, and the
-/// terminal's width (100 when stdout is not a terminal).
+/// The program's entry: runs the command in the current directory, with
+/// the real model calls, files and clock.
 pub fn main(args: Vec<OsString>, env: &dyn Env, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
@@ -119,19 +124,25 @@ pub fn main(args: Vec<OsString>, env: &dyn Env, out: &mut dyn Write, err: &mut d
             return 2;
         }
     };
-    let width = if std::io::stdout().is_terminal() {
-        terminal_size::terminal_size()
-            .map(|(w, _)| w.0 as usize)
-            .unwrap_or(100)
-    } else {
-        100
-    };
-    main_with(args, &cwd, env, out, err, width, |p| {
+    main_with(args, &cwd, env, out, err, terminal_width(), |p| {
         LiveWiring::open(p, env)
     })
 }
 
-/// [`main`] with the directory, width and wiring given (the tests' doubles).
+/// The terminal's width in columns; 100 when stdout is not a terminal, or
+/// its width cannot be read.
+fn terminal_width() -> usize {
+    let terminal = std::io::stdout()
+        .is_terminal()
+        .then(terminal_size::terminal_size);
+    terminal
+        .flatten()
+        .map_or(100, |(width, _)| usize::from(width.0))
+}
+
+/// [`main`] with the directory, width and wiring given, so the tests can
+/// run a command with their doubles. The command line as typed is kept for
+/// the run log.
 #[doc(hidden)]
 pub fn main_with<W: Wiring>(
     args: Vec<OsString>,
@@ -147,40 +158,51 @@ pub fn main_with<W: Wiring>(
         .map(|a| a.to_string_lossy().into_owned())
         .collect::<Vec<_>>()
         .join(" ");
-    let cli = match Cli::try_parse_from(args) {
-        Ok(c) => c,
-        Err(e) => {
-            let code = if e.use_stderr() { 2 } else { 0 };
-            let text = e.render().to_string();
-            let _ = if e.use_stderr() {
-                err.write_all(text.as_bytes())
-            } else {
-                out.write_all(text.as_bytes())
-            };
-            return code;
-        }
+    let mut console = Console { out, err, width };
+    let code = match Cli::try_parse_from(args) {
+        Ok(cli) => match run_command(cli, &line, cwd, env, &mut console, wire) {
+            Ok(code) => code,
+            Err(e) => {
+                let _ = writeln!(console.err, "scry: {e:#}");
+                2
+            }
+        },
+        Err(e) => print_usage_or_error(&e, &mut console),
     };
-    let code = match go(cli, &line, cwd, env, out, err, width, wire) {
-        Ok(code) => code,
-        Err(e) => {
-            let _ = writeln!(err, "scry: {e:#}");
-            2
-        }
-    };
-    let _ = out.flush();
-    let _ = err.flush();
+    let _ = console.out.flush();
+    let _ = console.err.flush();
     code
 }
 
-#[allow(clippy::too_many_arguments)]
-fn go<W: Wiring>(
+/// Where a command writes: its output (`out`), its messages and errors
+/// (`err`), and how many columns wide the terminal is.
+struct Console<'a> {
+    out: &'a mut dyn Write,
+    err: &'a mut dyn Write,
+    width: usize,
+}
+
+/// When the arguments do not parse: `--help` and `--version` print on
+/// stdout and exit 0; a mistake prints on stderr and exits 2.
+fn print_usage_or_error(e: &clap::Error, console: &mut Console) -> i32 {
+    let text = e.render().to_string();
+    if e.use_stderr() {
+        let _ = console.err.write_all(text.as_bytes());
+        2
+    } else {
+        let _ = console.out.write_all(text.as_bytes());
+        0
+    }
+}
+
+/// Runs the command the arguments name, in the project holding `cwd`, and
+/// gives back its exit code.
+fn run_command<W: Wiring>(
     cli: Cli,
     line: &str,
     cwd: &Path,
     env: &dyn Env,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-    width: usize,
+    console: &mut Console,
     wire: impl Fn(&Project) -> Result<W>,
 ) -> Result<i32> {
     let project = Project::open(cwd)?;
@@ -189,16 +211,19 @@ fn go<W: Wiring>(
             // off is not a failure, and needs no wiring (no Jev key, no
             // provider): a pre-commit hook lets the commit through
             if !scry_config(&project)?.enabled {
-                writeln!(err, "scry: off ([scry] enabled = false)")?;
+                writeln!(console.err, "scry: off ([scry] enabled = false)")?;
                 return Ok(0);
             }
-            review::logged(&cli.run, line, cwd, &project, wire, out, err, width)
+            review::logged(&cli.run, line, cwd, &project, wire, console)
         }
-        Some(Cmd::Doctor) => doctor::doctor(&project, env, &GrammarCache::user(env), out),
-        Some(Cmd::List { status, json }) => list::list(&project, &status, json, out),
+        Some(Cmd::Doctor) => doctor::doctor(&project, env, &GrammarCache::user(env), console.out),
+        Some(Cmd::List { status, json }) => {
+            list::list(&project, &status, Output::json_if(json), console.out)
+        }
         Some(Cmd::Cost { since, json }) => {
             let (_, offset) = clock_of(&project, &wire);
-            cost::cost(&project, since.as_deref(), offset, json, out, err)
+            let output = Output::json_if(json);
+            cost::cost(&project, since.as_deref(), offset, output, console)
         }
         Some(Cmd::Dismiss { id, everywhere }) => {
             let (now, _) = clock_of(&project, &wire);
@@ -207,12 +232,18 @@ fn go<W: Wiring>(
             } else {
                 Dismissal::Here
             };
-            dismiss::dismiss(&project, &id, dismissal, now, out, err)
+            dismiss::dismiss(&project, &id, dismissal, now, console)
         }
-        Some(Cmd::Why { id }) => why::why(&project, env, &id, out),
+        Some(Cmd::Why { id }) => why::why(&project, env, &id, console.out),
         Some(Cmd::Log { n, list, path }) => {
             let (_, offset) = clock_of(&project, &wire);
-            log::show_log(&project, n.unwrap_or(1), list, path, offset, out, err)
+            let n = n.unwrap_or(1);
+            let request = match (list, path) {
+                (true, _) => LogRequest::List,
+                (false, true) => LogRequest::Path(n),
+                (false, false) => LogRequest::Text(n),
+            };
+            log::show_log(&project, request, offset, console)
         }
     }
 }
