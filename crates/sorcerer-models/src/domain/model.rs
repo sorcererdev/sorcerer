@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// The name a provider knows a model by: an alias such as `sonnet`, or the
-/// vendor's own id such as `claude-sonnet-4-5`.
+/// vendor's own id such as `claude-sonnet-5-5`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModelId(pub String);
 

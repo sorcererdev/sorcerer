@@ -147,7 +147,7 @@ since a citation can stand on its line. The prompt is built from its sections in
 corpus measured, in the neutral wording (its claim points at no file).
 `CheckClaimDeps::languages` is `None` in `defaults`; scry's `claim_checker` sets the project's.
 
-`check_claim(claim, deps, cancel)` checks a statement about code:
+`check_claim(claim, deps, cancel)` checks a statement about code. Its body is the cascade: `refuse_web_claims`, then `ClaimCheck::by_model` (research, parse, `verdict_with_citations_looked_for`, giving a `ModelVerdict`) for the first model, `guards_trust` for Jev's three guards, and `by_model` again for the strong model:
 
 1. **With a decider**, the cheap model (`haiku`) checks first through the researcher. Jev
    then asks three yes/no guards in one call: does the reason speak to the claim
@@ -158,7 +158,7 @@ corpus measured, in the neutral wording (its claim points at no file).
    `cannot_tell`, or the first check failed, the strong model (`sonnet`) checks again and
    its verdict stands (`Escalation::ToTheStrongModel`).
 2. **Without a decider**, the strong model checks alone.
-3. **Citations are confirmed** (`confirm_one`): inside the root, not fenced and readable,
+3. **Citations are confirmed** (`ClaimCheck::confirm`, reading through `CitedFile::open`): inside the root, not fenced and readable,
    then the named unit's span; when the unit does not resolve (or none is named), the cited
    line if it is inside the file, and a citation that stood on its line although its unit
    was not found is `CitationCheck::ConfirmedOnTheLineOnly`; with neither unit nor line, the whole file. A unit
@@ -167,7 +167,7 @@ corpus measured, in the neutral wording (its claim points at no file).
    `unit_named` reads `.` and `::` alike, since a model may join a method either way whatever
    the prompt said, and takes a bare name that ends exactly one qualified name. Each
    confirmed citation carries the fingerprint of its lines, so a later change to the cited
-   code shows. `guard_evidence` agrees: it shows the guards the cited line when it is inside
+   code shows. `guard_evidence` (with `evidence_start`, `evidence_label`, `twelve_lines_from`) agrees: it shows the guards the cited line when it is inside
    the file, else the unit's start.
 
 `Checked` carries the confirmed `citations` (empty when any failed) and `cited`: every

@@ -7,11 +7,16 @@ use crate::Result;
 use crate::domain::model::{Completion, ModelId, Reply};
 
 pub trait Provider: Send + Sync {
-    /// `anthropic`, `claude`, `openai-compatible`, or a configured name.
+    /// The provider's name: `anthropic`, `claude`, `openai-compatible`, or
+    /// the name a project gave it in its config.
     fn name(&self) -> &str;
-    /// An alias (`sonnet`) or a model id to the id this provider sends.
+    /// The model id this provider sends for an alias or an id. Example: on
+    /// `anthropic`, `sonnet` becomes `claude-sonnet-5-5`; an id passes
+    /// through.
     fn resolve(&self, alias: &str) -> Result<ModelId>;
-    /// One turn: a reply with text and, when tools were offered, tool calls.
-    fn complete(&self, req: Completion, cancel: &Cancel) -> Result<Reply>;
+    /// Runs one turn of a conversation: the reply's text and, when tools
+    /// were offered, the tools the model asks to run.
+    fn complete(&self, completion: Completion, cancel: &Cancel) -> Result<Reply>;
+    /// Whether the model may be offered tools (a researcher needs them).
     fn supports_tools(&self) -> bool;
 }
