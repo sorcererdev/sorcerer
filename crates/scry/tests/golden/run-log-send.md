@@ -948,4 +948,4 @@ I could not find anything to say in JSON.
 ### Batch 3: c.py
 
 - units: `c.py` `gamma`
-- capped: the estimate $0.040 does not fit (room $0.020); these units wait for a later run
+- capped: the estimate $0.040 does not fit (money left $0.020); these units wait for a later run

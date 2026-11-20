@@ -432,7 +432,7 @@ fn batch_heading_text(n: usize, batch: &[UnitToSend]) -> String {
 
 fn held_back_text(estimate: f64, money_left: Option<f64>) -> String {
     format!(
-        "- capped: the estimate {} does not fit (room {}); these units wait for a later run\n",
+        "- capped: the estimate {} does not fit (money left {}); these units wait for a later run\n",
         usd(estimate),
         money_left.map_or("unbounded".into(), usd),
     )
