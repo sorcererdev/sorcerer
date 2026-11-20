@@ -1,9 +1,13 @@
-//! Steering: what the reviewer is told about the project, from
-//! `.sorcerer/scry.toml`: `context` (prose), `include` (files read in as
-//! more prose, in order) and `[[rule]]`s, each an `id` and its `text`. A
-//! finding cites a rule by its id. Validation is strict and loud: an
-//! unknown key, a malformed or repeated id, or an empty text is an error
-//! naming the file and the key.
+//! Steering: what the reviewer is told about the project, read from
+//! `.sorcerer/scry.toml`. The file has three keys, all optional:
+//!
+//! - `context`: prose about the project;
+//! - `include`: a list of files whose text is read in as more prose, in order;
+//! - `[[rule]]`: the project's rules, each an `id` and its `text`.
+//!   A finding cites a rule by its id.
+//!
+//! The file is checked strictly: an unknown key, a malformed or repeated
+//! id, or an empty text is an error naming the file and the key.
 
 use std::path::{Path, PathBuf};
 
@@ -28,7 +32,7 @@ pub struct Steering {
     pub rules: Vec<Rule>,
 }
 
-/// The file as written, before its includes are read.
+/// The file as written, before the files it includes are read.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RawSteering {
     pub context: String,
@@ -36,93 +40,135 @@ pub struct RawSteering {
     pub rules: Vec<Rule>,
 }
 
-/// The most rendered steering a review call carries: about 8k tokens.
+/// The most steering a review call carries, in bytes: 32 KB, about 8,000
+/// tokens.
 pub const STEERING_CAP: usize = 32 * 1024;
 
-/// TEXT, the contents of FILE, checked: only `context`, `include` and
-/// `[[rule]]` (with only `id` and `text`); every id well formed and
-/// unique; no text and no include empty.
+/// The steering file's text, checked and read. It may hold only `context`
+/// (a string), `include` (a list of paths, none empty) and `[[rule]]`
+/// tables (each with only `id` and `text`; every id well formed and used
+/// once, no text empty). Anything else is an error naming `file`.
+///
+/// Example: `[[rule]]` with `id = "Log_Text"` is refused: an id is
+/// lowercase letters, digits and hyphens.
 pub fn parse_steering(text: &str, file: &Path) -> Result<RawSteering> {
-    let bad = |why: String| Error::Config {
-        file: file.to_path_buf(),
-        why,
-    };
-    let table: toml::Table = toml::from_str(text).map_err(|e| bad(e.message().to_string()))?;
+    let file = SteeringFile(file);
+    let table: toml::Table = toml::from_str(text).map_err(|e| file.error(e.message()))?;
     let mut raw = RawSteering::default();
     for (key, value) in &table {
         match key.as_str() {
-            "context" => {
-                raw.context = value
-                    .as_str()
-                    .ok_or_else(|| bad("`context` is not a string".into()))?
-                    .to_string();
-            }
-            "include" => {
-                let items = value
-                    .as_array()
-                    .ok_or_else(|| bad("`include` is not a list of paths".into()))?;
-                for (i, item) in items.iter().enumerate() {
-                    let path = item
-                        .as_str()
-                        .ok_or_else(|| bad(format!("include[{}] is not a path", i + 1)))?;
-                    if path.trim().is_empty() {
-                        return Err(bad(format!("include[{}] is empty", i + 1)));
-                    }
-                    raw.include.push(PathBuf::from(path));
-                }
-            }
-            "rule" => {
-                let items = value
-                    .as_array()
-                    .ok_or_else(|| bad("`rule` is not a list of [[rule]] tables".into()))?;
-                for (i, item) in items.iter().enumerate() {
-                    let n = i + 1;
-                    let t = item
-                        .as_table()
-                        .ok_or_else(|| bad(format!("[[rule]] {n} is not a table")))?;
-                    if let Some(k) = t.keys().find(|k| *k != "id" && *k != "text") {
-                        return Err(bad(format!("unknown key `{k}` in [[rule]] {n}")));
-                    }
-                    let id = match t.get("id") {
-                        None => return Err(bad(format!("[[rule]] {n}: no id"))),
-                        Some(v) => v
-                            .as_str()
-                            .ok_or_else(|| bad(format!("[[rule]] {n}: id is not a string")))?,
-                    };
-                    if !is_id(id) {
-                        return Err(bad(format!(
-                            "[[rule]] {n}: id `{id}` is not an id (lowercase letters, digits and hyphens, starting with a letter, at most 40)"
-                        )));
-                    }
-                    if let Some(first) = raw.rules.iter().position(|r| r.id == id) {
-                        return Err(bad(format!(
-                            "[[rule]] {n}: id `{id}` is also [[rule]] {}'s",
-                            first + 1
-                        )));
-                    }
-                    let text = match t.get("text") {
-                        None => "",
-                        Some(v) => v.as_str().ok_or_else(|| {
-                            bad(format!("[[rule]] {n} (`{id}`): text is not a string"))
-                        })?,
-                    };
-                    if text.trim().is_empty() {
-                        return Err(bad(format!("[[rule]] {n} (`{id}`): text is empty")));
-                    }
-                    raw.rules.push(Rule {
-                        id: id.to_string(),
-                        text: text.to_string(),
-                    });
-                }
-            }
-            other => return Err(bad(format!("unknown key `{other}`"))),
+            "context" => raw.context = file.context(value)?,
+            "include" => raw.include = file.includes(value)?,
+            "rule" => raw.rules = file.rules(value)?,
+            other => return Err(file.error(format!("unknown key `{other}`"))),
         }
     }
     Ok(raw)
 }
 
-/// Lowercase letters, digits and single hyphens, starting with a letter,
-/// not ending with a hyphen, at most 40 characters.
+/// The steering file being read, so each check's error can name it.
+struct SteeringFile<'a>(&'a Path);
+
+impl SteeringFile<'_> {
+    fn error(&self, why: impl Into<String>) -> Error {
+        Error::Config {
+            file: self.0.to_path_buf(),
+            why: why.into(),
+        }
+    }
+
+    fn context(&self, value: &toml::Value) -> Result<String> {
+        let context = value
+            .as_str()
+            .ok_or_else(|| self.error("`context` is not a string"))?;
+        Ok(context.to_string())
+    }
+
+    /// The include paths, each a string that is not blank. Errors count
+    /// from 1: `include[2] is empty`.
+    fn includes(&self, value: &toml::Value) -> Result<Vec<PathBuf>> {
+        let items = value
+            .as_array()
+            .ok_or_else(|| self.error("`include` is not a list of paths"))?;
+        let include_at = |(i, item): (usize, &toml::Value)| {
+            let n = i + 1;
+            let path = item
+                .as_str()
+                .ok_or_else(|| self.error(format!("include[{n}] is not a path")))?;
+            if path.trim().is_empty() {
+                return Err(self.error(format!("include[{n}] is empty")));
+            }
+            Ok(PathBuf::from(path))
+        };
+        items.iter().enumerate().map(include_at).collect()
+    }
+
+    /// The rules in the order written. Each is checked against the ones
+    /// before it, so a repeated id names the rule that had it first.
+    fn rules(&self, value: &toml::Value) -> Result<Vec<Rule>> {
+        let items = value
+            .as_array()
+            .ok_or_else(|| self.error("`rule` is not a list of [[rule]] tables"))?;
+        let mut rules = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            let rule = self.rule(i + 1, item, &rules)?;
+            rules.push(rule);
+        }
+        Ok(rules)
+    }
+
+    /// The `n`th `[[rule]]` table (counting from 1), checked: only `id` and
+    /// `text`, an id that is well formed and not one of `earlier`'s, and a
+    /// text that is not blank.
+    fn rule(&self, n: usize, item: &toml::Value, earlier: &[Rule]) -> Result<Rule> {
+        let table = item
+            .as_table()
+            .ok_or_else(|| self.error(format!("[[rule]] {n} is not a table")))?;
+        if let Some(key) = table.keys().find(|k| *k != "id" && *k != "text") {
+            return Err(self.error(format!("unknown key `{key}` in [[rule]] {n}")));
+        }
+        let id = self.rule_id(n, table, earlier)?;
+        let text = match table.get("text") {
+            None => "",
+            Some(v) => v.as_str().ok_or_else(|| {
+                self.error(format!("[[rule]] {n} (`{id}`): text is not a string"))
+            })?,
+        };
+        if text.trim().is_empty() {
+            return Err(self.error(format!("[[rule]] {n} (`{id}`): text is empty")));
+        }
+        Ok(Rule {
+            id: id.to_string(),
+            text: text.to_string(),
+        })
+    }
+
+    fn rule_id<'t>(&self, n: usize, table: &'t toml::Table, earlier: &[Rule]) -> Result<&'t str> {
+        let id = match table.get("id") {
+            None => return Err(self.error(format!("[[rule]] {n}: no id"))),
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| self.error(format!("[[rule]] {n}: id is not a string")))?,
+        };
+        if !is_id(id) {
+            return Err(self.error(format!(
+                "[[rule]] {n}: id `{id}` is not an id (lowercase letters, digits and hyphens, starting with a letter, at most 40)"
+            )));
+        }
+        if let Some(first) = earlier.iter().position(|r| r.id == id) {
+            return Err(self.error(format!(
+                "[[rule]] {n}: id `{id}` is also [[rule]] {}'s",
+                first + 1
+            )));
+        }
+        Ok(id)
+    }
+}
+
+/// Whether `id` is a well-formed rule id: lowercase letters, digits and
+/// single hyphens, starting with a letter, not ending with a hyphen, at
+/// most 40 characters. `log-text-apart` is one; `Log-Text`, `log--text`
+/// and `2-rules` are not.
 fn is_id(id: &str) -> bool {
     id.len() <= 40
         && id.starts_with(|c: char| c.is_ascii_lowercase())
@@ -133,30 +179,42 @@ fn is_id(id: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
+/// One part of the steering as the reviewer reads it, with a name for
+/// telling the user which part is too big.
+struct SteeringPart {
+    name: String,
+    text: String,
+}
+
 impl Steering {
-    /// The rule whose id is ID exactly.
+    /// The rule with exactly this id.
     pub fn rule(&self, id: &str) -> Option<&Rule> {
         self.rules.iter().find(|r| r.id == id)
     }
 
-    /// The id a finding's CITED rule names: trimmed, one pair of quotes,
-    /// backticks or brackets taken off, lowercased, then an exact id. No
-    /// substring and no text matching.
+    /// The id of the rule a finding cites, if the project has it. The
+    /// reviewer may wrap the id or change its case, so it is trimmed, one
+    /// pair of quotes, backticks or brackets is taken off, and it is
+    /// lowercased; then it must match an id exactly. A rule is never found
+    /// by part of its id or by its text.
+    ///
+    /// Example: `` `Log-Text-Apart` `` and `[log-text-apart]` both find
+    /// `log-text-apart`; `log-text` finds nothing.
     pub fn lookup(&self, cited: &str) -> Option<&str> {
-        let c = cited.trim();
-        let c = [('"', '"'), ('\'', '\''), ('`', '`'), ('[', ']')]
+        let trimmed = cited.trim();
+        let unwrapped = [('"', '"'), ('\'', '\''), ('`', '`'), ('[', ']')]
             .iter()
-            .find_map(|(a, z)| c.strip_prefix(*a).and_then(|r| r.strip_suffix(*z)))
-            .unwrap_or(c)
-            .trim()
-            .to_lowercase();
-        self.rule(&c).map(|r| r.id.as_str())
+            .find_map(|(open, close)| trimmed.strip_prefix(*open)?.strip_suffix(*close))
+            .unwrap_or(trimmed);
+        let id = unwrapped.trim().to_lowercase();
+        self.rule(&id).map(|r| r.id.as_str())
     }
 
-    /// The prompt's steering block: the context, each include, then the
-    /// rules, a blank line apart; `(none)` when there is nothing.
+    /// The steering as the review prompt carries it: the context, each
+    /// included file, then the rules, a blank line apart. With none of
+    /// them it is `(none)`.
     pub fn steering_text(&self) -> String {
-        let parts: Vec<String> = self.parts().into_iter().map(|(_, t)| t).collect();
+        let parts: Vec<String> = self.parts().into_iter().map(|part| part.text).collect();
         if parts.is_empty() {
             "(none)".into()
         } else {
@@ -164,74 +222,93 @@ impl Steering {
         }
     }
 
-    /// The rendered parts, each named: `context`, `include PATH`, `the rules`.
-    fn parts(&self) -> Vec<(String, String)> {
-        let mut out = Vec::new();
+    /// The parts of the steering text, named `context`, `include <path>`
+    /// and `the rules`. An empty context or no rules leaves its part out.
+    fn parts(&self) -> Vec<SteeringPart> {
         let context = self.context.trim();
-        if !context.is_empty() {
-            out.push(("context".to_string(), context.to_string()));
-        }
-        for i in &self.includes {
-            out.push((
-                format!("include {}", i.path.display()),
-                format!(
-                    "<include path=\"{}\">\n{}\n</include>",
-                    i.path.display(),
-                    i.text.trim()
-                ),
-            ));
-        }
-        if !self.rules.is_empty() {
-            out.push((
-                "the rules".to_string(),
-                format!("Rules (cite one by its id):\n{}", self.rules_text()),
-            ));
-        }
-        out
+        let context_part = (!context.is_empty()).then(|| SteeringPart {
+            name: "context".into(),
+            text: context.into(),
+        });
+        let include_parts = self.includes.iter().map(|include| SteeringPart {
+            name: format!("include {}", include.path.display()),
+            text: format!(
+                "<include path=\"{}\">\n{}\n</include>",
+                include.path.display(),
+                include.text.trim()
+            ),
+        });
+        let rules_part = (!self.rules.is_empty()).then(|| SteeringPart {
+            name: "the rules".into(),
+            text: format!("Rules (cite one by its id):\n{}", self.rules_text()),
+        });
+        context_part
+            .into_iter()
+            .chain(include_parts)
+            .chain(rules_part)
+            .collect()
     }
 
-    /// The rules as the prompt and Jev see them: `- id: first line`, further
-    /// lines indented two spaces; `(none)` without rules.
+    /// The rules as the reviewer and Jev see them, one list item each;
+    /// `(none)` when there are none.
+    ///
+    /// Example: a rule `log-text-apart` whose text is two lines reads
+    /// ```text
+    /// - log-text-apart: Run-log text lives in its own functions,
+    ///   so the logic reads without it.
+    /// ```
     pub fn rules_text(&self) -> String {
         if self.rules.is_empty() {
             return "(none)".into();
         }
         self.rules
             .iter()
-            .map(|r| {
-                let mut lines = r.text.trim().lines();
-                let mut s = format!("- {}: {}", r.id, lines.next().unwrap_or(""));
-                for l in lines {
-                    s.push('\n');
-                    if !l.trim().is_empty() {
-                        s.push_str("  ");
-                        s.push_str(l);
-                    }
-                }
-                s
-            })
+            .map(rule_item)
             .collect::<Vec<_>>()
             .join("\n")
     }
 
-    /// The rendered steering's size in bytes.
+    /// The steering text's size in bytes.
     pub fn size(&self) -> usize {
         self.steering_text().len()
     }
 
-    /// Why the steering is too big to send, naming its size, the cap and its
-    /// largest part; None when it fits.
+    /// When the steering text is over 32 KB, why it cannot be sent: its
+    /// size, the cap and its largest part, so the user knows what to cut.
+    /// None when it fits.
     pub fn over_cap(&self) -> Option<String> {
         let size = self.size();
         if size <= STEERING_CAP {
             return None;
         }
-        let (name, text) = self.parts().into_iter().max_by_key(|(_, t)| t.len())?;
+        let largest = self
+            .parts()
+            .into_iter()
+            .max_by_key(|part| part.text.len())?;
         Some(format!(
-            "the steering is {size} bytes, over the cap of {STEERING_CAP} (32 KB); its largest part is {name} ({} bytes)",
-            text.len()
+            "the steering is {size} bytes, over the cap of {STEERING_CAP} (32 KB); its largest part is {} ({} bytes)",
+            largest.name,
+            largest.text.len()
         ))
     }
+}
+
+/// A rule as a list item: `- id: first line`, each further line indented
+/// two spaces, blank lines kept blank.
+fn rule_item(rule: &Rule) -> String {
+    let mut lines = rule.text.trim().lines();
+    let first = format!("- {}: {}", rule.id, lines.next().unwrap_or(""));
+    let rest = lines.map(|line| {
+        if line.trim().is_empty() {
+            String::new()
+        } else {
+            format!("  {line}")
+        }
+    });
+    std::iter::once(first)
+        .chain(rest)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[allow(clippy::too_many_lines)]
