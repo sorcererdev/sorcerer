@@ -12,6 +12,16 @@ pub enum UnitChange {
     Same(Unit),
 }
 
+impl UnitChange {
+    /// The unit as it is now, when it was added or changed.
+    pub fn unit_now(self) -> Option<Unit> {
+        match self {
+            UnitChange::Added(unit) | UnitChange::Changed { after: unit, .. } => Some(unit),
+            UnitChange::Removed(_) | UnitChange::Same(_) => None,
+        }
+    }
+}
+
 /// Units pair by name and by which of that name they are (the second
 /// `Order` with the second `Order`); a pair with equal fingerprints is
 /// `Same`, else `Changed`. Unpaired units after are `Added`, before are

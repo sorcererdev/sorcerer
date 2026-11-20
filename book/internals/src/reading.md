@@ -27,8 +27,10 @@ for file in scoping.candidate_files(&request)? { … scoping.look_at(file)? … 
 batches` marks where a helper belongs.
 
 ```rust
-// before: `// the files changed since the base` above twenty lines
-// after:  let files = self.candidate_files(&request)?;
+// before: // one call's cap: what the caps leave, never more than a pass
+//         // may spend (…)
+//         let cap = self.budget.room().map_or(self.cfg.budget_per_pass, |r| { … });
+// after:  let cap = self.cap_for_one_call();
 ```
 
 **4. Run-log and report text lives in its own functions** (`log_…`, `…_text`), so the logic reads
@@ -43,8 +45,8 @@ fn held_back_text(estimate: f64, room: Option<f64>) -> String { format!(…) }
 does not leave it. No helper file of unrelated odds and ends.
 
 ```rust
-pub fn scope_of(…) { … look_at(…) … }
-fn look_at(…) { … }          // directly below, private
+pub(super) fn send(…) -> Asked { … self.units_not_yet_reviewed(…) … }
+fn units_not_yet_reviewed(…) { … }   // directly below, private
 ```
 
 **6. Arguments that travel together become a small struct with methods.**
@@ -151,7 +153,7 @@ fingerprints, before learning what the function is for. After, `send` is the sto
 step is a helper below it:
 
 ```rust
-pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
+pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> Asked {
     let to_send = self.units_not_yet_reviewed(scope, fresh);
     self.t(&units_text(scope, &to_send, fresh));
     let sent = sent_fingerprints(&to_send);
@@ -168,9 +170,12 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result
             self.review_one_batch(scope, batch, &sent, &mut asked);
         }
     }
-    Ok(asked)
+    asked
 }
 ```
+
+`self.t(…)` writes to the run log; `t`, `st` and `raws` keep their short names until the rename
+table is ruled on, though rule 7 bans them.
 
 The rules the old comments recorded now sit on the helpers that keep them: `must_hold_back`
 (once one batch is held back every later one is), `cap_for_one_call` (never more than a pass

@@ -24,7 +24,8 @@ impl Run<'_, '_> {
         base_ids: &HashSet<FindingId>,
         whole: bool,
     ) {
-        let (answered, no_longer, held) = (&asked.answered, &asked.no_longer, &asked.held);
+        let (answered, no_longer, held) =
+            (&asked.answered, &asked.no_longer_hold, &asked.still_hold);
         // resolved by the review call's answer
         let now = self.now;
         let mut remember = section("Remember");

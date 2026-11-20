@@ -192,9 +192,9 @@ The file reads top to bottom as these steps. `scope_of` builds a `Scoping` (the 
 view, the `Fences`, the `[scry] exclude` set, the base from `Scoping::base_revision`, and
 `all`), takes its `candidate_files` (each once; an absolute path outside the project is
 dropped by `relative_to_the_project`), starts from `Scope::empty` and asks `look_at` about each
-file. `look_at` answers a `FileInScope`: `LeftOut` with `reason_to_leave_out`'s reason (the
-first that holds, in the order above) or `not text` (`text_if_it_is_text`); `Deleted` from
-`deleted_since_the_base`; or `Present`, with `units_in_scope` turned into `scoped_units` and
+file. `look_at` answers a `FileInScope`: `Skipped` with `reason_to_skip`'s reason (the
+first that holds, in the order above) or `not text` (`text_unless_binary`); `Deleted` from
+`no_longer_in_the_tree`; or `Present`, with `units_in_scope` turned into `scoped_units` (which calls it) and
 the file into a `scoped_file`.
 
 A file that is gone but was at the base is a `ScopedFile` with `deleted` and no units, so the
@@ -305,7 +305,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    other failure. In the code, `Run::send` is that story in order: `units_not_yet_reviewed`,
    `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
    `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
-   `cost_of_call`, then `Asked::record_reply` or `Asked::record_failure`).
+   `cost_of_call`, then `Asked::record_failure`, or `take_reply` (the log, `Run::report`, `Asked::record_reply`)).
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
@@ -322,13 +322,13 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    with nothing written (`Halt::Silent`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
-   waiting) are `resolved`; those it said *still holds* go into `held`.
+   waiting) are `resolved`; those it said *still holds* go into `still_hold`.
    `Run::drop_moved` (over `Run::moved`, which reads each sent file's units again): a unit
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or waiting finding from before the pass
    whose unit was sent at a fingerprint other than its place's, and that nothing merged into,
-   kept (`held`) or resolved, is `resolved` (not found again). The prompt tells the reviewer not
-   to raise an open finding again, so `held` is what keeps an unfixed finding open across an
+   kept (`still_hold`) or resolved, is `resolved` (not found again). The prompt tells the reviewer not
+   to raise an open finding again, so `still_hold` is what keeps an unfixed finding open across an
    edit of its unit.
 6. **Verify.** `rounds::verify` for each scoped file that still exists, sharing the pass's
    `Budget` (below). It runs even when nothing in the file was sent, so a waiting finding
