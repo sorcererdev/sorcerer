@@ -94,7 +94,11 @@ impl<W: Wiring + 'static> Server<W> {
                 question.declined = true;
                 question.waiting.clear();
             }
-            Answer::Unsupported => self.say_how_to_trust(reasons),
+            Answer::Unsupported => {
+                // nothing will ever answer for the files that waited
+                lock(&self.trust_question).waiting.clear();
+                self.say_how_to_trust(reasons);
+            }
         }
     }
 
@@ -103,7 +107,14 @@ impl<W: Wiring + 'static> Server<W> {
             return;
         };
         if let Err(e) = list.trust(root) {
-            self.log_error(&format!("the trust list was not written: {e}"));
+            // nothing will review what waited: say how to trust from a terminal instead
+            lock(&self.trust_question).waiting.clear();
+            let file = list.file().display().to_string();
+            self.client.say_once(
+                "trust",
+                MessageType::WARNING,
+                &not_written_text(&file, &e.to_string()),
+            );
             return;
         }
         let waiting = std::mem::take(&mut lock(&self.trust_question).waiting);
@@ -147,6 +158,12 @@ fn cut(value: &str) -> String {
         let kept: String = value.chars().take(LONGEST_VALUE).collect();
         format!("{kept}…")
     }
+}
+
+fn not_written_text(file: &str, why: &str) -> String {
+    format!(
+        "scry is not reviewing: the trust list {file} could not be written ({why}). Run \"scry trust\" in this project to allow that."
+    )
 }
 
 fn fallback_text(reasons: &[TrustReason]) -> String {

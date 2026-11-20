@@ -19,7 +19,6 @@ use scry::ports::claim_checker::ClaimChecker;
 use scry::usecases::review_change::ReviewDeps;
 use serde_json::{Value, json};
 use sorcerer_core::Cancel;
-use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
@@ -123,7 +122,6 @@ fn served_with(dir: &Path, reviewer: StubReviewer, setup: Setup) -> Served {
     let for_wire = Arc::clone(&doubles);
     let wire = setup.wire;
     let cfg = ServerConfig {
-        env: Arc::new(MapEnv::default()),
         open: Box::new(open_with_vendored_grammars),
         cache: support::test_cache(),
         trust: Some(trust.clone()),
@@ -680,6 +678,10 @@ impl Served {
 struct Gate(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
 
 impl Gate {
+    fn is_open(&self) -> bool {
+        *self.0.0.lock().unwrap()
+    }
+
     fn open(&self) {
         *self.0.0.lock().unwrap() = true;
         self.0.1.notify_all();
@@ -710,19 +712,35 @@ fn a_save_reviews_after_the_settle_and_publishes() {
 #[test]
 fn two_quick_saves_are_one_pass() {
     let dir = changed_project();
-    let s = served_with(dir.path(), bug_reviewer(), with_progress());
+    let (setup, passes) = counting_passes(with_progress());
+    let s = served_with(dir.path(), bug_reviewer(), setup);
     s.open(&orders(&dir));
     s.save(&orders(&dir));
     s.save(&orders(&dir));
     assert!(s.progress("end", WAIT).is_some());
-    let said = s.all_within(QUIET);
-    let begins = notifications(&said, "$/progress")
-        .iter()
-        .filter(|p| p["value"]["kind"] == "begin")
-        .count();
-    assert_eq!(begins, 1, "{said:?}");
+    std::thread::sleep(QUIET);
+    assert_eq!(
+        passes.load(Ordering::SeqCst),
+        1,
+        "a pass builds its wiring once"
+    );
     assert_eq!(s.asks(), 1);
     s.stop();
+}
+
+/// SETUP with its wiring counted: one a pass.
+fn counting_passes(setup: Setup) -> (Setup, Arc<std::sync::atomic::AtomicUsize>) {
+    let passes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = Arc::clone(&passes);
+    let wire = setup.wire;
+    let setup = Setup {
+        wire: Box::new(move |doubles, review, rest| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            wire(doubles, review, rest)
+        }),
+        ..setup
+    };
+    (setup, passes)
 }
 
 #[test]
@@ -856,17 +874,25 @@ fn an_overtaking_save_cancels_the_review_call() {
 fn a_save_that_leaves_a_sent_unit_alone_does_not_cancel() {
     let dir = changed_project();
     let in_call = Gate::default();
+    let may_return = Gate::default();
     let saw_cancel = Arc::new(AtomicBool::new(false));
     let reviewer = {
-        let (in_call, saw_cancel) = (in_call.clone(), saw_cancel.clone());
+        let (in_call, may_return, saw_cancel) =
+            (in_call.clone(), may_return.clone(), saw_cancel.clone());
         StubReviewer::new().on_review_cancellable(move |_, cancel| {
+            if in_call.is_open() {
+                return;
+            }
             in_call.open();
-            std::thread::sleep(Duration::from_secs(1));
+            may_return.wait();
             saw_cancel.store(cancel.is_cancelled(), Ordering::SeqCst);
         })
     };
     let s = served(dir.path(), reviewer);
+    s.open(&orders(&dir));
+    assert!(s.next_diagnostics(&orders(&dir), WAIT).is_some());
     s.save(&orders(&dir));
+    assert!(s.next_diagnostics(&orders(&dir), WAIT).is_some());
     assert!(in_call.wait());
     // only `place` changes; `cancel` is still what was sent
     write(
@@ -877,6 +903,10 @@ fn a_save_that_leaves_a_sent_unit_alone_does_not_cancel() {
             .replace("order.place()", "order.place(now=True)"),
     );
     s.save(&orders(&dir));
+    // the save was handled (its publish came), and its overtaking check had time to run
+    assert!(s.next_diagnostics(&orders(&dir), WAIT).is_some());
+    std::thread::sleep(QUIET);
+    may_return.open();
     s.wait_for_asks(2);
     assert!(!saw_cancel.load(Ordering::SeqCst));
     s.stop();
@@ -1639,4 +1669,198 @@ fn the_binary_speaks_lsp_over_stdio() {
     while let Ok(read) = from_server.recv_timeout(Duration::from_secs(5)) {
         assert!(read.is_ok(), "{read:?}");
     }
+}
+
+// ---- the fix round ----
+
+/// A function of N numbered lines named NAME.
+fn long_unit(name: &str, n: u32) -> String {
+    let body: String = (1..n).map(|i| format!("    x{i} = {i}\n")).collect();
+    format!("def {name}():\n{body}")
+}
+
+#[test]
+fn an_overtaken_pass_gives_back_its_other_files() {
+    // two files of 400 lines each: two review calls in one pass
+    let dir = project();
+    write(dir.path(), "alpha.py", &long_unit("alpha", 400));
+    write(dir.path(), "beta.py", &long_unit("beta", 400));
+    commit(dir.path(), "two");
+    for file in ["alpha.py", "beta.py"] {
+        let text = std::fs::read_to_string(dir.path().join(file)).unwrap();
+        write(dir.path(), file, &text.replacen("x1 = 1", "x1 = 2", 1));
+    }
+    let in_call = Gate::default();
+    let first_file = Arc::new(std::sync::Mutex::new(None::<PathBuf>));
+    let reviewer = {
+        let (in_call, first_file) = (in_call.clone(), first_file.clone());
+        StubReviewer::new().on_review_cancellable(move |ask, cancel| {
+            let mut first = first_file.lock().unwrap();
+            if first.is_some() {
+                return;
+            }
+            *first = Some(ask.units[0].file.clone());
+            drop(first);
+            in_call.open();
+            let deadline = Instant::now() + WAIT;
+            while !cancel.is_cancelled() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        })
+    };
+    let s = served(dir.path(), reviewer);
+    s.save(&dir.path().join("alpha.py"));
+    s.save(&dir.path().join("beta.py"));
+    assert!(in_call.wait());
+    let overtaken = first_file.lock().unwrap().clone().unwrap();
+    let other = if overtaken == Path::new("alpha.py") {
+        "beta.py"
+    } else {
+        "alpha.py"
+    };
+    let text = std::fs::read_to_string(dir.path().join(&overtaken)).unwrap();
+    write(
+        dir.path(),
+        overtaken.to_str().unwrap(),
+        &text.replacen("x1 = 2", "x1 = 3", 1),
+    );
+    s.save(&dir.path().join(&overtaken));
+    let deadline = Instant::now() + WAIT;
+    while !s
+        .doubles
+        .reviewer
+        .asks()
+        .iter()
+        .any(|a| a.units.iter().any(|u| u.file == Path::new(other)))
+    {
+        assert!(Instant::now() < deadline, "{other} was never reviewed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    s.stop();
+}
+
+#[test]
+fn scry_off_builds_no_wiring_and_says_nothing() {
+    let dir = changed_project();
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[scry]\nenabled = false\n",
+    );
+    let (setup, passes) = counting_passes(no_key());
+    let s = served_with(dir.path(), StubReviewer::new(), setup);
+    s.save(&orders(&dir));
+    let said = s.all_within(Duration::from_millis(500));
+    assert!(
+        notifications(&said, "window/showMessage").is_empty(),
+        "{said:?}"
+    );
+    assert!(
+        notifications(&said, "window/logMessage").is_empty(),
+        "{said:?}"
+    );
+    assert_eq!(passes.load(Ordering::SeqCst), 0);
+    s.stop();
+}
+
+#[test]
+fn a_save_outside_the_project_starts_no_pass() {
+    let dir = changed_project();
+    let elsewhere = changed_project();
+    let (setup, passes) = counting_passes(Setup::default());
+    let s = served_with(dir.path(), bug_reviewer(), setup);
+    s.save(&orders(&elsewhere));
+    std::thread::sleep(QUIET);
+    assert_eq!(passes.load(Ordering::SeqCst), 0);
+    s.stop();
+}
+
+#[test]
+fn actions_follow_the_diagnostic_id_after_lines_moved() {
+    let (dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
+    // three lines were typed above the finding, not saved: the editor moved the diagnostic
+    // to line 4 and hands it back with its data
+    let id = s.request(
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": uri_of(&orders(&dir)).as_str() },
+            "range": { "start": { "line": 4, "character": 0 }, "end": { "line": 4, "character": 0 } },
+            "context": { "diagnostics": [{
+                "range": { "start": { "line": 4, "character": 0 }, "end": { "line": 4, "character": 10 } },
+                "message": "statement of b00001", "source": "scry", "data": "b00001",
+            }] },
+        }),
+    );
+    let actions = s.response(id).response_result.unwrap();
+    let titles: Vec<&str> = actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles.len(), 4, "{titles:?}");
+    assert_eq!(titles[0], "scry: Show why");
+    s.stop();
+}
+
+#[test]
+fn an_unwritable_trust_list_says_how_to_trust() {
+    let dir = runner_project();
+    // the list's directory is a file: the list cannot be written
+    let blocker = TempDir::new().unwrap();
+    let not_a_dir = blocker.path().join("file");
+    std::fs::write(&not_a_dir, "").unwrap();
+    let setup = Setup {
+        trust_dir: Some(not_a_dir),
+        ..Setup::default()
+    };
+    let s = served_with(dir.path(), bug_reviewer(), setup);
+    s.save(&orders(&dir));
+    let asked = question(&s, WAIT).unwrap();
+    s.reply(asked.id, Ok(json!({ "title": "Trust" })));
+    let said = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"),
+    );
+    let Some(Message::Notification(said)) = said else {
+        panic!("no message")
+    };
+    let text = said.params["message"].as_str().unwrap();
+    assert!(text.contains("could not be written"), "{text}");
+    assert!(
+        text.ends_with("Run \"scry trust\" in this project to allow that."),
+        "{text}"
+    );
+    assert_eq!(s.asks(), 0);
+    s.stop();
+}
+
+#[test]
+fn a_unit_put_back_clears_its_finding_at_the_save() {
+    let dir = changed_project();
+    let reviewer = StubReviewer::new().reply(
+        &["orders.py"],
+        &reply_with(&[("convention", "cancel breaks the naming rule")]),
+    );
+    let s = served(dir.path(), reviewer);
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    assert!(
+        s.diagnostics_until(&orders(&dir), WAIT, |d| d.len() == 1)
+            .is_some()
+    );
+    // the change undone: `cancel` is what HEAD has again
+    write(dir.path(), "orders.py", ORDERS);
+    s.save(&orders(&dir));
+    assert!(
+        s.diagnostics_until(&orders(&dir), WAIT, |d| d.is_empty())
+            .is_some()
+    );
+    let project = Project::open(dir.path()).unwrap();
+    assert_eq!(
+        support::read_store(&project).findings[0].status,
+        scry::domain::finding::Status::Resolved
+    );
+    assert_eq!(s.asks(), 1);
+    s.stop();
 }

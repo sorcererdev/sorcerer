@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use sorcerer_lsp::Jobs;
 
-const DELAY: Duration = Duration::from_millis(30);
+const DELAY: Duration = Duration::from_millis(100);
 /// Long enough for any job due to have run, on a busy machine too.
 const WAIT: Duration = Duration::from_secs(2);
 /// How long to watch for a job that must not run.

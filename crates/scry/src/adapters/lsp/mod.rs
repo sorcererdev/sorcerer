@@ -50,7 +50,6 @@ pub const SETTLE: Duration = Duration::from_secs(2);
 /// ([`ServerConfig::live`]); tests give a short settle, a fixed clock, vendored grammars and
 /// doubles.
 pub struct ServerConfig<W: Wiring> {
-    pub env: Arc<dyn Env>,
     /// Opens the project at a root; called afresh at each save, so config edits need no
     /// restart.
     pub open: OpenProject,
@@ -74,7 +73,6 @@ impl ServerConfig<LiveWiring> {
     /// The real server: `Project::open`, the user's grammar cache and trust list, the
     /// 2-second settle, the system clock and `LiveWiring::open_with`.
     pub fn live(env: Arc<dyn Env>) -> ServerConfig<LiveWiring> {
-        let for_wire = Arc::clone(&env);
         ServerConfig {
             open: Box::new(|root| Ok(Project::open(root)?)),
             cache: GrammarCache::user(&*env),
@@ -82,9 +80,8 @@ impl ServerConfig<LiveWiring> {
             settle: SETTLE,
             clock: Arc::new(SystemClock),
             wire: Box::new(move |project, review, rest| {
-                LiveWiring::open_with(project, &*for_wire, review, rest)
+                LiveWiring::open_with(project, &*env, review, rest)
             }),
-            env,
         }
     }
 }
@@ -114,6 +111,8 @@ struct Server<W: Wiring> {
     /// The errors logged since the server last published, so each is logged once.
     errors_logged: Mutex<BTreeSet<String>>,
     /// What the server last published for each open file, for the code actions on a line.
+    /// Keyed by the path as the editor named it (`publish` and `code_actions` both use it),
+    /// not the canonical path `project_file` compares: look it up with the editor's path.
     published: Mutex<HashMap<PathBuf, Vec<Shown>>>,
     /// The settle wait before a pass, and the overtaking check.
     jobs: Jobs,

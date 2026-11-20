@@ -71,13 +71,19 @@ impl RunningPass {
 
 /// The key the settle wait and the passes run under.
 const PASS: &str = "pass";
-/// The key the overtaking check runs under.
-const OVERTAKE: &str = "overtake";
+
+/// How long shutdown waits for a running pass to stop, so a model call it started is
+/// killed before the process exits rather than left running (and billed).
+const STOP_WAIT: Duration = Duration::from_secs(1);
 
 impl<W: Wiring + 'static> Server<W> {
     /// A file was saved: it waits for the next pass, the settle wait starts again, and if a
-    /// pass is running, the save may overtake its review call.
+    /// pass is running, the save may overtake its review call. A file outside the project
+    /// changes nothing, so saving notes elsewhere does not keep delaying a review.
     pub(super) fn saved(self: &Arc<Self>, file: PathBuf) {
+        if !self.under_root(&file) {
+            return;
+        }
         let running = {
             let mut passes = lock(&self.passes);
             if passes.shut_down {
@@ -105,16 +111,30 @@ impl<W: Wiring + 'static> Server<W> {
     }
 
     /// The editor is shutting down: the running pass is stopped, nothing pending is
-    /// reviewed, and no pass starts again.
+    /// reviewed, and no pass starts again. It waits up to a second for the running pass to
+    /// end, so a model call it started is killed before the editor's `exit` ends the process.
     pub(super) fn shutdown(&self) {
-        let mut passes = lock(&self.passes);
-        passes.shut_down = true;
-        passes.pending.clear();
-        if let Some(pass) = &passes.running {
-            pass.review_cancel.cancel();
-            pass.rest.cancel();
+        {
+            let mut passes = lock(&self.passes);
+            passes.shut_down = true;
+            passes.pending.clear();
+            if let Some(pass) = &passes.running {
+                pass.review_cancel.cancel();
+                pass.rest.cancel();
+            }
         }
         self.jobs.cancel(PASS);
+        let deadline = std::time::Instant::now() + STOP_WAIT;
+        while lock(&self.passes).running.is_some() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Whether the file is under the project the server serves: the project root above it
+    /// is the one above the editor's root. Reads no config.
+    fn under_root(&self, file: &Path) -> bool {
+        let above_file = file.parent().and_then(Project::root_above);
+        above_file.is_some() && above_file == Project::root_above(&self.root)
     }
 
     fn start_pass_after(self: &Arc<Self>, wait: Duration) {
@@ -162,10 +182,16 @@ impl<W: Wiring + 'static> Server<W> {
         Some(pass)
     }
 
-    /// The pass is over: the next starts at once when files were saved meanwhile.
+    /// The pass is over: when files were saved meanwhile, the next starts after the settle
+    /// wait (a burst of saves at the tail of a pass is still one pass). A pass a save
+    /// overtook gives its files back: its later calls were cancelled unsent, and units it
+    /// already reviewed are not sent again.
     fn finish(self: &Arc<Self>, pass: &Arc<RunningPass>) {
         let more = {
             let mut passes = lock(&self.passes);
+            if pass.overtaken.load(Ordering::SeqCst) && !passes.shut_down {
+                passes.pending.extend(pass.files.iter().cloned());
+            }
             if passes
                 .running
                 .as_ref()
@@ -176,7 +202,7 @@ impl<W: Wiring + 'static> Server<W> {
             !passes.pending.is_empty()
         };
         if more {
-            self.start_pass_after(Duration::ZERO);
+            self.start_pass_after(self.cfg.settle);
         }
     }
 
@@ -202,6 +228,10 @@ impl<W: Wiring + 'static> Server<W> {
             return Ok(());
         }
         let config = ScryToml::for_project(&project).scry_config()?;
+        // scry turned off: no wiring, so no "scry is not reviewing" for someone who turned it off
+        if !config.enabled {
+            return Ok(());
+        }
         let wired = match (self.cfg.wire)(&project, pass.review_cancel.clone(), pass.rest.clone()) {
             Ok(wired) => wired,
             Err(e) => {
@@ -335,7 +365,8 @@ impl<W: Wiring + 'static> Server<W> {
         let server = Arc::clone(self);
         let pass = Arc::clone(pass);
         let saved = saved.to_path_buf();
-        self.jobs.submit(OVERTAKE, Duration::ZERO, move || {
+        // a thread per save, not a keyed job: a second save must not replace the first's check
+        std::thread::spawn(move || {
             if server.overtakes(&pass, &saved) {
                 pass.overtaken.store(true, Ordering::SeqCst);
                 pass.review_cancel.cancel();

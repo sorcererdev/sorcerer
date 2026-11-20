@@ -51,22 +51,25 @@ pub(super) fn capabilities() -> ServerCapabilities {
 }
 
 impl<W: Wiring + 'static> Server<W> {
-    /// The actions for the findings the server last published on the lines of the request's
-    /// range: for each, *Show why*, *Show code* (when it cites evidence), *Dismiss here* and
-    /// *Dismiss everywhere*.
+    /// The actions for the findings on the request's line: for each, *Show why*, *Show code*
+    /// (when it cites evidence), *Dismiss here* and *Dismiss everywhere*.
+    ///
+    /// The findings are the ones the server last published for the file, picked by the ids
+    /// the editor hands back in the diagnostics it sends with the request (their `data`).
+    /// An editor moves a diagnostic with the text between saves, so the id still finds the
+    /// finding after lines were added above it; only when the editor sends no scry
+    /// diagnostics are they picked by the line they were published on.
     pub(super) fn code_actions(&self, params: Value) -> Result<Value, ResponseError> {
         let params: CodeActionParams = serde_json::from_value(params).map_err(invalid)?;
         let Some(path) = path_of(&params.text_document.uri) else {
             return Ok(Value::Array(Vec::new()));
         };
-        let lines = params.range.start.line..=params.range.end.line;
         let published = lock(&self.published)
             .get(&path)
             .cloned()
             .unwrap_or_default();
-        let actions: Vec<CodeActionOrCommand> = published
-            .iter()
-            .filter(|s| lines.contains(&s.placed.line.saturating_sub(1)))
+        let actions: Vec<CodeActionOrCommand> = on_the_line(&published, &params)
+            .into_iter()
             .flat_map(actions_for)
             .collect();
         serde_json::to_value(actions).map_err(invalid)
@@ -153,6 +156,29 @@ impl<W: Wiring + 'static> Server<W> {
         }
         Ok(project)
     }
+}
+
+/// The published findings the request is about: those whose ids the editor's diagnostics
+/// carry, else those published on the lines of its range.
+fn on_the_line<'a>(published: &'a [Shown], params: &CodeActionParams) -> Vec<&'a Shown> {
+    let ids: Vec<&str> = params
+        .context
+        .diagnostics
+        .iter()
+        .filter_map(|d| d.data.as_ref()?.as_str())
+        .collect();
+    let by_id: Vec<&Shown> = published
+        .iter()
+        .filter(|s| ids.contains(&s.finding.id.0.as_str()))
+        .collect();
+    if !by_id.is_empty() {
+        return by_id;
+    }
+    let lines = params.range.start.line..=params.range.end.line;
+    published
+        .iter()
+        .filter(|s| lines.contains(&s.placed.line.saturating_sub(1)))
+        .collect()
 }
 
 /// The four actions on one finding, in order; *Show code* only when it cites evidence.

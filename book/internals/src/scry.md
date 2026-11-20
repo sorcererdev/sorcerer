@@ -557,10 +557,10 @@ exits 2 when any failed.
 on the host crate ([The language-server host](lsp.md)); `adapters/lsp/` holds what a save
 means to scry, and it calls the use cases the command line calls.
 
-**What it is built from.** `ServerConfig<W: Wiring>`: the environment, `open` (how to open the
+**What it is built from.** `ServerConfig<W: Wiring>`: `open` (how to open the
 project at a root: `Project::open` live), the grammar `cache`, the user's `trust` list, the
 `settle` wait, the `clock`, and `wire` (a pass's wiring from the project and its two cancels:
-`LiveWiring::open_with` live). `ServerConfig::live(env)` is the real one; the tests in
+`LiveWiring::open_with` live, which holds the environment). `ServerConfig::live(env)` is the real one; the tests in
 `tests/lsp.rs` give a 20 ms settle, a fixed clock, vendored grammars and a wiring of the pass
 doubles, over `Connection::memory()`. The binary has no test hook.
 
@@ -590,16 +590,23 @@ overtaking check).
 
 - `Server::saved(file)` publishes the file, adds it to `Passes::pending`, and submits
   `run_pending` under the key `pass` after `settle`, so a burst of saves restarts the wait and
-  becomes one pass.
+  becomes one pass. A save of a file outside the project (`under_root`: `Project::root_above`
+  of its directory is not the one above the server's root; no config is read) changes
+  nothing, so saving files elsewhere does not keep delaying a review.
 - `run_pending`, on the job's thread: `take_pending` turns the whole pending set into a
   `RunningPass` (its files, two fresh `Cancel`s, the units its last call was sent, its
   progress line), unless one is running (it starts the next itself) or the server is shutting
   down. The pass runs inside `catch_unwind`; whatever happens (an error, a panic) is logged,
   the progress line ends, the pass stops being the running one (`finish`), and if files were
-  saved meanwhile the next pass is submitted with no wait. So a pass that dies never leaves the
-  server "running".
+  saved meanwhile the next pass is submitted after the settle (a burst of saves at the tail of a
+  pass is still one pass). A pass a save overtook puts its own files back in `pending` first:
+  its later calls were cancelled unsent, and units it already reviewed are not sent again. So a
+  pass that dies never leaves the server "running". A pass that fails before it reviews (the
+  config does not parse) drops its files: they are reviewed at their next save (re-pending
+  them would loop on a config that stays broken).
 - `Server::review(pass)`: opens the project, keeps the saved files that are its own
-  (`project_file`), reads `[scry]`, builds the wiring with `cfg.wire(project, review_cancel,
+  (`project_file`), reads `[scry]` (turned off: the pass ends there, with no wiring, so no
+  "cannot run" message for someone who turned scry off), builds the wiring with `cfg.wire(project, review_cancel,
   rest)`, and calls `review_change` with `ScopeRequest::Files`, `all` and `fresh` false, and
   `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`; the run log goes
   to a buffer and `progress` to `told`.
@@ -616,20 +623,27 @@ overtaking check).
 - **The wiring fails** (no Jev key, no provider): `cannot_run` logs it always, and says
   `scry is not reviewing: <reason>. Run "scry doctor".` once a session (`say_once("cannot-run")`)
   when `scope_of` the saved files has a unit to review.
-- **Overtaking.** A save during a pass, of a file the running call was sent units of, submits
-  `overtakes` under the key `overtake`: it reads the units now of the sent units' files, and
+- **Overtaking.** A save during a pass, of a file the running call was sent units of, runs
+  `overtakes` on a thread of its own (one a save, so a second save cannot replace the first's
+  check): it reads the units now of the sent units' files, and
   when none of them still has the fingerprint it was sent at, it sets the pass's
   `review_cancel` (only that one: Jev and the claim checks run on) and marks the pass
   `overtaken`. The cancelled call ends as a failure line the progress line does not report;
-  the saved file is pending, so the next pass reviews the fresh text at once.
+  the pass's files go back to pending, so the next pass reviews the fresh text and whatever the
+  cancelled pass had not sent yet.
 - `Server::shutdown` (the product's `shutdown`) sets both cancels of the running pass, drops
-  what is pending and stops new passes; it returns at once.
+  what is pending and stops new passes, then waits up to a second (`STOP_WAIT`) for the pass to
+  end, so a `claude` run it started is killed before the editor's `exit` ends the process.
 
 **The four actions** (`commands.rs`). The product announces `codeActionProvider` and the
 commands `scry.why`, `scry.showCode`, `scry.dismiss`. `Server::published` keeps what the server
-last published for each open file; `code_actions` answers `textDocument/codeAction` from it
-(not from the diagnostic's `data`), so the actions always match what the editor shows: for each
-finding on a line of the range, `scry: Show why`, `scry: Show code` (left out when it cites no
+last published for each open file, keyed by the path as the editor named it. `code_actions`
+answers `textDocument/codeAction` from it (`on_the_line`): first by the ids in the `data` of the
+diagnostics the editor sends with the request, so the actions still match after unsaved edits
+moved the diagnostic, then, when the editor sent none of scry's, by the line each finding was
+published on. This overrides the plan's call 11 ("from what the server last published for the
+line, not from the diagnostic's `data`"): an editor moves a diagnostic with the text between
+saves, and the line it was published on no longer matches. For each finding, `scry: Show why`, `scry: Show code` (left out when it cites no
 evidence), `scry: Dismiss here`, `scry: Dismiss everywhere`, each a `quickfix` carrying its
 `Command`. `execute` runs `workspace/executeCommand`:
 
@@ -654,10 +668,13 @@ files but builds nothing. In a pass, `trusted_at_save` also keeps the saved file
 over 60 characters cut with `…`, `Trust this project?`) and the answers `Trust` and `Not now`.
 `Picked("Trust")` writes the list (`TrustList::trust`), republishes and queues the waiting
 files; another answer or a closed question (`Answer::Closed`) declines for the session; an
-editor that cannot ask (`Answer::Unsupported`), or no list to write (`cfg.trust` is `None`),
-gets the fallback through `say_once("trust", …)`: `scry is not reviewing: this project's config
+editor that cannot ask (`Answer::Unsupported`, which also drops the waiting files), or no list
+to write (`cfg.trust` is `None`), gets the fallback through `say_once("trust", …)`: `scry is not reviewing: this project's config
 sets <key>, <key>. Run "scry trust" in this project to allow that.` Nothing waits on the
-answer: the main loop, opens and shutdown go on, and further saves ask nothing more.
+answer: the main loop, opens and shutdown go on, and further saves ask nothing more. When the
+list cannot be written on *Trust*, the waiting files are dropped and `say_once("trust", …)` says
+`scry is not reviewing: the trust list <file> could not be written (<why>). Run "scry trust" in
+this project to allow that.`
 
 `scry trust` (`cli/trust.rs`) adds the root to the user's list (always, also when nothing needs
 trust today) and prints `trusted: <root>` and each reason, or `(nothing in its config needs
