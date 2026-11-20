@@ -1,19 +1,21 @@
 //! Facts: what the code can tell about a unit without a model. Decided by
 //! node kinds tree-sitter grammars share, never by a language's name.
 
-use tree_sitter::{Node, Parser, TreeCursor};
+use tree_sitter::{Node, Parser, Tree};
 
 use crate::domain::language::Loaded;
 use crate::domain::unit::{Span, Unit, lines_of};
 use crate::{Error, Result};
 
+/// What the code alone says about one unit, without asking a model.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Facts {
-    /// Lines (1-based) where the parser found an error or a missing token.
+    /// Lines (counted from 1) where the parser found an error or a missing token.
     pub parse_errors: Vec<u32>,
-    /// Lines of comments saying `TODO` or `FIXME`.
+    /// Lines of comments that say `TODO` or `FIXME`.
     pub todo_lines: Vec<u32>,
-    /// The body is absent, or holds only placeholders and comments.
+    /// True when the unit has no body, or its body holds only placeholders (`pass`, `...`,
+    /// `todo!()`) and comments.
     pub body_empty: bool,
 }
 
@@ -23,7 +25,28 @@ const EMPTY_BODY_KINDS: &[&str] = &["pass_statement", "ellipsis"];
 /// Macros that stand for a body not written yet.
 const PLACEHOLDER_MACROS: &[&str] = &["todo", "unimplemented"];
 
+/// Reads the facts of one unit of a file: its parse errors, its TODO and FIXME comments, and
+/// whether its body is still empty.
+///
+/// The file is parsed whole (a unit's text alone may not parse), then only the syntax nodes that
+/// share a line with the unit are looked at. When the parser gives up, the facts are empty.
+///
+/// Example: for `def f():\n    # TODO: retry\n    pass\n`, the unit `f` has no parse errors,
+/// a TODO on line 2, and an empty body.
 pub fn facts_of(lang: &Loaded, text: &str, unit: &Unit) -> Result<Facts> {
+    let Some(tree) = parse(lang, text)? else {
+        return Ok(Facts::default());
+    };
+    let nodes = nodes_sharing_lines_with(&tree, unit.span);
+    Ok(Facts {
+        parse_errors: parse_error_lines(&nodes, unit.span),
+        todo_lines: todo_comment_lines(&nodes, unit.span, text),
+        body_empty: body_is_empty(&nodes, unit, text),
+    })
+}
+
+/// The syntax tree of the whole file; `None` when tree-sitter gives up on it.
+fn parse(lang: &Loaded, text: &str) -> Result<Option<Tree>> {
     let mut parser = Parser::new();
     parser
         .set_language(&lang.grammar)
@@ -31,71 +54,89 @@ pub fn facts_of(lang: &Loaded, text: &str, unit: &Unit) -> Result<Facts> {
             name: lang.language.name.clone(),
             why: e.to_string(),
         })?;
-    let Some(tree) = parser.parse(text, None) else {
-        return Ok(Facts::default());
-    };
-    let src = text.as_bytes();
-    let mut facts = Facts {
-        body_empty: unit.body.is_none(),
-        ..Facts::default()
-    };
-    let mut body: Option<Node> = None;
-    walk(&mut tree.walk(), &mut |node, field| {
-        let lines = lines_of(&node);
-        if !overlaps(unit.span, lines) {
-            return false;
+    Ok(parser.parse(text, None))
+}
+
+/// A syntax node with the name of the field it fills in its parent (`body`, `name`, …), if any.
+type NodeInField<'t> = (Node<'t>, Option<&'static str>);
+
+/// Every node that shares at least one line with the span, in reading order (a parent before
+/// its children). A node wholly outside the span is skipped with everything inside it.
+fn nodes_sharing_lines_with(tree: &Tree, span: Span) -> Vec<NodeInField<'_>> {
+    let mut cursor = tree.walk();
+    let mut found = Vec::new();
+    loop {
+        let node = cursor.node();
+        let shares_lines = overlaps(span, lines_of(&node));
+        if shares_lines {
+            found.push((node, cursor.field_name()));
         }
-        if node.is_error() || node.is_missing() {
-            let line = node.start_position().row as u32 + 1;
-            if unit.span.holds(line) {
-                facts.parse_errors.push(line);
+        if shares_lines && cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return found;
             }
         }
-        if node.kind().contains("comment") {
-            let first = node.start_position().row as u32 + 1;
-            let comment = node.utf8_text(src).unwrap_or_default();
-            for (i, l) in comment.lines().enumerate() {
-                if (l.contains("TODO") || l.contains("FIXME")) && unit.span.holds(first + i as u32)
-                {
-                    facts.todo_lines.push(first + i as u32);
-                }
-            }
-        }
-        if body.is_none()
-            && field == Some("body")
-            && Some(lines) == unit.body
-            && unit.span.contains(&lines)
-        {
-            body = Some(node);
-        }
-        true
-    });
-    facts.parse_errors.dedup();
-    facts.todo_lines.dedup();
-    if let Some(b) = body {
-        facts.body_empty = is_placeholder_body(&b, src);
     }
-    Ok(facts)
 }
 
 fn overlaps(a: Span, b: Span) -> bool {
     a.start <= b.end && b.start <= a.end
 }
 
-/// Preorder over the tree; F says whether to enter a node's children.
-fn walk<'t>(c: &mut TreeCursor<'t>, f: &mut impl FnMut(Node<'t>, Option<&str>) -> bool) {
-    loop {
-        if f(c.node(), c.field_name()) && c.goto_first_child() {
-            continue;
-        }
-        while !c.goto_next_sibling() {
-            if !c.goto_parent() {
-                return;
-            }
-        }
-    }
+/// The lines inside the span where the parser marked an error or inserted a missing token,
+/// each line once.
+fn parse_error_lines(nodes: &[NodeInField], span: Span) -> Vec<u32> {
+    let mut lines: Vec<u32> = nodes
+        .iter()
+        .filter(|(node, _)| node.is_error() || node.is_missing())
+        .map(|(node, _)| first_line(node))
+        .filter(|line| span.holds(*line))
+        .collect();
+    lines.dedup();
+    lines
 }
 
+/// The lines inside the span of comments that say `TODO` or `FIXME`, each line once. A comment
+/// over several lines is looked at line by line.
+fn todo_comment_lines(nodes: &[NodeInField], span: Span, text: &str) -> Vec<u32> {
+    let mut lines: Vec<u32> = nodes
+        .iter()
+        .filter(|(node, _)| node.kind().contains("comment"))
+        .flat_map(|(node, _)| {
+            let comment = node.utf8_text(text.as_bytes()).unwrap_or_default();
+            (first_line(node)..)
+                .zip(comment.lines())
+                .filter(|(_, line)| line.contains("TODO") || line.contains("FIXME"))
+                .map(|(number, _)| number)
+                .collect::<Vec<u32>>()
+        })
+        .filter(|line| span.holds(*line))
+        .collect();
+    lines.dedup();
+    lines
+}
+
+fn first_line(node: &Node) -> u32 {
+    node.start_position().row as u32 + 1
+}
+
+/// Whether the unit's body is missing or does nothing yet. The body node is the first node in
+/// a `body` field whose lines are exactly the unit's body lines.
+fn body_is_empty(nodes: &[NodeInField], unit: &Unit, text: &str) -> bool {
+    let body = nodes.iter().find(|(node, field)| {
+        let lines = lines_of(node);
+        *field == Some("body") && Some(lines) == unit.body && unit.span.contains(&lines)
+    });
+    match body {
+        Some((node, _)) => is_placeholder_body(node, text.as_bytes()),
+        None => unit.body.is_none(),
+    }
+}
+/// True when every statement in the body, comments aside, is a placeholder. An empty body
+/// (`{}`) counts.
 fn is_placeholder_body(body: &Node, src: &[u8]) -> bool {
     let mut c = body.walk();
     body.named_children(&mut c)
@@ -103,6 +144,8 @@ fn is_placeholder_body(body: &Node, src: &[u8]) -> bool {
         .all(|n| is_placeholder(&n, src))
 }
 
+/// True for a statement that does nothing yet: `pass`, `...`, `todo!()`, `unimplemented!()`, or a
+/// statement wrapping exactly one of those.
 fn is_placeholder(n: &Node, src: &[u8]) -> bool {
     if EMPTY_BODY_KINDS.contains(&n.kind()) {
         return true;

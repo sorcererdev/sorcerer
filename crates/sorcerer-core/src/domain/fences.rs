@@ -12,9 +12,11 @@ use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 use crate::{Error, Result};
 
-/// Fenced in every project.
+/// Paths fenced in every project: secret files (`.env`, `.env.local`, … anywhere), sorcerer's
+/// own state, and git's internals.
 pub const ALWAYS: &[&str] = &["**/.env*", ".sorcerer/**", ".git/**"];
 
+/// The paths of one project that no model may read or be sent.
 #[derive(Debug, Clone)]
 pub struct Fences {
     pub(crate) root: PathBuf,
@@ -23,30 +25,20 @@ pub struct Fences {
 }
 
 impl Fences {
-    /// The fences of a project at ROOT (already resolved) with the user's
-    /// `[model] not_evidence` globs.
+    /// The fences of the project at `root` (a path with its symlinks already resolved): the
+    /// [`ALWAYS`] patterns plus the user's `[model] not_evidence` entries from
+    /// `.sorcerer/config.toml`.
+    ///
+    /// An entry with no glob characters names a file or a directory and fences everything under
+    /// it too, so `docs/plans` fences `docs/plans/today.md`. Matching ignores case. An entry that
+    /// is not a valid glob is a config error.
     pub fn new(root: PathBuf, not_evidence: &[String]) -> Result<Fences> {
         let patterns: Vec<String> = ALWAYS
             .iter()
-            .map(|s| s.to_string())
-            .chain(not_evidence.iter().flat_map(|g| directory_style(g)))
+            .map(|pattern| pattern.to_string())
+            .chain(not_evidence.iter().flat_map(|entry| directory_style(entry)))
             .collect();
-        let mut set = GlobSetBuilder::new();
-        for pat in &patterns {
-            let g = GlobBuilder::new(pat)
-                .case_insensitive(true)
-                .literal_separator(false)
-                .build()
-                .map_err(|e| Error::Config {
-                    file: PathBuf::from(".sorcerer/config.toml"),
-                    why: format!("[model] not_evidence: {e}"),
-                })?;
-            set.add(g);
-        }
-        let globs = set.build().map_err(|e| Error::Config {
-            file: PathBuf::from(".sorcerer/config.toml"),
-            why: e.to_string(),
-        })?;
+        let globs = case_insensitive_globs(&patterns)?;
         Ok(Fences {
             root,
             globs,
@@ -54,28 +46,58 @@ impl Fences {
         })
     }
 
-    /// Whether REL, a path already resolved inside the root, may be read
-    /// and sent ([`Fences::allows`] resolves one first).
+    /// Whether a path, relative to the root and already resolved, may be read and sent.
+    /// The empty path (the root itself) never may. [`Fences::allows`] takes any path and
+    /// resolves it first.
     pub fn allows_relative(&self, rel: &Path) -> bool {
         !rel.as_os_str().is_empty() && !self.globs.is_match(rel)
     }
 
-    /// The patterns, for prompts and `claude`'s deny rules.
+    /// The fence patterns as text, to show a model what it may not read and to turn into
+    /// `claude`'s deny rules.
     pub fn patterns(&self) -> Vec<String> {
         self.patterns.clone()
     }
 
+    /// The project root the fences are relative to.
     pub fn root(&self) -> &Path {
         &self.root
     }
 }
 
-/// A `not_evidence` entry with no glob characters names a directory or a
-/// file (`docs/plans`, `notes/`): it fences the path and everything under it.
-fn directory_style(g: &str) -> Vec<String> {
-    if g.contains(['*', '?', '[', '{']) {
-        return vec![g.to_string()];
+/// The patterns for one `not_evidence` entry. A glob stays as it is; a plain path (`docs/plans`,
+/// `notes/`) becomes two patterns, the path itself and everything under it:
+/// `["docs/plans", "docs/plans/**"]`.
+fn directory_style(entry: &str) -> Vec<String> {
+    if entry.contains(['*', '?', '[', '{']) {
+        return vec![entry.to_string()];
     }
-    let bare = g.trim_end_matches('/');
+    let bare = entry.trim_end_matches('/');
     vec![bare.to_string(), format!("{bare}/**")]
+}
+
+/// One glob set matching any of the patterns, ignoring case; `*` also crosses `/`.
+fn case_insensitive_globs(patterns: &[String]) -> Result<GlobSet> {
+    let globs = patterns
+        .iter()
+        .try_fold(GlobSetBuilder::new(), |mut set, pattern| {
+            set.add(case_insensitive_glob(pattern)?);
+            Ok::<_, Error>(set)
+        })?;
+    globs.build().map_err(|e| config_error(e.to_string()))
+}
+
+fn case_insensitive_glob(pattern: &str) -> Result<globset::Glob> {
+    GlobBuilder::new(pattern)
+        .case_insensitive(true)
+        .literal_separator(false)
+        .build()
+        .map_err(|e| config_error(format!("[model] not_evidence: {e}")))
+}
+
+fn config_error(why: String) -> Error {
+    Error::Config {
+        file: PathBuf::from(".sorcerer/config.toml"),
+        why,
+    }
 }
