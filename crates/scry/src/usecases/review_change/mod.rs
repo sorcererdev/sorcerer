@@ -28,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use sorcerer_core::domain::cost::spent_in;
+use sorcerer_core::domain::cost::spent_since;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::project::Project;
@@ -246,7 +246,7 @@ impl SpentSoFar {
             .collect();
         Ok(SpentSoFar {
             as_of: now,
-            today: spent_in(
+            today: spent_since(
                 &paid,
                 "scry",
                 now.with_timezone(&offset).date_naive(),
