@@ -35,8 +35,8 @@ batches` marks where a helper belongs.
 without it.
 
 ```rust
-self.t(&held_back_text(estimate, room));
-fn held_back_text(estimate: f64, room: f64) -> String { format!(…) }
+self.t(&held_back_text(self.review_estimate, self.budget.room()));
+fn held_back_text(estimate: f64, room: Option<f64>) -> String { format!(…) }
 ```
 
 **5. Helpers sit below their caller, private, in reading order.** A reader goes down the file and
@@ -96,3 +96,85 @@ of each `tests/*.rs` and on each `mod tests`): a test is one story told in order
 own `.sorcerer/scry.toml` (`one-level-per-body`, `helpers-say-intent`, `log-text-apart`,
 `plain-names`, `comments-say-why`), so `scry` reviews each changed function against them. When a
 rule yields nitpicks, its text is what gets fixed.
+
+## Before and after: the review calls
+
+`Run::send` in `crates/scry/src/usecases/review_change/ask.rs` sends a pass's units to the
+reviewer. It was one function of more than two hundred lines; its first forty read:
+
+```rust
+pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
+    // the units to send, batched
+    let to_send: Vec<&ScopedUnit> = scope
+        .units
+        .iter()
+        .filter(|u| {
+            fresh
+                || !self
+                    .mine
+                    .reviewed
+                    .get(&u.file)
+                    .is_some_and(|s| s.contains(u.unit.fingerprint.as_str()))
+        })
+        .collect();
+    let mut units_text = section("Units");
+    for u in &scope.units {
+        let sending = to_send.iter().any(|s| std::ptr::eq(*s, u));
+        let what = if sending && fresh {
+            "to send (fresh)"
+        } else if sending {
+            "to send"
+        } else {
+            "already reviewed at this fingerprint"
+        };
+        units_text.push_str(&format!(
+            "- `{}` `{}` ({}-{}, fingerprint {}): {what}\n",
+            u.file.display(),
+            u.unit.name,
+            u.unit.span.start,
+            u.unit.span.end,
+            u.unit.fingerprint,
+        ));
+    }
+    if scope.units.is_empty() {
+        units_text.push_str("- no unit in scope\n");
+    }
+    self.t(&units_text);
+    let mut prints: HashMap<(PathBuf, String, u32), Fingerprint> = HashMap::new();
+    let mut units = Vec::new();
+    for u in &to_send {
+    …
+```
+
+A reader meets a filter over the store, then the run log's text unit by unit, then a map of
+fingerprints, before learning what the function is for. After, `send` is the story, and each
+step is a helper below it:
+
+```rust
+pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
+    let to_send = self.units_not_yet_reviewed(scope, fresh);
+    self.t(&units_text(scope, &to_send, fresh));
+    let sent = sent_fingerprints(&to_send);
+    let batches = self.batches_of(&to_send);
+    self.t(&review_calls_heading_text(batches.is_empty()));
+    let mut asked = Asked::default();
+    for (n, batch) in batches.into_iter().enumerate() {
+        self.t(&batch_heading_text(n, &batch));
+        if self.must_hold_back(&asked) {
+            self.hold_back_for_a_later_run(&batch, &mut asked);
+        } else if self.cancel.is_cancelled() {
+            self.t("- cancelled before the call\n");
+            asked.record_cancelled(&files_of(&batch));
+        } else {
+            self.review_one_batch(scope, batch, &sent, &mut asked);
+        }
+    }
+    Ok(asked)
+}
+```
+
+The rules the old comments recorded now sit on the helpers that keep them: `must_hold_back`
+(once one batch is held back every later one is), `cap_for_one_call` (never more than a pass
+may spend) and `cost_of_call` (what a call is charged when it has no price or fails). The run
+log's text is built by the `…_text` functions at the end of the file, and a golden file
+(`crates/scry/tests/golden/run-log-send.md`) holds what they write.

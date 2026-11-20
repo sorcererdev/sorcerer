@@ -302,7 +302,10 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    `parse_review` refuses, is a `failures` line (`review failed for a.py: …`) and its units stay
    unreviewed; the reviewer has already put its errand in the ledger. The budget is charged the
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
-   other failure.
+   other failure. In the code, `Run::send` is that story in order: `units_not_yet_reviewed`,
+   `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
+   `Asked::record_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
+   `cost_of_call`, then `Asked::record_reply` or `Asked::record_failure`).
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an
    `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
@@ -354,7 +357,8 @@ decides reads it: the eval's table is the same with or without it. The calls:
 - `review_change`: the **Scope** section (`scope_text`), then the **Pass** section, the caps, what scry spent earlier today, the estimates.
 - `Run::send`: **Units** (each scope unit, to send or already reviewed), **Review calls** (per
   batch: units, model, cap, the open ids, `review_prompt(&ask)` and the reply each in
-  `block`, the errand, then the parse or the failure, or the cap that held it back);
+  `block`, the errand, then the parse or the failure, or the cap that held it back; each piece
+  built by one of `ask.rs`'s `…_text` functions, last in the file);
   `Run::judge_all`: **Findings** (a `sub` heading a raw finding, then `Run::judge`);
   `Run::remember`: **Remember** (resolved by the reply, not found again, swept gone by
   `sweep_gone`, dropped as moved); and after the rounds `Run::mark_reviewed`: **Reviewed**.
