@@ -200,7 +200,7 @@ implementation is `JsonlLedger` (`adapters/jsonl_ledger.rs`). Each line is one w
 for appending, so two processes never interleave lines. `Ledger::read` skips a line that
 does not parse and counts it.
 
-`domain/cost.rs`. `spent_in(errands, product, since, offset)` sums a product's spend from a
+`domain/cost.rs`. `spent_since(errands, product, since, offset)` sums a product's spend from a
 local day on; every cap (a pass's, a day's) reads it. An errand with no known cost counts zero, and a call
 that timed out after starting is recorded with its cap as its cost, since it was probably
 paid for.

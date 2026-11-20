@@ -290,7 +290,7 @@ by saving it and making the report (`Pass::report`). The steps, in
    (blocking) for the whole pass, so two passes never interleave. The store is read once (`findings_on_disk`); `Unreadable` is
    `Error::StoreUnreadable` and nothing is touched. The pass works on a copy, `Pass::working_copy`.
    The ledger is read once too (`SpentSoFar::read`, which also fixes the pass's `now`), through the `Ledger` port: its `review` and `check` rows give the estimates and, through
-   core's `cost::spent_in` in the `Clock`'s offset, what scry spent earlier in the local day,
+   core's `cost::spent_since` in the `Clock`'s offset, what scry spent earlier in the local day,
    which starts the pass's `Budget` (Jev's `decide` rows are not counted: a fraction of a cent each).
 2. **What to send, and the gone sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
    `reviewed[file]` (every one with `fresh`). `Pass::sweep_gone`: an open, unverified or withheld

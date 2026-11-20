@@ -14,7 +14,12 @@ use crate::domain::errand::Errand;
 /// Example: scry calls at 04:30 UTC ($1.00) and 05:30 UTC ($0.25) on 17 November. Counted from
 /// 17 November in New York (UTC-5), scry has spent $0.25: the first call was still 16 November
 /// there.
-pub fn spent_in(errands: &[Errand], product: &str, since: NaiveDate, offset: FixedOffset) -> f64 {
+pub fn spent_since(
+    errands: &[Errand],
+    product: &str,
+    since: NaiveDate,
+    offset: FixedOffset,
+) -> f64 {
     errands
         .iter()
         .filter(|e| e.product == product && e.at.with_timezone(&offset).date_naive() >= since)
@@ -52,7 +57,7 @@ mod tests {
         ];
         let est = FixedOffset::west_opt(5 * 3600).unwrap();
         let day = NaiveDate::from_ymd_opt(2026, 11, 17).unwrap();
-        assert_eq!(spent_in(&es, "scry", day, est), 0.25);
+        assert_eq!(spent_since(&es, "scry", day, est), 0.25);
     }
 
     #[test]
@@ -60,7 +65,7 @@ mod tests {
         let es = vec![errand("2026-11-17T12:00:00Z", "scry", None)];
         let day = NaiveDate::from_ymd_opt(2026, 11, 17).unwrap();
         assert_eq!(
-            spent_in(&es, "scry", day, FixedOffset::east_opt(0).unwrap()),
+            spent_since(&es, "scry", day, FixedOffset::east_opt(0).unwrap()),
             0.0
         );
     }

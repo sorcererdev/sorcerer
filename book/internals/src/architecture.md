@@ -30,7 +30,7 @@ method names and the domain file stays pure.
   `language.rs` (the merged language layers, `Languages`), `query.rs` (compiled queries),
   `unit.rs` (units from the queries), `fingerprint.rs`, `compare.rs` (units before and
   after), `facts.rs`, `versioned.rs` (`Versioned`, `Snapshot`: a product's state file as data),
-  `errand.rs` (one paid call), `cost.rs` (`spent_in`), `fences.rs` (the
+  `errand.rs` (one paid call), `cost.rs` (`spent_since`), `fences.rs` (the
   patterns and `allows_relative`), `fnv.rs`.
 - `ports/`: `view.rs` (`CodebaseView`), `ledger.rs` (`Ledger`), `env.rs` (`Env`).
 - `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars fetched,
