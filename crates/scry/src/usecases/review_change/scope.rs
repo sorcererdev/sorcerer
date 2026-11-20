@@ -32,9 +32,17 @@ pub fn scope_of(
     all: bool,
     cfg: &ScryConfig,
 ) -> Result<Scope> {
+    // 1. Set up: the files scry must not read (fences), the `[scry]
+    //    exclude` globs, and the revision to compare with (the base: HEAD,
+    //    the merge base for --since, or none when there is no commit yet).
     let scoping = Scoping::new(project, view, &request, all, cfg)?;
+    // 2. The candidate files: the ones named, or every file when there is
+    //    no commit yet, or the files changed since the base.
     let files = scoping.candidate_files(&request)?;
     let mut scope = Scope::empty(request, scoping.base.clone());
+    // 3. Look at each: skipped (no language, excluded, fenced, not text),
+    //    deleted since the base, or present with its units in scope (every
+    //    unit with --all or no commit, else the added and changed ones).
     for file in files {
         match scoping.look_at(file)? {
             FileInScope::Skipped(file, why) => scope.skipped.push((file, why)),
