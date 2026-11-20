@@ -63,12 +63,13 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `researcher_for`, `claim_checker`, `PRODUCT`), and `lsp/`, the editor's server (below):
 `mod.rs` (`ServerConfig`, `serve`, `SETTLE`, the product `ScryServer` and its shared `Server`),
 `diagnostics.rs` (`diagnostic`, `STALE_LINE`), `passes.rs` (`Passes`, `RunningPass`, a save
-to a pass), `commands.rs` (the code actions and the three commands); and `why_text.rs`
+to a pass), `commands.rs` (the code actions and the three commands), `trust.rs` (the trust
+gate and its question); and `why_text.rs`
 (`why_text`, `lines_text`: a finding in full as Markdown, for `scry why` and the editor's
 *Show why*).
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `run_command`,
-`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`,
+`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`, `trust.rs`,
 `doctor.rs` with `doctor_rows` (a `DoctorRow` each), `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`Output`: text or `--json`; `table`, `cut_to`, `finding_text`,
 `finding_json`, `cited_range`, `lines_text`). `src/main.rs` is the binary, `cli::main` with
 the real environment.
@@ -639,6 +640,35 @@ evidence), `scry: Dismiss here`, `scry: Dismiss everywhere`, each a `quickfix` c
 
 An unknown id, a missing argument or another word is an `InvalidParams` error naming it, and
 nothing is written (the id is looked up before the dismissal).
+
+**The trust gate** (`trust.rs`; the rule and the list are core's, see [The core](core.md)).
+Before anything reads a file of the project (a publish, a pass, the overtaking check, a
+command), the server asks `Server::trusted(project)`: `needs_trust(project)` is empty, or the
+root is on `cfg.trust`. If not, nothing is published, nothing parsed (so no project grammar is
+built), and no pass starts. Only `Project::open` runs, which reads the config and the language
+files but builds nothing. In a pass, `trusted_at_save` also keeps the saved files in
+`TrustQuestion::waiting` and, once a session, asks: `Client::ask` with the question
+(`question_text`: `scry: this project's config sets`, one `<key> = <value>` line each, a value
+over 60 characters cut with `…`, `Trust this project?`) and the answers `Trust` and `Not now`.
+`Picked("Trust")` writes the list (`TrustList::trust`), republishes and queues the waiting
+files; another answer or a closed question (`Answer::Closed`) declines for the session; an
+editor that cannot ask (`Answer::Unsupported`), or no list to write (`cfg.trust` is `None`),
+gets the fallback through `say_once("trust", …)`: `scry is not reviewing: this project's config
+sets <key>, <key>. Run "scry trust" in this project to allow that.` Nothing waits on the
+answer: the main loop, opens and shutdown go on, and further saves ask nothing more.
+
+`scry trust` (`cli/trust.rs`) adds the root to the user's list (always, also when nothing needs
+trust today) and prints `trusted: <root>` and each reason, or `(nothing in its config needs
+trust today)`; `--revoke` prints `no longer trusted: <root>` or `was not trusted: <root>`. Both
+exit 0, and 2 when the list cannot be written or there is no project. `scry doctor`'s last row,
+`trust_row`, is `not needed`, `trusted`, or `not trusted: the editor will ask (<key>, …)`.
+
+**Standard output is the protocol's.** `scry lsp` writes framed messages from `lsp-server`'s
+writer thread, so `main.rs` does not hold the stdout lock for the run, and nothing the server
+starts may write to it: `cc` and `git` run with their output captured, and the `claude`
+runner's group kill sends its output nowhere. `tests/lsp.rs::the_binary_speaks_lsp_over_stdio`
+drives the real binary through a project grammar build and checks every byte it wrote parses
+as a framed message.
 
 **A finding as a diagnostic** (`diagnostic(shown, root, text, related)`):
 

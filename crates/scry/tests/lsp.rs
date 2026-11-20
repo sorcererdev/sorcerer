@@ -102,6 +102,8 @@ struct Served {
     /// Messages received and not yet taken by a test.
     inbox: RefCell<VecDeque<Message>>,
     requests_sent: std::cell::Cell<i32>,
+    /// The user's trust list the server was given.
+    trust: TrustList,
     _trust_home: TempDir,
 }
 
@@ -124,7 +126,7 @@ fn served_with(dir: &Path, reviewer: StubReviewer, setup: Setup) -> Served {
         env: Arc::new(MapEnv::default()),
         open: Box::new(open_with_vendored_grammars),
         cache: support::test_cache(),
-        trust: Some(trust),
+        trust: Some(trust.clone()),
         settle: Duration::from_millis(20),
         clock: Arc::new(FixedClock::at("2026-11-20T12:00:00Z".parse().unwrap())),
         wire: Box::new(move |_project, review, rest| wire(Arc::clone(&for_wire), review, rest)),
@@ -137,6 +139,7 @@ fn served_with(dir: &Path, reviewer: StubReviewer, setup: Setup) -> Served {
         server: Some(server),
         inbox: RefCell::new(VecDeque::new()),
         requests_sent: std::cell::Cell::new(0),
+        trust,
         _trust_home: trust_home,
     };
     s.initialize(dir, setup.capabilities);
@@ -1284,4 +1287,346 @@ fn an_unknown_id_is_refused_by_name() {
     assert_eq!(error.code, -32602);
     assert_eq!(std::fs::read_to_string(&store).unwrap(), before);
     s.stop();
+}
+
+// ---- the trust gate ----
+
+const RUNNER: &str = "[model.providers.mine]\nrunner = \"/x/run\"\n";
+
+/// A changed project whose config sets a runner, with an open finding seeded in it.
+fn runner_project() -> TempDir {
+    let dir = changed_project();
+    write(dir.path(), ".sorcerer/config.toml", RUNNER);
+    seed(
+        dir.path(),
+        vec![support::open_finding("f00001", "bug", "orders.py", None, 5)],
+    );
+    dir
+}
+
+const QUESTION: &str =
+    "scry: this project's config sets\n[model.providers.mine] runner = /x/run\nTrust this project?";
+
+/// The next `window/showMessageRequest` the server sends.
+fn question(s: &Served, within: Duration) -> Option<Request> {
+    let message = s.wait_for(
+        within,
+        |m| matches!(m, Message::Request(r) if r.method == "window/showMessageRequest"),
+    )?;
+    let Message::Request(request) = message else {
+        unreachable!()
+    };
+    Some(request)
+}
+
+#[test]
+fn an_untrusted_project_is_not_reviewed_or_published() {
+    let dir = runner_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    assert!(question(&s, WAIT).is_some());
+    let said = s.all_within(QUIET);
+    assert!(
+        notifications(&said, "textDocument/publishDiagnostics").is_empty(),
+        "{said:?}"
+    );
+    assert_eq!(s.asks(), 0);
+    s.stop();
+}
+
+#[test]
+fn it_is_asked_once_with_the_keys() {
+    let dir = runner_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.save(&orders(&dir));
+    let asked = question(&s, WAIT).unwrap();
+    assert_eq!(asked.params["message"], QUESTION);
+    assert_eq!(
+        asked.params["actions"],
+        json!([{ "title": "Trust" }, { "title": "Not now" }])
+    );
+    s.save(&orders(&dir));
+    assert!(question(&s, Duration::from_millis(500)).is_none());
+    s.stop();
+}
+
+#[test]
+fn trust_reviews_the_waiting_save_and_writes_the_list() {
+    let dir = runner_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    let asked = question(&s, WAIT).unwrap();
+    s.reply(asked.id, Ok(json!({ "title": "Trust" })));
+    s.wait_for_asks(1);
+    let shown = s.diagnostics_until(&orders(&dir), WAIT, |d| d.len() == 2);
+    assert!(shown.is_some());
+    let root = Project::open(dir.path()).unwrap().root;
+    assert!(s.trust.is_trusted(&root));
+    s.stop();
+}
+
+/// The question answered with ANSWER: nothing is reviewed this session, and nothing more is
+/// asked.
+fn answered_without_trust(answer: Value) {
+    let dir = runner_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.save(&orders(&dir));
+    let asked = question(&s, WAIT).unwrap();
+    s.reply(asked.id, Ok(answer));
+    std::thread::sleep(QUIET);
+    s.save(&orders(&dir));
+    assert!(question(&s, Duration::from_millis(500)).is_none());
+    assert_eq!(s.asks(), 0);
+    s.stop();
+}
+
+#[test]
+fn not_now_reviews_nothing_this_session() {
+    answered_without_trust(json!({ "title": "Not now" }));
+}
+
+#[test]
+fn a_closed_question_reviews_nothing_this_session() {
+    answered_without_trust(Value::Null);
+}
+
+#[test]
+fn a_client_that_cannot_ask_gets_the_fallback_once() {
+    let dir = runner_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.save(&orders(&dir));
+    let asked = question(&s, WAIT).unwrap();
+    s.reply(
+        asked.id,
+        Err(lsp_server::ResponseError {
+            code: -32601,
+            message: "no".into(),
+            data: None,
+        }),
+    );
+    let said = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"),
+    );
+    let Some(Message::Notification(said)) = said else {
+        panic!("no fallback")
+    };
+    assert_eq!(
+        said.params["message"],
+        "scry is not reviewing: this project's config sets [model.providers.mine] runner. Run \"scry trust\" in this project to allow that."
+    );
+    s.save(&orders(&dir));
+    let more = s.all_within(Duration::from_millis(500));
+    assert!(
+        notifications(&more, "window/showMessage").is_empty(),
+        "{more:?}"
+    );
+    assert!(question(&s, QUIET).is_none());
+    s.stop();
+}
+
+#[test]
+fn a_long_value_is_cut_at_sixty() {
+    let dir = runner_project();
+    let long = format!("/{}", "x".repeat(99));
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        &format!("[model.providers.mine]\nrunner = \"{long}\"\n"),
+    );
+    let s = served(dir.path(), bug_reviewer());
+    s.save(&orders(&dir));
+    let asked = question(&s, WAIT).unwrap();
+    let message = asked.params["message"].as_str().unwrap();
+    let line = message.lines().nth(1).unwrap();
+    let value = line
+        .strip_prefix("[model.providers.mine] runner = ")
+        .unwrap();
+    assert!(value.ends_with('…'), "{line}");
+    assert_eq!(value.chars().count(), 61, "{line}");
+    s.stop();
+}
+
+#[test]
+fn an_unanswered_question_blocks_nothing_and_is_not_repeated() {
+    let dir = runner_project();
+    write(dir.path(), "notes.py", "def note():\n    return 1\n");
+    let s = served(dir.path(), bug_reviewer());
+    s.save(&orders(&dir));
+    assert!(question(&s, WAIT).is_some());
+    // never answered: an open is handled, a request answered, saves ask nothing more
+    s.open(&dir.path().join("notes.py"));
+    let id = s.request("scry/nothing", Value::Null);
+    assert_eq!(s.response(id).response_result.unwrap_err().code, -32601);
+    s.save(&orders(&dir));
+    s.save(&dir.path().join("notes.py"));
+    assert!(question(&s, Duration::from_millis(500)).is_none());
+    let asked = Instant::now();
+    s.stop();
+    assert!(asked.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn a_trusted_project_is_reviewed_without_a_question() {
+    let dir = runner_project();
+    let trust_dir = TempDir::new().unwrap();
+    let root = Project::open(dir.path()).unwrap().root;
+    TrustList::at(trust_dir.path()).trust(&root).unwrap();
+    let setup = Setup {
+        trust_dir: Some(trust_dir.path().to_path_buf()),
+        ..Setup::default()
+    };
+    let s = served_with(dir.path(), bug_reviewer(), setup);
+    s.open(&orders(&dir));
+    assert_eq!(s.next_diagnostics(&orders(&dir), WAIT).unwrap().len(), 1);
+    s.save(&orders(&dir));
+    s.wait_for_asks(1);
+    assert!(question(&s, QUIET).is_none());
+    s.stop();
+}
+
+#[test]
+fn adding_a_runner_mid_session_asks_at_the_next_save() {
+    let dir = changed_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.save(&orders(&dir));
+    s.wait_for_asks(1);
+    write(dir.path(), ".sorcerer/config.toml", RUNNER);
+    change_cancel(dir.path(), "order.cancel(later=True)");
+    s.save(&orders(&dir));
+    let asked = question(&s, WAIT).unwrap();
+    assert_eq!(asked.params["message"], QUESTION);
+    std::thread::sleep(QUIET);
+    assert_eq!(s.asks(), 1);
+    s.stop();
+}
+
+// ---- the real binary ----
+
+/// Reads framed messages from the server's standard output onto a channel; any byte that is
+/// not a framed message ends the stream with an error.
+fn read_messages(
+    stdout: std::process::ChildStdout,
+) -> std::sync::mpsc::Receiver<std::io::Result<Message>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(stdout);
+        loop {
+            match Message::read(&mut reader) {
+                Ok(Some(message)) => {
+                    if sender.send(Ok(message)).is_err() {
+                        return;
+                    }
+                }
+                Ok(None) => return,
+                Err(e) => {
+                    let _ = sender.send(Err(e));
+                    return;
+                }
+            }
+        }
+    });
+    receiver
+}
+
+#[test]
+fn the_binary_speaks_lsp_over_stdio() {
+    use std::process::{Command, Stdio};
+    let dir = project();
+    // a grammar of the project's own: the server builds it with cc, which must not write
+    // to the protocol's stream
+    let grammar = support::vendored("python");
+    write(
+        dir.path(),
+        ".sorcerer/languages/python/language.toml",
+        &format!("grammar = {{ path = \"{}\" }}\n", grammar.display()),
+    );
+    seed(dir.path(), vec![in_cancel(dir.path(), "b00001", "bug")]);
+    let home = TempDir::new().unwrap();
+    let config_home = home.path().join("config");
+    let root = Project::open(dir.path()).unwrap().root;
+    TrustList::at(&config_home.join("sorcerer"))
+        .trust(&root)
+        .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_scry"))
+        .arg("lsp")
+        .current_dir(dir.path())
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", home.path().join("cache"))
+        .env_remove("JEV_API_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let from_server = read_messages(child.stdout.take().unwrap());
+    let send = |stdin: &mut std::process::ChildStdin, message: Message| {
+        message.write(stdin).unwrap();
+    };
+    let next = || -> Message {
+        match from_server.recv_timeout(Duration::from_secs(120)) {
+            Ok(Ok(message)) => message,
+            Ok(Err(e)) => panic!("a byte that is not a framed message: {e}"),
+            Err(_) => panic!("the server said nothing for 120 s"),
+        }
+    };
+    send(
+        &mut stdin,
+        Request::new(
+            RequestId::from(1),
+            "initialize".into(),
+            json!({ "capabilities": {}, "rootUri": uri_of(dir.path()).as_str() }),
+        )
+        .into(),
+    );
+    assert!(matches!(next(), Message::Response(r) if r.id == RequestId::from(1)));
+    send(
+        &mut stdin,
+        Notification::new("initialized".into(), json!({})).into(),
+    );
+    send(
+        &mut stdin,
+        Notification::new(
+            "textDocument/didOpen".into(),
+            json!({ "textDocument": { "uri": uri_of(&orders(&dir)).as_str(),
+                    "languageId": "python", "version": 1, "text": ORDERS } }),
+        )
+        .into(),
+    );
+    let diagnostics = loop {
+        if let Message::Notification(n) = next()
+            && n.method == "textDocument/publishDiagnostics"
+            && n.params["diagnostics"] != json!([])
+        {
+            break n.params["diagnostics"].clone();
+        }
+    };
+    assert_eq!(diagnostics.as_array().unwrap().len(), 1, "{diagnostics}");
+    let built = std::fs::read_dir(home.path().join("cache/sorcerer/grammars"))
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert!(built > 0, "the server built no grammar");
+    send(
+        &mut stdin,
+        Request::new(RequestId::from(2), "shutdown".into(), Value::Null).into(),
+    );
+    loop {
+        if matches!(next(), Message::Response(r) if r.id == RequestId::from(2)) {
+            break;
+        }
+    }
+    send(
+        &mut stdin,
+        Notification::new("exit".into(), Value::Null).into(),
+    );
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success(), "{status}");
+    // whatever else the server wrote parsed as framed messages too
+    while let Ok(read) = from_server.recv_timeout(Duration::from_secs(5)) {
+        assert!(read.is_ok(), "{read:?}");
+    }
 }

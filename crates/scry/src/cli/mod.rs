@@ -3,7 +3,8 @@
 //! the log afterwards, `-v` streams it as the run goes). The other
 //! commands look at what scry has stored: `list`, `why`, `dismiss`, `cost`,
 //! `log`, and `doctor`, which says whether scry can run here. `lsp` is the
-//! editor's language server.
+//! editor's language server; `trust` lets it review a project whose config
+//! runs code or moves the API key.
 //!
 //! Each command reads its arguments, calls one use case and prints what
 //! comes back. The exit code is 0 when nothing is open in the change, 1
@@ -17,6 +18,7 @@ mod list;
 mod log;
 mod lsp;
 mod review;
+mod trust;
 mod why;
 
 use std::ffi::OsString;
@@ -116,6 +118,12 @@ enum Cmd {
     Doctor,
     /// The editor's language server, over standard input and output
     Lsp,
+    /// Let the editor review this project although its config runs code or moves your key
+    Trust {
+        /// Take the project off the trust list instead
+        #[arg(long)]
+        revoke: bool,
+    },
 }
 
 /// The program's entry: runs the command in the current directory, with
@@ -257,6 +265,7 @@ fn run_in_project<W: Wiring>(
             dismiss::dismiss(&project, &id, dismissal, now, console)
         }
         Some(Cmd::Why { id }) => why::why(&project, env, &id, console.out),
+        Some(Cmd::Trust { revoke }) => trust::trust(&project, env, revoke, console.out),
         Some(Cmd::Log { n, list, path }) => {
             let (_, offset) = clock_of(&project, &wire);
             let n = n.unwrap_or(1);

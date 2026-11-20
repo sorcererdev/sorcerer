@@ -13,6 +13,7 @@
 mod commands;
 mod diagnostics;
 mod passes;
+mod trust;
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -118,6 +119,8 @@ struct Server<W: Wiring> {
     jobs: Jobs,
     /// The files saved and not yet reviewed, and the pass running, if one is.
     passes: Mutex<passes::Passes>,
+    /// Whether this session asked to trust the project, and what waits for the answer.
+    trust_question: Mutex<trust::TrustQuestion>,
 }
 
 /// What the publisher thread is asked to do, in order.
@@ -144,6 +147,7 @@ impl<W: Wiring + 'static> ScryServer<W> {
             published: Mutex::new(HashMap::new()),
             jobs: Jobs::new(),
             passes: Mutex::new(passes::Passes::default()),
+            trust_question: Mutex::new(trust::TrustQuestion::default()),
         });
         start_publisher(Arc::downgrade(&server), to_publish);
         ScryServer { server }
@@ -193,7 +197,7 @@ fn start_publisher<W: Wiring + 'static>(server: Weak<Server<W>>, to_publish: Rec
     });
 }
 
-impl<W: Wiring> Server<W> {
+impl<W: Wiring + 'static> Server<W> {
     /// Asks the publisher thread to publish.
     fn publish(&self, what: Publish) {
         let _ = lock(&self.publisher).send(what);
@@ -247,6 +251,9 @@ impl<W: Wiring> Server<W> {
         let Some(file) = project_file(&project, path) else {
             return Ok(None);
         };
+        if !self.trusted(&project) {
+            return Ok(None);
+        }
         let store = JsonFindingStore::at(project.state.join("scry/findings.json"));
         let settings = ScryToml::for_project(&project);
         let root = project.root.clone();

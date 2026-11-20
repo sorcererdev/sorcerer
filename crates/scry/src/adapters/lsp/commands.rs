@@ -143,8 +143,15 @@ impl<W: Wiring + 'static> Server<W> {
         Ok(())
     }
 
+    /// The project, when the server may read it.
     fn project(&self) -> Result<Project, ResponseError> {
-        (self.cfg.open)(&self.root).map_err(failed)
+        let project = (self.cfg.open)(&self.root).map_err(failed)?;
+        if !self.trusted(&project) {
+            return Err(invalid(
+                "this project is not trusted; run \"scry trust\" in it",
+            ));
+        }
+        Ok(project)
     }
 }
 

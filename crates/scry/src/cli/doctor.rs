@@ -1,7 +1,8 @@
 //! `scry doctor`: whether scry can run in a project. It prints a row for
 //! each thing scry needs (a model provider, Jev, the languages, the
 //! steering, the findings store and the ledger), each `ok` or `FAIL` with
-//! what it found.
+//! what it found, and last whether the editor's server needs the project
+//! trusted.
 //!
 //! It tries the real adapters (the provider, Jev's key, the grammars), so it
 //! lives here with the wiring's other callers, not among the use cases. It
@@ -15,7 +16,9 @@ use anyhow::Result;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::project::Project;
+use sorcerer_core::domain::trust::needs_trust;
 use sorcerer_core::domain::versioned::Snapshot;
 use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::ledger::Ledger;
@@ -83,7 +86,25 @@ fn check_setup(
         row("steering", steering_row(settings, &project.root)),
         row("store", store_row(store)),
         row("ledger", ledger_row(ledger)),
+        row("trust", trust_row(project, TrustList::user(env).as_ref())),
     ]
+}
+
+/// Whether the editor's server will review the project: it needs no trust, it is trusted, or
+/// it will ask, naming what in the config needs trust. Never a failure: the command line
+/// runs either way.
+///
+/// Example: `not trusted: the editor will ask ([model.providers.mine] runner)`.
+fn trust_row(project: &Project, list: Option<&TrustList>) -> Result<String, String> {
+    let reasons = needs_trust(project);
+    Ok(if reasons.is_empty() {
+        "not needed".to_string()
+    } else if list.is_some_and(|list| list.is_trusted(&project.root)) {
+        "trusted".to_string()
+    } else {
+        let keys: Vec<&str> = reasons.iter().map(|r| r.key.as_str()).collect();
+        format!("not trusted: the editor will ask ({})", keys.join(", "))
+    })
 }
 
 /// The model provider a review would use, and why it was chosen:

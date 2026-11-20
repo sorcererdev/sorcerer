@@ -182,7 +182,8 @@ impl<W: Wiring + 'static> Server<W> {
 
     /// One pass:
     ///
-    /// 1. opens the project and keeps the saved files that are its own;
+    /// 1. opens the project and keeps the saved files that are its own; a project that needs
+    ///    trust and does not have it is not reviewed (the gate may ask);
     /// 2. builds the wiring with the pass's two cancels; when it cannot be built, says once
     ///    that scry cannot run, if the files have something to review;
     /// 3. reviews the files' changed units within the editor's caps (`budget_per_pass`, the
@@ -197,7 +198,7 @@ impl<W: Wiring + 'static> Server<W> {
             .iter()
             .filter_map(|file| project_file(&project, file))
             .collect();
-        if files.is_empty() {
+        if files.is_empty() || !self.trusted_at_save(&project, &pass.files) {
             return Ok(());
         }
         let config = ScryToml::for_project(&project).scry_config()?;
@@ -350,6 +351,9 @@ impl<W: Wiring + 'static> Server<W> {
         let Some(saved) = project_file(&project, saved) else {
             return false;
         };
+        if !self.trusted(&project) {
+            return false;
+        }
         if !sent.iter().any(|unit| unit.file == saved) {
             return false;
         }

@@ -30,6 +30,8 @@ scry dismiss 7f3a2c        # stop showing a finding (--everywhere: in every unit
 scry why 7f3a2c            # a finding in full
 scry -v                    # a run, its log streamed to stderr as it goes
 scry log [N]               # the latest run's log (2: the one before); --list, --path
+scry trust                 # let the editor review this project (--revoke: no longer)
+scry lsp                   # the editor's language server (your editor starts it)
 ```
 
 A run looks at the units in scope it has not already looked at as they are now, then prints
@@ -58,7 +60,8 @@ Problems go to stderr, one line each: a review call that failed (`scry: review f
 src/a.py: …`; its units are looked at again next run), and units or a claim check a cap held
 back (`scry: the day's cap stopped 2 units; they wait for the next run`).
 
-A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`, `log`) is passed as
+A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`, `log`, `trust`,
+`lsp`) is passed as
 `./list`. `--since` takes no files.
 
 ### Looking at the store
@@ -176,8 +179,31 @@ scry || exit $?
   why it does not read.
 - `store`: the finding store reads (one from a newer scry does not, and is left alone).
 - `ledger`: the cost ledger reads.
+- `trust`: whether the editor will review the project: `not needed`, `trusted`, or `not
+  trusted: the editor will ask (…)` with what in the config needs trust. Never a failure: the
+  command line runs either way.
 
 It exits 2 when any row fails.
+
+### Trust
+
+Some settings in a project's own files run code or move your API key: a provider's `runner`
+(a program scry starts), a provider's `url` (where your code and your key are sent), and a
+grammar the project's `.sorcerer/languages/<name>/language.toml` names (C source scry compiles
+and loads). Your editor starts scry by itself in whatever folder you open, so its server does
+not read, parse or review a project that sets any of them until you trust it. A project that
+sets none needs no trust: that is every project with no `.sorcerer/` directory, and most with
+one.
+
+- The editor asks once a session, at the first save in such a project: *Trust* or *Not now*.
+- `scry trust` in the project trusts it from a terminal, and prints what in its config needed
+  it (`trusted: /home/you/shop`, then `[model.providers.mine] runner = /opt/run`). It trusts
+  the root even when nothing needs trust today. `scry trust --revoke` takes it off the list.
+- The list is `trusted.toml` in `$XDG_CONFIG_HOME/sorcerer/`, else `~/.config/sorcerer/`. It
+  holds project roots: trust is by path, so a change you pull into a trusted project is
+  trusted, as its build scripts are.
+
+The command line itself never asks: typing `scry` in a project is the consent.
 
 ## What a pass looks at
 

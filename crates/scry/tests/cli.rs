@@ -366,6 +366,7 @@ fn doctor_lists_each_row() {
         "steering",
         "store",
         "ledger",
+        "trust",
     ];
     let good = MapEnv::default()
         .on_path("claude")
@@ -1592,7 +1593,8 @@ fn doctor_output_is_as_recorded() {
                 languages  ok    no file here is in a language sorcerer knows\n\
                 steering   ok    no .sorcerer/scry.toml: no rules\n\
                 store      ok    no findings yet\n\
-                ledger     ok    0 rows, 0 of them scry's\n";
+                ledger     ok    0 rows, 0 of them scry's\n\
+                trust      ok    not needed\n";
     assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, want, ""));
     let r = doctor(dir.path(), &MapEnv::default());
     let want = "provider   FAIL  no model provider: put claude on PATH or set ANTHROPIC_API_KEY\n\
@@ -1600,7 +1602,8 @@ fn doctor_output_is_as_recorded() {
                 languages  ok    no file here is in a language sorcerer knows\n\
                 steering   ok    no .sorcerer/scry.toml: no rules\n\
                 store      ok    no findings yet\n\
-                ledger     ok    0 rows, 0 of them scry's\n";
+                ledger     ok    0 rows, 0 of them scry's\n\
+                trust      ok    not needed\n";
     assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (2, want, ""));
 }
 
@@ -1650,4 +1653,90 @@ fn a_store_that_says_waiting_reads_as_unverified() {
         assert_eq!(r.code, 0, "{}", r.err);
         assert!(r.out.contains("unverified  bug"), "{status}: {}", r.out);
     }
+}
+
+// ---- trust ----
+
+/// `scry ARGS` in DIR with ENV, wiring no pass.
+fn scry_with_env(dir: &Path, env: &MapEnv, a: &[&str]) -> Ran {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = main_with(
+        args(a),
+        dir,
+        env,
+        &mut out,
+        &mut err,
+        100,
+        |_: &Project| -> anyhow::Result<LiveWiring> { panic!("no pass here") },
+    );
+    Ran {
+        code,
+        out: String::from_utf8(out).unwrap(),
+        err: String::from_utf8(err).unwrap(),
+    }
+}
+
+const RUNNER: &str = "[model.providers.mine]\nrunner = \"/x/run\"\n";
+
+#[test]
+fn trust_adds_and_revoke_removes() {
+    let dir = git_project();
+    write(dir.path(), ".sorcerer/config.toml", RUNNER);
+    let home = TempDir::new().unwrap();
+    let env = MapEnv::default().var_set("XDG_CONFIG_HOME", home.path().to_str().unwrap());
+    let root = Project::open(dir.path()).unwrap().root;
+    let r = scry_with_env(dir.path(), &env, &["trust"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert_eq!(
+        r.out,
+        format!(
+            "trusted: {}\n[model.providers.mine] runner = /x/run\n",
+            root.display()
+        )
+    );
+    let list = sorcerer_core::adapters::trust_list::TrustList::user(&env).unwrap();
+    assert!(list.is_trusted(&root));
+    let r = scry_with_env(dir.path(), &env, &["trust", "--revoke"]);
+    assert_eq!(r.out, format!("no longer trusted: {}\n", root.display()));
+    assert!(!list.is_trusted(&root));
+    let r = scry_with_env(dir.path(), &env, &["trust", "--revoke"]);
+    assert_eq!(r.out, format!("was not trusted: {}\n", root.display()));
+    let plain = git_project();
+    let r = scry_with_env(plain.path(), &env, &["trust"]);
+    assert!(
+        r.out
+            .ends_with("(nothing in its config needs trust today)\n"),
+        "{}",
+        r.out
+    );
+    let nowhere = scry_with_env(dir.path(), &MapEnv::default(), &["trust"]);
+    assert_eq!(nowhere.code, 2);
+    assert!(nowhere.err.contains("XDG_CONFIG_HOME"), "{}", nowhere.err);
+}
+
+#[test]
+fn doctor_has_the_trust_row() {
+    let home = TempDir::new().unwrap();
+    let env = MapEnv::default().var_set("XDG_CONFIG_HOME", home.path().to_str().unwrap());
+    let trust_row = |dir: &Path| {
+        let project = Project::open(dir).unwrap();
+        doctor_rows(&project, &env, &support::test_cache())
+            .into_iter()
+            .last()
+            .unwrap()
+    };
+    let plain = git_project();
+    let row = trust_row(plain.path());
+    assert_eq!(
+        (row.name, row.result),
+        ("trust", Ok("not needed".to_string()))
+    );
+    let dir = git_project();
+    write(dir.path(), ".sorcerer/config.toml", RUNNER);
+    assert_eq!(
+        trust_row(dir.path()).result,
+        Ok("not trusted: the editor will ask ([model.providers.mine] runner)".to_string())
+    );
+    scry_with_env(dir.path(), &env, &["trust"]);
+    assert_eq!(trust_row(dir.path()).result, Ok("trusted".to_string()));
 }
