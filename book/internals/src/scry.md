@@ -310,18 +310,18 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
    `cost_of_call`, then `ReviewResults::record_failure`, or `take_reply` (the log, `Pass::report`, `ReviewResults::record_reply`)).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
-   is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an
-   `elsewhere` finding is stored with no question. Otherwise `candidates` go to Jev in one
-   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins;
-   `match_stored` says merge (`Pass::merge`), drop, or new. A new finding gets the `nitpick`
-   question (`Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
+   is dropped (`resolve_cited_rule`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
+   `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
+   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins
+   (`same_problem_as_stored`); `match_stored` says merge (`Pass::merge`), drop, or new. A new finding gets the `nitpick`
+   question (`add_unless_a_nitpick`, over `Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
-   statement and evidence (printed by `citations` when they hold); a merge into a finding
+   statement and evidence (`take_this_passs_version`; printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
    one's place, statement and evidence (the refresh is for a finding kept by a later pass). Either way it adds one to `seen` and keeps id, status and
    dismissals; a withheld one is asked
-   again when `asked_on` changed, a refuted or unsure one waits again when its evidence prints
-   moved. Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
+   again when `asked_on` changed (`ask_withheld_again_if_changed`), a refuted or unsure one waits again when its evidence prints
+   moved (`wait_again_if_evidence_moved`). Any `Unsure` (or error) from Jev ends the pass as `Skipped("Jev did not answer")`
    with nothing written (`Halt::Silent`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
