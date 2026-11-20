@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -14,6 +15,7 @@ use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString};
 use scry::adapters::lsp::{STALE_LINE, ServerConfig, serve};
 use scry::adapters::wiring::Wiring;
 use scry::domain::finding::{Dismissal, Finding};
+use scry::ports::claim_checker::ClaimChecker;
 use scry::usecases::review_change::ReviewDeps;
 use serde_json::{Value, json};
 use sorcerer_core::Cancel;
@@ -60,6 +62,8 @@ struct Setup {
     capabilities: Value,
     wire: Wire,
     trust_dir: Option<PathBuf>,
+    /// The claim checker, when not the doubles' (which says right).
+    checker: Option<Box<dyn ClaimChecker + Send>>,
 }
 
 impl Default for Setup {
@@ -74,6 +78,7 @@ impl Default for Setup {
                 })
             }),
             trust_dir: None,
+            checker: None,
         }
     }
 }
@@ -106,7 +111,11 @@ fn served(dir: &Path, reviewer: StubReviewer) -> Served {
 }
 
 fn served_with(dir: &Path, reviewer: StubReviewer, setup: Setup) -> Served {
-    let doubles = Arc::new(Doubles::new(dir, reviewer));
+    let mut doubles = Doubles::new(dir, reviewer);
+    if let Some(checker) = setup.checker {
+        doubles.checker = checker;
+    }
+    let doubles = Arc::new(doubles);
     let trust_home = TempDir::new().unwrap();
     let trust = TrustList::at(setup.trust_dir.as_deref().unwrap_or(trust_home.path()));
     let for_wire = Arc::clone(&doubles);
@@ -519,7 +528,7 @@ fn scry_off_clears() {
     s.stop();
 }
 
-/// After SPOIL, a save logs once and publishes nothing, and a request is still answered;
+/// After SPOIL, two saves log each error once and publish nothing, and a request is still answered;
 /// after REPAIR, a save publishes the finding again.
 fn a_broken_file_is_logged_and_the_next_save_recovers(
     spoil: impl Fn(&Path),
@@ -536,11 +545,11 @@ fn a_broken_file_is_logged_and_the_next_save_recovers(
     let id = s.request("scry/nothing", Value::Null);
     assert_eq!(s.response(id).response_result.unwrap_err().code, -32601);
     let said = s.all_within(QUIET);
-    assert_eq!(
-        notifications(&said, "window/logMessage").len(),
-        1,
-        "{said:?}"
-    );
+    let logged = notifications(&said, "window/logMessage");
+    let distinct: std::collections::BTreeSet<String> =
+        logged.iter().map(|l| l["message"].to_string()).collect();
+    assert!(!logged.is_empty(), "nothing logged");
+    assert_eq!(distinct.len(), logged.len(), "logged twice: {said:?}");
     assert!(notifications(&said, "textDocument/publishDiagnostics").is_empty());
     repair(dir.path());
     s.save(&orders(&dir));
@@ -567,4 +576,490 @@ fn a_store_from_a_newer_scry_is_logged_and_the_next_save_recovers() {
         },
         |dir| std::fs::write(store(dir), &*kept.lock().unwrap()).unwrap(),
     );
+}
+
+// ---- from a save to a pass ----
+
+/// A git project with orders.py committed, then `cancel` changed.
+fn changed_project() -> TempDir {
+    let dir = project();
+    change_cancel(dir.path(), "order.cancel(now=True)");
+    dir
+}
+
+/// Rewrites `cancel`'s body to return CALL.
+fn change_cancel(dir: &Path, call: &str) {
+    write(dir, "orders.py", &ORDERS.replace("order.cancel()", call));
+}
+
+/// A review reply holding these findings on orders.py's line 2: (issue type, statement).
+fn reply_with(findings: &[(&str, &str)]) -> String {
+    let findings: Vec<Value> = findings
+        .iter()
+        .map(|(issue_type, statement)| {
+            json!({
+                "issue_type": issue_type,
+                "file": "orders.py",
+                "lines": [2, 2],
+                "statement": statement,
+                "evidence": [{"file": "orders.py", "lines": [2, 2]}],
+            })
+        })
+        .collect();
+    json!({ "findings": findings, "open": [] }).to_string()
+}
+
+fn bug_reviewer() -> StubReviewer {
+    StubReviewer::new().reply(
+        &["orders.py"],
+        &reply_with(&[("bug", "cancel ignores now")]),
+    )
+}
+
+/// The editor announces it shows progress.
+fn with_progress() -> Setup {
+    Setup {
+        capabilities: json!({ "window": { "workDoneProgress": true } }),
+        ..Setup::default()
+    }
+}
+
+impl Served {
+    /// The diagnostics published for PATH, skipping publishes until one passes the test.
+    fn diagnostics_until(
+        &self,
+        path: &Path,
+        within: Duration,
+        wanted: impl Fn(&[Diagnostic]) -> bool,
+    ) -> Option<Vec<Diagnostic>> {
+        let deadline = Instant::now() + within;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let shown = self.next_diagnostics(path, left)?;
+            if wanted(&shown) {
+                return Some(shown);
+            }
+        }
+    }
+
+    /// The value of the next `$/progress` of this kind (`begin`, `report`, `end`).
+    fn progress(&self, kind: &str, within: Duration) -> Option<Value> {
+        let message = self.wait_for(within, |m| {
+            matches!(m, Message::Notification(n)
+                if n.method == "$/progress" && n.params["value"]["kind"] == kind)
+        })?;
+        let Message::Notification(note) = message else {
+            unreachable!()
+        };
+        Some(note.params["value"].clone())
+    }
+
+    fn asks(&self) -> usize {
+        self.doubles.reviewer.asks().len()
+    }
+
+    /// Waits until the reviewer has been asked COUNT times.
+    fn wait_for_asks(&self, count: usize) {
+        let deadline = Instant::now() + WAIT;
+        while self.asks() < count {
+            assert!(
+                Instant::now() < deadline,
+                "{} asks, not {count}",
+                self.asks()
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+/// A gate a stub blocks on until the test opens it.
+#[derive(Clone, Default)]
+struct Gate(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
+
+impl Gate {
+    fn open(&self) {
+        *self.0.0.lock().unwrap() = true;
+        self.0.1.notify_all();
+    }
+
+    /// Waits until the gate opens, at most WAIT; whether it opened.
+    fn wait(&self) -> bool {
+        let opened = self.0.0.lock().unwrap();
+        let (opened, _) = self.0.1.wait_timeout_while(opened, WAIT, |o| !*o).unwrap();
+        *opened
+    }
+}
+
+#[test]
+fn a_save_reviews_after_the_settle_and_publishes() {
+    let dir = changed_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    let shown = s.diagnostics_until(&orders(&dir), Duration::from_secs(2), |d| !d.is_empty());
+    let shown = shown.expect("a diagnostic within 2 s");
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].message, "cancel ignores now");
+    assert_eq!(s.asks(), 1);
+    s.stop();
+}
+
+#[test]
+fn two_quick_saves_are_one_pass() {
+    let dir = changed_project();
+    let s = served_with(dir.path(), bug_reviewer(), with_progress());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    s.save(&orders(&dir));
+    assert!(s.progress("end", WAIT).is_some());
+    let said = s.all_within(QUIET);
+    let begins = notifications(&said, "$/progress")
+        .iter()
+        .filter(|p| p["value"]["kind"] == "begin")
+        .count();
+    assert_eq!(begins, 1, "{said:?}");
+    assert_eq!(s.asks(), 1);
+    s.stop();
+}
+
+#[test]
+fn a_clean_save_is_silent() {
+    let dir = project();
+    let s = served_with(dir.path(), bug_reviewer(), with_progress());
+    s.open(&orders(&dir));
+    assert_eq!(s.next_diagnostics(&orders(&dir), WAIT), Some(Vec::new()));
+    s.save(&orders(&dir));
+    let said = s.all_within(QUIET);
+    assert!(notifications(&said, "$/progress").is_empty(), "{said:?}");
+    assert!(
+        notifications(&said, "window/showMessage").is_empty(),
+        "{said:?}"
+    );
+    let published = notifications(&said, "textDocument/publishDiagnostics");
+    assert_eq!(published.len(), 1, "{said:?}");
+    assert_eq!(published[0]["diagnostics"], json!([]));
+    assert!(
+        !said.iter().any(|m| matches!(m, Message::Request(_))),
+        "{said:?}"
+    );
+    assert_eq!(s.asks(), 0);
+    s.stop();
+}
+
+#[test]
+fn progress_begins_with_the_units_and_ends() {
+    let dir = changed_project();
+    let s = served_with(dir.path(), bug_reviewer(), with_progress());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    let create = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Request(r) if r.method == "window/workDoneProgress/create"),
+    );
+    assert!(create.is_some());
+    let begin = s.progress("begin", WAIT).unwrap();
+    assert_eq!(begin["title"], "scry");
+    assert_eq!(begin["message"], "reviewing 1 unit");
+    let end = s.progress("end", WAIT).unwrap();
+    assert!(end.get("message").is_none(), "{end}");
+    s.stop();
+}
+
+#[test]
+fn a_save_during_a_pass_waits_for_it() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = project();
+    write(dir.path(), "pay.py", "def charge(x):\n    return x\n");
+    commit(dir.path(), "pay");
+    change_cancel(dir.path(), "order.cancel(now=True)");
+    let gate = Gate::default();
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    let most_in_flight = Arc::new(AtomicUsize::new(0));
+    let reviewer = {
+        let (gate, in_flight, most) = (gate.clone(), in_flight.clone(), most_in_flight.clone());
+        StubReviewer::new().on_review(move |ask| {
+            let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            most.fetch_max(now, Ordering::SeqCst);
+            if ask.units[0].file == Path::new("orders.py") {
+                assert!(gate.wait(), "the test never opened the gate");
+            }
+            in_flight.fetch_sub(1, Ordering::SeqCst);
+        })
+    };
+    let s = served(dir.path(), reviewer);
+    let pay = dir.path().join("pay.py");
+    s.save(&orders(&dir));
+    s.wait_for_asks(1);
+    write(dir.path(), "pay.py", "def charge(x):\n    return x * 2\n");
+    s.save(&pay);
+    std::thread::sleep(QUIET);
+    assert_eq!(s.asks(), 1, "the second save waits for the pass");
+    gate.open();
+    s.wait_for_asks(2);
+    let asks = s.doubles.reviewer.asks();
+    assert_eq!(asks[1].units[0].file, Path::new("pay.py"));
+    assert_eq!(most_in_flight.load(Ordering::SeqCst), 1);
+    s.stop();
+}
+
+#[test]
+fn an_overtaking_save_cancels_the_review_call() {
+    let dir = changed_project();
+    let in_call = Gate::default();
+    let saw_cancel = Arc::new(AtomicBool::new(false));
+    let reviewer = {
+        let (in_call, saw_cancel) = (in_call.clone(), saw_cancel.clone());
+        StubReviewer::new().on_review_cancellable(move |ask, cancel| {
+            if !ask.units[0].text.contains("now=True") {
+                return;
+            }
+            in_call.open();
+            let deadline = Instant::now() + WAIT;
+            while !cancel.is_cancelled() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            saw_cancel.store(cancel.is_cancelled(), Ordering::SeqCst);
+        })
+    };
+    let s = served_with(dir.path(), reviewer, with_progress());
+    s.save(&orders(&dir));
+    assert!(in_call.wait());
+    change_cancel(dir.path(), "order.cancel(later=True)");
+    s.save(&orders(&dir));
+    let end = s.progress("end", WAIT).unwrap();
+    assert!(saw_cancel.load(Ordering::SeqCst));
+    assert!(end.get("message").is_none(), "{end}");
+    s.wait_for_asks(2);
+    let asks = s.doubles.reviewer.asks();
+    assert!(
+        asks[1].units[0].text.contains("later=True"),
+        "{:?}",
+        asks[1].units
+    );
+    s.stop();
+}
+
+#[test]
+fn a_save_that_leaves_a_sent_unit_alone_does_not_cancel() {
+    let dir = changed_project();
+    let in_call = Gate::default();
+    let saw_cancel = Arc::new(AtomicBool::new(false));
+    let reviewer = {
+        let (in_call, saw_cancel) = (in_call.clone(), saw_cancel.clone());
+        StubReviewer::new().on_review_cancellable(move |_, cancel| {
+            in_call.open();
+            std::thread::sleep(Duration::from_secs(1));
+            saw_cancel.store(cancel.is_cancelled(), Ordering::SeqCst);
+        })
+    };
+    let s = served(dir.path(), reviewer);
+    s.save(&orders(&dir));
+    assert!(in_call.wait());
+    // only `place` changes; `cancel` is still what was sent
+    write(
+        dir.path(),
+        "orders.py",
+        &ORDERS
+            .replace("order.cancel()", "order.cancel(now=True)")
+            .replace("order.place()", "order.place(now=True)"),
+    );
+    s.save(&orders(&dir));
+    s.wait_for_asks(2);
+    assert!(!saw_cancel.load(Ordering::SeqCst));
+    s.stop();
+}
+
+#[test]
+fn a_failed_review_ends_the_line_with_the_log_hint() {
+    let dir = changed_project();
+    let s = served_with(
+        dir.path(),
+        StubReviewer::new().timing_out(),
+        with_progress(),
+    );
+    s.save(&orders(&dir));
+    let end = s.progress("end", WAIT).unwrap();
+    assert_eq!(end["message"], "review failed, see \"scry log\"");
+    let said = s.all_within(QUIET);
+    assert!(
+        notifications(&said, "window/showMessage").is_empty(),
+        "{said:?}"
+    );
+    s.stop();
+}
+
+#[test]
+fn the_day_message_is_said_once_a_day() {
+    let dir = changed_project();
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[scry]\nbudget_per_day = 0.0\n",
+    );
+    let s = served(dir.path(), bug_reviewer());
+    s.save(&orders(&dir));
+    let said = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"),
+    );
+    let Some(Message::Notification(said)) = said else {
+        panic!("no message")
+    };
+    assert_eq!(
+        said.params["message"],
+        "scry: today's budget ($0.00) is spent. Reviews resume tomorrow; \"scry cost\" shows the days."
+    );
+    change_cancel(dir.path(), "order.cancel(later=True)");
+    s.save(&orders(&dir));
+    let more = s.all_within(Duration::from_millis(500));
+    assert!(
+        notifications(&more, "window/showMessage").is_empty(),
+        "{more:?}"
+    );
+    assert_eq!(s.asks(), 0);
+    s.stop();
+}
+
+/// A wiring that never builds: as with no Jev key.
+fn no_key() -> Setup {
+    Setup {
+        wire: Box::new(|_, _, _| Err(anyhow::anyhow!("no JEV_API_KEY"))),
+        ..Setup::default()
+    }
+}
+
+#[test]
+fn cannot_run_is_said_once_and_only_with_something_to_review() {
+    let dir = project();
+    let s = served_with(dir.path(), StubReviewer::new(), no_key());
+    s.save(&orders(&dir));
+    let clean = s.all_within(Duration::from_millis(500));
+    assert!(
+        notifications(&clean, "window/showMessage").is_empty(),
+        "{clean:?}"
+    );
+    assert!(
+        !notifications(&clean, "window/logMessage").is_empty(),
+        "{clean:?}"
+    );
+    change_cancel(dir.path(), "order.cancel(now=True)");
+    s.save(&orders(&dir));
+    let said = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"),
+    );
+    let Some(Message::Notification(said)) = said else {
+        panic!("no message")
+    };
+    assert_eq!(
+        said.params["message"],
+        "scry is not reviewing: no JEV_API_KEY. Run \"scry doctor\"."
+    );
+    s.save(&orders(&dir));
+    let more = s.all_within(Duration::from_millis(500));
+    assert!(
+        notifications(&more, "window/showMessage").is_empty(),
+        "{more:?}"
+    );
+    s.stop();
+}
+
+#[test]
+fn a_pass_that_dies_does_not_block_the_next() {
+    let dir = changed_project();
+    let died = Arc::new(AtomicBool::new(false));
+    let setup = Setup {
+        wire: {
+            let died = died.clone();
+            Box::new(move |doubles, review, rest| {
+                if !died.swap(true, Ordering::SeqCst) {
+                    panic!("the wiring fell over");
+                }
+                Ok(TestWiring {
+                    doubles,
+                    review,
+                    rest,
+                })
+            })
+        },
+        ..Setup::default()
+    };
+    let s = served_with(dir.path(), bug_reviewer(), setup);
+    s.save(&orders(&dir));
+    let logged = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/logMessage"),
+    );
+    assert!(logged.is_some());
+    s.save(&orders(&dir));
+    s.wait_for_asks(1);
+    s.stop();
+}
+
+#[test]
+fn a_finding_needing_no_check_shows_before_the_checks_end() {
+    use sorcerer_models::domain::claim::{Checked, Claim, Escalation, Verdict};
+    let dir = changed_project();
+    let checks_may_end = Gate::default();
+    let setup = Setup {
+        checker: Some({
+            let gate = checks_may_end.clone();
+            Box::new(move |_: &Claim| {
+                gate.wait();
+                Ok(Checked {
+                    verdict: Verdict::Right,
+                    why: "it does".into(),
+                    citations: Vec::new(),
+                    cited: Vec::new(),
+                    escalation: Escalation::No,
+                    errands: Vec::new(),
+                })
+            })
+        }),
+        ..Setup::default()
+    };
+    let reviewer = StubReviewer::new().reply(
+        &["orders.py"],
+        &reply_with(&[
+            ("convention", "cancel breaks the naming rule"),
+            ("bug", "cancel ignores now"),
+        ]),
+    );
+    let s = served_with(dir.path(), reviewer, setup);
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    let early = s.diagnostics_until(&orders(&dir), WAIT, |d| !d.is_empty());
+    let early = early.expect("a finding before the checks end");
+    assert_eq!(early.len(), 1, "{early:?}");
+    assert_eq!(early[0].message, "cancel breaks the naming rule");
+    checks_may_end.open();
+    let all = s.diagnostics_until(&orders(&dir), WAIT, |d| d.len() == 2);
+    assert!(all.is_some());
+    s.stop();
+}
+
+#[test]
+fn shutdown_answers_while_a_pass_runs() {
+    let dir = changed_project();
+    let in_call = Gate::default();
+    let reviewer = {
+        let in_call = in_call.clone();
+        StubReviewer::new().on_review_cancellable(move |_, cancel| {
+            in_call.open();
+            let deadline = Instant::now() + WAIT;
+            while !cancel.is_cancelled() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        })
+    };
+    let s = served(dir.path(), reviewer);
+    s.save(&orders(&dir));
+    assert!(in_call.wait());
+    let asked = Instant::now();
+    let id = s.request("shutdown", Value::Null);
+    s.response(id);
+    assert!(asked.elapsed() < Duration::from_secs(2));
+    s.notify("exit", Value::Null);
+    let mut s = s;
+    s.server.take().unwrap().join().unwrap();
 }

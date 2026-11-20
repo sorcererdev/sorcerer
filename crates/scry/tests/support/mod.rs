@@ -120,7 +120,7 @@ pub fn errand(verb: &str, model: &str, cost: f64) -> Errand {
     }
 }
 
-type Hook = Box<dyn Fn(&ReviewAsk) + Send + Sync>;
+type Hook = Box<dyn Fn(&ReviewAsk, &Cancel) + Send + Sync>;
 
 /// The review call's stand-in: replies by the set of files in the batch (an
 /// empty findings list for a batch it has no reply for), and records every ask.
@@ -133,6 +133,9 @@ pub struct StubReviewer {
     pub caps: Mutex<Vec<f64>>,
     timeout: bool,
     hook: Option<Hook>,
+    /// A call whose cancel is set by the time its hook returns fails as cancelled, as a live
+    /// reviewer's would.
+    honours_cancel: bool,
 }
 
 impl StubReviewer {
@@ -144,6 +147,7 @@ impl StubReviewer {
             caps: Mutex::new(Vec::new()),
             timeout: false,
             hook: None,
+            honours_cancel: false,
         }
     }
 
@@ -155,7 +159,18 @@ impl StubReviewer {
 
     /// Runs HOOK during every review call, as a user acting mid-pass would.
     pub fn on_review(mut self, hook: impl Fn(&ReviewAsk) + Send + Sync + 'static) -> StubReviewer {
+        self.hook = Some(Box::new(move |ask, _| hook(ask)));
+        self
+    }
+
+    /// Runs HOOK during every review call with the call's cancel; a call cancelled by the
+    /// time HOOK returns fails as cancelled.
+    pub fn on_review_cancellable(
+        mut self,
+        hook: impl Fn(&ReviewAsk, &Cancel) + Send + Sync + 'static,
+    ) -> StubReviewer {
         self.hook = Some(Box::new(hook));
+        self.honours_cancel = true;
         self
     }
 
@@ -183,7 +198,7 @@ impl Reviewer for StubReviewer {
         ask: &ReviewAsk,
         model: &str,
         cap_usd: f64,
-        _cancel: &Cancel,
+        cancel: &Cancel,
     ) -> sorcerer_models::Result<Reviewed> {
         self.asks.lock().unwrap().push(ask.clone());
         self.caps.lock().unwrap().push(cap_usd);
@@ -194,7 +209,10 @@ impl Reviewer for StubReviewer {
             });
         }
         if let Some(h) = &self.hook {
-            h(ask);
+            h(ask, cancel);
+        }
+        if self.honours_cancel && cancel.is_cancelled() {
+            return Err(sorcerer_models::Error::Cancelled);
         }
         let files: BTreeSet<PathBuf> = ask.units.iter().map(|u| u.file.clone()).collect();
         let reply = self

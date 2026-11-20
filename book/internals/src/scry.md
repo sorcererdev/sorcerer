@@ -62,7 +62,8 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`LiveWiring`, `Wiring`, `jev_for`,
 `researcher_for`, `claim_checker`, `PRODUCT`), and `lsp/`, the editor's server (below):
 `mod.rs` (`ServerConfig`, `serve`, `SETTLE`, the product `ScryServer` and its shared `Server`),
-`diagnostics.rs` (`diagnostic`, `STALE_LINE`).
+`diagnostics.rs` (`diagnostic`, `STALE_LINE`), `passes.rs` (`Passes`, `RunningPass`, a save
+to a pass).
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `run_command`,
 `clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`,
@@ -574,8 +575,50 @@ always lands after the open before it. `Publish::File(path)` is sent at an open 
 `Server::diagnostics_for` reads the store afresh (`JsonFindingStore::at`, so a read creates
 nothing), takes `shown_in_file` and turns each `Shown` into a diagnostic. Only open documents
 are ever published. An error (the config does not parse, the store is from a newer scry) goes
-to the editor's log (`window/logMessage`), the same text at most once in a row
-(`log_error`), and publishes nothing; the next save tries again.
+to the editor's log (`window/logMessage`), each text once until the server next publishes
+(`log_error`, over `errors_logged`), and publishes nothing; the next save tries again.
+`publish_open` (`Publish::AllOpen`) republishes every open document; a pass and a dismissal
+call it.
+
+**From a save to a pass** (`passes.rs`). The threads: the main loop (the host's), the
+publisher, and job threads from `Jobs` (the settle wait, then the pass itself, and the
+overtaking check).
+
+- `Server::saved(file)` publishes the file, adds it to `Passes::pending`, and submits
+  `run_pending` under the key `pass` after `settle`, so a burst of saves restarts the wait and
+  becomes one pass.
+- `run_pending`, on the job's thread: `take_pending` turns the whole pending set into a
+  `RunningPass` (its files, two fresh `Cancel`s, the units its last call was sent, its
+  progress line), unless one is running (it starts the next itself) or the server is shutting
+  down. The pass runs inside `catch_unwind`; whatever happens (an error, a panic) is logged,
+  the progress line ends, the pass stops being the running one (`finish`), and if files were
+  saved meanwhile the next pass is submitted with no wait. So a pass that dies never leaves the
+  server "running".
+- `Server::review(pass)`: opens the project, keeps the saved files that are its own
+  (`project_file`), reads `[scry]`, builds the wiring with `cfg.wire(project, review_cancel,
+  rest)`, and calls `review_change` with `ScopeRequest::Files`, `all` and `fresh` false, and
+  `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`; the run log goes
+  to a buffer and `progress` to `told`.
+- `told`: `Progress::Sending(units)` remembers the units (for the overtaking check) and begins
+  the progress line (`work_done("scry", "reviewing 1 unit")`) or reports on it;
+  `Progress::Stored` republishes, once the pass has made a call (a finding that needs no claim
+  check shows before the checks end).
+- `after_review`: republish when the pass made a call or touched a finding (a put-back resolve);
+  end the line, with `review failed, see "scry log"` when a call failed and no save cancelled
+  it on purpose; when `ReviewReport::day_spent`, `say_once("day-<local date>", …)` the day's
+  message with `budget_per_day`. A run log is written (`write_run`) only when the pass made a
+  call or failed, so `scry log` is not filled with empty saves. A clean save says nothing.
+- **The wiring fails** (no Jev key, no provider): `cannot_run` logs it always, and says
+  `scry is not reviewing: <reason>. Run "scry doctor".` once a session (`say_once("cannot-run")`)
+  when `scope_of` the saved files has a unit to review.
+- **Overtaking.** A save during a pass, of a file the running call was sent units of, submits
+  `overtakes` under the key `overtake`: it reads the units now of the sent units' files, and
+  when none of them still has the fingerprint it was sent at, it sets the pass's
+  `review_cancel` (only that one: Jev and the claim checks run on) and marks the pass
+  `overtaken`. The cancelled call ends as a failure line the progress line does not report;
+  the saved file is pending, so the next pass reviews the fresh text at once.
+- `Server::shutdown` (the product's `shutdown`) sets both cancels of the running pass, drops
+  what is pending and stops new passes; it returns at once.
 
 **A finding as a diagnostic** (`diagnostic(shown, root, text, related)`):
 

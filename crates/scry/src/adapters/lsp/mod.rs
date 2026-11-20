@@ -11,7 +11,9 @@
 //! close always lands after the open before it.
 
 mod diagnostics;
+mod passes;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, Weak};
@@ -27,7 +29,7 @@ use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 use sorcerer_lsp::serve::unknown_method;
-use sorcerer_lsp::{Client, Product};
+use sorcerer_lsp::{Client, Jobs, Product};
 
 use crate::adapters::json_finding_store::JsonFindingStore;
 use crate::adapters::scry_toml::ScryToml;
@@ -107,8 +109,12 @@ struct Server<W: Wiring> {
     /// The directory the editor opened, as it sent it: the project is opened from here.
     root: PathBuf,
     publisher: Mutex<Sender<Publish>>,
-    /// The last error logged, so the same one is not logged again and again.
-    last_error: Mutex<Option<String>>,
+    /// The errors logged since the server last published, so each is logged once.
+    errors_logged: Mutex<BTreeSet<String>>,
+    /// The settle wait before a pass, and the overtaking check.
+    jobs: Jobs,
+    /// The files saved and not yet reviewed, and the pass running, if one is.
+    passes: Mutex<passes::Passes>,
 }
 
 /// What the publisher thread is asked to do, in order.
@@ -117,6 +123,8 @@ enum Publish {
     File(PathBuf),
     /// No diagnostics for this file (it closed).
     Clear(PathBuf),
+    /// Every open file's diagnostics.
+    AllOpen,
 }
 
 impl<W: Wiring + 'static> ScryServer<W> {
@@ -129,7 +137,9 @@ impl<W: Wiring + 'static> ScryServer<W> {
             client,
             root: root.unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
             publisher: Mutex::new(publisher),
-            last_error: Mutex::new(None),
+            errors_logged: Mutex::new(BTreeSet::new()),
+            jobs: Jobs::new(),
+            passes: Mutex::new(passes::Passes::default()),
         });
         start_publisher(Arc::downgrade(&server), to_publish);
         ScryServer { server }
@@ -151,13 +161,16 @@ impl<W: Wiring + 'static> Product for ScryServer<W> {
 
     fn saved(&mut self, path: &Path) {
         self.server.publish(Publish::File(path.to_path_buf()));
+        self.server.saved(path.to_path_buf());
     }
 
     fn request(&mut self, method: &str, _params: Value) -> Result<Value, ResponseError> {
         Err(unknown_method(method))
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        self.server.shutdown();
+    }
 }
 
 /// The thread that publishes, one request at a time, for as long as the server lives.
@@ -178,10 +191,20 @@ impl<W: Wiring> Server<W> {
         let _ = lock(&self.publisher).send(what);
     }
 
+    /// Republishes every open document (a pass stored findings, a dismissal).
+    fn publish_open(&self) {
+        self.publish(Publish::AllOpen);
+    }
+
     fn publish_now(&self, what: Publish) {
         match what {
             Publish::Clear(path) => self.client.publish(&path, Vec::new()),
             Publish::File(path) => self.publish_if_open(&path),
+            Publish::AllOpen => {
+                for path in self.client.open_paths() {
+                    self.publish_if_open(&path);
+                }
+            }
         }
     }
 
@@ -195,7 +218,7 @@ impl<W: Wiring> Server<W> {
         match self.diagnostics_for(path) {
             Ok(Some(diagnostics)) => {
                 self.client.publish(path, diagnostics);
-                *lock(&self.last_error) = None;
+                lock(&self.errors_logged).clear();
             }
             Ok(None) => {}
             Err(e) => self.log_error(&format!("{e:#}")),
@@ -224,12 +247,11 @@ impl<W: Wiring> Server<W> {
         ))
     }
 
-    /// Logs an error to the editor's log for the server, unless it is the one logged last.
+    /// Logs an error to the editor's log for the server, unless it was logged since the
+    /// server last published: a broken config is said once, not at every save.
     fn log_error(&self, text: &str) {
-        let mut last = lock(&self.last_error);
-        if last.as_deref() != Some(text) {
+        if lock(&self.errors_logged).insert(text.to_string()) {
             self.client.log(&format!("scry: {text}"));
-            *last = Some(text.to_string());
         }
     }
 }
