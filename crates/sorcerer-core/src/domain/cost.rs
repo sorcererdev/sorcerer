@@ -4,8 +4,16 @@ use chrono::{FixedOffset, NaiveDate};
 
 use crate::domain::errand::Errand;
 
-/// Dollars PRODUCT spent over ERRANDS from the local day SINCE on, with the
-/// local day taken in OFFSET. An errand with no cost counts zero.
+/// How many dollars one product (such as `"scry"`) has spent, counting its calls in the ledger
+/// from the start of a given day until now.
+///
+/// The day is the user's local day: `offset` is their time zone, so a call made at 23:30 in New
+/// York counts toward that New York day although it is already the next day in UTC. A call whose
+/// cost was not recorded counts as $0.
+///
+/// Example: scry calls at 04:30 UTC ($1.00) and 05:30 UTC ($0.25) on 17 November. Counted from
+/// 17 November in New York (UTC-5), scry has spent $0.25: the first call was still 16 November
+/// there.
 pub fn spent_in(errands: &[Errand], product: &str, since: NaiveDate, offset: FixedOffset) -> f64 {
     errands
         .iter()

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::domain::unit::Unit;
 
+/// What a change did to one unit (a function, a class, …) of a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnitChange {
     Added(Unit),
@@ -22,42 +23,59 @@ impl UnitChange {
     }
 }
 
-/// Units pair by name and by which of that name they are (the second
-/// `Order` with the second `Order`); a pair with equal fingerprints is
-/// `Same`, else `Changed`. Unpaired units after are `Added`, before are
-/// `Removed`. The order is AFTER's, then the removed in BEFORE's order.
+/// Pairs a file's units from before a change with its units after, and says of each whether it
+/// was added, changed, removed or stayed the same.
+///
+/// Units pair by name. When a file has several units with one name, they pair in turn: the first
+/// `Order` before with the first `Order` after, the second with the second. A pair with the same
+/// fingerprint is `Same`, otherwise `Changed`. A unit after with no partner is `Added`; one
+/// before with no partner is `Removed`.
+///
+/// The list follows the file's order after the change, then the removed units in their order
+/// before.
+///
+/// Example: before `[load, Order, save]` and after `[Order (edited), save, print]` gives
+/// `[Changed Order, Same save, Added print, Removed load]`.
 pub fn compare_units(before: &[Unit], after: &[Unit]) -> Vec<UnitChange> {
-    let keyed = |us: &[Unit]| -> Vec<(String, usize)> {
-        let mut seen: HashMap<&str, usize> = HashMap::new();
-        us.iter()
-            .map(|u| {
-                let n = seen.entry(u.name.as_str()).or_default();
-                *n += 1;
-                (u.name.clone(), *n)
-            })
-            .collect()
-    };
-    let before_keys = keyed(before);
-    let mut by_key: HashMap<(String, usize), &Unit> =
-        before_keys.iter().cloned().zip(before).collect();
-    let mut out: Vec<UnitChange> = keyed(after)
-        .into_iter()
-        .zip(after)
-        .map(|(k, a)| match by_key.remove(&k) {
-            Some(b) if b.fingerprint == a.fingerprint => UnitChange::Same(a.clone()),
-            Some(b) => UnitChange::Changed {
-                before: b.clone(),
-                after: a.clone(),
-            },
-            None => UnitChange::Added(a.clone()),
-        })
+    let mut unpaired_before: HashMap<NameAndTurn, &Unit> = with_name_and_turn(before).collect();
+    let changes_after: Vec<UnitChange> = with_name_and_turn(after)
+        .map(|(key, unit)| change_to(unit, unpaired_before.remove(&key)))
         .collect();
-    out.extend(
-        before_keys
-            .into_iter()
-            .zip(before)
-            .filter(|(k, _)| by_key.contains_key(k))
-            .map(|(_, b)| UnitChange::Removed(b.clone())),
-    );
-    out
+    let removed = with_name_and_turn(before)
+        .filter(|(key, _)| unpaired_before.contains_key(key))
+        .map(|(_, unit)| UnitChange::Removed(unit.clone()));
+    changes_after.into_iter().chain(removed).collect()
+}
+
+/// Which unit of its name a unit is: the second `Order` in a file is `("Order", 2)`.
+#[derive(PartialEq, Eq, Hash)]
+struct NameAndTurn<'a> {
+    name: &'a str,
+    turn: usize,
+}
+
+/// Each unit with its name and turn, in file order.
+fn with_name_and_turn(units: &[Unit]) -> impl Iterator<Item = (NameAndTurn<'_>, &Unit)> {
+    let mut seen_so_far: HashMap<&str, usize> = HashMap::new();
+    units.iter().map(move |unit| {
+        let turn = seen_so_far.entry(unit.name.as_str()).or_default();
+        *turn += 1;
+        let key = NameAndTurn {
+            name: unit.name.as_str(),
+            turn: *turn,
+        };
+        (key, unit)
+    })
+}
+
+/// What happened to a unit, given its partner from before the change (if it had one).
+fn change_to(after: &Unit, before: Option<&Unit>) -> UnitChange {
+    match before {
+        None => UnitChange::Added(after.clone()),
+        Some(before) if before.fingerprint == after.fingerprint => UnitChange::Same(after.clone()),
+        Some(before) => UnitChange::Changed {
+            before: before.clone(),
+            after: after.clone(),
+        },
+    }
 }

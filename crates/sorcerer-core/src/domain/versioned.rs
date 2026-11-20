@@ -4,13 +4,18 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-/// State stored as `{"version": VERSION, "data": …}`.
+/// A type that a product saves to disk with a version number beside it, as
+/// `{"version": 2, "data": …}`. The number goes up when the saved shape changes, so a newer
+/// sorcerer can tell an old file from a new one.
 pub trait Versioned: Serialize + DeserializeOwned + Default {
     const VERSION: u32;
 }
 
-/// A read: nothing yet, the state, or why it cannot be read (it is then
-/// never overwritten).
+/// What reading saved state found.
+///
+/// `Absent`: nothing has been saved yet. `Current`: the saved state. `Unreadable`: a file is
+/// there but cannot be read (a newer version, a hand edit gone wrong), with the reason; the
+/// file is then left alone and never overwritten, so nothing the user had is lost.
 #[derive(Debug)]
 pub enum Snapshot<T> {
     Absent,
