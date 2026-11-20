@@ -19,4 +19,6 @@ review_model = "sonnet"
 v_must = 17
 b = 6
 t_mean = 0.0
-n_mean = 0.125
+# 2026-11-20: a true finding nobody planted (labelled `unplanted`) is left out of the shown count,
+# so n_mean reads 0.0 (n04's phone-column finding); the recording is unchanged.
+n_mean = 0.0

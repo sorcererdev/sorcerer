@@ -2,6 +2,8 @@
 //! the parser for its reply, and the three questions Jev guards the
 //! verdict with. The texts are what the prose corpus measured
 //! (`tests/golden/claim-prompt.txt`): change them only against the record.
+//! One rule was added since, against scry's eval: the verdict is about the
+//! sentence's main claim, so a wrong side remark does not refute it (b03).
 //!
 //! The prompt asks the researcher to cite the code its verdict rests on,
 //! each place as a file, a unit (a function, class or method, in the words
@@ -65,6 +67,7 @@ fn how_to_check_lines() -> Vec<String> {
         "Use Read, Grep and Glob to find the code the sentence is about, and read it.",
         "Behaviour can live in any layer: server code, templates, and front-end scripts and styles. Before you conclude that something does not exist, search for it across the whole repository.",
         "Rule: judge what the sentence says is true of the code now; if it also wishes or asks for something, ignore that part.",
+        "Rule: if the sentence makes one main claim and adds side remarks (what a test covers, how often something happens), the verdict is about the main claim: a wrong side remark does not make it wrong; say so in why.",
         "If the code cannot settle it (it is about people, documents or outside services), the verdict is cannot_tell.",
     ]
     .map(String::from)

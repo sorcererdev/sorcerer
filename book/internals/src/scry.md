@@ -552,17 +552,25 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   its `scry.toml`). `CorpusReviewer` answers a batch with the findings, over all the case's batches,
   whose `file` is one of the batch's files (an empty reply otherwise), at $0.04, so a change in
   batching still replays. A case with no file, or a batch with a file no recorded batch holds, fails naming the case and the batch.
-- `checks.json`, the recorded claim-check verdicts keyed by the statement with whitespace collapsed;
-  `CorpusChecker` answers from it (`replayed`), `CannotTell` for a statement it does not hold.
+- `checks.json`, the checker's recorded reply keyed by the statement with whitespace collapsed:
+  `RecordedCheck { verdict, why, evidence }`, the evidence being the places the checker cited with
+  whether scry found each (`RecordedEvidence`), kept for people. `CorpusChecker` answers from it
+  (`replayed`): the verdict and the `why`, no citations; `CannotTell` for a statement it does not hold.
+  A file in the older form (a verdict word for a value) is refused by `read_recorded_checks`.
 - `jev/<question_key>.json`, Jev's answers. `RecordedDecider` keys each question by
   `question_key` (FNV-1a over the Jev body without the model, so a question asked the same
   way has the same key). A question with no file
   is an error, the pass is `Skipped`, and the eval fails naming the case.
-- `labels.json`, each case's set, the statements that count as a hit, and its changed files.
+- `labels.json`, each case's set, the statements that count as a hit, the `unplanted` ones (true
+  findings nobody planted; the key may be absent) and its changed files.
 
-Shown is the union over a case's changed files of `Findings::shown_in`; a case is a hit when
-a shown statement is one of its `hits`. The eval prints `# <name>`, then `set | cases | with a hit
-shown | shown a case` and one row a case, then asserts the corpus's passing scores: bistro's are V-must
+Shown is the union over a case's changed files of `Findings::shown_in`; `count` sorts it, in every
+set by one rule: a statement in the case's `unplanted` list is counted in `unplanted` and left out of
+`shown`; a case is a hit when a shown statement is one of its `hits`; in a T or N case a shown
+statement in neither list goes to `to_read`. The eval prints `# <name>`, then `set | cases | with a hit
+shown | shown a case | unplanted` and one row a case (the same column), then the "to read" list
+(`to_read_text`; absent when empty: a person reads each line, judges it, and copies a true one into
+`unplanted`, never to make a number fit), then asserts the corpus's passing scores: bistro's are V-must
 at least 16 of 18 with a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on
 average.
 
@@ -582,13 +590,16 @@ a `RecordedDecider` recording with `jev_for`'s Jev. A batch is a miss when its c
 of the recorded batches (a recording that stopped part way through the case, `recorded_files`):
 `CorpusReviewer` asks the live reviewer with the pass's own `ReviewAsk` and model and appends
 `{"files", "reply", "cost_usd"}` for each batch (batches sorted by their files). A statement not in
-`checks.json` is checked live and its verdict word (`right`, `wrong`, `cannot_tell`) written back,
-sorted (`CorpusChecker::record_check`). Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
+`checks.json` is checked live and the checker's reply (`RecordedCheck::of`: the verdict word `right`,
+`wrong` or `cannot_tell`, the `why`, the evidence) written back, sorted (`CorpusChecker::record_check`).
+`SCRY_RECORD=checks` (`Record::Checks`) builds the same live calls but uses only the checker: it asks every
+check of the cases run once in the run (`should_ask`, `Run.asked_this_run`) and overwrites each entry, while
+reviews and Jev replay; to re-ask one case's checks, name it with `SCRY_EVAL_CASES`. Nothing recorded is asked again, so an interrupted recording resumes where it stopped. Each
 case prints the running total (`stop_past_the_ceiling`), and the end prints `recorded: N reviews $X, M checks $Y, K jev
 answers` (`recorded_text`). Without `SCRY_RECORD=all`, a miss fails naming the case and the batch's files
 (`a_partly_recorded_case_asks_for_the_missing_batch` covers the partial case).
 `record_mode_from` refuses any `SCRY_RECORD` when `CI` is set, before the first case. The tests
-`recording_writes_each_batch_and_the_verdict_word`, `a_miss_without_record_names_the_case_and_batch`
+`recording_writes_each_batch_and_the_checkers_reply`, `a_miss_without_record_names_the_case_and_batch`
 and `record_is_refused_under_ci` run the mode on a fixture corpus with stubs for the live calls.
 
 Bistro, replayed on 2026-11-18 at scry `8e5e255` (identical over three runs, no Jev key; its

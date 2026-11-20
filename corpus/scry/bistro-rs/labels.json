@@ -76,6 +76,9 @@
     "hits": [],
     "changed": [
       "src/booking/models/booking.rs"
+    ],
+    "unplanted": [
+      "A booking on an earlier day is always reported as over, even when its 90-minute sitting runs past midnight. A 23:00 or 23:30 booking is reported over at 00:10 the next day, while the table is still held until 00:30 or 01:00. Callers that free the table or treat the guest as gone would act too early."
     ]
   },
   "n02": {
@@ -189,6 +192,9 @@
       "src/web/app.rs",
       "src/web/bookings/failures.rs",
       "src/web/bookings/routes.rs"
+    ],
+    "unplanted": [
+      "`weeks` is only checked for zero, with no upper limit. A guest posting a huge `weeks` value (for example 4000000000) makes `handle` allocate a Vec of that many slots and probe each one, which can exhaust memory or hang the process. The limit should be a returned failure variant."
     ]
   },
   "t07": {
@@ -302,6 +308,9 @@
       "src/main.rs",
       "src/web/app.rs",
       "src/web/bookings/routes.rs"
+    ],
+    "unplanted": [
+      "weeks is only checked for zero, and the route parses it from the form as any u32. A guest sending a huge value such as 4294967295 makes handle allocate a vector of billions of slots and query the repository for each one, which can exhaust memory or hang the server. There is no upper bound and no failure variant for it."
     ]
   },
   "vm07": {

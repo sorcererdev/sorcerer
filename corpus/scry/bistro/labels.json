@@ -137,6 +137,9 @@
       "src/bistro/web/bookings/failures.py",
       "src/bistro/web/bookings/routes.py",
       "src/bistro/web/bookings/routes__test.py"
+    ],
+    "unplanted": [
+      "save and _select now use a `phone` column, but the schema only adds it through `create table if not exists`. An existing bistro.sqlite3 (the default path in main.py) keeps its old bookings table without `phone`, so inserts and selects raise OperationalError. No migration or `alter table` handles this."
     ]
   },
   "n05": {
