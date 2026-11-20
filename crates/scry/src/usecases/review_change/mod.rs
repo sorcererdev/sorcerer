@@ -313,13 +313,13 @@ impl<'r, 'd> Pass<'r, 'd> {
 
     fn go(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<ReviewReport, Halt> {
         let base_ids = ids_of(&self.working_copy);
-        let old_waiting = waiting_ids(&self.working_copy);
+        let waiting_before_this_run = waiting_ids(&self.working_copy);
         let gone = self.sweep_gone(scope);
         let mut asked = self.send(scope, fresh);
         self.judge_all(std::mem::take(&mut asked.raw_findings), scope)?;
         let whole = asked.capped == 0 && asked.failures.is_empty();
         self.remember(&asked, &gone, &base_ids, whole);
-        let checks_capped = self.verify_files(scope, &old_waiting)?;
+        let checks_capped = self.verify_findings_per_file(scope, &waiting_before_this_run)?;
         self.mark_reviewed(&asked.answered);
         Ok(ReviewReport {
             looked_at: asked.answered.len(),

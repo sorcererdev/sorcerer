@@ -1,22 +1,12 @@
-//! The verification rounds, file by file (`verify_files`, `verify_file`): a
-//! file's waiting findings, best first (`waiting_best_first`), through
-//! their citations and claim checks until `MAX_SHOWN` are open, within the
-//! caps. Each round:
-//! 1. takes the candidates that fit if all passed (`Room::split`);
-//! 2. checks each one's citations (`check_round_citations`, over
-//!    `check_citations`): a failure is
-//!    `unsure`, an issue type verified by citations alone opens at once,
-//!    the rest have their claim check reserved against the caps or held
-//!    back;
-//! 3. stores what passed before any claim check starts
-//!    (`store_what_passed`, over `Pass::save_working_copy`);
-//! 4. runs the round's claim checks side by side
-//!    (`claim_checks_side_by_side`) and records each (`record_check`);
-//! 5. counts what opened (`Room::count_opened`); a held-back check stops
-//!    the rounds.
+//! Verifying the findings the review raised, one file at a time.
 //!
-//! The citation check itself is `citations`. The run log's text is built
-//! last in the file.
+//! The reviewer's findings start out "waiting": nobody has confirmed them
+//! yet. Before scry shows one, it checks it. A file shows at most 3
+//! findings, so scry checks the most confident first and stops once the
+//! file's 3 slots are full. See `verify_findings_in_file` for the steps.
+//!
+//! The check that cited lines exist is `citations`. The run log's text is
+//! built last in the file.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -39,122 +29,113 @@ use crate::domain::scope::Scope;
 use crate::domain::verification::{claim_of, needs_claim, verdict_word};
 use crate::ports::claim_checker::ClaimChecker;
 
-/// What a candidate's citations left it with.
-enum Citations {
-    /// They failed: the finding is unsure.
-    Failed,
-    /// They hold and its issue type needs no claim check: it is open.
-    OpenWithoutCheck,
-    /// They hold; its claim check is reserved.
-    ToCheck(Claim),
-    /// They hold, but its claim check does not fit the caps: it waits.
-    HeldBack,
+/// How a round ended for a file.
+#[derive(PartialEq)]
+enum RoundsEnded {
+    /// Every waiting finding was checked, or no slot was left.
+    AllDone,
+    /// A paid check did not fit the budget: that finding waits for the next
+    /// run, and the rounds stopped.
+    BudgetRanOut,
+}
+
+/// What checking a finding's cited lines left it as.
+enum AfterCitedLines {
+    /// The lines it cites are not there: it is marked unsure.
+    Unsure,
+    /// The lines are there and it is a convention: it is open, no paid check.
+    OpenedWithoutCheck,
+    /// The lines are there; it needs this paid claim check, and the money is
+    /// set aside.
+    NeedsPaidCheck(Claim),
+    /// The lines are there, but the budget can't cover its paid check.
+    BudgetRanOut,
+}
+
+/// One round's findings after their cited lines were checked.
+struct RoundChecked {
+    /// The paid claim checks to run, one per finding.
+    paid_checks: Vec<(FindingId, Claim)>,
+    /// Whether a finding's paid check did not fit the budget.
+    budget_ran_out: bool,
 }
 
 impl Pass<'_, '_> {
-    /// The rounds over each file in SCOPE that was not deleted; whether a
-    /// claim check was held back by the caps. OLD_WAITING are the findings
-    /// that were waiting before this pass.
-    pub(super) fn verify_files(
+    /// Verifies the waiting findings of every file the review looked at
+    /// (deleted files are skipped). Returns true when the budget stopped a
+    /// paid check in some file, so the caller can say so.
+    pub(super) fn verify_findings_per_file(
         &mut self,
         scope: &Scope,
-        old_waiting: &HashSet<FindingId>,
+        waiting_before_this_run: &HashSet<FindingId>,
     ) -> std::result::Result<bool, Halt> {
-        let mut checks_capped = false;
+        let mut budget_ran_out = false;
         for sf in scope.files.iter().filter(|sf| !sf.deleted) {
-            checks_capped |= self.verify_file(&sf.file, old_waiting)?;
+            let ended = self.verify_findings_in_file(&sf.file, waiting_before_this_run)?;
+            budget_ran_out |= ended == RoundsEnded::BudgetRanOut;
         }
-        Ok(checks_capped)
+        Ok(budget_ran_out)
     }
 
-    /// The rounds over FILE's waiting findings, best first, while any are
-    /// left and the pass is not cancelled. A failed check frees its place
-    /// for the next round; one that does not fit the caps leaves its finding
-    /// waiting and stops the rounds. Whether a check was held back.
-    fn verify_file(
+    /// Verifies one file's waiting findings, a few at a time, until the
+    /// file's 3 slots are full or nothing is left. Each round:
+    ///
+    /// 1. picks the most confident waiting findings that could still be
+    ///    shown (the rest wait for a later round);
+    /// 2. checks that the lines each one cites really exist (free); if not,
+    ///    it is marked unsure;
+    /// 3. opens a convention right away; a bug needs a paid claim check, or
+    ///    keeps waiting when the budget can't cover it;
+    /// 4. saves what opened so far, so it shows right away;
+    /// 5. runs the paid checks at the same time and records each answer
+    ///    (right: open, wrong: refuted, can't tell: unsure);
+    /// 6. counts how many are shown now.
+    ///
+    /// Example: `orders.py` shows 1 finding and has 4 waiting. Round 1 picks
+    /// the best 2 (2 free slots); one is confirmed and opens, one is wrong.
+    /// Round 2 picks the next one for the last free slot, and so on.
+    fn verify_findings_in_file(
         &mut self,
         file: &Path,
-        old_waiting: &HashSet<FindingId>,
-    ) -> std::result::Result<bool, Halt> {
-        // A file shows at most 3 findings. Count how many it shows already.
-        let mut room = Room::of(&self.working_copy, file, self.cfg);
-        // 1. Line up this file's waiting findings, most confident first.
-        let mut candidates = self.waiting_best_first(file);
-        if !candidates.is_empty() {
+        waiting_before_this_run: &HashSet<FindingId>,
+    ) -> std::result::Result<RoundsEnded, Halt> {
+        let mut slots =
+            ShownSlots::for_file(&self.working_copy, file, self.cfg, waiting_before_this_run);
+        let mut waiting = self.waiting_most_confident_first(file);
+        if !waiting.is_empty() {
             self.log(&verification_heading_text(file));
         }
         let mut round = 0;
-        // Go round by round until nothing is left (or the user cancels).
-        while !candidates.is_empty() && !self.cancel.is_cancelled() {
+        while !waiting.is_empty() && !self.cancel.is_cancelled() {
             round += 1;
-            // 2. Pick only as many as could still be shown; the rest wait
-            //    for a later round.
-            let (this_round, later) =
-                room.split(candidates, &self.working_copy, old_waiting, self.cfg);
+            let (this_round, later) = slots.pick_what_fits(waiting, &self.working_copy);
             self.log(&round_text(
                 round,
-                &room,
+                &slots,
                 &this_round,
                 &later,
                 &self.working_copy,
             ));
-            // Nothing fits: every slot is taken. Stop.
             if this_round.is_empty() {
                 self.log(NOBODY_FITS_TEXT);
                 break;
             }
-            // 3. Check that the lines each pick points at really exist
-            //    (free). If not, it is marked unsure.
-            // 4. A convention opens right away. A bug needs a claim check (a
-            //    paid model call); if the budget can't cover it, it keeps
-            //    waiting.
-            let (to_check, held) = self.check_round_citations(&this_round);
-            // 5. Save what opened so far, so it shows right away.
-            if !to_check.is_empty() {
-                self.store_what_passed()?;
+            let checked = self.check_cited_lines(&this_round);
+            if !checked.paid_checks.is_empty() {
+                self.show_what_opened_so_far()?;
             }
-            // 6. Run the paid checks at the same time; record each answer
-            //    (right: open, wrong: refuted, can't tell: unsure).
-            for (id, result) in claim_checks_side_by_side(self.deps.checker, to_check) {
-                self.record_check(&id, result);
+            self.run_paid_checks(checked.paid_checks);
+            slots.count_newly_shown(&this_round, &self.working_copy);
+            if checked.budget_ran_out {
+                return Ok(RoundsEnded::BudgetRanOut);
             }
-            // 7. Count how many are shown now, then go again with the rest.
-            room.count_opened(&this_round, &self.working_copy, old_waiting, self.cfg);
-            // The budget ran out: stop, and tell the caller.
-            if held {
-                return Ok(true);
-            }
-            candidates = later;
+            waiting = later;
         }
-        Ok(false)
+        Ok(RoundsEnded::AllDone)
     }
 
-    /// Each of ROUND's citations checked (`check_citations`): the claims
-    /// to check, reserved within the caps, and whether one was held back.
-    fn check_round_citations(&mut self, round: &[FindingId]) -> (Vec<(FindingId, Claim)>, bool) {
-        let mut to_check = Vec::new();
-        let mut reserved = 0.0;
-        let mut held = false;
-        for id in round {
-            match self.check_citations(id, &mut reserved) {
-                Citations::ToCheck(claim) => to_check.push((id.clone(), claim)),
-                Citations::HeldBack => held = true,
-                Citations::Failed | Citations::OpenWithoutCheck => {}
-            }
-        }
-        (to_check, held)
-    }
-
-    /// Writes the store and tells `Stored`, so what passed without a claim
-    /// check shows before the round's checks finish.
-    fn store_what_passed(&mut self) -> std::result::Result<(), Halt> {
-        self.save_working_copy()?;
-        self.report(Progress::Stored);
-        Ok(())
-    }
-
-    /// FILE's waiting findings, the most confident first.
-    fn waiting_best_first(&self, file: &Path) -> Vec<FindingId> {
+    /// The file's waiting findings, the most confident first.
+    fn waiting_most_confident_first(&self, file: &Path) -> Vec<FindingId> {
         let mut waiting: Vec<&Finding> = self
             .working_copy
             .findings
@@ -165,11 +146,34 @@ impl Pass<'_, '_> {
         waiting.into_iter().map(|f| f.id.clone()).collect()
     }
 
-    /// ID's citations checked: a failure makes it unsure; when they hold,
-    /// an issue type that needs no claim check opens, and any other has its
-    /// claim check reserved against the caps (RESERVED so far this round),
-    /// or held back when it does not fit.
-    fn check_citations(&mut self, id: &FindingId, reserved: &mut f64) -> Citations {
+    /// Checks the cited lines of each finding in the round, setting money
+    /// aside for each paid check that fits the budget.
+    ///
+    /// Example: the budget has $0.03 left and a check is estimated at
+    /// $0.016. The first bug gets its check; the second one does not fit,
+    /// so it keeps waiting and `budget_ran_out` is true.
+    fn check_cited_lines(&mut self, round: &[FindingId]) -> RoundChecked {
+        let mut checked = RoundChecked {
+            paid_checks: Vec::new(),
+            budget_ran_out: false,
+        };
+        let mut set_aside = 0.0;
+        for id in round {
+            match self.check_cited_lines_of(id, &mut set_aside) {
+                AfterCitedLines::NeedsPaidCheck(claim) => {
+                    checked.paid_checks.push((id.clone(), claim));
+                }
+                AfterCitedLines::BudgetRanOut => checked.budget_ran_out = true,
+                AfterCitedLines::Unsure | AfterCitedLines::OpenedWithoutCheck => {}
+            }
+        }
+        checked
+    }
+
+    /// Checks one finding's cited lines. When they are there, a convention
+    /// opens at once, and a bug's paid check is added to SET_ASIDE (the money
+    /// this round has promised so far) if the budget still covers it.
+    fn check_cited_lines_of(&mut self, id: &FindingId, set_aside: &mut f64) -> AfterCitedLines {
         let now = self.now;
         let ranges = cited_ranges(by_id(&self.working_copy, id));
         match citations(self.deps.view, self.fences, &ranges) {
@@ -183,7 +187,7 @@ impl Pass<'_, '_> {
                     cited,
                 });
                 f.set_status(Status::Unsure, now);
-                Citations::Failed
+                AfterCitedLines::Unsure
             }
             Ok(evidence) => {
                 self.log(&citations_hold_text(id, &evidence));
@@ -193,22 +197,39 @@ impl Pass<'_, '_> {
                     f.set_status(Status::Open, now);
                     let issue_type = f.issue_type.clone();
                     self.log(&no_claim_check_text(id, &issue_type));
-                    Citations::OpenWithoutCheck
-                } else if self.budget.allows(*reserved + self.check_estimate) {
-                    *reserved += self.check_estimate;
-                    Citations::ToCheck(claim_of(f))
+                    AfterCitedLines::OpenedWithoutCheck
+                } else if self.budget.allows(*set_aside + self.check_estimate) {
+                    *set_aside += self.check_estimate;
+                    AfterCitedLines::NeedsPaidCheck(claim_of(f))
                 } else {
                     self.log(&check_held_back_text(id, self.check_estimate));
-                    Citations::HeldBack
+                    AfterCitedLines::BudgetRanOut
                 }
             }
         }
     }
 
-    /// ID's claim check RESULT: its cost charged, its status from the
-    /// verdict, the verdict and what it cited kept. An error leaves the
-    /// finding waiting: its place is free next round.
-    fn record_check(&mut self, id: &FindingId, result: sorcerer_models::Result<Checked>) {
+    /// Saves the findings as they are now, so what opened without a paid
+    /// check shows in the editor before the paid checks finish.
+    fn show_what_opened_so_far(&mut self) -> std::result::Result<(), Halt> {
+        self.save_working_copy()?;
+        self.report(Progress::Stored);
+        Ok(())
+    }
+
+    /// Runs the round's paid checks at the same time, then records each
+    /// answer in the order the checks were started.
+    fn run_paid_checks(&mut self, paid_checks: Vec<(FindingId, Claim)>) {
+        for (id, result) in claim_checks_side_by_side(self.deps.checker, paid_checks) {
+            self.record_paid_check(&id, result);
+        }
+    }
+
+    /// Records one paid check's answer: what it cost, and the finding's new
+    /// status (right: open, wrong: refuted, can't tell: unsure). A check
+    /// that failed (the model did not answer) leaves the finding waiting,
+    /// so a later round can try it again.
+    fn record_paid_check(&mut self, id: &FindingId, result: sorcerer_models::Result<Checked>) {
         let checked = match result {
             Ok(checked) => checked,
             Err(e) => {
@@ -233,79 +254,94 @@ impl Pass<'_, '_> {
     }
 }
 
-/// A file's room for shown findings: how many are open, and how many of
-/// those the pass's own new findings opened.
-struct Room {
-    open_now: usize,
-    new_opened: usize,
+/// A file's 3 display slots, and how many are taken.
+///
+/// A file shows at most 3 findings, so it doesn't bury you. A finding left
+/// waiting from an earlier run gets a slot only while one is free. A finding
+/// this run just discovered may always use up to 3 slots of its own, so new
+/// problems are not crowded out by old ones.
+///
+/// Example: `orders.py` already shows 2 findings, so `shown` is 2. One old
+/// waiting finding can still take the last slot. This run's new findings
+/// can take up to 3, counted in `shown_new`.
+struct ShownSlots<'a> {
+    /// Findings the file shows now (only issue types the project shows).
+    shown: usize,
+    /// Of those, the ones this run discovered.
+    shown_new: usize,
+    waiting_before_this_run: &'a HashSet<FindingId>,
+    cfg: &'a ScryConfig,
 }
 
-impl Room {
-    /// FILE's room as FINDINGS have it before the rounds.
-    fn of(findings: &Findings, file: &Path, cfg: &ScryConfig) -> Room {
-        let open_now = findings
+impl<'a> ShownSlots<'a> {
+    /// The file's slots before the first round: its open findings fill them.
+    fn for_file(
+        findings: &Findings,
+        file: &Path,
+        cfg: &'a ScryConfig,
+        waiting_before_this_run: &'a HashSet<FindingId>,
+    ) -> ShownSlots<'a> {
+        let shown = findings
             .findings
             .iter()
-            .filter(|f| f.place.file == file && f.status == Status::Open && shown(cfg, f))
+            .filter(|f| f.place.file == file && f.status == Status::Open && project_shows(cfg, f))
             .count();
-        Room {
-            open_now,
-            new_opened: 0,
+        ShownSlots {
+            shown,
+            shown_new: 0,
+            waiting_before_this_run,
+            cfg,
         }
     }
 
-    /// The CANDIDATES that fit if all passed, and the rest. The findings
-    /// that were waiting before this pass (OLD_WAITING) take a place only
-    /// while the file has room; the pass's own new ones may take up to
-    /// `MAX_SHOWN` places.
-    fn split(
+    /// Splits WAITING into the findings this round takes (as many as would
+    /// still fit if every one of them opened) and those left for later.
+    fn pick_what_fits(
         &self,
-        candidates: Vec<FindingId>,
+        waiting: Vec<FindingId>,
         findings: &Findings,
-        old_waiting: &HashSet<FindingId>,
-        cfg: &ScryConfig,
     ) -> (Vec<FindingId>, Vec<FindingId>) {
-        let (mut open, mut new) = (self.open_now, self.new_opened);
-        let mut fit = Vec::new();
-        let mut rest = Vec::new();
-        for id in candidates {
-            let is_new = !old_waiting.contains(&id);
-            if (is_new && new >= MAX_SHOWN) || (!is_new && open >= MAX_SHOWN) {
-                rest.push(id);
+        let (mut shown, mut shown_new) = (self.shown, self.shown_new);
+        let mut this_round = Vec::new();
+        let mut later = Vec::new();
+        for id in waiting {
+            let is_new = self.is_new(&id);
+            let slots_taken = if is_new { shown_new } else { shown };
+            if slots_taken >= MAX_SHOWN {
+                later.push(id);
                 continue;
             }
-            let place = usize::from(shown(cfg, by_id(findings, &id)));
-            open += place;
+            let takes_a_slot = usize::from(project_shows(self.cfg, by_id(findings, &id)));
+            shown += takes_a_slot;
             if is_new {
-                new += place;
+                shown_new += takes_a_slot;
             }
-            fit.push(id);
+            this_round.push(id);
         }
-        (fit, rest)
+        (this_round, later)
     }
 
-    /// Counts the findings of ROUND that are now open and shown.
-    fn count_opened(
-        &mut self,
-        round: &[FindingId],
-        findings: &Findings,
-        old_waiting: &HashSet<FindingId>,
-        cfg: &ScryConfig,
-    ) {
+    /// Counts the round's findings that opened and are shown.
+    fn count_newly_shown(&mut self, round: &[FindingId], findings: &Findings) {
         for id in round {
             let f = by_id(findings, id);
-            if f.status == Status::Open && shown(cfg, f) {
-                self.open_now += 1;
-                if !old_waiting.contains(id) {
-                    self.new_opened += 1;
+            if f.status == Status::Open && project_shows(self.cfg, f) {
+                self.shown += 1;
+                if self.is_new(id) {
+                    self.shown_new += 1;
                 }
             }
         }
     }
+
+    /// Whether this run discovered the finding (it was not waiting before).
+    fn is_new(&self, id: &FindingId) -> bool {
+        !self.waiting_before_this_run.contains(id)
+    }
 }
 
-/// The claim checks of TO_CHECK, run side by side; their results in the
-/// order they were started.
+/// Runs the paid claim checks at the same time (one thread each); their
+/// answers come back in the order the checks were started.
 fn claim_checks_side_by_side(
     checker: &dyn ClaimChecker,
     to_check: Vec<(FindingId, Claim)>,
@@ -364,7 +400,7 @@ fn status_after(verdict: Verdict) -> Status {
 }
 
 /// Whether F's issue type is one the project shows.
-fn shown(cfg: &ScryConfig, f: &Finding) -> bool {
+fn project_shows(cfg: &ScryConfig, f: &Finding) -> bool {
     cfg.issue_types.contains(&f.issue_type)
 }
 
@@ -450,11 +486,11 @@ fn verification_heading_text(file: &Path) -> String {
     section(&format!("Verification: {}", file.display()))
 }
 
-/// A round's heading, the file's room, the candidates THIS_ROUND takes and
-/// those LATER.
+/// A round's heading, the file's slots, the findings this round takes and
+/// those left for later.
 fn round_text(
     round: usize,
-    room: &Room,
+    slots: &ShownSlots,
     this_round: &[FindingId],
     later: &[FindingId],
     findings: &Findings,
@@ -463,9 +499,9 @@ fn round_text(
         "{}- room: {} open of {} shown in the file; {} of the pass's own opened, of {}\n\
          - candidates: {}\n- left for a later round: {}\n",
         sub(&format!("Round {round}")),
-        room.open_now,
+        slots.shown,
         MAX_SHOWN,
-        room.new_opened,
+        slots.shown_new,
         MAX_SHOWN,
         listed_text(this_round, findings),
         listed_text(later, findings),
