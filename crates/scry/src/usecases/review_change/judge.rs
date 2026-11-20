@@ -51,8 +51,14 @@ impl Pass<'_, '_> {
     /// question; else matched against the stored findings, then dropped,
     /// merged, or added (withheld when a nitpick).
     fn judge(&mut self, mut raw: RawFinding, scope: &Scope) -> std::result::Result<(), Halt> {
+        // 1. The reviewer may cite a project rule by its id. Look it up; an id
+        //    the steering does not have is dropped, but the finding is kept.
         let cited_rule = self.resolve_cited_rule(&mut raw);
+        // 2. Log what the reviewer found.
         self.log(&found_text(&raw, cited_rule.as_deref()));
+        // 3. Find the unit (function, method) its lines are in. A finding
+        //    outside every unit this run reviewed is stored as "elsewhere",
+        //    without asking Jev anything.
         let units_now = self.units_now(&raw.file);
         let (placed, status) = place(&raw, &scope.units, &units_now);
         if status == Status::Elsewhere {
@@ -60,8 +66,18 @@ impl Pass<'_, '_> {
             return Ok(());
         }
         self.log(&placed_text(&placed));
+        // 4. Ask Jev whether it is the same problem as a finding already
+        //    stored (one in the same file, citing the same rule or the same
+        //    lines). The first one Jev is sure enough about wins.
         let code = cited_code(&self.text(&raw.file), raw.lines.start);
         let same = self.same_problem_as_stored(&raw, &code)?;
+        // 5. Decide by what the stored one is:
+        //    - dismissed by the user: drop the new one, it was rejected;
+        //    - still live (open, unverified, withheld, refuted, unsure,
+        //      elsewhere): merge the new one into it;
+        //    - dismissed in another unit, or resolved: a new finding.
+        // 6. A new finding: ask Jev whether it is a nitpick; store it as
+        //    unverified when it is probably real, else withheld.
         match same.map(|stored| (match_stored(&stored, placed.unit.as_deref()), stored)) {
             Some((Match::Drop, stored)) => {
                 self.log(&dropped_text(&stored));
@@ -230,14 +246,21 @@ impl Pass<'_, '_> {
         raw: RawFinding,
         placed: Place,
     ) -> std::result::Result<(), Halt> {
+        // 1. Check the new finding's cited lines (to compare them below).
         let cited = citations(self.deps.view, self.fences, &raw.evidence);
         let Some(mut f) = self.stored(id) else {
             return Ok(());
         };
         let old_prints = prints(&f.evidence);
+        // 2. The stored finding takes the new wording, place and evidence
+        //    (unless this same run found it: then the first wording stays).
         self.take_this_passs_version(&mut f, raw, placed, &cited);
+        // 3. It has been seen once more, now.
         f.seen += 1;
         f.last = self.now;
+        // 4. A withheld one is asked "nitpick?" again if its code, rule or
+        //    sides changed. A refuted or unsure one is unverified again if
+        //    the code it cites changed. Others keep their status.
         match f.status {
             Status::Withheld => self.ask_withheld_again_if_changed(&mut f)?,
             Status::Refuted | Status::Unsure => {
@@ -245,6 +268,7 @@ impl Pass<'_, '_> {
             }
             _ => {}
         }
+        // 5. Log it, remember it was merged into, and store it.
         self.log(&merged_text(&f));
         self.merged.insert(f.id.clone());
         self.replace_stored(f);
