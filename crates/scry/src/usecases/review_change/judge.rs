@@ -1,13 +1,11 @@
-//! Each finding the review calls gave. `judge`:
-//! 1. resolves the rule it cites (`resolve_cited_rule`) and logs what was
-//!    found;
-//! 2. places it (`place`, over `units_now`); one in no unit in scope is
-//!    stored as elsewhere with no question (`add_elsewhere`);
-//! 3. asks Jev whether a stored finding is the same problem
-//!    (`same_problem_as_stored`);
-//! 4. drops it, merges it into that finding (`merge`), or adds it,
-//!    unverified or, when Jev calls it a nitpick, withheld
-//!    (`add_unverified_or_withheld`).
+//! Judging each finding the reviewer raised: where it is, whether it is a
+//! problem scry already knows, and whether it is worth checking.
+//!
+//! `judge` takes one finding through the steps (its doc comment lists them
+//! with an example); `merge` folds a finding into a stored one that Jev
+//! says is the same problem. Jev is asked two questions here: "is this the
+//! same problem as that one?" and "is this a nitpick?". Any question Jev
+//! cannot answer stops the whole pass (`Halt::Silent`): scry does not guess.
 //!
 //! The run log's text is built last in the file.
 
@@ -21,15 +19,57 @@ use super::verify::citations;
 use super::{Halt, Pass};
 use crate::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status, status_word};
 use crate::domain::judging::{
-    Match, SAME_THRESHOLD, asked_on, candidates, cited_code, confidence_of, finding_text,
-    match_stored, nitpick, place, same_problem,
+    Match, Placement, SAME_THRESHOLD, asked_on, candidates, cited_code, confidence_of,
+    finding_text, match_stored, nitpick, place, same_problem,
 };
 use crate::domain::log_text::{count, section, sub};
 use crate::domain::review_prompt::RawFinding;
 use crate::domain::scope::Scope;
 
+/// What to do with a new finding, given what Jev said about the stored ones.
+enum WhatToDo {
+    /// Store it as new. `same_as` is a stored finding Jev called the same
+    /// problem that cannot take it in (resolved, gone, or dismissed in
+    /// another unit), for the log.
+    AddAsNew { same_as: Option<Finding> },
+    /// Fold it into this stored finding.
+    MergeInto(Finding),
+    /// Throw it away: the user dismissed this stored finding.
+    Drop(Finding),
+}
+
+impl WhatToDo {
+    /// The decision for a new finding in the unit `unit`, given the stored
+    /// finding Jev called the same problem (if any).
+    fn given(same: Option<Finding>, unit: Option<&str>) -> WhatToDo {
+        let Some(stored) = same else {
+            return WhatToDo::AddAsNew { same_as: None };
+        };
+        match match_stored(&stored, unit) {
+            Match::AddAsNew => WhatToDo::AddAsNew {
+                same_as: Some(stored),
+            },
+            Match::MergeInto => WhatToDo::MergeInto(stored),
+            Match::Drop => WhatToDo::Drop(stored),
+        }
+    }
+}
+
+/// Jev's answer to "is this a nitpick?".
+struct NitpickAnswer {
+    /// How sure scry is that the finding is worth showing: 1 minus Jev's
+    /// probability that it is a nitpick. P(nitpick) 0.2 is confidence 0.8.
+    confidence: f64,
+    /// A key for what the question was asked on (the unit's fingerprint
+    /// and the rule text), so a withheld finding is asked again only when
+    /// one of them changed.
+    asked_on: String,
+    /// The answer itself, for the log.
+    answer: Weighed,
+}
+
 impl Pass<'_, '_> {
-    /// Judges RAW_FINDINGS in order.
+    /// Judges the reviewer's findings one by one, in the order it gave them.
     pub(super) fn judge_all(
         &mut self,
         raw_findings: Vec<RawFinding>,
@@ -46,70 +86,65 @@ impl Pass<'_, '_> {
         Ok(())
     }
 
-    /// One finding: its cited rule resolved and what was found logged;
-    /// placed; one in no unit in scope stored as elsewhere with no
-    /// question; else matched against the stored findings, then dropped,
-    /// merged, or added (withheld when a nitpick).
-    fn judge(&mut self, mut raw: RawFinding, scope: &Scope) -> std::result::Result<(), Halt> {
-        // 1. The reviewer may cite a project rule by its id. Look it up; an id
-        //    the steering does not have is dropped, but the finding is kept.
-        let cited_rule = self.resolve_cited_rule(&mut raw);
-        // 2. Log what the reviewer found.
+    /// Judges one finding the reviewer raised:
+    ///
+    /// 1. looks up the project rule it cites by id (an id the steering does
+    ///    not have is dropped, the finding kept);
+    /// 2. finds the unit its lines are in; one outside every unit this run
+    ///    reviewed is stored as "elsewhere", with no question to Jev;
+    /// 3. asks Jev whether it is the same problem as a stored finding (one
+    ///    in the same file, citing the same rule or the same lines);
+    /// 4. drops it when the user dismissed that problem, merges it into a
+    ///    stored finding that is still live, or else adds it as new: Jev
+    ///    is asked "nitpick?", and it is stored unverified when it is
+    ///    probably real, withheld when it is probably a nitpick.
+    ///
+    /// Example: the reviewer says "cancel() returns None" at `orders.py:2`.
+    /// It is in `cancel`, which this run reviewed. A stored finding says
+    /// "cancel() gives back None"; Jev says same problem (P 0.9), and the
+    /// stored one is open, so the new wording is merged into it.
+    fn judge(&mut self, raw: RawFinding, scope: &Scope) -> std::result::Result<(), Halt> {
+        let (raw, cited_rule) = self.with_cited_rule_looked_up(raw);
         self.log(&found_text(&raw, cited_rule.as_deref()));
-        // 3. Find the unit (function, method) its lines are in. A finding
-        //    outside every unit this run reviewed is stored as "elsewhere",
-        //    without asking Jev anything.
-        let units_now = self.units_now(&raw.file);
-        let (placed, status) = place(&raw, &scope.units, &units_now);
-        if status == Status::Elsewhere {
-            self.add_elsewhere(&raw, placed);
-            return Ok(());
-        }
+        let placed = match place(&raw, &scope.units, &self.units_now(&raw.file)) {
+            Placement::Elsewhere(place) => {
+                self.add_elsewhere(&raw, place);
+                return Ok(());
+            }
+            Placement::InReviewedUnit(place) => place,
+        };
         self.log(&placed_text(&placed));
-        // 4. Ask Jev whether it is the same problem as a finding already
-        //    stored (one in the same file, citing the same rule or the same
-        //    lines). The first one Jev is sure enough about wins.
         let code = cited_code(&self.text(&raw.file), raw.lines.start);
         let same = self.same_problem_as_stored(&raw, &code)?;
-        // 5. Decide by what the stored one is:
-        //    - dismissed by the user: drop the new one, it was rejected;
-        //    - still live (open, unverified, withheld, refuted, unsure,
-        //      elsewhere): merge the new one into it;
-        //    - dismissed in another unit, or resolved: a new finding.
-        // 6. A new finding: ask Jev whether it is a nitpick; store it as
-        //    unverified when it is probably real, else withheld.
-        match same.map(|stored| (match_stored(&stored, placed.unit.as_deref()), stored)) {
-            Some((Match::Drop, stored)) => {
+        match WhatToDo::given(same, placed.unit.as_deref()) {
+            WhatToDo::Drop(stored) => {
                 self.log(&dropped_text(&stored));
                 Ok(())
             }
-            Some((Match::Merge, stored)) => {
+            WhatToDo::MergeInto(stored) => {
                 self.log(&merge_into_text(&stored));
                 self.merge(&stored.id, raw, placed)
             }
-            Some((Match::New, stored)) => {
-                self.log(&new_afresh_text(&stored));
-                self.add_unverified_or_withheld(&raw, placed, &code)
-            }
-            None => {
-                self.log(NEW_TEXT);
+            WhatToDo::AddAsNew { same_as } => {
+                self.log(&added_as_new_text(same_as.as_ref()));
                 self.add_unverified_or_withheld(&raw, placed, &code)
             }
         }
     }
 
-    /// RAW's rule as the steering has it (none when no rule has the cited
-    /// id); returns the rule as RAW cited it.
-    fn resolve_cited_rule(&self, raw: &mut RawFinding) -> Option<String> {
-        let cited = raw.rule.take();
-        raw.rule = cited
+    /// The finding with its cited rule id replaced by the rule as the
+    /// steering has it (none when the steering has no rule with that id),
+    /// and the id as the reviewer cited it, for the log.
+    fn with_cited_rule_looked_up(&self, raw: RawFinding) -> (RawFinding, Option<String>) {
+        let cited = raw.rule.clone();
+        let rule = cited
             .as_deref()
             .and_then(|r| self.steering.lookup(r))
             .map(String::from);
-        cited
+        (RawFinding { rule, ..raw }, cited)
     }
 
-    /// FILE's units as they are now; none when FILE is fenced.
+    /// The file's units as they are now; none when the file is fenced off.
     fn units_now(&self, file: &Path) -> Vec<Unit> {
         if self.fences.allows(file) {
             self.deps.view.units(file).unwrap_or_default()
@@ -118,15 +153,18 @@ impl Pass<'_, '_> {
         }
     }
 
-    /// Stores RAW, placed in no unit in scope, as elsewhere: Jev is not asked.
+    /// Stores a finding that is in no reviewed unit as "elsewhere". Jev is
+    /// not asked: scry does not show it, it only remembers it.
     fn add_elsewhere(&mut self, raw: &RawFinding, placed: Place) {
         let unit = placed.unit.clone();
         let id = self.add(raw, placed, Status::Elsewhere, Scores::default());
         self.log(&elsewhere_text(unit.as_deref(), &id));
     }
 
-    /// The stored finding Jev says is the same problem as RAW: the first
-    /// candidate at or past `SAME_THRESHOLD`, if any. Every answer is logged.
+    /// The stored finding Jev says is the same problem as the new one, if
+    /// any. Jev is asked about every stored finding that shares the new
+    /// one's file, rule or cited lines, all in one batch; the first it puts
+    /// at or past `SAME_THRESHOLD` wins. Every answer is logged.
     fn same_problem_as_stored(
         &mut self,
         raw: &RawFinding,
@@ -140,16 +178,18 @@ impl Pass<'_, '_> {
             self.log(NO_CANDIDATES_TEXT);
             return Ok(None);
         }
-        let mut questions = Vec::new();
-        for s in &stored {
-            let code_b = cited_code(&self.text(&s.place.file), s.place.lines.start);
-            questions.push(same_problem(
-                &raw_finding_text(raw),
-                &stored_finding_text(s),
-                code,
-                &code_b,
-            ));
-        }
+        let questions: Vec<Question> = stored
+            .iter()
+            .map(|s| {
+                let code_b = cited_code(&self.text(&s.place.file), s.place.lines.start);
+                same_problem(
+                    &raw_finding_text(raw),
+                    &stored_finding_text(s),
+                    code,
+                    &code_b,
+                )
+            })
+            .collect();
         let answers = self.ask(&questions)?;
         self.log(&same_problem_text(&stored, &answers));
         Ok(stored
@@ -159,31 +199,42 @@ impl Pass<'_, '_> {
             .map(|(s, _)| s))
     }
 
-    /// Asks Jev whether RAW is a nitpick and stores it: unverified when its
-    /// confidence reaches the threshold, else withheld.
+    /// Asks Jev whether the new finding is a nitpick and stores it:
+    /// unverified (to be checked) when its confidence reaches
+    /// `[scry] confidence_threshold`, else withheld (kept, never shown).
+    ///
+    /// Example: with the threshold at 0.7, Jev's P(nitpick) 0.2 gives
+    /// confidence 0.8: unverified. P(nitpick) 0.9 gives 0.1: withheld.
     fn add_unverified_or_withheld(
         &mut self,
         raw: &RawFinding,
         placed: Place,
         code: &str,
     ) -> std::result::Result<(), Halt> {
-        let (confidence, on, w) = self.confidence(raw, placed.fingerprint.as_ref(), code)?;
+        let nitpick = self.ask_nitpick(raw, placed.fingerprint.as_ref(), code)?;
         let threshold = self.cfg.confidence_threshold;
-        let status = if confidence >= threshold {
+        let status = if nitpick.confidence >= threshold {
             Status::Unverified
         } else {
             Status::Withheld
         };
         let scores = Scores {
-            confidence: Some(confidence),
-            asked_on: Some(on),
+            confidence: Some(nitpick.confidence),
+            asked_on: Some(nitpick.asked_on),
         };
         let id = self.add(raw, placed, status, scores);
-        self.log(&nitpick_text(&w, confidence, threshold, status, &id));
+        self.log(&nitpick_text(
+            &nitpick.answer,
+            nitpick.confidence,
+            threshold,
+            status,
+            &id,
+        ));
         Ok(())
     }
 
-    /// One batch to Jev; any answer it could not give stops the pass.
+    /// Asks Jev a batch of questions. Any question Jev cannot answer (an
+    /// error, or "unsure") stops the pass: scry does not run on a guess.
     fn ask(&self, qs: &[Question]) -> std::result::Result<Vec<Weighed>, Halt> {
         let ws = self
             .deps
@@ -196,20 +247,31 @@ impl Pass<'_, '_> {
         Ok(ws)
     }
 
-    /// Jev's nitpick question on RAW: its confidence, and what it was asked on.
-    fn confidence(
+    /// Asks Jev "is this a nitpick?" about the finding, seen in the unit
+    /// with fingerprint `unit_fingerprint` and the code it cites.
+    fn ask_nitpick(
         &self,
         raw: &RawFinding,
-        unit_fp: Option<&Fingerprint>,
+        unit_fingerprint: Option<&Fingerprint>,
         code: &str,
-    ) -> std::result::Result<(f64, String, Weighed), Halt> {
+    ) -> std::result::Result<NitpickAnswer, Halt> {
         let q = nitpick(self.steering, raw, code);
-        let on = asked_on(unit_fp, rule_context(&q));
-        let w = self.ask(std::slice::from_ref(&q))?;
-        let w = w.into_iter().next().expect("one answer for one question");
-        Ok((confidence_of(&w), on, w))
+        let asked_on = asked_on(unit_fingerprint, rule_context(&q));
+        let answer = self
+            .ask(std::slice::from_ref(&q))?
+            .into_iter()
+            .next()
+            .expect("one answer for one question");
+        Ok(NitpickAnswer {
+            confidence: confidence_of(&answer),
+            asked_on,
+            answer,
+        })
     }
 
+    /// Adds a new finding to the working copy with this status and scores,
+    /// seen once, now, and remembers it as this run's. Returns its id, which
+    /// is made from the time, place and statement (and made unique).
     fn add(&mut self, raw: &RawFinding, pl: Place, status: Status, scores: Scores) -> FindingId {
         let id = self
             .working_copy
@@ -235,47 +297,50 @@ impl Pass<'_, '_> {
         self.new.last().cloned().expect("just pushed")
     }
 
-    /// RAW merges into the stored finding ID: it takes this pass's place,
-    /// wording and evidence; it is counted seen again; a withheld one is
-    /// asked again when what it was asked on changed; a refuted or unsure
-    /// one is unverified again when its evidence moved. Id, status and dismissals
-    /// stay.
+    /// Folds a new finding into the stored finding `id`, which Jev called
+    /// the same problem:
+    ///
+    /// 1. the stored finding takes the new wording, place and evidence
+    ///    (unless this run found it too: then its first wording stays);
+    /// 2. it is counted as seen once more, now;
+    /// 3. a withheld one is asked "nitpick?" again if what it was asked on
+    ///    changed; a refuted or unsure one is unverified again if the code
+    ///    it cites changed; any other keeps its status.
+    ///
+    /// Its id and any dismissal stay.
+    ///
+    /// Example: "zeta overflows" was refuted. The reviewer raises "zeta
+    /// overflows on big input" and the cited line now has a different
+    /// fingerprint: the stored finding takes the new wording and is
+    /// unverified again, so the rounds check it again.
     fn merge(
         &mut self,
         id: &FindingId,
         raw: RawFinding,
         placed: Place,
     ) -> std::result::Result<(), Halt> {
-        // 1. Check the new finding's cited lines (to compare them below).
         let cited = citations(self.deps.view, self.fences, &raw.evidence);
-        let Some(mut f) = self.stored(id) else {
+        let Some(stored) = self.stored(id) else {
             return Ok(());
         };
-        let old_prints = prints(&f.evidence);
-        // 2. The stored finding takes the new wording, place and evidence
-        //    (unless this same run found it: then the first wording stays).
-        self.take_this_passs_version(&mut f, raw, placed, &cited);
-        // 3. It has been seen once more, now.
-        f.seen += 1;
-        f.last = self.now;
-        // 4. A withheld one is asked "nitpick?" again if its code, rule or
-        //    sides changed. A refuted or unsure one is unverified again if
-        //    the code it cites changed. Others keep their status.
-        match f.status {
-            Status::Withheld => self.ask_withheld_again_if_changed(&mut f)?,
+        let old_prints = prints(&stored.evidence);
+        let f = self
+            .with_this_runs_version(stored, raw, placed, &cited)
+            .seen_again(self.now);
+        let f = match f.status {
+            Status::Withheld => self.asked_again_if_changed(f)?,
             Status::Refuted | Status::Unsure => {
-                self.wait_again_if_evidence_moved(&mut f, &cited, &old_prints);
+                self.unverified_again_if_evidence_moved(f, &cited, &old_prints)
             }
-            _ => {}
-        }
-        // 5. Log it, remember it was merged into, and store it.
+            _ => f,
+        };
         self.log(&merged_text(&f));
         self.merged.insert(f.id.clone());
         self.replace_stored(f);
         Ok(())
     }
 
-    /// The finding ID as the working copy has it.
+    /// The stored finding `id`, as the working copy has it now.
     fn stored(&self, id: &FindingId) -> Option<Finding> {
         self.working_copy
             .findings
@@ -284,64 +349,78 @@ impl Pass<'_, '_> {
             .cloned()
     }
 
-    /// A finding stored by an earlier pass takes this pass's place, wording
-    /// and evidence; one this pass found keeps the first of its duplicates'.
-    fn take_this_passs_version(
+    /// The stored finding with the new one's place, wording and evidence. A
+    /// finding this run itself added keeps its own: two findings of one run
+    /// that are the same problem keep the first one's words.
+    fn with_this_runs_version(
         &self,
-        f: &mut Finding,
+        stored: Finding,
         raw: RawFinding,
         placed: Place,
         cited: &Result<Vec<Evidence>, String>,
-    ) {
-        if self.new.contains(&f.id) {
-            return;
+    ) -> Finding {
+        if self.new.contains(&stored.id) {
+            return stored;
         }
-        f.place = placed;
-        f.statement = raw.statement;
-        f.evidence = cited.clone().unwrap_or_else(|_| bare(&raw.evidence));
+        Finding {
+            place: placed,
+            evidence: cited.clone().unwrap_or_else(|_| bare(&raw.evidence)),
+            statement: raw.statement,
+            ..stored
+        }
     }
 
-    /// A withheld finding is asked Jev's nitpick question again when what it
-    /// was asked on (its unit, rule and sides) changed, and is unverified again when its
-    /// confidence now reaches the threshold.
-    fn ask_withheld_again_if_changed(&mut self, f: &mut Finding) -> std::result::Result<(), Halt> {
+    /// The withheld finding, asked "nitpick?" again when what it was asked
+    /// on (its unit's code or the rule text) changed: unverified when its
+    /// new confidence reaches the threshold, else still withheld. Not
+    /// asked again when nothing changed.
+    fn asked_again_if_changed(&mut self, f: Finding) -> std::result::Result<Finding, Halt> {
         let code = cited_code(&self.text(&f.place.file), f.place.lines.start);
-        let q = nitpick(self.steering, &raw_of(f), &code);
-        let on = asked_on(f.place.fingerprint.as_ref(), rule_context(&q));
-        if f.scores.asked_on.as_deref() == Some(on.as_str()) {
+        let q = nitpick(self.steering, &raw_of(&f), &code);
+        let asked_on = asked_on(f.place.fingerprint.as_ref(), rule_context(&q));
+        if f.scores.asked_on.as_deref() == Some(asked_on.as_str()) {
             self.log(NOT_ASKED_AGAIN_TEXT);
-            return Ok(());
+            return Ok(f);
         }
-        let w = self.ask(std::slice::from_ref(&q))?;
-        let confidence = confidence_of(&w[0]);
-        f.scores = Scores {
-            confidence: Some(confidence),
-            asked_on: Some(on),
-        };
+        let answer = self.ask(std::slice::from_ref(&q))?;
+        let confidence = confidence_of(&answer[0]);
         let threshold = self.cfg.confidence_threshold;
+        let mut f = Finding {
+            scores: Scores {
+                confidence: Some(confidence),
+                asked_on: Some(asked_on),
+            },
+            ..f
+        };
         if confidence >= threshold {
             f.set_status(Status::Unverified, self.now);
         }
-        self.log(&asked_again_text(&w[0], confidence, threshold, f.status));
-        Ok(())
+        self.log(&asked_again_text(
+            &answer[0], confidence, threshold, f.status,
+        ));
+        Ok(f)
     }
 
-    /// A refuted or unsure finding is unverified again (to be checked again) when the prints
-    /// of its evidence, as cited now, are not OLD_PRINTS.
-    fn wait_again_if_evidence_moved(
+    /// The refuted or unsure finding, unverified again (so the rounds
+    /// check it again) when the code it cites changed: the fingerprints of
+    /// its cited lines now are not the ones it was checked against.
+    fn unverified_again_if_evidence_moved(
         &self,
-        f: &mut Finding,
+        mut f: Finding,
         cited: &Result<Vec<Evidence>, String>,
         old_prints: &[Option<String>],
-    ) {
-        let Ok(evidence) = cited else { return };
-        if prints(evidence) != old_prints {
+    ) -> Finding {
+        if let Ok(evidence) = cited
+            && prints(evidence) != old_prints
+        {
             f.set_status(Status::Unverified, self.now);
             self.log(EVIDENCE_MOVED_TEXT);
         }
+        f
     }
 
-    /// F in the working copy, in place of the finding with its id.
+    /// Puts the finding back in the working copy, in place of the one with
+    /// its id.
     fn replace_stored(&mut self, f: Finding) {
         if let Some(slot) = self.working_copy.findings.iter_mut().find(|g| g.id == f.id) {
             *slot = f;
@@ -423,8 +502,6 @@ const NONE_FOUND_TEXT: &str = "- none found\n";
 
 const NO_CANDIDATES_TEXT: &str =
     "- same-problem question: no stored finding shares its file, rule or cited code\n";
-
-const NEW_TEXT: &str = "- result: new\n";
 
 const NOT_ASKED_AGAIN_TEXT: &str =
     "- withheld, asked on the same unit, rule and sides: not asked again\n";
@@ -528,12 +605,17 @@ fn merge_into_text(stored: &Finding) -> String {
     format!("- result: merge into {}\n", stored.id.0)
 }
 
-fn new_afresh_text(stored: &Finding) -> String {
-    format!(
-        "- result: new ({} is {}: a match starts afresh)\n",
-        stored.id.0,
-        status_word(stored.status)
-    )
+/// `- result: new`, or why a stored finding Jev called the same problem
+/// could not take it in.
+fn added_as_new_text(same_as: Option<&Finding>) -> String {
+    match same_as {
+        None => "- result: new\n".into(),
+        Some(stored) => format!(
+            "- result: new ({} is {}: a match starts afresh)\n",
+            stored.id.0,
+            status_word(stored.status)
+        ),
+    }
 }
 
 fn nitpick_text(

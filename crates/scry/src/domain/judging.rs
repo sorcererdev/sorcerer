@@ -23,33 +23,45 @@ fn width(u: &Unit) -> u32 {
     u.span.end - u.span.start
 }
 
-/// Where RAW is, and its first status. Among the scoped units of its file
-/// that overlap its lines, the one holding its first line comes first, then
-/// the narrowest; that is `Open`. With none overlapping it is `Elsewhere`,
-/// placed in the narrowest of UNITS_NOW (the file's units now) holding its
-/// first line, if any.
-pub fn place(raw: &RawFinding, scoped: &[ScopedUnit], units_now: &[Unit]) -> (Place, Status) {
+/// Where a new finding sits: in a unit this run reviewed, or elsewhere.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Placement {
+    /// Its lines are in a unit this run sent to the reviewer.
+    InReviewedUnit(Place),
+    /// Its lines are in no reviewed unit: it is stored as elsewhere,
+    /// placed in whichever unit of the file holds its first line now (if
+    /// any).
+    Elsewhere(Place),
+}
+
+/// Where a new finding sits. Among the reviewed units of its file whose
+/// lines overlap the finding's, it takes the one holding its first line,
+/// else the narrowest. With none, it is elsewhere.
+///
+/// Example: a finding on lines 12-14 of `orders.py`, where the reviewed
+/// units are the class `Order` (lines 1-30) and its method `Order.cancel`
+/// (lines 10-20), is in `Order.cancel`: both hold line 12, and the method
+/// is narrower. A finding on line 25, when only `Order.cancel` was
+/// reviewed, is elsewhere, placed in `Order`.
+pub fn place(raw: &RawFinding, reviewed: &[ScopedUnit], units_now: &[Unit]) -> Placement {
     let first = raw.lines.start;
-    let overlapping = scoped
+    let overlapping = reviewed
         .iter()
         .filter(|s| s.file == raw.file)
         .map(|s| &s.unit)
         .filter(|u| u.span.start <= raw.lines.end && first <= u.span.end);
-    let in_scope = overlapping.min_by_key(|u| (!u.span.holds(first), width(u)));
-    let status = if in_scope.is_some() {
-        Status::Open
-    } else {
-        Status::Elsewhere
-    };
-    let unit = in_scope.or_else(|| unit_at(units_now, first));
-    let place = Place {
+    let reviewed_unit = overlapping.min_by_key(|u| (!u.span.holds(first), width(u)));
+    let place_in = |unit: Option<&Unit>| Place {
         file: raw.file.clone(),
         unit: unit.map(|u| u.name.clone()),
         lines: raw.lines,
         unit_start: unit.map(|u| u.span.start),
         fingerprint: unit.map(|u| u.fingerprint),
     };
-    (place, status)
+    match reviewed_unit {
+        Some(unit) => Placement::InReviewedUnit(place_in(Some(unit))),
+        None => Placement::Elsewhere(place_in(unit_at(units_now, first))),
+    }
 }
 
 fn overlaps(a: Span, b: Span) -> bool {
@@ -110,16 +122,27 @@ pub fn same_problem(a: &str, b: &str, code_a: &str, code_b: &str) -> Question {
     }
 }
 
+/// What happens to a new finding that Jev says is the same problem as a
+/// stored one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Match {
-    New,
-    Merge,
+    /// Store it as a new finding all the same.
+    AddAsNew,
+    /// Fold it into the stored finding.
+    MergeInto,
+    /// Throw it away: the user already dismissed this problem.
     Drop,
 }
 
-/// What a new finding does when Jev says it is the same problem as STORED;
-/// NEW_UNIT is the new finding's unit. Dismissed here drops only in the
-/// unit it was dismissed in; resolved and gone start afresh.
+/// What happens to a new finding in the unit `new_unit` that Jev says is
+/// the same problem as `stored`. A stored finding that is still live
+/// (open, unverified, withheld, refuted, unsure, elsewhere) takes it in. A
+/// dismissal drops it: everywhere, or only in the unit it was dismissed in.
+/// A resolved or gone one starts afresh.
+///
+/// Example: the user dismissed "cancel() returns None" in `cancel` only.
+/// The reviewer raises it again in `cancel`: dropped. It raises it in
+/// `refund`: added as new.
 pub fn match_stored(stored: &Finding, new_unit: Option<&str>) -> Match {
     match stored.status {
         Status::Open
@@ -127,16 +150,16 @@ pub fn match_stored(stored: &Finding, new_unit: Option<&str>) -> Match {
         | Status::Withheld
         | Status::Refuted
         | Status::Unsure
-        | Status::Elsewhere => Match::Merge,
+        | Status::Elsewhere => Match::MergeInto,
         Status::DismissedHere => {
             if new_unit.is_some() && stored.place.unit.as_deref() == new_unit {
                 Match::Drop
             } else {
-                Match::New
+                Match::AddAsNew
             }
         }
         Status::DismissedEverywhere => Match::Drop,
-        Status::Resolved | Status::Gone => Match::New,
+        Status::Resolved | Status::Gone => Match::AddAsNew,
     }
 }
 

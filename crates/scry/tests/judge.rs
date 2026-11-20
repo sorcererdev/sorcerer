@@ -80,22 +80,30 @@ fn stored(status: Status, file: &str, unit: Option<&str>) -> Finding {
     }
 }
 
+/// A placement as (place, status), as the store will record it.
+fn as_pair(p: scry::domain::judging::Placement) -> (scry::domain::finding::Place, Status) {
+    match p {
+        scry::domain::judging::Placement::InReviewedUnit(pl) => (pl, Status::Open),
+        scry::domain::judging::Placement::Elsewhere(pl) => (pl, Status::Elsewhere),
+    }
+}
+
 #[test]
 fn place_prefers_the_unit_holding_the_first_line_then_the_narrowest() {
     let class = unit("Order", UnitKind::Class, 1, 30);
     let method = unit("Order.cancel", UnitKind::Method, 10, 20);
     let units = [class.clone(), method.clone()];
-    let (pl, st) = place(
+    let (pl, st) = as_pair(place(
         &raw(span(12, 14)),
         &[scoped(&class), scoped(&method)],
         &units,
-    );
+    ));
     assert_eq!(st, Status::Open);
     assert_eq!(pl.unit.as_deref(), Some("Order.cancel"));
     assert_eq!(pl.unit_start, Some(10));
     assert_eq!(pl.lines, span(12, 14));
     // a range starting before a scoped unit and running into it is in it
-    let (pl, st) = place(&raw(span(8, 12)), &[scoped(&method)], &units);
+    let (pl, st) = as_pair(place(&raw(span(8, 12)), &[scoped(&method)], &units));
     assert_eq!(
         (pl.unit.as_deref(), st),
         (Some("Order.cancel"), Status::Open)
@@ -106,17 +114,17 @@ fn place_prefers_the_unit_holding_the_first_line_then_the_narrowest() {
 fn place_outside_scoped_units_is_elsewhere() {
     let class = unit("Order", UnitKind::Class, 1, 30);
     let method = unit("Order.cancel", UnitKind::Method, 10, 20);
-    let (pl, st) = place(
+    let (pl, st) = as_pair(place(
         &raw(span(25, 26)),
         &[scoped(&method)],
         &[class.clone(), method.clone()],
-    );
+    ));
     assert_eq!(st, Status::Elsewhere);
     assert_eq!(pl.unit.as_deref(), Some("Order"));
     // another file's scoped unit does not count
     let mut other = scoped(&method);
     other.file = "b.py".into();
-    let (pl, st) = place(&raw(span(12, 12)), &[other], &[]);
+    let (pl, st) = as_pair(place(&raw(span(12, 12)), &[other], &[]));
     assert_eq!((pl.unit, st), (None, Status::Elsewhere));
 }
 
@@ -189,19 +197,19 @@ fn finding_text_reads() {
 #[test]
 fn match_table() {
     let m = |s: Status| match_stored(&stored(s, "a.py", Some("f")), Some("f"));
-    assert_eq!(m(Status::Open), Match::Merge);
-    assert_eq!(m(Status::Unverified), Match::Merge);
-    assert_eq!(m(Status::Withheld), Match::Merge);
-    assert_eq!(m(Status::Refuted), Match::Merge);
-    assert_eq!(m(Status::Unsure), Match::Merge);
-    assert_eq!(m(Status::Elsewhere), Match::Merge);
+    assert_eq!(m(Status::Open), Match::MergeInto);
+    assert_eq!(m(Status::Unverified), Match::MergeInto);
+    assert_eq!(m(Status::Withheld), Match::MergeInto);
+    assert_eq!(m(Status::Refuted), Match::MergeInto);
+    assert_eq!(m(Status::Unsure), Match::MergeInto);
+    assert_eq!(m(Status::Elsewhere), Match::MergeInto);
     assert_eq!(m(Status::DismissedHere), Match::Drop);
     let here = stored(Status::DismissedHere, "a.py", Some("f"));
-    assert_eq!(match_stored(&here, Some("g")), Match::New);
-    assert_eq!(match_stored(&here, None), Match::New);
+    assert_eq!(match_stored(&here, Some("g")), Match::AddAsNew);
+    assert_eq!(match_stored(&here, None), Match::AddAsNew);
     assert_eq!(m(Status::DismissedEverywhere), Match::Drop);
-    assert_eq!(m(Status::Resolved), Match::New);
-    assert_eq!(m(Status::Gone), Match::New);
+    assert_eq!(m(Status::Resolved), Match::AddAsNew);
+    assert_eq!(m(Status::Gone), Match::AddAsNew);
 }
 
 fn rules() -> Steering {
