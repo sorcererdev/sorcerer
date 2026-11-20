@@ -117,8 +117,8 @@ pub fn errand(verb: &str, model: &str, cost: f64) -> Errand {
 
 type Hook = Box<dyn Fn(&ReviewAsk) + Send + Sync>;
 
-/// The review call's stand-in: replies by the set of files in the pack (an
-/// empty findings list for a pack it has no reply for), and records every ask.
+/// The review call's stand-in: replies by the set of files in the batch (an
+/// empty findings list for a batch it has no reply for), and records every ask.
 /// A hook, when set, runs during each call (after the ask is recorded).
 pub struct StubReviewer {
     replies: Vec<(BTreeSet<PathBuf>, String)>,
@@ -154,7 +154,7 @@ impl StubReviewer {
         self
     }
 
-    /// Replies REPLY to a pack whose files are exactly FILES.
+    /// Replies REPLY to a batch whose files are exactly FILES.
     pub fn reply(mut self, files: &[&str], reply: &str) -> StubReviewer {
         let set = files.iter().map(PathBuf::from).collect();
         self.replies.push((set, reply.to_string()));

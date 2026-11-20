@@ -1,6 +1,6 @@
 //! The review_change use case:
 //! the request's scope worked out; the scope's units not yet reviewed go to
-//! the review call in packs (`ask`); each finding is placed, matched against
+//! the review call in batches (`ask`); each finding is placed, matched against
 //! the store, filtered by Jev's nitpick question and remembered (`judge`,
 //! `remember`); then each file's waiting findings go through the
 //! verification rounds (`verify`), within the caps.

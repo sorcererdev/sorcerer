@@ -101,9 +101,9 @@ and exit code do not change. The log holds, in run order:
   language, excluded, fenced, not text, deleted).
 - **Pass** and **Units**: the caps, what scry spent earlier today, the cost estimates, and each
   unit: to send, or already reviewed at its fingerprint.
-- **Review calls**: per pack, its units, the model and cap, the whole prompt and the whole reply,
+- **Review calls**: per batch, its units, the model and cap, the whole prompt and the whole reply,
   the call's cost and time, and what the reply parsed to (or why it did not), or that a cap
-  held the pack back.
+  held the batch back.
 - **Findings**: each finding as the model gave it (issue type, place, rule, statement, evidence),
   the rule id it cited and whether the steering has it, the unit it was placed in, each same-problem question with Jev's
   P(yes) and what came of it (new, merged, dropped), the nitpick question's P(yes), the

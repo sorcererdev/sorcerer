@@ -26,13 +26,13 @@ Reply with a JSON array: [{{"n": <finding number>, "hit": true|false}}, ...]"""
 
 
 def findings_of(corpus, case):
-    """Every recorded finding statement of CASE, over all its packs, in order."""
+    """Every recorded finding statement of CASE, over all its batches, in order."""
     p = os.path.join(corpus, "reviews", case + ".json")
     if not os.path.exists(p):
         return []
     out = []
-    for pack in json.load(open(p))["packs"]:
-        reply = json_block(pack["reply"]) if pack["reply"].strip() else {}
+    for batch in json.load(open(p))["batches"]:
+        reply = json_block(batch["reply"]) if batch["reply"].strip() else {}
         found = reply if isinstance(reply, list) else reply.get("findings", [])
         out += [f for f in found if f.get("statement")]
     return out

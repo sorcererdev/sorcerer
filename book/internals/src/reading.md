@@ -60,7 +60,7 @@ is made.
 
 ```rust
 fn units_not_yet_reviewed(…)   // not: fn filter_units(…)
-let batches = batch_units(units);   // "batch", not a made-up "pack"
+let batches = batch_units(units);   // the established word for a group sent together
 ```
 
 **8. Doc comments.** One plain sentence of intent on every function whose name does not already

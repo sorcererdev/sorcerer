@@ -1,5 +1,5 @@
 {
-  "packs": [
+  "batches": [
     {
       "files": [
         "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",

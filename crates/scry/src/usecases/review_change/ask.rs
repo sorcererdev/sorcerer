@@ -1,5 +1,5 @@
-//! The review calls: the scope's units not yet reviewed, packed, one call a
-//! pack while the caps allow, each reply parsed.
+//! The review calls: the scope's units not yet reviewed, batched, one call a
+//! batch while the caps allow, each reply parsed.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use super::{Halt, Progress, Run, Sent};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
-    RawFinding, ReviewAsk, ReviewUnit, pack_units, parse_review, review_prompt,
+    RawFinding, ReviewAsk, ReviewUnit, batch_units, parse_review, review_prompt,
 };
 use crate::domain::scope::{Scope, ScopedUnit};
 
@@ -30,7 +30,7 @@ pub(super) struct Asked {
 impl Run<'_, '_> {
     #[expect(clippy::too_many_lines, reason = "")]
     pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
-        // the units to send, packed
+        // the units to send, batched
         let to_send: Vec<&ScopedUnit> = scope
             .units
             .iter()
@@ -83,7 +83,7 @@ impl Run<'_, '_> {
             });
         }
 
-        // the review calls, one a pack, while the caps allow; once one pack
+        // the review calls, one a batch, while the caps allow; once one batch
         // is capped every later one is, and its units are recorded for later
         let mut capped = 0;
         let mut failures = Vec::new();
@@ -91,20 +91,20 @@ impl Run<'_, '_> {
         let mut raws: Vec<RawFinding> = Vec::new();
         let mut no_longer: HashSet<String> = HashSet::new();
         let mut held: HashSet<String> = HashSet::new();
-        let packs = pack_units(units);
+        let batches = batch_units(units);
         self.t(&section("Review calls"));
-        if packs.is_empty() {
+        if batches.is_empty() {
             self.t("- nothing to send\n");
         }
-        for (n, pack) in packs.into_iter().enumerate() {
-            let files = files_of(&pack);
-            let unit_names: Vec<String> = pack
+        for (n, batch) in batches.into_iter().enumerate() {
+            let files = files_of(&batch);
+            let unit_names: Vec<String> = batch
                 .iter()
                 .map(|u| format!("`{}` `{}`", u.file.display(), u.name))
                 .collect();
             self.t(&format!(
                 "{}- units: {}\n",
-                sub(&format!("Pack {}: {}", n + 1, names(&files))),
+                sub(&format!("Batch {}: {}", n + 1, names(&files))),
                 unit_names.join(", ")
             ));
             if capped > 0 || !self.budget.allows(self.review_estimate) {
@@ -113,8 +113,8 @@ impl Run<'_, '_> {
                     usd(self.review_estimate),
                     self.budget.room().map_or("unbounded".into(), usd),
                 ));
-                capped += pack.len();
-                for u in &pack {
+                capped += batch.len();
+                for u in &batch {
                     self.mine
                         .capped
                         .entry(u.file.clone())
@@ -132,8 +132,8 @@ impl Run<'_, '_> {
                 diff: diff_of(scope, &files),
                 steering: self.st.steering_text(),
                 reported: Vec::new(),
-                open: self.open_on(&pack),
-                units: pack,
+                open: self.open_on(&batch),
+                units: batch,
             };
             // one call's cap: what the caps leave, never more than a pass
             // may spend (on the command line nothing else bounds it, and a
@@ -243,14 +243,14 @@ impl Run<'_, '_> {
         })
     }
 
-    /// The open and waiting findings on PACK's units, for the review call to answer.
-    fn open_on(&self, pack: &[ReviewUnit]) -> Vec<Finding> {
+    /// The open and waiting findings on BATCH's units, for the review call to answer.
+    fn open_on(&self, batch: &[ReviewUnit]) -> Vec<Finding> {
         self.mine
             .findings
             .iter()
             .filter(|f| matches!(f.status, Status::Open | Status::Waiting))
             .filter(|f| {
-                pack.iter().any(|u| {
+                batch.iter().any(|u| {
                     u.file == f.place.file && f.place.unit.as_deref() == Some(u.name.as_str())
                 })
             })
@@ -268,10 +268,11 @@ fn lines_of(text: &str, u: &Unit) -> String {
         .join("\n")
 }
 
-/// The pack's files, in order, each once.
-fn files_of(pack: &[ReviewUnit]) -> Vec<PathBuf> {
+/// The batch's files, in order, each once.
+fn files_of(batch: &[ReviewUnit]) -> Vec<PathBuf> {
     let mut seen = BTreeSet::new();
-    pack.iter()
+    batch
+        .iter()
         .filter(|u| seen.insert(u.file.clone()))
         .map(|u| u.file.clone())
         .collect()

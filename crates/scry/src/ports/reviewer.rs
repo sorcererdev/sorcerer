@@ -1,4 +1,4 @@
-//! The reviewer: a model that reads a pack of changed units and says what
+//! The reviewer: a model that reads a batch of changed units and says what
 //! they get wrong.
 
 use sorcerer_core::Cancel;

@@ -96,7 +96,7 @@ Everything the corpus rests on is in this directory; `tools/README.md` lists the
    planted_lines, expect, made, twin, changed_files`) and `cases/<id>.patch` on `base/`; `cases.md`
    is the table.
 5. **Recording.** One live run of the eval in record mode, by hand, on the finished corpus: every
-   review reply (per pack), claim verdict and Jev answer is written here; afterwards the eval replays
+   review reply (per batch), claim verdict and Jev answer is written here; afterwards the eval replays
    them for free.
 6. **Labels.** A finding is a **hit** when its recorded statement names the planted problem (the
    case's `expect`); T and N cases have no hits, and any finding shown there is noise. `tools/judge.py`
