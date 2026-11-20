@@ -28,7 +28,7 @@ pub(super) struct Asked {
 }
 
 impl Run<'_, '_> {
-    #[expect(clippy::too_many_lines, reason = "")]
+    #[expect(clippy::too_many_lines, reason = "readability stage 2")]
     pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
         // the units to send, batched
         let to_send: Vec<&ScopedUnit> = scope

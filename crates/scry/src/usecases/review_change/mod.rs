@@ -142,7 +142,7 @@ impl From<Error> for Halt {
 /// the end, each time laying its changes over the store as it is then. The
 /// caps hold the review calls and claim checks back, the day's cap counting
 /// what scry spent earlier in the local day.
-#[expect(clippy::too_many_lines, reason = "")]
+#[expect(clippy::too_many_lines, reason = "readability stage 2")]
 pub fn review_change(
     project: &Project,
     req: &ReviewRequest,
