@@ -438,7 +438,7 @@ pub struct Doubles {
     pub reviewer: StubReviewer,
     pub decider: StubDecider,
     pub clock: FixedClock,
-    pub checker: Box<dyn ClaimChecker>,
+    pub checker: Box<dyn ClaimChecker + Send>,
     pub ports: Ports,
     pub cancel: Cancel,
 }
@@ -469,7 +469,7 @@ impl Doubles {
     }
 }
 
-impl Wiring for &Doubles {
+impl Wiring for Doubles {
     fn deps(&self) -> ReviewDeps<'_> {
         ReviewDeps {
             view: &self.view,
@@ -485,5 +485,12 @@ impl Wiring for &Doubles {
             cancel: &self.cancel,
             review_cancel: &self.cancel,
         }
+    }
+}
+
+/// The command line's tests hand `main_with` a borrowed `Doubles`.
+impl Wiring for &Doubles {
+    fn deps(&self) -> ReviewDeps<'_> {
+        (**self).deps()
     }
 }

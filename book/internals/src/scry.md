@@ -60,10 +60,12 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `research_reviewer.rs` (`ResearchReviewer`), `markdown_run_log.rs` (`StreamingLog`,
 `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`, `result_of`, `KEEP`, `RESULT`),
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`LiveWiring`, `Wiring`, `jev_for`,
-`researcher_for`, `claim_checker`, `PRODUCT`).
+`researcher_for`, `claim_checker`, `PRODUCT`), and `lsp/`, the editor's server (below):
+`mod.rs` (`ServerConfig`, `serve`, `SETTLE`, the product `ScryServer` and its shared `Server`),
+`diagnostics.rs` (`diagnostic`, `STALE_LINE`).
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `run_command`,
-`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`,
+`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`,
 `doctor.rs` with `doctor_rows` (a `DoctorRow` each), `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`Output`: text or `--json`; `table`, `cut_to`, `finding_text`,
 `finding_json`, `cited_range`, `lines_text`). `src/main.rs` is the binary, `cli::main` with
 the real environment.
@@ -543,6 +545,49 @@ languages whose `files` cover a file `glob("**")` lists, each `Languages::load`e
 cache), `steering` (`2 rules, 1 include, context 120 B, 1.4 KB; .sorcerer/scry.toml`,
 `no .sorcerer/scry.toml: no rules`, or the error), `store` and `ledger`. `doctor` prints them `name  ok|FAIL  detail` and
 exits 2 when any failed.
+
+## The editor's server
+
+`scry lsp` (`cli/lsp.rs`) serves the editor over standard input and output:
+`serve(Connection::stdio(), ServerConfig::live(SystemEnv))`, then it exits 0. It is a product
+on the host crate ([The language-server host](lsp.md)); `adapters/lsp/` holds what a save
+means to scry, and it calls the use cases the command line calls.
+
+**What it is built from.** `ServerConfig<W: Wiring>`: the environment, `open` (how to open the
+project at a root: `Project::open` live), the grammar `cache`, the user's `trust` list, the
+`settle` wait, the `clock`, and `wire` (a pass's wiring from the project and its two cancels:
+`LiveWiring::open_with` live). `ServerConfig::live(env)` is the real one; the tests in
+`tests/lsp.rs` give a 20 ms settle, a fixed clock, vendored grammars and a wiring of the pass
+doubles, over `Connection::memory()`. The binary has no test hook.
+
+**Which files.** The server serves one project: `open` of the root the editor sent at
+initialize (its first workspace folder, else `rootUri`; the working directory when it sent
+neither), opened afresh each time it publishes, so a config edit needs no restart. A file is
+the project's when `Project::root_above` its directory is the project's root, compared on the
+canonical path (`project_file`); a file of a nested project, outside the root, or with no
+language is ignored without a word.
+
+**Publishing.** One thread, started with the server (`start_publisher`), publishes in the
+order it is asked, so the main loop never waits on a parse or a grammar build and a close
+always lands after the open before it. `Publish::File(path)` is sent at an open and at a save,
+`Publish::Clear(path)` at a close (an empty list). For a file that is open and the project's,
+`Server::diagnostics_for` reads the store afresh (`JsonFindingStore::at`, so a read creates
+nothing), takes `shown_in_file` and turns each `Shown` into a diagnostic. Only open documents
+are ever published. An error (the config does not parse, the store is from a newer scry) goes
+to the editor's log (`window/logMessage`), the same text at most once in a row
+(`log_error`), and publishes nothing; the next save tries again.
+
+**A finding as a diagnostic** (`diagnostic(shown, root, text, related)`):
+
+| field | value |
+|---|---|
+| `range` | the placed line, from character 0 to its length in UTF-16 units |
+| `severity` | `Error` for `bug`, `Warning` for every other issue type |
+| `source` | `scry` |
+| `code` | the issue type, or `<issue type>-stale` |
+| `message` | the statement; then `rule: <id>` when it cites a rule; then `(the code changed since this review)` when stale; one per line |
+| `relatedInformation` | each evidence, its file and whole lines, message `evidence`; only when the editor announced `relatedInformation` |
+| `data` | the finding's id, as a string |
 
 ## Test support
 

@@ -2,7 +2,8 @@
 //! open findings in it, writing a run log as it goes (`scry log` prints
 //! the log afterwards, `-v` streams it as the run goes). The other
 //! commands look at what scry has stored: `list`, `why`, `dismiss`, `cost`,
-//! `log`, and `doctor`, which says whether scry can run here.
+//! `log`, and `doctor`, which says whether scry can run here. `lsp` is the
+//! editor's language server.
 //!
 //! Each command reads its arguments, calls one use case and prints what
 //! comes back. The exit code is 0 when nothing is open in the change, 1
@@ -14,6 +15,7 @@ mod doctor;
 mod format;
 mod list;
 mod log;
+mod lsp;
 mod review;
 mod why;
 
@@ -112,6 +114,8 @@ enum Cmd {
     },
     /// Whether scry can run here: provider, Jev, languages, steering, store, ledger
     Doctor,
+    /// The editor's language server, over standard input and output
+    Lsp,
 }
 
 /// The program's entry: runs the command in the current directory, with
@@ -205,8 +209,26 @@ fn run_command<W: Wiring>(
     console: &mut Console,
     wire: impl Fn(&Project) -> Result<W>,
 ) -> Result<i32> {
-    let project = Project::open(cwd)?;
     match cli.cmd {
+        // the server finds its project from the root the editor sends, not from here
+        Some(Cmd::Lsp) => lsp::lsp(),
+        cmd => run_in_project(cmd, &cli.run, line, cwd, env, console, wire),
+    }
+}
+
+/// Runs a command in the project holding `cwd`.
+fn run_in_project<W: Wiring>(
+    cmd: Option<Cmd>,
+    run: &RunArgs,
+    line: &str,
+    cwd: &Path,
+    env: &dyn Env,
+    console: &mut Console,
+    wire: impl Fn(&Project) -> Result<W>,
+) -> Result<i32> {
+    let project = Project::open(cwd)?;
+    match cmd {
+        Some(Cmd::Lsp) => lsp::lsp(),
         None => {
             // off is not a failure, and needs no wiring (no Jev key, no
             // provider): a pre-commit hook lets the commit through
@@ -214,7 +236,7 @@ fn run_command<W: Wiring>(
                 writeln!(console.err, "scry: off ([scry] enabled = false)")?;
                 return Ok(0);
             }
-            review::logged(&cli.run, line, cwd, &project, wire, console)
+            review::logged(run, line, cwd, &project, wire, console)
         }
         Some(Cmd::Doctor) => doctor::doctor(&project, env, &GrammarCache::user(env), console.out),
         Some(Cmd::List { status, json }) => {
