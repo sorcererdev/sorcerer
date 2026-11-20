@@ -9,12 +9,12 @@ use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
 use super::ask::ReviewResults;
-use super::{Run, SentUnit};
+use super::{Pass, SentUnit};
 use crate::domain::finding::{FindingId, Place, Status};
 use crate::domain::log_text::section;
 use crate::domain::scope::Scope;
 
-impl Run<'_, '_> {
+impl Pass<'_, '_> {
     /// The Remember section: resolved by the reviewer's answer, gone, moved
     /// while the pass ran, and (only when the pass was WHOLE) not found again.
     pub(super) fn remember(
@@ -29,7 +29,7 @@ impl Run<'_, '_> {
         // resolved by the review call's answer
         let now = self.now;
         let mut remember = section("Remember");
-        for f in &mut self.mine.findings {
+        for f in &mut self.working_copy.findings {
             if no_longer.contains(&f.id.0) && matches!(f.status, Status::Open | Status::Waiting) {
                 f.set_status(Status::Resolved, now);
                 remember.push_str(&format!(
@@ -69,7 +69,7 @@ impl Run<'_, '_> {
                 .iter()
                 .map(|u| ((u.file.as_path(), u.name.as_str()), u.fingerprint))
                 .collect();
-            for f in &mut self.mine.findings {
+            for f in &mut self.working_copy.findings {
                 let sent_at = f
                     .place
                     .unit
@@ -126,15 +126,15 @@ impl Run<'_, '_> {
                 "- `{}` `{name}` reviewed at {fingerprint}\n",
                 file.display()
             ));
-            self.mine
+            self.working_copy
                 .reviewed
                 .entry(file.clone())
                 .or_default()
                 .insert(fingerprint.to_string());
-            if let Some(names) = self.mine.capped.get_mut(file) {
+            if let Some(names) = self.working_copy.capped.get_mut(file) {
                 names.remove(name);
                 if names.is_empty() {
-                    self.mine.capped.remove(file);
+                    self.working_copy.capped.remove(file);
                 }
             }
         }
@@ -151,13 +151,15 @@ impl Run<'_, '_> {
         let moved = self.moved(answered);
         let new_ids: HashSet<FindingId> = self.new.iter().cloned().collect();
         let dropped: HashSet<FindingId> = self
-            .mine
+            .working_copy
             .findings
             .iter()
             .filter(|f| new_ids.contains(&f.id) && in_moved(&moved, &f.place))
             .map(|f| f.id.clone())
             .collect();
-        self.mine.findings.retain(|f| !dropped.contains(&f.id));
+        self.working_copy
+            .findings
+            .retain(|f| !dropped.contains(&f.id));
         self.new.retain(|i| !dropped.contains(i));
         moved
     }
@@ -168,7 +170,7 @@ impl Run<'_, '_> {
         let now = self.now;
         let mut gone = Vec::new();
         for sf in &scope.files {
-            for f in &mut self.mine.findings {
+            for f in &mut self.working_copy.findings {
                 let left = sf.deleted
                     || f.place
                         .unit

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
-use super::{Progress, Run, SentUnit};
+use super::{Pass, Progress, SentUnit};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
@@ -49,7 +49,7 @@ type SentFingerprints = HashMap<(PathBuf, String, u32), Fingerprint>;
 /// What a review call returns: the reply and its errand, or why it failed.
 type CallResult = sorcerer_models::Result<Reviewed>;
 
-impl Run<'_, '_> {
+impl Pass<'_, '_> {
     /// Sends the scope's unreviewed units to the reviewer, batch by batch,
     /// within the caps; what the calls gave.
     pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> ReviewResults {
@@ -76,7 +76,7 @@ impl Run<'_, '_> {
     /// (unless FRESH).
     fn units_not_yet_reviewed<'s>(&self, scope: &'s Scope, fresh: bool) -> Vec<&'s ScopedUnit> {
         let reviewed = |u: &ScopedUnit| {
-            self.mine
+            self.working_copy
                 .reviewed
                 .get(&u.file)
                 .is_some_and(|s| s.contains(u.unit.fingerprint.as_str()))
@@ -116,7 +116,7 @@ impl Run<'_, '_> {
         self.log(&held_back_text(self.review_estimate, self.budget.room()));
         asked.capped += batch.len();
         for u in batch {
-            self.mine
+            self.working_copy
                 .capped
                 .entry(u.file.clone())
                 .or_default()
@@ -191,7 +191,7 @@ impl Run<'_, '_> {
 
     /// The open and waiting findings on BATCH's units, for the review call to answer.
     fn open_on(&self, batch: &[ReviewUnit]) -> Vec<Finding> {
-        self.mine
+        self.working_copy
             .findings
             .iter()
             .filter(|f| matches!(f.status, Status::Open | Status::Waiting))

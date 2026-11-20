@@ -101,7 +101,7 @@ rule yields nitpicks, its text is what gets fixed.
 
 ## Before and after: the review calls
 
-`Run::send` in `crates/scry/src/usecases/review_change/ask.rs` sends a pass's units to the
+`Pass::send` in `crates/scry/src/usecases/review_change/ask.rs` sends a pass's units to the
 reviewer. It was one function of more than two hundred lines; its first forty read:
 
 ```rust
@@ -113,7 +113,7 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result
         .filter(|u| {
             fresh
                 || !self
-                    .mine
+                    .working_copy
                     .reviewed
                     .get(&u.file)
                     .is_some_and(|s| s.contains(u.unit.fingerprint.as_str()))

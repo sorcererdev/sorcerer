@@ -9,7 +9,7 @@ use sorcerer_core::domain::unit::Span;
 use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
 
 use super::verify::citations;
-use super::{Halt, Run};
+use super::{Halt, Pass};
 use crate::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status, status_word};
 use crate::domain::judging::{
     Match, SAME_THRESHOLD, asked_on, candidates, cited_code, confidence_of, finding_text,
@@ -19,7 +19,7 @@ use crate::domain::log_text::{count, section, sub};
 use crate::domain::review_prompt::RawFinding;
 use crate::domain::scope::Scope;
 
-impl Run<'_, '_> {
+impl Pass<'_, '_> {
     /// Judges RAWS in order.
     pub(super) fn judge_all(
         &mut self,
@@ -124,7 +124,10 @@ impl Run<'_, '_> {
             pl.fingerprint.map_or("none".into(), |f| f.to_string())
         ));
         let code_a = cited_code(&self.text(&raw.file), raw.lines.start);
-        let cands: Vec<Finding> = candidates(&self.mine, &raw).into_iter().cloned().collect();
+        let cands: Vec<Finding> = candidates(&self.working_copy, &raw)
+            .into_iter()
+            .cloned()
+            .collect();
         let mut hit = None;
         if !cands.is_empty() {
             let a = finding_text(
@@ -233,10 +236,10 @@ impl Run<'_, '_> {
 
     fn add(&mut self, raw: &RawFinding, pl: Place, status: Status, scores: Scores) -> FindingId {
         let id = self
-            .mine
+            .working_copy
             .new_id(self.now, &pl.file, pl.lines, &raw.statement);
         self.new.push(id.clone());
-        self.mine.findings.push(Finding {
+        self.working_copy.findings.push(Finding {
             id,
             issue_type: raw.issue_type.clone(),
             rule: raw.rule.clone(),
@@ -267,7 +270,12 @@ impl Run<'_, '_> {
         pl: Place,
     ) -> std::result::Result<(), Halt> {
         let cited = citations(self.deps.view, self.fences, &raw.evidence);
-        let old = self.mine.findings.iter().find(|f| f.id == *id).cloned();
+        let old = self
+            .working_copy
+            .findings
+            .iter()
+            .find(|f| f.id == *id)
+            .cloned();
         let Some(mut f) = old else { return Ok(()) };
         let old_prints: Vec<Option<String>> = f.evidence.iter().map(|e| e.print.clone()).collect();
         // a finding stored by an earlier pass takes this pass's place, wording
@@ -326,7 +334,7 @@ impl Run<'_, '_> {
             status_word(f.status)
         ));
         self.merged.insert(f.id.clone());
-        if let Some(slot) = self.mine.findings.iter_mut().find(|g| g.id == f.id) {
+        if let Some(slot) = self.working_copy.findings.iter_mut().find(|g| g.id == f.id) {
             *slot = f;
         }
         Ok(())

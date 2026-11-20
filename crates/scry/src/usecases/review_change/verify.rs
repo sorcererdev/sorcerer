@@ -13,7 +13,7 @@ use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Cancel, Result};
 use sorcerer_models::domain::claim::{Checked, Claim, Verdict};
 
-use super::{Halt, Progress, ReviewDeps, Run};
+use super::{Halt, Pass, Progress, ReviewDeps};
 use crate::domain::budget::{Budget, cost_of};
 use crate::domain::config::{MAX_SHOWN, ScryConfig};
 use crate::domain::finding::{
@@ -23,7 +23,7 @@ use crate::domain::findings::{Findings, merge_into, renamed};
 use crate::domain::log_text::{citation, section, sub, usd};
 use crate::domain::verification::{claim_of, needs_claim, verdict_word};
 
-impl Run<'_, '_> {
+impl Pass<'_, '_> {
     /// The rounds over each file in SCOPE that was not deleted; whether a
     /// claim check was held back by the caps. OLD_WAITING are the findings
     /// that were waiting before this pass.
@@ -34,9 +34,9 @@ impl Run<'_, '_> {
     ) -> std::result::Result<bool, Halt> {
         let mut checks_capped = false;
         for sf in scope.files.iter().filter(|sf| !sf.deleted) {
-            let Run {
-                mine,
-                written,
+            let Pass {
+                working_copy,
+                last_written,
                 disk,
                 budget,
                 cfg,
@@ -45,12 +45,14 @@ impl Run<'_, '_> {
                 fences,
                 now,
                 check_estimate,
-                renames,
+                renamed_ids,
                 ..
             } = self;
             let mut save = |s: &Findings| -> Result<()> {
-                disk.update(&mut |current| *current = merge_into(written, s, current, renames))?;
-                *written = renamed(s, renames);
+                disk.update(&mut |current| {
+                    *current = merge_into(last_written, s, current, renamed_ids)
+                })?;
+                *last_written = renamed(s, renamed_ids);
                 Ok(())
             };
             let mut around = Around {
@@ -60,7 +62,15 @@ impl Run<'_, '_> {
                 check_estimate: *check_estimate,
                 save: &mut save,
             };
-            let v = verify(mine, &sf.file, cfg, budget, deps, cancel, &mut around)?;
+            let v = verify(
+                working_copy,
+                &sf.file,
+                cfg,
+                budget,
+                deps,
+                cancel,
+                &mut around,
+            )?;
             checks_capped |= v.capped;
         }
 
