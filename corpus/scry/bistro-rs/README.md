@@ -135,6 +135,15 @@ Every hand edit is a script in `tools/gen/<name>.derive.py`; `tools/build_cases.
 the last `check_case.py` run (32/32). The base's dates (2026-10-09) are now in the past: a case that
 refuses past days moves its test bookings forward.
 
+## Unplanted findings (2026-11-20)
+
+A true finding nobody planted goes in its case's `unplanted` list in `labels.json` once a person has
+read it and judged it true; the eval counts it in the `unplanted` column and leaves it out of "shown a
+case" (see bistro's README). Three were read and judged true in `scry-rust-eval-report-2026-11-19.md`:
+n01 (a booking whose sitting runs past midnight is reported over), t06 (`weeks` has no upper limit) and
+vm06's second finding (the same `weeks` problem on the route). With them out, V-must reads 1.000 shown
+a case, T 0.000 and N 0.000.
+
 ## The recording and the labels (2026-11-19)
 
 Recorded once with `SCRY_RECORD=all cargo test -p scry --test eval bistro_rs -- --nocapture` at

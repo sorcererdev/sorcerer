@@ -20,5 +20,7 @@ scry = "4df22b0"
 review_model = "sonnet"
 v_must = 10
 b = 4
-t_mean = 0.1
-n_mean = 0.167
+# 2026-11-20: true findings nobody planted (labelled `unplanted`) are left out of the shown count:
+# V-must reads 1.000 (vm06), T 0.0 (t06), N 0.0 (n01); the recording is unchanged.
+t_mean = 0.0
+n_mean = 0.0

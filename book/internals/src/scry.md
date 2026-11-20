@@ -558,11 +558,16 @@ and says what each file is; each corpus's own `README.md` says how it was made.
   `question_key` (FNV-1a over the Jev body without the model, so a question asked the same
   way has the same key). A question with no file
   is an error, the pass is `Skipped`, and the eval fails naming the case.
-- `labels.json`, each case's set, the statements that count as a hit, and its changed files.
+- `labels.json`, each case's set, the statements that count as a hit, the `unplanted` ones (true
+  findings nobody planted; the key may be absent) and its changed files.
 
-Shown is the union over a case's changed files of `Findings::shown_in`; a case is a hit when
-a shown statement is one of its `hits`. The eval prints `# <name>`, then `set | cases | with a hit
-shown | shown a case` and one row a case, then asserts the corpus's passing scores: bistro's are V-must
+Shown is the union over a case's changed files of `Findings::shown_in`; `count` sorts it, in every
+set by one rule: a statement in the case's `unplanted` list is counted in `unplanted` and left out of
+`shown`; a case is a hit when a shown statement is one of its `hits`; in a T or N case a shown
+statement in neither list goes to `to_read`. The eval prints `# <name>`, then `set | cases | with a hit
+shown | shown a case | unplanted` and one row a case (the same column), then the "to read" list
+(`to_read_text`; absent when empty: a person reads each line, judges it, and copies a true one into
+`unplanted`, never to make a number fit), then asserts the corpus's passing scores: bistro's are V-must
 at least 16 of 18 with a hit shown, B at least 6 of 8, at most 0.5 shown a T case and an N case on
 average.
 

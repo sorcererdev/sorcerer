@@ -192,6 +192,9 @@ struct Case {
     id: String,
     set: String,
     hits: Vec<String>,
+    /// True findings nobody planted: a person read each and judged it true.
+    /// They are left out of the shown count.
+    unplanted: Vec<String>,
     changed: Vec<PathBuf>,
 }
 
@@ -212,6 +215,7 @@ fn cases(corpus: &Corpus) -> Vec<Case> {
             id: id.clone(),
             set: c["set"].as_str().unwrap().to_string(),
             hits: strings(&c["hits"]),
+            unplanted: c.get("unplanted").map_or_else(Vec::new, strings),
             changed: strings(&c["changed"])
                 .into_iter()
                 .map(PathBuf::from)
@@ -433,6 +437,39 @@ struct Row {
     set: String,
     shown: usize,
     hit: bool,
+    unplanted: usize,
+    to_read: Vec<String>,
+}
+
+/// What a case showed, sorted by what a person has said about each statement.
+struct Counted {
+    /// Shown statements that are not labelled unplanted.
+    shown: usize,
+    /// Whether a labelled hit was shown.
+    hit: bool,
+    /// Shown statements labelled unplanted (true, but nobody planted them).
+    unplanted: usize,
+    /// In a clean case (set T or N), shown statements in neither list: a
+    /// person has yet to read them.
+    to_read: Vec<String>,
+}
+
+/// Counts the statements a case showed. Example: in a set `N` case with
+/// `unplanted = ["x"]` that showed `["x", "y"]`, `shown` is 1, `unplanted`
+/// is 1 and `to_read` is `["y"]`.
+fn count(c: &Case, shown: &[String]) -> Counted {
+    let is_unplanted = |st: &&String| c.unplanted.contains(st);
+    let clean_case = c.set == "T" || c.set == "N";
+    Counted {
+        shown: shown.iter().filter(|st| !is_unplanted(st)).count(),
+        hit: shown.iter().any(|st| c.hits.contains(st)),
+        unplanted: shown.iter().filter(is_unplanted).count(),
+        to_read: shown
+            .iter()
+            .filter(|st| clean_case && !is_unplanted(st) && !c.hits.contains(*st))
+            .cloned()
+            .collect(),
+    }
 }
 
 /// Everything a corpus run shares between its cases.
@@ -485,11 +522,15 @@ fn run_case(run: &Run, c: &Case) -> Row {
         print_for_a_look(&c.id, &store);
     }
     let shown = shown_statements(&store, &cfg, &c.changed);
+    let statements: Vec<String> = shown.into_iter().map(|(_, st)| st).collect();
+    let counted = count(c, &statements);
     Row {
         id: c.id.clone(),
         set: c.set.clone(),
-        shown: shown.len(),
-        hit: shown.iter().any(|(_, st)| c.hits.contains(st)),
+        shown: counted.shown,
+        hit: counted.hit,
+        unplanted: counted.unplanted,
+        to_read: counted.to_read,
     }
 }
 
@@ -704,27 +745,47 @@ type BySet = BTreeMap<String, (usize, usize, f64)>;
 fn table(corpus: &Corpus, rows: &[Row]) -> (String, BySet) {
     let mut by = BTreeMap::new();
     let mut out = format!(
-        "# {}\n\n| set | cases | with a hit shown | shown a case |\n|---|---|---|---|\n",
+        "# {}\n\n| set | cases | with a hit shown | shown a case | unplanted |\n|---|---|---|---|---|\n",
         corpus.name
     );
     for k in &corpus.sets {
         let mine: Vec<&Row> = rows.iter().filter(|r| &r.set == k).collect();
         let hits = mine.iter().filter(|r| r.hit).count();
+        let unplanted = mine.iter().map(|r| r.unplanted).sum::<usize>();
         let per = mine.iter().map(|r| r.shown).sum::<usize>() as f64 / mine.len().max(1) as f64;
-        out += &format!("| {k} | {} | {hits} | {per:.3} |\n", mine.len());
+        out += &format!(
+            "| {k} | {} | {hits} | {per:.3} | {unplanted} |\n",
+            mine.len()
+        );
         by.insert(k.clone(), (mine.len(), hits, per));
     }
-    out += "\n| case | set | shown | hit |\n|---|---|---|---|\n";
+    out += "\n| case | set | shown | hit | unplanted |\n|---|---|---|---|---|\n";
     for r in rows {
         out += &format!(
-            "| {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} |\n",
             r.id,
             r.set,
             r.shown,
-            if r.hit { "yes" } else { "" }
+            if r.hit { "yes" } else { "" },
+            r.unplanted
         );
     }
+    out += &to_read_text(rows);
     (out, by)
+}
+
+/// The statements a person has yet to read, one line each; empty when none.
+fn to_read_text(rows: &[Row]) -> String {
+    if rows.iter().all(|r| r.to_read.is_empty()) {
+        return String::new();
+    }
+    let mut out = "\nto read (shown in a clean case, in no label list):\n".to_string();
+    for r in rows {
+        for st in &r.to_read {
+            out += &format!("- {}: {st}\n", r.id);
+        }
+    }
+    out
 }
 
 /// The cases `SCRY_EVAL_CASES` names, when it is set: a look, not a measure.
@@ -1082,4 +1143,58 @@ fn a_partly_recorded_case_asks_for_the_missing_batch() {
     let batches: Vec<Value> = read_json(&file)["batches"].as_array().unwrap().clone();
     let files: Vec<&Value> = batches.iter().map(|p| &p["files"]).collect();
     assert_eq!(files, vec![&json!(["c.py"]), &json!(["d.py"])]);
+}
+
+// ---- unplanted labels and "to read" ----
+
+fn case_with(set: &str, hits: &[&str], unplanted: &[&str]) -> Case {
+    let own = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
+    Case {
+        id: "k".into(),
+        set: set.into(),
+        hits: own(hits),
+        unplanted: own(unplanted),
+        changed: Vec::new(),
+    }
+}
+
+fn own(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn an_unplanted_finding_is_left_out_of_the_count() {
+    let c = count(&case_with("N", &[], &["x"]), &own(&["x", "y"]));
+    assert_eq!((c.shown, c.unplanted, c.hit), (1, 1, false));
+    assert_eq!(c.to_read, own(&["y"]));
+}
+
+#[test]
+fn a_planted_set_has_nothing_to_read() {
+    let c = count(&case_with("V-must", &["h"], &[]), &own(&["h", "z"]));
+    assert!(c.hit);
+    assert_eq!(c.shown, 2);
+    assert!(c.to_read.is_empty());
+}
+
+#[test]
+fn the_table_has_the_unplanted_column_and_the_to_read_list() {
+    let corpus = fixture_corpus("eval-fixture-table");
+    let row = |id: &str, set: &str, to_read: &[&str]| Row {
+        id: id.into(),
+        set: set.into(),
+        shown: 1,
+        hit: false,
+        unplanted: 0,
+        to_read: own(to_read),
+    };
+    let (text, _) = table(
+        &corpus,
+        &[row("n9", "V-must", &["y"]), row("n8", "V-must", &[])],
+    );
+    assert!(text.contains("| unplanted |"));
+    assert!(text.contains("to read (shown in a clean case, in no label list):"));
+    assert!(text.contains("- n9: y"));
+    let (text, _) = table(&corpus, &[row("n8", "V-must", &[])]);
+    assert!(!text.contains("to read"));
 }
