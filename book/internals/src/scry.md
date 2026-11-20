@@ -304,7 +304,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
    errand's cost (the estimate when it has none), the cap for a `Timeout`, nothing for any
    other failure. In the code, `Run::send` is that story in order: `units_not_yet_reviewed`,
    `batches_of`, then per batch `must_hold_back` → `hold_back_for_a_later_run`, a cancel →
-   `Asked::record_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
+   `fail_as_cancelled`, or `review_one_batch` (`ask_for`, `cap_for_one_call`, the call,
    `cost_of_call`, then `Asked::record_reply` or `Asked::record_failure`).
 4. **Judge.** `Run::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units; an

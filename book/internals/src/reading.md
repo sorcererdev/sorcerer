@@ -163,8 +163,7 @@ pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result
         if self.must_hold_back(&asked) {
             self.hold_back_for_a_later_run(&batch, &mut asked);
         } else if self.cancel.is_cancelled() {
-            self.t("- cancelled before the call\n");
-            asked.record_cancelled(&files_of(&batch));
+            self.fail_as_cancelled(&batch, &mut asked);
         } else {
             self.review_one_batch(scope, batch, &sent, &mut asked);
         }

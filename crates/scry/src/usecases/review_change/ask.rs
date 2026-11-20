@@ -1,9 +1,10 @@
 //! The review calls. `send` takes the scope's `units_not_yet_reviewed`,
 //! writes them in batches (`batches_of`), and for each batch in turn either
 //! holds it back for a later run (`hold_back_for_a_later_run`), fails it as
-//! cancelled, or has a call review it (`review_one_batch`: `ask_for` the
-//! batch, under `cap_for_one_call`, charged `cost_of_call`, the reply parsed
-//! and recorded in `Asked`). The run log's text is built last in the file.
+//! cancelled (`fail_as_cancelled`), or has a call review it
+//! (`review_one_batch`: `ask_for` the batch, under `cap_for_one_call`,
+//! charged `cost_of_call`, the reply parsed and recorded in `Asked`). The
+//! run log's text is built last in the file.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
@@ -52,8 +53,7 @@ impl Run<'_, '_> {
             if self.must_hold_back(&asked) {
                 self.hold_back_for_a_later_run(&batch, &mut asked);
             } else if self.cancel.is_cancelled() {
-                self.t("- cancelled before the call\n");
-                asked.record_cancelled(&files_of(&batch));
+                self.fail_as_cancelled(&batch, &mut asked);
             } else {
                 self.review_one_batch(scope, batch, &sent, &mut asked);
             }
@@ -111,6 +111,12 @@ impl Run<'_, '_> {
                 .or_default()
                 .insert(u.name.clone());
         }
+    }
+
+    /// Records BATCH as a failed call: the pass was cancelled before it.
+    fn fail_as_cancelled(&mut self, batch: &[ReviewUnit], asked: &mut Asked) {
+        self.t(CANCELLED_TEXT);
+        asked.record_cancelled(&files_of(batch));
     }
 
     /// One review call on BATCH: asked, charged, and its reply parsed into
@@ -336,6 +342,8 @@ fn held_back_text(estimate: f64, room: Option<f64>) -> String {
         room.map_or("unbounded".into(), usd),
     )
 }
+
+const CANCELLED_TEXT: &str = "- cancelled before the call\n";
 
 /// The call's model and cap, the open findings it is to answer, and its
 /// whole prompt.
