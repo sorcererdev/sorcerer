@@ -7,7 +7,7 @@
 //! each place as a file, a unit (a function, class or method, in the words
 //! of the file's language) and a line. It asks for the line too because a
 //! unit name that is not found in the file falls back to the line
-//! (`confirm_one` in `check_claim`).
+//! (`ClaimCheck::confirm` in `check_claim`).
 
 use std::path::Path;
 

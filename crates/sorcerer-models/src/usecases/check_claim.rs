@@ -1,21 +1,25 @@
-//! The claim checker: a statement about code ("`cancel` returns `None`
-//! when the order is missing") checked by a researcher, the verdict
-//! guarded by Jev, a cascade measured on a prose corpus at a 0.60 threshold:
+//! The claim checker: checks a statement about code, such as "`cancel`
+//! returns `None` when the order is missing", by having a researcher read
+//! the project and give a verdict with the code it rests on.
 //!
-//! 1. With a decider, the first (cheap) model checks; three Jev guards ask
-//!    whether its reason fits the claim, its evidence fits, and its verdict
-//!    follows. A guard under the threshold, an unsure guard, a
-//!    `cannot_tell`, or a failed first check sends it to the strong model.
+//! The check is a cascade, measured on a prose corpus:
+//!
+//! 1. With a decider (Jev), the cheap model (haiku) checks first. Jev then
+//!    asks three yes/no questions about its verdict (does the reason fit
+//!    the claim, does the cited code fit, does the verdict follow). When
+//!    all three are yes with at least 0.60 probability, that verdict
+//!    stands. Otherwise (a doubtful or unsure guard, a `cannot_tell`, or a
+//!    first check that failed) the strong model (sonnet) checks again and
+//!    its verdict stands.
 //! 2. Without a decider, the strong model checks alone.
-//! 3. Every citation is confirmed: inside the root, not fenced, and the
-//!    unit named found in the file, or, when the name does not resolve or
-//!    none is given, the line inside it (a citation that stood on its line
-//!    although its unit was not found is marked `unit_missed`). One that is
-//!    not confirmed makes the verdict `cannot_tell` ("cited code not found").
+//! 3. Every place a verdict cites is looked for in the project (it must be
+//!    inside the project and not fenced). One that is not found turns the
+//!    verdict into `cannot_tell` ("cited code not found").
 //!
 //! The prompt names a unit the way the language of the claim's files does
 //! (`CheckClaimDeps::languages`, each language's `unit_words`).
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use sorcerer_core::Cancel;
@@ -30,14 +34,17 @@ use crate::domain::claim::{
     CITATION_MISSED, Checked, Citation, CitationCheck, Cited, Claim, ClaimKind, Escalation,
     FIRST_MODEL, GUARD_THRESHOLD, RawCitation, STRONG_MODEL, Verdict,
 };
-use crate::domain::claim_prompt::{claim_prompt, guard_questions, parse_reply};
+use crate::domain::claim_prompt::{ParsedReply, claim_prompt, guard_questions, parse_reply};
 use crate::domain::research::{Research, Tool};
 use crate::ports::decider::Decider;
 use crate::ports::researcher::Researcher;
 use crate::{Error, Result};
 
+/// What a claim check runs with: who researches and who guards, what may
+/// be read, and the models, threshold and limits of the cascade.
 pub struct CheckClaimDeps<'a> {
     pub researcher: &'a dyn Researcher,
+    /// Jev, or none: then the strong model checks alone.
     pub decider: Option<&'a dyn Decider>,
     pub fences: &'a Fences,
     pub view: &'a dyn CodebaseView,
@@ -46,14 +53,20 @@ pub struct CheckClaimDeps<'a> {
     pub languages: Option<&'a Languages>,
     /// The product the errands are recorded under.
     pub product: &'a str,
+    /// The cheap model that checks first (`haiku`).
     pub first: &'a str,
+    /// The model that checks when the first is not trusted (`sonnet`).
     pub strong: &'a str,
+    /// How sure each guard must be for the first verdict to stand (0.60).
     pub threshold: f64,
+    /// The most one model check may spend, in dollars.
     pub cap_usd: f64,
     pub timeout: Duration,
 }
 
 impl<'a> CheckClaimDeps<'a> {
+    /// The measured cascade: haiku, then sonnet, a 0.60 threshold, at most
+    /// $0.10 and 180 seconds a model check, no languages.
     pub fn defaults(
         researcher: &'a dyn Researcher,
         decider: Option<&'a dyn Decider>,
@@ -77,229 +90,319 @@ impl<'a> CheckClaimDeps<'a> {
     }
 }
 
-/// One checked reply: its verdict, reason and confirmed citations, with
-/// the raw citations for the guards' evidence.
-struct Attempt {
-    verdict: Verdict,
-    why: String,
-    citations: Vec<Citation>,
-    raw: Vec<RawCitation>,
-    cited: Vec<Cited>,
-}
-
+/// Checks one claim with the cascade the module comment describes. It
+/// fails when the claim is about the web, when the strong model's check
+/// fails, when Jev fails, or when it is cancelled.
 pub fn check_claim(claim: &Claim, deps: &CheckClaimDeps, cancel: &Cancel) -> Result<Checked> {
-    if claim.kind == ClaimKind::Web {
-        return Err(Error::Reply {
-            provider: "checker".into(),
-            why: "web claims wait for a later milestone".into(),
-        });
-    }
+    refuse_web_claims(claim)?;
+    let check = ClaimCheck {
+        claim,
+        deps,
+        cancel,
+    };
     let mut errands = Vec::new();
-    let done = |a: Attempt, escalation: Escalation, errands: Vec<Errand>| Checked {
-        verdict: a.verdict,
-        why: a.why,
-        citations: a.citations,
-        cited: a.cited,
-        escalation,
-        errands,
-    };
     let Some(decider) = deps.decider else {
-        let a = attempt(claim, deps.strong, deps, cancel, &mut errands)?;
-        return Ok(done(a, Escalation::No, errands));
+        let strong = check.by_model(deps.strong, &mut errands)?;
+        return Ok(strong.checked(Escalation::No, errands));
     };
-    if let Ok(a) = attempt(claim, deps.first, deps, cancel, &mut errands)
-        && a.verdict != Verdict::CannotTell
+    if let Ok(first) = check.by_model(deps.first, &mut errands)
+        && check.guards_trust(decider, &first)?
     {
-        let evidence = guard_evidence(&a.raw, deps.view, deps.fences);
-        let ws = decider.ask(
-            &guard_questions(claim, a.verdict, &a.why, &evidence),
-            cancel,
-        )?;
-        if ws.len() == 3
-            && ws
-                .iter()
-                .all(|w| w.answer.p_yes().unwrap_or(0.0) >= deps.threshold)
-        {
-            return Ok(done(a, Escalation::No, errands));
-        }
+        return Ok(first.checked(Escalation::No, errands));
     }
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    let a = attempt(claim, deps.strong, deps, cancel, &mut errands)?;
-    Ok(done(a, Escalation::ToTheStrongModel, errands))
+    let strong = check.by_model(deps.strong, &mut errands)?;
+    Ok(strong.checked(Escalation::ToTheStrongModel, errands))
 }
 
-fn attempt(
-    claim: &Claim,
-    model: &str,
-    deps: &CheckClaimDeps,
-    cancel: &Cancel,
-    errands: &mut Vec<Errand>,
-) -> Result<Attempt> {
-    let r = Research {
-        product: deps.product.into(),
-        verb: "check".into(),
-        prompt: claim_prompt(claim, deps.languages),
-        model: model.into(),
-        tools: vec![Tool::Read, Tool::Grep, Tool::Glob],
-        cap_usd: deps.cap_usd,
-        timeout: deps.timeout,
-    };
-    let got = deps.researcher.research(r, cancel)?;
-    errands.push(got.errand);
-    let reply = parse_reply(&got.answer).map_err(|why| Error::Reply {
-        provider: model.into(),
-        why,
-    })?;
-    let each: Vec<Option<Confirmed>> = reply
-        .citations
-        .iter()
-        .map(|c| confirm_one(c, deps.view, deps.fences))
-        .collect();
-    let cited: Vec<Cited> = reply
-        .citations
-        .iter()
-        .zip(&each)
-        .map(|(c, ok)| Cited {
-            raw: c.clone(),
-            check: match ok {
-                None => CitationCheck::NotConfirmed,
-                Some(k) if k.unit_missed => CitationCheck::ConfirmedOnTheLineOnly,
-                Some(_) => CitationCheck::Confirmed,
-            },
-        })
-        .collect();
-    let each = each.into_iter().map(|k| k.map(|k| k.citation));
-    // every citation confirmed, or the verdict is cannot_tell
-    Ok(match each.collect::<Option<Vec<Citation>>>() {
-        Some(citations) => Attempt {
-            verdict: reply.verdict,
-            why: reply.why,
-            citations,
-            raw: reply.citations,
-            cited,
-        },
-        None => Attempt {
-            verdict: Verdict::CannotTell,
-            why: CITATION_MISSED.into(),
-            citations: Vec::new(),
-            raw: reply.citations,
-            cited,
-        },
-    })
-}
-
-/// A confirmed citation, and whether it stood on its line because the unit
-/// it named was not found.
-struct Confirmed {
-    citation: Citation,
-    unit_missed: bool,
-}
-
-/// C confirmed: inside the root, not fenced, readable; then the named
-/// unit's span, else (no unit, or one the file does not define) the cited
-/// line if it is inside the file, else, with neither unit nor line, the
-/// whole file. A unit not found and no usable line fails.
-fn confirm_one(c: &RawCitation, view: &dyn CodebaseView, fences: &Fences) -> Option<Confirmed> {
-    let path = std::path::Path::new(&c.path);
-    if !fences.allows(path) {
-        return None;
+fn refuse_web_claims(claim: &Claim) -> Result<()> {
+    match claim.kind {
+        ClaimKind::Code => Ok(()),
+        ClaimKind::Web => Err(Error::Reply {
+            provider: "checker".into(),
+            why: "web claims wait for a later milestone".into(),
+        }),
     }
-    let rel = fences.relative(path)?;
-    let text = view.text(&rel).ok()?;
-    let rows = text.lines().count().max(1) as u32;
-    let named = c.unit.as_deref().and_then(|u| {
-        view.units(&rel)
-            .ok()
-            .and_then(|us| unit_named(&us, u).map(|x| x.span))
-    });
-    let on_line = c
-        .line
-        .filter(|l| (1..=rows).contains(l))
-        .map(|l| Span { start: l, end: l });
-    let (lines, unit_missed) = match (named, &c.unit, c.line) {
-        (Some(span), _, _) => (span, false),
-        (None, Some(_), _) => (on_line?, true),
-        (None, None, Some(_)) => (on_line?, false),
-        (None, None, None) => (
-            Span {
-                start: 1,
-                end: rows,
+}
+
+/// The claim, what the check runs with, and its cancel, which every step
+/// of one check shares.
+struct ClaimCheck<'a> {
+    claim: &'a Claim,
+    deps: &'a CheckClaimDeps<'a>,
+    cancel: &'a Cancel,
+}
+
+/// One model's verdict, with every place it cited looked for.
+struct ModelVerdict {
+    verdict: Verdict,
+    why: String,
+    /// The places the verdict rests on; empty when any was not found.
+    citations: Vec<Citation>,
+    /// Every place the reply cited, as it gave them, for the guards.
+    raw: Vec<RawCitation>,
+    cited: Vec<Cited>,
+}
+
+impl ModelVerdict {
+    fn checked(self, escalation: Escalation, errands: Vec<Errand>) -> Checked {
+        Checked {
+            verdict: self.verdict,
+            why: self.why,
+            citations: self.citations,
+            cited: self.cited,
+            escalation,
+            errands,
+        }
+    }
+}
+
+impl ClaimCheck<'_> {
+    /// One model checks the claim: the researcher reads the project and
+    /// replies, its call is added to `errands` (even when the reply cannot
+    /// be read), and each place the reply cites is looked for. A place
+    /// not found turns the verdict into `cannot_tell`.
+    fn by_model(&self, model: &str, errands: &mut Vec<Errand>) -> Result<ModelVerdict> {
+        let researched = self
+            .deps
+            .researcher
+            .research(self.research_for(model), self.cancel)?;
+        errands.push(researched.errand);
+        let reply = parse_reply(&researched.answer).map_err(|why| Error::Reply {
+            provider: model.into(),
+            why,
+        })?;
+        Ok(self.verdict_with_citations_looked_for(reply))
+    }
+
+    fn research_for(&self, model: &str) -> Research {
+        Research {
+            product: self.deps.product.into(),
+            verb: "check".into(),
+            prompt: claim_prompt(self.claim, self.deps.languages),
+            model: model.into(),
+            tools: vec![Tool::Read, Tool::Grep, Tool::Glob],
+            cap_usd: self.deps.cap_usd,
+            timeout: self.deps.timeout,
+        }
+    }
+
+    fn verdict_with_citations_looked_for(&self, reply: ParsedReply) -> ModelVerdict {
+        let found: Vec<Option<(Citation, CitationCheck)>> = reply
+            .citations
+            .iter()
+            .map(|raw| self.confirm(raw))
+            .collect();
+        let cited = reply
+            .citations
+            .iter()
+            .zip(&found)
+            .map(|(raw, found)| Cited {
+                raw: raw.clone(),
+                check: found
+                    .as_ref()
+                    .map_or(CitationCheck::NotConfirmed, |(_, check)| *check),
+            })
+            .collect();
+        let all_found: Option<Vec<Citation>> = found
+            .into_iter()
+            .map(|found| found.map(|(citation, _)| citation))
+            .collect();
+        match all_found {
+            Some(citations) => ModelVerdict {
+                verdict: reply.verdict,
+                why: reply.why,
+                citations,
+                raw: reply.citations,
+                cited,
             },
-            false,
-        ),
-    };
-    Some(Confirmed {
-        citation: Citation {
-            print: Some(fingerprint(&text, lines).to_string()),
-            file: rel,
+            None => ModelVerdict {
+                verdict: Verdict::CannotTell,
+                why: CITATION_MISSED.into(),
+                citations: Vec::new(),
+                raw: reply.citations,
+                cited,
+            },
+        }
+    }
+
+    /// Looks for one cited place in the project. The lines it stands on
+    /// are the named unit's; when the unit is not in the file (or none is
+    /// named), the cited line, if the file has it; with neither a unit nor
+    /// a line, the whole file. None when the file cannot be read (outside
+    /// the project, fenced, missing) or neither the unit nor the line is
+    /// found.
+    ///
+    /// Example: `orders.py`, unit `Order.refund`, line 52, where the file
+    /// has no `refund` but has 80 lines: found on line 52 only.
+    fn confirm(&self, raw: &RawCitation) -> Option<(Citation, CitationCheck)> {
+        let file = CitedFile::open(raw, self.deps.view, self.deps.fences)?;
+        let unit_span = raw
+            .unit
+            .as_deref()
+            .and_then(|name| file.unit_named(name, self.deps.view))
+            .map(|unit| unit.span);
+        let (lines, check) = match (unit_span, &raw.unit, raw.line) {
+            (Some(span), _, _) => (span, CitationCheck::Confirmed),
+            (None, Some(_), _) => (
+                file.one_line(raw.line)?,
+                CitationCheck::ConfirmedOnTheLineOnly,
+            ),
+            (None, None, Some(_)) => (file.one_line(raw.line)?, CitationCheck::Confirmed),
+            (None, None, None) => (file.every_line(), CitationCheck::Confirmed),
+        };
+        let citation = Citation {
+            print: Some(fingerprint(&file.text, lines).to_string()),
+            file: file.path,
             lines,
-        },
-        unit_missed,
-    })
-}
-
-/// The unit called NAME: the exact qualified name (the earliest of several),
-/// or a bare name that is the last part of exactly one qualified name. A
-/// model may join a method with `.` or `::` whatever its language does, so
-/// the two separators are read alike.
-fn unit_named<'u>(units: &'u [Unit], name: &str) -> Option<&'u Unit> {
-    let plain = |s: &str| s.replace("::", ".");
-    let name = plain(name);
-    if let Some(u) = units.iter().find(|u| plain(&u.name) == name) {
-        return Some(u);
+        };
+        Some((citation, check))
     }
-    let ends: Vec<&Unit> = units
-        .iter()
-        .filter(|u| plain(&u.name).ends_with(&format!(".{name}")))
-        .collect();
-    if ends.len() == 1 { Some(ends[0]) } else { None }
+
+    /// Whether Jev trusts the first model's verdict: it is not
+    /// `cannot_tell`, and all three guards say yes with at least the
+    /// threshold's probability. An unsure guard counts as no.
+    fn guards_trust(&self, decider: &dyn Decider, first: &ModelVerdict) -> Result<bool> {
+        if first.verdict == Verdict::CannotTell {
+            return Ok(false);
+        }
+        let evidence = guard_evidence(&first.raw, self.deps.view, self.deps.fences);
+        let answers = decider.ask(
+            &guard_questions(self.claim, first.verdict, &first.why, &evidence),
+            self.cancel,
+        )?;
+        Ok(answers.len() == 3
+            && answers
+                .iter()
+                .all(|weighed| weighed.answer.p_yes().unwrap_or(0.0) >= self.deps.threshold))
+    }
 }
 
-/// What the guards see as evidence: up to three citations, each labelled
-/// `path:Unit line N`, with 12 lines from 4 before the cited line, else the
-/// unit's first 12, else the file's first 12.
+/// A cited file the checker may read: its path from the project root and
+/// its text.
+struct CitedFile {
+    path: PathBuf,
+    text: String,
+}
+
+impl CitedFile {
+    /// The file a citation names, when it is inside the project, not
+    /// fenced, and readable.
+    fn open(raw: &RawCitation, view: &dyn CodebaseView, fences: &Fences) -> Option<CitedFile> {
+        let written = Path::new(&raw.path);
+        if !fences.allows(written) {
+            return None;
+        }
+        let path = fences.relative(written)?;
+        let text = view.text(&path).ok()?;
+        Some(CitedFile { path, text })
+    }
+
+    fn line_count(&self) -> u32 {
+        self.text.lines().count() as u32
+    }
+
+    fn unit_named(&self, name: &str, view: &dyn CodebaseView) -> Option<Unit> {
+        let units = view.units(&self.path).ok()?;
+        unit_named(&units, name).cloned()
+    }
+
+    /// The cited line as a span, when the file has that line.
+    fn one_line(&self, line: Option<u32>) -> Option<Span> {
+        line.filter(|line| (1..=self.line_count().max(1)).contains(line))
+            .map(|line| Span {
+                start: line,
+                end: line,
+            })
+    }
+
+    fn every_line(&self) -> Span {
+        Span {
+            start: 1,
+            end: self.line_count().max(1),
+        }
+    }
+}
+
+/// The unit called `name`: the exact qualified name (the earliest of
+/// several), or a bare name that is the last part of exactly one qualified
+/// name. A model may join a method with `.` or `::` whatever its language
+/// does, so the two separators are read alike.
+///
+/// Example: with units `Jev::new` and `Jev::ask_raw`, the names
+/// `Jev.ask_raw`, `Jev::ask_raw` and `ask_raw` all find `Jev::ask_raw`.
+fn unit_named<'u>(units: &'u [Unit], name: &str) -> Option<&'u Unit> {
+    let plain = |name: &str| name.replace("::", ".");
+    let name = plain(name);
+    if let Some(exact) = units.iter().find(|unit| plain(&unit.name) == name) {
+        return Some(exact);
+    }
+    let ending_in_name: Vec<&Unit> = units
+        .iter()
+        .filter(|unit| plain(&unit.name).ends_with(&format!(".{name}")))
+        .collect();
+    match ending_in_name.as_slice() {
+        [only] => Some(only),
+        _ => None,
+    }
+}
+
+/// What the guards see as evidence: the first three citations, each
+/// labelled `path:Unit line N` and followed by 12 lines of its code.
+///
+/// The 12 lines start 4 before the cited line when the file has it, else
+/// at the named unit's start, else at the top of the file. Example: a
+/// citation of `orders.py:cancel line 41` shows lines 37 to 48.
 fn guard_evidence(raw: &[RawCitation], view: &dyn CodebaseView, fences: &Fences) -> String {
     raw.iter()
         .take(3)
-        .filter_map(|c| {
-            let path = std::path::Path::new(&c.path);
-            if !fences.allows(path) {
-                return None;
-            }
-            let rel = fences.relative(path)?;
-            let text = view.text(&rel).ok()?;
-            let rows = text.lines().count() as u32;
-            let named = c.unit.as_deref().and_then(|u| {
-                view.units(&rel)
-                    .ok()
-                    .and_then(|us| unit_named(&us, u).map(|x| x.span.start))
-            });
-            let start = match (c.line, named) {
-                (Some(l), _) if l >= 1 && l <= rows => l.saturating_sub(4).max(1),
-                (_, Some(s)) => s,
-                _ => 1,
-            };
-            let label = format!(
-                "{}{}{}",
-                rel.display(),
-                c.unit
-                    .as_deref()
-                    .map(|u| format!(":{u}"))
-                    .unwrap_or_default(),
-                c.line.map(|l| format!(" line {l}")).unwrap_or_default()
-            );
-            let body: String = text
-                .lines()
-                .skip(start as usize - 1)
-                .take(12)
-                .map(|l| format!("{l}\n"))
-                .collect();
-            Some(format!("{label}\n{body}"))
+        .filter_map(|cited| {
+            let file = CitedFile::open(cited, view, fences)?;
+            let start = evidence_start(cited, &file, view);
+            Some(format!(
+                "{}\n{}",
+                evidence_label(cited, &file),
+                twelve_lines_from(&file.text, start)
+            ))
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+fn evidence_start(cited: &RawCitation, file: &CitedFile, view: &dyn CodebaseView) -> u32 {
+    let unit_start = cited
+        .unit
+        .as_deref()
+        .and_then(|name| file.unit_named(name, view))
+        .map(|unit| unit.span.start);
+    match (cited.line, unit_start) {
+        (Some(line), _) if line >= 1 && line <= file.line_count() => line.saturating_sub(4).max(1),
+        (_, Some(start)) => start,
+        _ => 1,
+    }
+}
+
+fn evidence_label(cited: &RawCitation, file: &CitedFile) -> String {
+    let unit = cited
+        .unit
+        .as_deref()
+        .map(|unit| format!(":{unit}"))
+        .unwrap_or_default();
+    let line = cited
+        .line
+        .map(|line| format!(" line {line}"))
+        .unwrap_or_default();
+    format!("{}{unit}{line}", file.path.display())
+}
+
+fn twelve_lines_from(text: &str, start: u32) -> String {
+    text.lines()
+        .skip(start as usize - 1)
+        .take(12)
+        .map(|line| format!("{line}\n"))
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]
