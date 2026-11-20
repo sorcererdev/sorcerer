@@ -47,7 +47,7 @@ of `*` into it, so nothing a tool remembers is ever committed.
    binary with `include_dir!` (`SHIPPED`);
 2. **project**: `.sorcerer/languages/<name>/`, either file optional.
 
-`Languages::assemble(root, extra)` reads every layer and `merge` combines them: a top-level
+`Languages::assemble(root, named_in_config)` reads every layer and `merge` combines them (`LaidTogether`, then `CoreKeys` reads each core key): a top-level
 key in a later layer replaces the earlier one whole, and query files merge by name.
 `Language::origins` records which layer set each key (`files`, `grammar`, …) and each query
 file (`queries/tags.scm`), for `doctor`. A project-only language (no shipped layer) must
@@ -69,11 +69,13 @@ binary. `grammar::load(cache, name, source)` returns a `tree_sitter::Language`:
    FNV-1a 64 (`domain/fnv.rs`) over the source's identity (the git rev, or a local directory's
    path with `parser.c`'s and `scanner.c`'s sizes and times), the tree-sitter runtime's
    ABI, the OS and the arch. A changed key is a new file.
-2. `build_if_absent` fetches a git source into `<cache>/src/<name>-<rev7>/` (`git fetch
-   --depth 1` of the pinned rev; only `https`, `ssh`, `git` and `file` URLs, since git's
-   `ext::` transport would run a command) and compiles `parser.c` and `scanner.c` with
-   `cc -shared -fPIC -O2`.
-3. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`, checks the ABI
+2. `build_if_absent` fetches a git source into `<cache>/src/<name>-<rev7>/` (`fetch`:
+   `check_fetchable` allows only `https`, `ssh`, `git` and `file` URLs, since git's `ext::`
+   transport would run a command, then `fetch_commit_into` runs `git fetch --depth 1` of the
+   pinned rev) and compiles `parser.c` and `scanner.c` with `cc -shared -fPIC -O2`
+   (`compile_library`).
+3. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`
+   (`load_language_symbol`), checks the ABI
    against the runtime's range, and leaks the library handle so the language outlives
    every parser.
 
