@@ -5,8 +5,8 @@
 //!    stored as elsewhere with no question (`add_elsewhere`);
 //! 3. asks Jev whether a stored finding is the same problem
 //!    (`same_problem_as_stored`);
-//! 4. drops it, merges it into that finding (`merge`), or adds it unless
-//!    Jev calls it a nitpick (`add_unless_a_nitpick`).
+//! 4. drops it, merges it into that finding (`merge`), or adds it, waiting
+//!    or, when Jev calls it a nitpick, withheld (`add_waiting_or_withheld`).
 //!
 //! The run log's text is built last in the file.
 
@@ -48,7 +48,7 @@ impl Pass<'_, '_> {
     /// One finding: its cited rule resolved and what was found logged;
     /// placed; one in no unit in scope stored as elsewhere with no
     /// question; else matched against the stored findings, then dropped,
-    /// merged, or added unless a nitpick.
+    /// merged, or added (withheld when a nitpick).
     fn judge(&mut self, mut raw: RawFinding, scope: &Scope) -> std::result::Result<(), Halt> {
         let cited_rule = self.resolve_cited_rule(&mut raw);
         self.log(&found_text(&raw, cited_rule.as_deref()));
@@ -72,11 +72,11 @@ impl Pass<'_, '_> {
             }
             Some((Match::New, stored)) => {
                 self.log(&new_afresh_text(&stored));
-                self.add_unless_a_nitpick(&raw, placed, &code)
+                self.add_waiting_or_withheld(&raw, placed, &code)
             }
             None => {
                 self.log(NEW_TEXT);
-                self.add_unless_a_nitpick(&raw, placed, &code)
+                self.add_waiting_or_withheld(&raw, placed, &code)
             }
         }
     }
@@ -144,7 +144,7 @@ impl Pass<'_, '_> {
 
     /// Asks Jev whether RAW is a nitpick and stores it: waiting when its
     /// confidence reaches the threshold, else withheld.
-    fn add_unless_a_nitpick(
+    fn add_waiting_or_withheld(
         &mut self,
         raw: &RawFinding,
         placed: Place,

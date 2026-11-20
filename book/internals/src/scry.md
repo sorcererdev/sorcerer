@@ -314,7 +314,7 @@ is `Skipped`, `Halt::Failed` the error), `Pass::finish`, `Progress::Stored`, unl
    `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
    `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins
    (`same_problem_as_stored`); `match_stored` says merge (`Pass::merge`), drop, or new. A new finding gets the `nitpick`
-   question (`add_unless_a_nitpick`, over `Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
+   question (`add_waiting_or_withheld`, over `Pass::confidence`): confidence at or past `confidence_threshold` is `waiting`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
    statement and evidence (`take_this_passs_version`; printed by `citations` when they hold); a merge into a finding
    this pass found (two findings of one pass that are the same problem) keeps the first
