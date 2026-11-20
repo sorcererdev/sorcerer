@@ -4,7 +4,7 @@
 //! `send` picks the units not reviewed yet, groups them into batches of at
 //! most 600 lines (one call each), and takes the batches in order. Each
 //! batch is held back for a later run when the spending limit leaves no
-//! room, failed when the user cancelled, or else sent: `review_one_batch`
+//! room, failed when the review calls were cancelled, or else sent: `review_one_batch`
 //! asks the reviewer and records its findings and its answers on the open
 //! findings it was shown. What happened to each batch (`BatchOutcome`) is
 //! added up into `ReviewResults`.
@@ -189,7 +189,7 @@ impl Pass<'_, '_> {
     ) -> BatchOutcome {
         if self.must_hold_back(so_far) {
             self.hold_back_for_a_later_run(&batch)
-        } else if self.deps.cancel.is_cancelled() {
+        } else if self.deps.review_cancel.is_cancelled() {
             self.log(CANCELLED_TEXT);
             BatchOutcome::Failed(cancelled_text(&files_of(&batch)))
         } else {
@@ -226,7 +226,9 @@ impl Pass<'_, '_> {
     /// 1. builds the question: the units' code, the diffs, the project's
     ///    rules, and the open findings on these units for the reviewer to
     ///    answer (still holds, or no longer holds);
-    /// 2. asks the reviewer, under a cost cap for this one call;
+    /// 2. tells the caller which units are about to be sent, then asks the
+    ///    reviewer, under a cost cap for this one call (the review cancel
+    ///    can stop it);
     /// 3. charges what the call cost;
     /// 4. a call that failed, or a reply that is not the JSON asked for, is
     ///    a failure; else the reply is the batch's answer.
@@ -235,10 +237,11 @@ impl Pass<'_, '_> {
         let ask = self.ask_for(scope, batch.into_iter().map(|u| u.prompt).collect());
         let cap = self.cap_for_one_call();
         self.log(&ask_text(&self.cfg.review_model, cap, &ask));
-        let found = self
-            .deps
-            .reviewer
-            .review(&ask, &self.cfg.review_model, cap, self.deps.cancel);
+        self.tell_progress(Progress::Sending(units.clone()));
+        let found =
+            self.deps
+                .reviewer
+                .review(&ask, &self.cfg.review_model, cap, self.deps.review_cancel);
         self.log(&reply_text(&found));
         self.budget.charge(self.cost_of_call(&found, cap));
         let files = files_of_prompt(&ask.units);
@@ -325,7 +328,7 @@ impl UnitToSend {
     fn sent(&self) -> SentUnit {
         SentUnit {
             file: self.prompt.file.clone(),
-            name: self.prompt.name.clone(),
+            unit: self.prompt.name.clone(),
             fingerprint: self.fingerprint,
         }
     }

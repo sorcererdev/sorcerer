@@ -5,7 +5,8 @@
 //! edited while scry was looking at them, and, only when every unit was
 //! reviewed, resolves the findings the reviewer did not raise again in a
 //! unit whose code changed (they were fixed). Findings whose unit was
-//! deleted were already found by `sweep_gone`, before the review.
+//! deleted were already found by `sweep_gone`, before the review, and
+//! findings on a unit put back to the base's code by `sweep_put_back`.
 //!
 //! After the paid checks, `mark_reviewed` records each unit the reviewer
 //! answered for as reviewed at the version it saw, so the next run does
@@ -52,7 +53,7 @@ impl ChangedUnits {
     /// The sent units that did not change.
     fn not_changed<'a>(&self, sent: &'a [SentUnit]) -> Vec<&'a SentUnit> {
         sent.iter()
-            .filter(|u| !self.contains(&u.file, &u.name))
+            .filter(|u| !self.contains(&u.file, &u.unit))
             .collect()
     }
 }
@@ -77,12 +78,18 @@ impl Pass<'_, '_> {
     /// 3. only when every unit was reviewed: a stored finding in a unit
     ///    whose code changed, which the reviewer neither raised again nor
     ///    said still holds, was fixed, and is resolved;
-    /// 4. all of it is logged, with the findings `sweep_gone` found gone.
+    /// 4. all of it is logged, with the findings `sweep_gone` found gone and
+    ///    those `sweep_put_back` resolved.
     ///
     /// Example: `cancel` had an open finding "returns None". You changed
     /// `cancel` and ran scry; the reviewer looked at the new `cancel` and
     /// did not raise it again. Every unit was reviewed, so it is resolved.
-    pub(super) fn remember(&mut self, review: &ReviewResults, gone: &[FindingId]) {
+    pub(super) fn remember(
+        &mut self,
+        review: &ReviewResults,
+        gone: &[FindingId],
+        put_back: &[FindingId],
+    ) {
         let resolved = self.resolve_what_no_longer_holds(&review.no_longer_hold);
         let changed = self.drop_new_findings_in_changed_units(&review.answered);
         let not_found_again = if review.every_unit_was_reviewed() {
@@ -91,7 +98,13 @@ impl Pass<'_, '_> {
         } else {
             NotFoundAgain::NotChecked
         };
-        self.log(&remember_text(&resolved, gone, &changed, &not_found_again));
+        self.log(&remember_text(
+            &resolved,
+            gone,
+            put_back,
+            &changed,
+            &not_found_again,
+        ));
     }
 
     /// Resolves the open and unverified findings the reviewer said no
@@ -118,7 +131,7 @@ impl Pass<'_, '_> {
     ) -> Vec<FindingId> {
         let sent_at: HashMap<(&Path, &str), Fingerprint> = still_as_sent
             .iter()
-            .map(|u| ((u.file.as_path(), u.name.as_str()), u.fingerprint))
+            .map(|u| ((u.file.as_path(), u.unit.as_str()), u.fingerprint))
             .collect();
         let stored_before = ids_of(&self.stored_before);
         let ids: Vec<FindingId> = self
@@ -182,7 +195,7 @@ impl Pass<'_, '_> {
             .or_default()
             .insert(unit.fingerprint.to_string());
         if let Some(names) = self.working_copy.capped.get_mut(&unit.file) {
-            names.remove(&unit.name);
+            names.remove(&unit.unit);
             if names.is_empty() {
                 self.working_copy.capped.remove(&unit.file);
             }
@@ -235,6 +248,38 @@ impl Pass<'_, '_> {
         ids
     }
 
+    /// Before the review: an open or unverified finding whose unit is now
+    /// the same as at the base, at a fingerprint other than the finding's,
+    /// is resolved without a call (a finding stored with no fingerprint is
+    /// left alone). Returns their ids.
+    ///
+    /// Example: you saved a change to `cancel`, a pass raised a finding on
+    /// it, and you undid the change. `cancel` is what `HEAD` has again, so
+    /// no pass would review it; the finding is about code that is no longer
+    /// there, and is resolved. Had you committed the change instead, the
+    /// fingerprint would still be the finding's, and it would stay open.
+    pub(super) fn sweep_put_back(&mut self, scope: &Scope) -> Vec<FindingId> {
+        let put_back = |f: &Finding| {
+            scope.files.iter().any(|sf| {
+                sf.file == f.place.file
+                    && f.place.unit.as_ref().is_some_and(|name| {
+                        sf.same
+                            .iter()
+                            .any(|(same, at)| same == name && reviewed_at_other(f, *at))
+                    })
+            })
+        };
+        let ids: Vec<FindingId> = self
+            .working_copy
+            .findings
+            .iter()
+            .filter(|f| is_open_or_unverified(f) && put_back(f))
+            .map(|f| f.id.clone())
+            .collect();
+        self.set_status_of(&ids, Status::Resolved);
+        ids
+    }
+
     /// The sent units whose code is not what was sent: their fingerprint
     /// changed, or they are no longer in their file.
     fn units_changed_since_sent(&self, sent: &[SentUnit]) -> ChangedUnits {
@@ -248,9 +293,9 @@ impl Pass<'_, '_> {
                 .filter(|sent_unit| {
                     !now[sent_unit.file.as_path()]
                         .iter()
-                        .any(|u| u.name == sent_unit.name && u.fingerprint == sent_unit.fingerprint)
+                        .any(|u| u.name == sent_unit.unit && u.fingerprint == sent_unit.fingerprint)
                 })
-                .map(|u| (u.file.clone(), u.name.clone()))
+                .map(|u| (u.file.clone(), u.unit.clone()))
                 .collect(),
         )
     }
@@ -269,6 +314,12 @@ impl Pass<'_, '_> {
     }
 }
 
+/// Whether the finding was raised on its unit at a fingerprint other than
+/// `at`. A finding stored with no fingerprint cannot tell, and says no.
+fn reviewed_at_other(f: &Finding, at: Fingerprint) -> bool {
+    f.place.fingerprint.is_some_and(|reviewed| reviewed != at)
+}
+
 fn is_open_or_unverified(f: &Finding) -> bool {
     matches!(f.status, Status::Open | Status::Unverified)
 }
@@ -280,6 +331,7 @@ fn is_open_or_unverified(f: &Finding) -> bool {
 fn remember_text(
     resolved: &[FindingId],
     gone: &[FindingId],
+    put_back: &[FindingId],
     changed: &ChangedUnits,
     not_found_again: &NotFoundAgain,
 ) -> String {
@@ -293,6 +345,12 @@ fn remember_text(
     for id in gone {
         text.push_str(&format!(
             "- {} gone: its unit or file is no longer there\n",
+            id.0
+        ));
+    }
+    for id in put_back {
+        text.push_str(&format!(
+            "- {} resolved: its unit is back to the code at the base\n",
             id.0
         ));
     }
@@ -337,7 +395,7 @@ fn reviewed_text(changed: &ChangedUnits, reviewed: &[&SentUnit]) -> String {
         text.push_str(&format!(
             "- `{}` `{}` reviewed at {}\n",
             unit.file.display(),
-            unit.name,
+            unit.unit,
             unit.fingerprint
         ));
     }

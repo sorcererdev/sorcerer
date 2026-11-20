@@ -114,6 +114,7 @@ impl Wiring for &Doubles {
             log: &Quiet,
             progress: &quiet,
             cancel: &self.cancel,
+            review_cancel: &self.cancel,
         }
     }
 }

@@ -52,6 +52,7 @@ pub struct LiveWiring {
     ledger: JsonlLedger,
     settings: ScryToml,
     clock: SystemClock,
+    review_cancel: Cancel,
     cancel: Cancel,
 }
 
@@ -62,8 +63,22 @@ impl LiveWiring {
     /// The live wiring for the project. Jev comes from `[decide]`, and its
     /// key must be set. The model provider is the project's default:
     /// `claude` runs Claude Code; any other provider runs sorcerer's own
-    /// tool loop. Grammars come from the user's cache.
+    /// tool loop. Grammars come from the user's cache. One `Cancel` stops
+    /// everything, as the command line wants.
     pub fn open(project: &Project, env: &dyn Env) -> Result<LiveWiring> {
+        let cancel = Cancel::default();
+        LiveWiring::open_with(project, env, cancel.clone(), cancel)
+    }
+
+    /// The live wiring with two cancels: `review` stops the review calls
+    /// only (an editor's save that overtakes them), `rest` stops Jev and the
+    /// claim checks too (the editor shutting down).
+    pub fn open_with(
+        project: &Project,
+        env: &dyn Env,
+        review: Cancel,
+        rest: Cancel,
+    ) -> Result<LiveWiring> {
         let jev = jev_for(project, env)?;
         let view = Arc::new(FilesView::new(
             Arc::new(project.clone()),
@@ -71,14 +86,13 @@ impl LiveWiring {
         ));
         let fences = Fences::for_project(project)?;
         let researcher = researcher_for(project, env, view.clone())?;
-        let cancel = Cancel::default();
         let checker = claim_checker(
             researcher.clone(),
             Arc::new(jev.clone()),
             fences,
             view.clone(),
             project.languages.clone(),
-            cancel.clone(),
+            rest.clone(),
         );
         Ok(LiveWiring {
             view,
@@ -89,7 +103,8 @@ impl LiveWiring {
             ledger: JsonlLedger::for_project(project)?,
             settings: ScryToml::for_project(project),
             clock: SystemClock,
-            cancel,
+            review_cancel: review,
+            cancel: rest,
         })
     }
 }
@@ -108,6 +123,7 @@ impl Wiring for LiveWiring {
             log: &Quiet,
             progress: &quiet,
             cancel: &self.cancel,
+            review_cancel: &self.review_cancel,
         }
     }
 }

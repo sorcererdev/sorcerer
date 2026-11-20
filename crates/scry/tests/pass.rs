@@ -92,6 +92,7 @@ impl Fixture {
             log: &Quiet,
             progress: &progress,
             cancel: &cancel,
+            review_cancel: &cancel,
         };
         let req = ReviewRequest {
             fresh,
@@ -482,11 +483,21 @@ fn no_longer_holds_resolves_only_a_finding_the_call_was_shown() {
         &StubDecider::new(),
         false,
     ));
-    // an unverified finding on `place`, which this pass does not send
+    // an unverified finding on `place`, which this pass does not send, raised on
+    // `place` as it is (so it is not a unit put back)
+    let place_now = f
+        .view
+        .units(Path::new("orders.py"))
+        .unwrap()
+        .into_iter()
+        .find(|u| u.name == "place")
+        .unwrap()
+        .fingerprint;
     support::update_store(&f.project, |s| {
         let mut other = s.findings[0].clone();
         other.id = scry::domain::finding::FindingId("abcdef".into());
         other.place.unit = Some("place".into());
+        other.place.fingerprint = Some(place_now);
         s.findings.push(other);
     })
     .unwrap();
@@ -728,6 +739,7 @@ fn a_pass_traces_its_prompt_reply_judgements_and_checks() {
         log: &trace,
         progress: &progress,
         cancel: &cancel,
+        review_cancel: &cancel,
     };
     let req = ReviewRequest {
         caps: Some(Caps {
@@ -815,6 +827,7 @@ fn pass_logged(
         log: &trace,
         progress: &on_progress,
         cancel,
+        review_cancel: cancel,
     };
     let req = ReviewRequest {
         caps: Some(Caps {
@@ -974,7 +987,8 @@ fn the_run_log_of_the_review_calls_is_as_recorded() {
         .fingerprint
         .to_string();
     assert!(units_of(&s.reviewed, "a.py").contains(&alpha_now));
-    assert_eq!(pass.progress.first(), Some(&Progress::Reviewed(1)));
+    assert!(matches!(pass.progress.first(), Some(Progress::Sending(_))));
+    assert_eq!(pass.progress.get(1), Some(&Progress::Reviewed(1)));
     assert_eq!(
         pass.progress
             .iter()
@@ -1070,6 +1084,7 @@ fn pass_with(
         log: &trace,
         progress: &on_progress,
         cancel: &cancel,
+        review_cancel: &cancel,
     };
     let req = ReviewRequest {
         fresh: true,
@@ -1767,4 +1782,269 @@ fn shown_in_file_is_empty_when_scry_is_off() {
     let shown =
         shown_in_file(&ports.store, &ports.settings, &view, Path::new("orders.py")).unwrap();
     assert!(shown.is_empty());
+}
+
+// ---- what an editor's pass needs from the engine ----
+
+/// A review reply holding one finding of KIND on FILE's LINE, evidence on that line.
+fn reply_in(file: &str, kind: &str, line: u32, statement: &str, rule: &str) -> String {
+    serde_json::json!({
+        "findings": [{
+            "issue_type": kind,
+            "file": file,
+            "lines": [line, line],
+            "statement": statement,
+            "rule": rule,
+            "evidence": [{"file": file, "lines": [line, line]}],
+        }],
+        "open": [],
+    })
+    .to_string()
+}
+
+/// How an editor runs a pass: on the files it names, within its caps, its review calls
+/// stopped by their own cancel, its progress told as it goes.
+struct EditorPass<'a> {
+    files: &'a [&'a str],
+    caps: Caps,
+    review_cancel: &'a Cancel,
+    on_progress: &'a (dyn Fn(&Progress) + Sync),
+}
+
+impl EditorPass<'_> {
+    fn run(&self, f: &Fixture, reviewer: &StubReviewer, decider: &StubDecider) -> ReviewReport {
+        let clock = FixedClock::at(t0());
+        let ports = support::Ports::of(&f.project);
+        let rest = Cancel::default();
+        let deps = ReviewDeps {
+            view: &f.view,
+            reviewer,
+            decider,
+            checker: &failing_check,
+            store: &ports.store,
+            ledger: &ports.ledger,
+            settings: &ports.settings,
+            clock: &clock,
+            log: &Quiet,
+            progress: self.on_progress,
+            cancel: &rest,
+            review_cancel: self.review_cancel,
+        };
+        let req = ReviewRequest {
+            caps: Some(self.caps.clone()),
+            ..ReviewRequest::of(ScopeRequest::Files(
+                self.files.iter().map(PathBuf::from).collect(),
+            ))
+        };
+        ran(review_change(&f.project, &req, &deps).unwrap())
+    }
+}
+
+fn no_caps() -> Caps {
+    Caps {
+        pass: None,
+        day: f64::INFINITY,
+        budget: None,
+    }
+}
+
+/// A plain editor pass on orders.py, no caps, nobody cancelling, progress ignored.
+fn editor_pass(f: &Fixture, reviewer: &StubReviewer) -> ReviewReport {
+    EditorPass {
+        files: &["orders.py"],
+        caps: no_caps(),
+        review_cancel: &Cancel::default(),
+        on_progress: &|_| {},
+    }
+    .run(f, reviewer, &StubDecider::new())
+}
+
+fn convention_reviewer() -> StubReviewer {
+    StubReviewer::new().reply(
+        &["orders.py"],
+        &reply(
+            "convention",
+            2,
+            "cancel() can raise out of a command.",
+            "result",
+        ),
+    )
+}
+
+#[test]
+fn sending_names_the_units_of_each_call_before_it_goes() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = Fixture::new();
+    let told = Arc::new(Mutex::new(Vec::<Progress>::new()));
+    let seen_before_the_call = Arc::new(AtomicBool::new(false));
+    let expected = scry::usecases::review_change::SentUnit {
+        file: "orders.py".into(),
+        unit: "cancel".into(),
+        fingerprint: sorcerer_core::domain::fingerprint::Fingerprint::parse(&cancel_print(&f))
+            .unwrap(),
+    };
+    let reviewer = {
+        let told = Arc::clone(&told);
+        let seen = Arc::clone(&seen_before_the_call);
+        let expected = expected.clone();
+        StubReviewer::new().on_review(move |_| {
+            let sending = Progress::Sending(vec![expected.clone()]);
+            seen.store(told.lock().unwrap().contains(&sending), Ordering::SeqCst);
+        })
+    };
+    let record = |p: &Progress| told.lock().unwrap().push(p.clone());
+    EditorPass {
+        files: &["orders.py"],
+        caps: no_caps(),
+        review_cancel: &Cancel::default(),
+        on_progress: &record,
+    }
+    .run(&f, &reviewer, &StubDecider::new());
+    assert!(seen_before_the_call.load(Ordering::SeqCst));
+    let sendings = told
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|p| matches!(p, Progress::Sending(_)))
+        .count();
+    assert_eq!(sendings, 1);
+}
+
+#[test]
+fn nothing_sent_means_no_sending() {
+    use std::sync::Mutex;
+    let f = Fixture::new();
+    let reviewer = StubReviewer::new();
+    editor_pass(&f, &reviewer);
+    let told = Mutex::new(Vec::<Progress>::new());
+    let record = |p: &Progress| told.lock().unwrap().push(p.clone());
+    EditorPass {
+        files: &["orders.py"],
+        caps: no_caps(),
+        review_cancel: &Cancel::default(),
+        on_progress: &record,
+    }
+    .run(&f, &reviewer, &StubDecider::new());
+    assert_eq!(reviewer.asks().len(), 1);
+    assert!(
+        !told
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| matches!(p, Progress::Sending(_))),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn review_cancel_stops_review_calls_and_nothing_else() {
+    let f = Fixture::new();
+    // a second file long enough that the two units go in two calls
+    write(f.root(), "more.py", &long_unit("more", 700));
+    let (project, view) = support::project_with_vendored_grammars(f.root());
+    let f = Fixture { project, view, ..f };
+    let review_cancel = Cancel::default();
+    let reviewer = {
+        let review_cancel = review_cancel.clone();
+        StubReviewer::new()
+            .reply(
+                &["orders.py"],
+                &reply(
+                    "convention",
+                    2,
+                    "cancel() can raise out of a command.",
+                    "result",
+                ),
+            )
+            .reply(
+                &["more.py"],
+                &reply_in(
+                    "more.py",
+                    "convention",
+                    2,
+                    "more() can raise out of a command.",
+                    "result",
+                ),
+            )
+            .on_review(move |_| review_cancel.cancel())
+    };
+    let decider = StubDecider::new();
+    let r = EditorPass {
+        files: &["orders.py", "more.py"],
+        caps: no_caps(),
+        review_cancel: &review_cancel,
+        on_progress: &|_| {},
+    }
+    .run(&f, &reviewer, &decider);
+    assert_eq!(reviewer.asks().len(), 1);
+    assert_eq!(r.failures.len(), 1, "{:?}", r.failures);
+    assert!(
+        r.failures[0].starts_with("review cancelled for "),
+        "{:?}",
+        r.failures
+    );
+    let s = f.store();
+    assert_eq!(only(&s).status, Status::Open);
+    assert!(!decider.asked().is_empty());
+}
+
+#[test]
+fn a_unit_put_back_resolves_its_finding_without_a_call() {
+    let f = Fixture::new();
+    let reviewer = convention_reviewer();
+    editor_pass(&f, &reviewer);
+    assert_eq!(only(&f.store()).status, Status::Open);
+    f.edit("order.cancel(now=True)", "order.cancel()");
+    let r = editor_pass(&f, &reviewer);
+    assert_eq!(only(&f.store()).status, Status::Resolved);
+    assert_eq!(reviewer.asks().len(), 1);
+    assert_eq!(r.touched.len(), 1);
+}
+
+#[test]
+fn a_committed_change_keeps_its_finding_open() {
+    let f = Fixture::new();
+    let reviewer = convention_reviewer();
+    editor_pass(&f, &reviewer);
+    commit(f.root(), "the change, bug and all");
+    editor_pass(&f, &reviewer);
+    assert_eq!(only(&f.store()).status, Status::Open);
+    assert_eq!(reviewer.asks().len(), 1);
+}
+
+#[test]
+fn day_spent_is_reported_when_the_days_cap_holds_a_call_back() {
+    let f = Fixture::new();
+    let r = EditorPass {
+        files: &["orders.py"],
+        caps: Caps {
+            pass: None,
+            day: 0.0,
+            budget: None,
+        },
+        review_cancel: &Cancel::default(),
+        on_progress: &|_| {},
+    }
+    .run(&f, &StubReviewer::new(), &StubDecider::new());
+    assert!(r.capped > 0);
+    assert!(r.day_spent);
+}
+
+#[test]
+fn day_spent_is_not_reported_when_only_the_pass_cap_holds_a_call_back() {
+    let f = Fixture::new();
+    let r = EditorPass {
+        files: &["orders.py"],
+        caps: Caps {
+            pass: Some(0.0),
+            day: f64::INFINITY,
+            budget: None,
+        },
+        review_cancel: &Cancel::default(),
+        on_progress: &|_| {},
+    }
+    .run(&f, &StubReviewer::new(), &StubDecider::new());
+    assert!(r.capped > 0);
+    assert!(!r.day_spent);
 }

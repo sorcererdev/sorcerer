@@ -333,3 +333,25 @@ fn a_changed_file_carries_its_diff_and_an_untouched_named_file_its_text() {
     assert_eq!(s.files[1].diff, pay);
     assert_eq!(names(&s), ["place"]);
 }
+
+#[test]
+fn same_lists_the_units_equal_to_the_base() {
+    let d = committed();
+    support::write(
+        d.path(),
+        "orders.py",
+        &ORDERS.replace("order.place()", "None"),
+    );
+    let why = ScopeRequest::Files(vec!["orders.py".into()]);
+    let s = scope(d.path(), why.clone(), false);
+    let (p, v) = support::project_with_vendored_grammars(d.path());
+    let _ = p;
+    let units =
+        sorcerer_core::ports::view::CodebaseView::units(&v, Path::new("orders.py")).unwrap();
+    let cancel = units.iter().find(|u| u.name == "cancel").unwrap();
+    assert_eq!(
+        s.files[0].same,
+        vec![("cancel".to_string(), cancel.fingerprint)]
+    );
+    assert!(scope(d.path(), why, true).files[0].same.is_empty());
+}

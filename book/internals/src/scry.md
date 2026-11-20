@@ -292,12 +292,19 @@ finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprin
 means the command line's, `Caps { pass: None, day: budget_per_day, budget }`) and its ports:
 the `CodebaseView`, the `Reviewer`, the `Decider` (Jev), the `ClaimChecker`, the
 `FindingStore`, core's `Ledger`, the `Settings`, a `Clock` (`SystemClock` live, `FixedClock`
-in tests), the `RunLog` (below), a `progress` callback told `Progress::Reviewed(n)` after each
-review call that answered and `Progress::Stored` after the write, and the `Cancel`. It reads
+in tests), the `RunLog` (below), a `progress` callback told `Progress::Sending(units)` right before each
+review call goes out (the `SentUnit { file, unit, fingerprint }` of each unit in it; told only for
+a call that really goes, after the caps and the cancel let it), `Progress::Reviewed(n)` after each
+review call that answered and `Progress::Stored` after the write, and two cancels: `cancel`
+stops Jev and the claim checks, `review_cancel` the review calls only (the one in flight, and
+`send_batch` checks it before each call). The command line passes one `Cancel` for both; an
+editor's server sets `review_cancel` when a save overtakes what a call was sent. It reads
 `[scry]` and returns `Skipped` when it is off, works out the scope (`scope_of`, logged with
 `scope_text`) and the caps (`caps_for`), then returns `ReviewOutcome::Ran(ReviewReport)` (`looked_at` units sent and answered, the `new` ids,
 `spent`, `capped` units, one `failures` line per failed call, `whole`, `checks_capped`
-when a claim check did not fit, and `touched`, every finding the pass added or changed: those
+when a claim check did not fit, `day_spent` when what was held back was held by the day's cap
+(`Pass::day_held_something_back`: a capped call and `Budget::day_is_spent(review_estimate)`, or
+a capped check and `day_is_spent(check_estimate)`), and `touched`, every finding the pass added or changed: those
 of `Pass::working_copy` not equal to the store as read (`touched_since`), mapped through the renames), or
 `ReviewOutcome::Skipped` when `[scry] enabled` is false or Jev did not answer; the report
 carries the `scope` so the caller prints what was in it. The command line
@@ -316,10 +323,16 @@ by saving it and making the report (`Pass::report`). The steps, in
    The ledger is read once too (`SpentSoFar::read`, which also fixes the pass's `now`), through the `Ledger` port: its `review` and `check` rows give the estimates and, through
    core's `cost::spent_since` in the `Clock`'s offset, what scry spent earlier in the local day,
    which starts the pass's `Budget` (Jev's `decide` rows are not counted: a fraction of a cent each).
-2. **What to send, and the gone sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
+2. **What to send, the gone sweep and the put-back sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
    `reviewed[file]` (every one with `fresh`). `Pass::sweep_gone`: an open, unverified or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
-   `gone`.
+   `gone`. `Pass::sweep_put_back`: an open or unverified finding of a scoped file whose unit
+   is in that file's `ScopedFile::same` (the units equal to the base's, filled by
+   `Scoping::compared_with_base` where `compare_units` runs; empty with `--all` or no base) at a
+   fingerprint other than the finding's is `resolved` with no call: the user undid the change
+   it was about, so no pass would review that unit again. A finding whose fingerprint is the
+   base's (the change was committed, bug and all) stays open; one stored with no fingerprint
+   is left alone. The store is written even when nothing is sent.
 3. **Review** (`ask.rs`). `batch_units` batches them; each batch is a `ReviewAsk` with its files' diffs
    (`diff_of`), `Steering::steering_text`, `reported` empty, and the open and unverified findings on its
    units (`Pass::open_on`). Before each call `Budget::allows(find_estimate)`; once one batch is
@@ -334,8 +347,8 @@ by saving it and making the report (`Pass::report`). The steps, in
    other failure. In the code, `Pass::send` is that story in order: `units_not_yet_reviewed`,
    `batches_of` (each a `UnitToSend`: the prompt's `ReviewUnit` and the fingerprint it is sent at,
    batched by `batch_by_lines`), then `send_batch` per batch: `must_hold_back` →
-   `hold_back_for_a_later_run`, a cancel → a failure line, or `review_one_batch` (`ask_for`,
-   `cap_for_one_call`, the call, `cost_of_call`, the reply parsed, `Pass::tell_progress`). Each
+   `hold_back_for_a_later_run`, `review_cancel` set → a failure line (`review cancelled for …`), or `review_one_batch` (`ask_for`,
+   `cap_for_one_call`, `Progress::Sending`, the call with `review_cancel`, `cost_of_call`, the reply parsed, `Pass::tell_progress`). Each
    returns a `BatchOutcome` (`HeldBack`, `Failed`, `Answered`), and `ReviewResults::with` adds it to
    the results so far (an answer on an open finding the call was not shown is ignored there).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
@@ -415,7 +428,8 @@ ledger rows of product `scry` and verb `review` / `check`, else $0.04 a review (
 model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)` holds the
 `Caps` (`pass`, `day`, `budget`); `allows(e)` is false when `spent + e` passes `pass` or
 `budget` (when set) or `spent_earlier_today + spent + e` passes `day`; `charge` adds a cost; `money_left` is the
-least left under any finite cap. `cost_of(errands)` sums a call's priced errands.
+least left under any finite cap; `day_is_spent(e)` is whether `spent_earlier_today + spent + e`
+passes `day`. `cost_of(errands)` sums a call's priced errands.
 
 `Pass::verify_findings_in_file(file, unverified_from_earlier_runs)` takes the file's unverified findings,
 best confidence first (`PrioritizedFindings::unverified_in`, the only way to build one, so the order holds), in rounds. A round takes the candidates that would fit if all passed
@@ -436,7 +450,10 @@ next round, which takes the rest; `DisplaySlots::after_round` returns the slots 
 ## Wiring
 
 `adapters/wiring.rs`. `Wiring` is what the command line needs from a wiring: `deps()`, the
-review's `ReviewDeps`. `LiveWiring` is the real one, built by `LiveWiring::open(project, env)`:
+review's `ReviewDeps`. `LiveWiring` is the real one, built by `LiveWiring::open(project, env)`,
+which is `LiveWiring::open_with(project, env, review, rest)` with one `Cancel` twice (an
+editor's server passes two: `review` becomes `review_cancel`, `rest` the claim checker's and
+`cancel`):
 
 - Jev first, by `jev_for`: `Jev::from_env` over `[decide]` with the project's ledger, then
   `for_product("scry")`, so its errands are scry's `decide`. No key is an error naming the

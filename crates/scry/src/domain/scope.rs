@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::unit::Unit;
 
 /// Which files a pass looks at.
@@ -35,6 +36,9 @@ pub struct ScopedFile {
     pub diff: String,
     /// Every unit name in the file now, for the gone sweep.
     pub units_now: Vec<String>,
+    /// The units the same now as at the base, each with its fingerprint, for the put-back
+    /// sweep. Empty with `--all` or when there is no base.
+    pub same: Vec<(String, Fingerprint)>,
     pub deleted: bool,
 }
 

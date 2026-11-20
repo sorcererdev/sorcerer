@@ -57,6 +57,9 @@ use scope::scope_of;
 /// What a review is told as it goes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Progress {
+    /// A review call is about to go out with these units: told once per call, after the
+    /// spending caps and the cancel let it go, right before it is sent.
+    Sending(Vec<SentUnit>),
     /// A review call answered with this many findings.
     Reviewed(usize),
     /// The store was written.
@@ -106,7 +109,11 @@ pub struct ReviewDeps<'a> {
     /// The run log: each step's inputs and decisions, as Markdown.
     pub log: &'a dyn RunLog,
     pub progress: &'a (dyn Fn(&Progress) + Sync),
+    /// Stops Jev's questions and the claim checks: set when the run is stopped.
     pub cancel: &'a Cancel,
+    /// Stops the review calls only, the one in flight and those not yet sent. An editor sets
+    /// it when a save overtakes the code a call was sent; the command line passes `cancel`.
+    pub review_cancel: &'a Cancel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,6 +131,9 @@ pub struct ReviewReport {
     pub whole: bool,
     /// A claim check did not fit the caps; its finding stays unverified.
     pub checks_capped: bool,
+    /// Something was held back (a review call or a claim check) and the day's cap is what
+    /// held it: the next call would take the day over `budget_per_day`.
+    pub day_spent: bool,
     /// Every finding this pass added or changed, in store order.
     pub touched: Vec<FindingId>,
     /// What was in scope.
@@ -258,13 +268,13 @@ impl SpentSoFar {
     }
 }
 
-/// A unit sent to the review call: its file, name and the
-/// fingerprint it was sent at.
-#[derive(Debug, Clone)]
-struct SentUnit {
-    file: PathBuf,
-    name: String,
-    fingerprint: Fingerprint,
+/// A unit sent to the review call: its file, its name and the fingerprint
+/// it was sent at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentUnit {
+    pub file: PathBuf,
+    pub unit: String,
+    pub fingerprint: Fingerprint,
 }
 
 /// One review pass: what it works with, and what it has done so far.
@@ -336,7 +346,8 @@ impl<'r, 'd> Pass<'r, 'd> {
 
     /// Runs the pass over the scope and saves it:
     ///
-    /// 1. findings whose unit was deleted are gone;
+    /// 1. findings whose unit was deleted are gone, and findings on a unit
+    ///    put back to the base's code are resolved;
     /// 2. the units not yet reviewed (all of them when `fresh`) go to the
     ///    reviewer, in batches;
     /// 3. each finding it raised is judged (same as a stored one? a
@@ -348,9 +359,10 @@ impl<'r, 'd> Pass<'r, 'd> {
     fn run(mut self, scope: &Scope, fresh: bool) -> std::result::Result<ReviewReport, Halt> {
         let unverified_from_earlier_runs = unverified_ids(&self.stored_before);
         let gone = self.sweep_gone(scope);
+        let put_back = self.sweep_put_back(scope);
         let review = self.send(scope, fresh);
         self.judge_all(review.raw_findings.clone(), scope)?;
-        self.remember(&review, &gone);
+        self.remember(&review, &gone, &put_back);
         let budget_ran_out = self.verify_findings_per_file(scope, &unverified_from_earlier_runs)?;
         self.mark_reviewed(&review.answered);
         self.save_working_copy()?;
@@ -369,9 +381,17 @@ impl<'r, 'd> Pass<'r, 'd> {
             whole: review.every_unit_was_reviewed(),
             failures: review.failures,
             checks_capped: budget_ran_out,
+            day_spent: self.day_held_something_back(review.capped, budget_ran_out),
             touched: as_written(&changed, &self.renamed_ids),
             scope: scope.clone(),
         }
+    }
+
+    /// Whether the day's cap is what held back a review call or a claim
+    /// check: the next one would take the day over its cap.
+    fn day_held_something_back(&self, calls_capped: usize, checks_capped: bool) -> bool {
+        (calls_capped > 0 && self.budget.day_is_spent(self.review_estimate))
+            || (checks_capped && self.budget.day_is_spent(self.check_estimate))
     }
 
     /// Writes the working copy over the store as it is now: each finding

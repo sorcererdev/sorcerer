@@ -191,6 +191,11 @@ A pass looks at the units a change adds or alters, compared with a base:
   the merge base, the commit where your branch and `<rev>` last agree, so changes made on
   `<rev>` after you branched are not yours and are not reviewed.
 
+If you undo a change so that a unit is again what the base has, a finding scry raised on
+that change is resolved at the next pass that covers the file, with no model call: the code
+it was about is gone. If you commit the change instead, the finding stays open, since the
+committed code still has the problem.
+
 A file nobody committed yet, or any file in a repository with no commit, is all new: every
 unit is in scope. A renamed file is a new file at its new path. Scry leaves out files no
 language covers, files matching `exclude`, fenced files (`.env*`, `.sorcerer/`, your

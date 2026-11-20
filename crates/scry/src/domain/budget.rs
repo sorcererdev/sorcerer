@@ -95,6 +95,15 @@ impl Budget {
         !(over(self.caps.pass) || over_day || over(self.caps.budget))
     }
 
+    /// Whether a call likely to cost `estimate` would take the day over its
+    /// cap, counting what scry spent earlier today and in this pass.
+    ///
+    /// Example: with a day cap of $3.00, $2.95 spent earlier today and
+    /// nothing yet in this pass, a $0.04 call fits and a $0.06 one does not.
+    pub fn day_is_spent(&self, estimate: f64) -> bool {
+        self.spent_earlier_today + self.spent + estimate > self.caps.day
+    }
+
     /// Adds a call's cost to what the pass has spent.
     pub fn charge(&mut self, cost: f64) {
         self.spent += cost;

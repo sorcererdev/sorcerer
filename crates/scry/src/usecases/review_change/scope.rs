@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use sorcerer_core::domain::compare::{UnitChange, compare_units};
 use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::Unit;
 use sorcerer_core::ports::view::CodebaseView;
@@ -62,6 +63,13 @@ fn with_file(scope: Scope, file: FileInScope) -> Scope {
             ..scope
         },
     }
+}
+
+/// A file's units against the base: the ones a pass reviews, and the ones
+/// the same as at the base, by name and fingerprint.
+struct AgainstBase {
+    in_scope: Vec<Unit>,
+    same: Vec<(String, Fingerprint)>,
 }
 
 /// What deciding each file's place in a pass's scope needs.
@@ -157,8 +165,9 @@ impl<'a> Scoping<'a> {
             return Ok(FileInScope::Skipped(file, "not text".into()));
         };
         let units_now = self.view.units(&file)?;
-        let units = self.scoped_units(&file, &text, &units_now);
-        let scoped = self.scoped_file(file, text, units_now)?;
+        let against_base = self.compared_with_base(&file, &units_now);
+        let units = self.scoped_units(&file, &text, &units_now, against_base.in_scope);
+        let scoped = self.scoped_file(file, text, units_now, against_base.same)?;
         Ok(FileInScope::Present(scoped, units))
     }
 
@@ -192,6 +201,7 @@ impl<'a> Scoping<'a> {
             diff: self.view.diff(&file, base)?,
             file,
             units_now: Vec::new(),
+            same: Vec::new(),
             deleted: true,
         }))
     }
@@ -206,27 +216,52 @@ impl<'a> Scoping<'a> {
         }
     }
 
-    /// The file's units a pass reviews: all of them with `--all` or when
-    /// there is no commit yet, else the ones added or changed since the
-    /// base.
-    fn units_in_scope(&self, file: &Path, units_now: &[Unit]) -> Vec<Unit> {
+    /// The file's units against the base: the ones a pass reviews (all of
+    /// them with `--all` or when there is no commit yet, else the ones added
+    /// or changed since the base), and the ones the same as at the base
+    /// (none with `--all` or no commit).
+    fn compared_with_base(&self, file: &Path, units_now: &[Unit]) -> AgainstBase {
         let rev = match self.base.revision() {
             Some(rev) if !self.all => rev,
-            _ => return units_now.to_vec(),
+            _ => {
+                return AgainstBase {
+                    in_scope: units_now.to_vec(),
+                    same: Vec::new(),
+                };
+            }
         };
         // Units at the base that do not read count as none: all added.
         let units_at_base = self.view.units_at(file, rev).unwrap_or_default();
-        compare_units(&units_at_base, units_now)
-            .into_iter()
-            .filter_map(UnitChange::unit_now)
-            .collect()
+        let (same, changed): (Vec<UnitChange>, Vec<UnitChange>) =
+            compare_units(&units_at_base, units_now)
+                .into_iter()
+                .partition(|change| matches!(change, UnitChange::Same(_)));
+        AgainstBase {
+            in_scope: changed
+                .into_iter()
+                .filter_map(UnitChange::unit_now)
+                .collect(),
+            same: same
+                .into_iter()
+                .filter_map(|change| match change {
+                    UnitChange::Same(unit) => Some((unit.name, unit.fingerprint)),
+                    _ => None,
+                })
+                .collect(),
+        }
     }
 
     /// The file's units in scope as the scope holds them, each with the
     /// definition line of the unit that encloses it (`header_of`).
-    fn scoped_units(&self, file: &Path, text: &str, units_now: &[Unit]) -> Vec<ScopedUnit> {
+    fn scoped_units(
+        &self,
+        file: &Path,
+        text: &str,
+        units_now: &[Unit],
+        in_scope: Vec<Unit>,
+    ) -> Vec<ScopedUnit> {
         let lines: Vec<&str> = text.lines().collect();
-        self.units_in_scope(file, units_now)
+        in_scope
             .into_iter()
             .map(|unit| ScopedUnit {
                 file: file.to_path_buf(),
@@ -239,7 +274,13 @@ impl<'a> Scoping<'a> {
     /// The file as the scope holds it: its diff against the base, or its
     /// whole text when that diff is empty (no commit yet, untracked, or
     /// unchanged), and the name of every unit it has now.
-    fn scoped_file(&self, file: PathBuf, text: String, units_now: Vec<Unit>) -> Result<ScopedFile> {
+    fn scoped_file(
+        &self,
+        file: PathBuf,
+        text: String,
+        units_now: Vec<Unit>,
+        same: Vec<(String, Fingerprint)>,
+    ) -> Result<ScopedFile> {
         let diff = match self.base.revision() {
             None => String::new(),
             Some(rev) => self.view.diff(&file, rev)?,
@@ -247,6 +288,7 @@ impl<'a> Scoping<'a> {
         Ok(ScopedFile {
             diff: if diff.is_empty() { text } else { diff },
             units_now: units_now.into_iter().map(|u| u.name).collect(),
+            same,
             file,
             deleted: false,
         })
