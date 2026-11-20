@@ -68,20 +68,17 @@ pub struct ModelConfig {
 pub struct ProviderConfig {
     pub kind: Option<String>,
     pub url: Option<String>,
-    pub api_key_env: Option<String>,
     pub runner: Option<PathBuf>,
     pub aliases: BTreeMap<String, String>,
     /// Dollars per million tokens, `[input, output]`, by alias or model id.
     pub prices: BTreeMap<String, [f64; 2]>,
 }
 
-/// `[decide]`: the model that makes the small yes-or-no calls (Jev), and the environment
-/// variable holding its key.
+/// `[decide]`: the model that makes the small yes-or-no calls (Jev).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DecideConfig {
     pub model: Option<String>,
-    pub key_env: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -207,6 +204,17 @@ mod tests {
     fn an_unknown_key_in_a_core_table_fails() {
         let e = Config::parse("[model]\nprovder = \"claude\"\n", Path::new("c.toml")).unwrap_err();
         assert!(e.to_string().contains("provder"), "{e}");
+    }
+
+    #[test]
+    fn a_key_variable_cannot_be_chosen_in_config() {
+        for (text, key) in [
+            ("[model.providers.x]\napi_key_env = \"K\"\n", "api_key_env"),
+            ("[decide]\nkey_env = \"K\"\n", "key_env"),
+        ] {
+            let e = Config::parse(text, Path::new("c.toml")).unwrap_err();
+            assert!(e.to_string().contains(key), "{e}");
+        }
     }
 
     #[test]

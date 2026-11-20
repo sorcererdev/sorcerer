@@ -34,7 +34,7 @@ Each adapter builds the ledger row (`Errand`) for its own calls. `price(prices, 
 ### anthropic
 
 `adapters/anthropic.rs`. Anthropic's Messages API: `POST {url}/v1/messages` with the key
-from `ANTHROPIC_API_KEY` (or the table's `api_key_env`), tools native. `ALIASES` maps
+from `ANTHROPIC_API_KEY` only, tools native. `ALIASES` maps
 `sonnet`, `haiku`, `opus`, `strong` and `cheap` to model ids, and `PRICES` holds dollars
 per million tokens from Anthropic's pricing page (dated in the source). Both can be
 overridden in `[model.providers.anthropic]`.
@@ -76,7 +76,7 @@ key to set. A model name with `/` or `:` (`qwen3:32b`) passes through.
 `default_provider` and `default_decider` choose what runs a model when the config does not
 say, and why (a `ProviderChoice`, for `doctor` to print): `[model] provider` if set, else
 `claude` when it is on PATH, else `anthropic` when `ANTHROPIC_API_KEY` is set; Jev when
-`JEV_API_KEY` (or `[decide] key_env`) is set. `default_provider_for(project, env)` uses
+`JEV_API_KEY` is set. `default_provider_for(project, env)` uses
 `default_provider` to pick the name and builds the provider.
 
 ## Researchers

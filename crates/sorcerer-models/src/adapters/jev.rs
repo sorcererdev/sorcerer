@@ -20,6 +20,8 @@ use crate::ports::decider::Decider;
 use crate::{Error, Result};
 
 /// The Jev model sorcerer pins, unless `[decide] model` names another.
+/// The only variable the Jev key is read from.
+pub const KEY_VAR: &str = "JEV_API_KEY";
 pub const MODEL: &str = "jev-1.14.0";
 pub const URL: &str = "https://api.typesafe.ai";
 
@@ -197,17 +199,15 @@ pub struct Jev {
 }
 
 impl Jev {
-    /// Jev with its key read from the variable `[decide] key_env` names (`JEV_API_KEY`
-    /// by default). With a ledger, every call is recorded there with its cost.
+    /// Jev with its key read from `JEV_API_KEY` only. With a ledger, every call is recorded there with its cost.
     pub fn from_env(
         cfg: &DecideConfig,
         env: &dyn Env,
         ledger: Option<Arc<dyn Ledger>>,
     ) -> Result<Jev> {
-        let var = cfg.key_env.clone().unwrap_or_else(|| "JEV_API_KEY".into());
-        let key = env.var(&var).ok_or(Error::NoKey {
+        let key = env.var(KEY_VAR).ok_or(Error::NoKey {
             provider: "jev".into(),
-            var,
+            var: KEY_VAR.into(),
         })?;
         Ok(Jev {
             model: cfg.model.clone().unwrap_or_else(|| MODEL.into()),

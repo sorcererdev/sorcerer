@@ -1,5 +1,5 @@
 //! Anthropic's Messages API: `POST {url}/v1/messages`, the key from
-//! `ANTHROPIC_API_KEY` (or the table's `api_key_env`), tool use native.
+//! `ANTHROPIC_API_KEY`, tool use native.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -18,6 +18,9 @@ use crate::{Error, Result};
 
 /// Model ids by alias. `strong` and `cheap` are what products ask for when
 /// they mean "the best" and "the cheapest that will do".
+/// The only variable the Anthropic key is read from.
+pub const KEY_VAR: &str = "ANTHROPIC_API_KEY";
+
 const ALIASES: &[(&str, &str)] = &[
     ("sonnet", "claude-sonnet-5-5"),
     ("haiku", "claude-haiku-5-5"),
@@ -43,8 +46,8 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
-    /// From `[model.providers.anthropic]`. The key is read from `ANTHROPIC_API_KEY`, or from
-    /// the variable the table's `api_key_env` names; without it there is no provider. The
+    /// From `[model.providers.anthropic]`. The key is read from `ANTHROPIC_API_KEY` only, so
+    /// a project's config cannot point scry at another secret; without it there is no provider. The
     /// table's aliases and prices are added to the shipped ones and win over them.
     ///
     /// Example: `prices.sonnet = [3.0, 15.0]` replaces the shipped price of
@@ -58,7 +61,7 @@ impl Anthropic {
             .unwrap_or_else(|| "https://api.anthropic.com".into());
         Ok(Anthropic {
             url: url.trim_end_matches('/').into(),
-            key: api_key(cfg, env)?,
+            key: api_key(env)?,
             aliases,
             prices,
             backoff: Duration::from_secs(1),
@@ -72,14 +75,10 @@ impl Anthropic {
     }
 }
 
-fn api_key(cfg: &ProviderConfig, env: &dyn Env) -> Result<String> {
-    let var = cfg
-        .api_key_env
-        .clone()
-        .unwrap_or_else(|| "ANTHROPIC_API_KEY".into());
-    env.var(&var).ok_or(Error::NoKey {
+fn api_key(env: &dyn Env) -> Result<String> {
+    env.var(KEY_VAR).ok_or(Error::NoKey {
         provider: "anthropic".into(),
-        var,
+        var: KEY_VAR.into(),
     })
 }
 

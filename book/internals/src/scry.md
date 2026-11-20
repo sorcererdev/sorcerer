@@ -464,7 +464,7 @@ editor's server passes two: `review` becomes `review_cancel`, `rest` the claim c
 
 - Jev first, by `jev_for`: `Jev::from_env` over `[decide]` with the project's ledger, then
   `for_product("scry")`, so its errands are scry's `decide`. No key is an error naming the
-  variable (`JEV_API_KEY` unless `[decide] key_env` says otherwise).
+  variable (always `JEV_API_KEY`; config cannot name another).
 - The view, a `FilesView` on the user's `GrammarCache`.
 - The researcher by `researcher_for(project, env, view)`: the provider by
   `default_provider_for`; when its kind is `claude` the researcher is `ClaudeCodeResearcher`

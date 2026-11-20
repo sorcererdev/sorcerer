@@ -97,9 +97,4 @@ fn jev_is_the_decider_when_its_key_is_set() {
         "jev"
     );
     assert!(default_decider(&d, &MapEnv::default()).is_none());
-    let own = DecideConfig {
-        key_env: Some("MY_JEV".into()),
-        ..Default::default()
-    };
-    assert!(default_decider(&own, &MapEnv::default().var_set("MY_JEV", "k")).is_some());
 }

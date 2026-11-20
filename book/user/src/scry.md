@@ -173,7 +173,7 @@ scry || exit $?
 - `provider`: the model provider scry would use, and why (`[model] provider`, else `claude`
   on PATH, else `ANTHROPIC_API_KEY`). Scry runs Claude Code itself as the reviewer when
   the provider is `claude`.
-- `jev`: Jev's key (`JEV_API_KEY`, or `[decide] key_env`). Scry does not run without Jev.
+- `jev`: Jev's key (`JEV_API_KEY`). Scry does not run without Jev.
 - `languages`: each language your files use (or `[languages] names`) loads its grammar.
 - `steering`: what `.sorcerer/scry.toml` holds (rules, includes, the context's size), or
   why it does not read.

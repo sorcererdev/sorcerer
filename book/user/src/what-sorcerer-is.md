@@ -52,5 +52,5 @@ url = "http://localhost:11434/v1"
 aliases = { sonnet = "qwen3:32b", haiku = "qwen3:8b" }
 ```
 
-Add `api_key_env = "MY_KEY"` when the server needs a key, and `prices = { sonnet = [0.5,
+Set `OPENAI_API_KEY` when the server needs a key, and add `prices = { sonnet = [0.5,
 1.5] }` (dollars per million input and output tokens) if you want its spend counted.

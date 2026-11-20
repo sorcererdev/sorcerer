@@ -18,7 +18,6 @@ table no tool knows is reported as a warning, since it is probably a typo.
 |---|---|
 | `kind` | `anthropic`, `claude` or `openai-compatible`; defaults to the table's name |
 | `url` | the server's address (`openai-compatible` needs one; `anthropic` defaults to Anthropic's API) |
-| `api_key_env` | the environment variable holding the key (`ANTHROPIC_API_KEY` for `anthropic`) |
 | `runner` | for `claude`: the command to run instead of `claude` on PATH |
 | `aliases` | which model each name means (`{ sonnet = "qwen3:32b" }`) |
 | `prices` | dollars per million input and output tokens by name (`{ sonnet = [2.0, 10.0] }`), so spend is counted |
@@ -28,7 +27,11 @@ table no tool knows is reported as a warning, since it is probably a typo.
 | key | meaning |
 |---|---|
 | `model` | the Jev model; pinned by default |
-| `key_env` | the environment variable holding the Jev key (`JEV_API_KEY` by default) |
+
+Keys come only from fixed environment variables: `ANTHROPIC_API_KEY` for `anthropic`,
+`OPENAI_API_KEY` for `openai-compatible` (optional; without it no authorization header is
+sent) and `JEV_API_KEY` for Jev. A project's config can never point scry at another secret,
+so there is no setting to name a different variable.
 
 ## `[languages]`
 
