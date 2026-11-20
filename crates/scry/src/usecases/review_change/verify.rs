@@ -76,14 +76,19 @@ impl Pass<'_, '_> {
         file: &Path,
         old_waiting: &HashSet<FindingId>,
     ) -> std::result::Result<bool, Halt> {
+        // A file shows at most 3 findings. Count how many it shows already.
         let mut room = Room::of(&self.working_copy, file, self.cfg);
+        // 1. Line up this file's waiting findings, most confident first.
         let mut candidates = self.waiting_best_first(file);
         if !candidates.is_empty() {
             self.log(&verification_heading_text(file));
         }
         let mut round = 0;
+        // Go round by round until nothing is left (or the user cancels).
         while !candidates.is_empty() && !self.cancel.is_cancelled() {
             round += 1;
+            // 2. Pick only as many as could still be shown; the rest wait
+            //    for a later round.
             let (this_round, later) =
                 room.split(candidates, &self.working_copy, old_waiting, self.cfg);
             self.log(&round_text(
@@ -93,18 +98,29 @@ impl Pass<'_, '_> {
                 &later,
                 &self.working_copy,
             ));
+            // Nothing fits: every slot is taken. Stop.
             if this_round.is_empty() {
                 self.log(NOBODY_FITS_TEXT);
                 break;
             }
+            // 3. Check that the lines each pick points at really exist
+            //    (free). If not, it is marked unsure.
+            // 4. A convention opens right away. A bug needs a claim check (a
+            //    paid model call); if the budget can't cover it, it keeps
+            //    waiting.
             let (to_check, held) = self.check_round_citations(&this_round);
+            // 5. Save what opened so far, so it shows right away.
             if !to_check.is_empty() {
                 self.store_what_passed()?;
             }
+            // 6. Run the paid checks at the same time; record each answer
+            //    (right: open, wrong: refuted, can't tell: unsure).
             for (id, result) in claim_checks_side_by_side(self.deps.checker, to_check) {
                 self.record_check(&id, result);
             }
+            // 7. Count how many are shown now, then go again with the rest.
             room.count_opened(&this_round, &self.working_copy, old_waiting, self.cfg);
+            // The budget ran out: stop, and tell the caller.
             if held {
                 return Ok(true);
             }
