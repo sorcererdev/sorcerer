@@ -15,6 +15,7 @@ pub fn spent_in(errands: &[Errand], product: &str, since: NaiveDate, offset: Fix
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
 

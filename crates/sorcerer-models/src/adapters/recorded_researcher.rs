@@ -92,6 +92,7 @@ fn errand_for(r: &Research, cost: Option<f64>) -> Errand {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
     use crate::domain::research::Tool;

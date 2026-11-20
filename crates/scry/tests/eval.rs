@@ -14,6 +14,7 @@
 //! `reviews/<case>.json` and the claim check of a statement not in
 //! `checks.json`, through the live researcher (`researcher_for`). Outward
 //! calls, run by hand, refused when `CI` is set.
+#![allow(clippy::too_many_lines)]
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};

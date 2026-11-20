@@ -50,6 +50,7 @@ impl LoopResearcher {
 }
 
 impl Researcher for LoopResearcher {
+    #[expect(clippy::too_many_lines, reason = "")]
     fn research(&self, r: Research, cancel: &Cancel) -> Result<Researched> {
         let started = Instant::now();
         let deadline = started + r.timeout;

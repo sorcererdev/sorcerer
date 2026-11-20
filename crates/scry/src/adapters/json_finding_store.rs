@@ -68,6 +68,7 @@ impl FindingStore for JsonFindingStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
     use std::collections::BTreeSet;

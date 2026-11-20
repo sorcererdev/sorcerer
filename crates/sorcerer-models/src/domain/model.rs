@@ -128,6 +128,7 @@ pub fn price(prices: &BTreeMap<String, [f64; 2]>, model: &str, usage: &Usage) ->
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
     use crate::Error;

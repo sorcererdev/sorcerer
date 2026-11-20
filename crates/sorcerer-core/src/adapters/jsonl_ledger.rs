@@ -65,6 +65,7 @@ impl Ledger for JsonlLedger {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
 

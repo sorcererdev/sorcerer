@@ -60,6 +60,31 @@ review step is "review" everywhere). A new name for an existing concept, or a re
 a different one, is a finding."""
 
 [[rule]]
+id = "one-level-per-body"
+text = """
+A function body stays at one level of abstraction: it either names its steps (calls to helpers whose names say what each step is for) or does one step's detail. A body that mixes the two, a story interrupted by loops over fields, string formatting or matching on low-level cases, is a finding; say which block should become a named helper and what its name would say."""
+
+[[rule]]
+id = "helpers-say-intent"
+text = """
+A helper is named for what it is for, not how it works (`units_not_yet_reviewed`, not `filter_units`), sits below its caller in the same file, and is private. A comment that heads a block of a body marks a helper that was not written. A wrapper that only renames one call, or a name such as `process_item` or `handle_reply_2`, is a finding."""
+
+[[rule]]
+id = "log-text-apart"
+text = """
+Text built for the run log, a report or command output is built in its own function (`…_text`), not inline in the logic it describes."""
+
+[[rule]]
+id = "plain-names"
+text = """
+Names use the established word for a thing, and no abbreviation a newcomer could not expand (`st`, `fp`, `raws`). A made-up word where an established one exists is a finding."""
+
+[[rule]]
+id = "comments-say-why"
+text = """
+A function whose name does not say everything has a doc comment giving its intent in one plain sentence. A comment inside a body explains a why the code cannot show (a rule, a trap); a comment that repeats what the code does is a finding."""
+
+[[rule]]
 id = "the-engine-knows-no-language"
 text = """
 No language name, file extension or language-specific syntax appears in `crates/*/src/`:

@@ -28,6 +28,7 @@ pub(super) struct Asked {
 }
 
 impl Run<'_, '_> {
+    #[expect(clippy::too_many_lines, reason = "")]
     pub(super) fn send(&mut self, scope: &Scope, fresh: bool) -> std::result::Result<Asked, Halt> {
         // the units to send, packed
         let to_send: Vec<&ScopedUnit> = scope

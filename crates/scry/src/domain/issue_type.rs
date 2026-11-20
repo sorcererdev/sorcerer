@@ -49,6 +49,7 @@ pub fn issue_type(name: &str) -> Option<&'static IssueType> {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
 

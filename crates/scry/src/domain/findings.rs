@@ -229,6 +229,7 @@ fn free_id(id: &FindingId, taken: &HashSet<String>) -> FindingId {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
     use sorcerer_core::domain::fingerprint::Fingerprint;

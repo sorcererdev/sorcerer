@@ -151,6 +151,7 @@ fn unknown_field(msg: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
     use crate::Error;

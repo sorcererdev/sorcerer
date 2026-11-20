@@ -54,6 +54,7 @@ impl Provider for ScriptedProvider {
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_lines)]
 mod tests {
     use super::*;
     use crate::domain::model::{Message, StopReason, Usage};
