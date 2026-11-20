@@ -1,6 +1,6 @@
-//! The questions a product asks about a codebase, behind one trait so that
-//! a service (a graph of the codebase served over an API) can answer them
-//! later. Every path is relative to the project root.
+//! The questions a product asks about a codebase, behind one trait, so that a service (a graph
+//! of the codebase served over an API) could answer them later instead of the disk. Every path
+//! is relative to the project root.
 
 use std::path::{Path, PathBuf};
 
@@ -8,40 +8,47 @@ use crate::Result;
 use crate::domain::facts::Facts;
 use crate::domain::unit::Unit;
 
+/// One line that a search matched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrepHit {
     pub path: PathBuf,
-    /// 1-based.
+    /// Counted from 1.
     pub line: u32,
     /// The line without its line ending.
     pub text: String,
 }
 
+/// What a product can ask about the project's code.
+///
+/// `rev` is anything git understands as a commit: `HEAD`, `main`, a commit id.
 pub trait CodebaseView: Send + Sync {
-    /// The file's text now. Not UTF-8 is [`Error::NotText`].
+    /// The file's text as it is on disk now. A file that is not UTF-8 text is
+    /// [`Error::NotText`](crate::Error::NotText).
     fn text(&self, path: &Path) -> Result<String>;
-    /// Whether PATH is in the working tree now (text or not).
+    /// Whether the file is on disk now, text or not.
     fn exists(&self, path: &Path) -> bool;
-    /// The file's text at REV; None when it did not exist there.
+    /// The file's text at a commit; `None` when the file did not exist there.
     fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>>;
-    /// The file's units now; empty when no language covers it.
+    /// The file's units as it is now; none when no language covers the file.
     fn units(&self, path: &Path) -> Result<Vec<Unit>>;
-    /// The file's units at REV; empty when it did not exist there or no
-    /// language covers it.
+    /// The file's units at a commit; none when the file did not exist there or no language
+    /// covers it.
     fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>>;
+    /// What the code alone says about one of the file's units (see
+    /// [`Facts`](crate::domain::facts::Facts)).
     fn facts(&self, path: &Path, unit: &Unit) -> Result<Facts>;
-    /// Lines matching PATTERN (a regex), in files matching GLOB when given.
+    /// Every line matching a regular expression, across the project or only in the files a
+    /// glob matches. Example: `grep("fn cancel", Some("src/**"))`.
     fn grep(&self, pattern: &str, glob: Option<&str>) -> Result<Vec<GrepHit>>;
-    /// Files matching PATTERN, sorted.
+    /// The files a glob matches, sorted. Example: `glob("**/*.toml")`.
     fn glob(&self, pattern: &str) -> Result<Vec<PathBuf>>;
-    /// Files that differ from REV in the working tree, plus untracked files
-    /// git does not ignore, sorted. A rename is both paths: the old one
-    /// deleted, the new one added.
+    /// The files that differ on disk from a commit, plus new files git does not ignore,
+    /// sorted. A renamed file shows up twice: its old path (deleted) and its new one (added).
     fn changed_since(&self, rev: &str) -> Result<Vec<PathBuf>>;
-    /// The file's change against REV in the working tree, as `git diff` prints
-    /// it; empty when there is none (also for an untracked file).
+    /// How the file on disk differs from a commit, as `git diff` prints it; empty when it does
+    /// not differ, and also for a file git does not track yet.
     fn diff(&self, path: &Path, rev: &str) -> Result<String>;
-    /// The commit id where HEAD and REV last agree. An unknown REV is
-    /// [`Error::Git`] naming it.
+    /// The last commit that `HEAD` and `rev` share, as a commit id: where a branch split off.
+    /// An unknown `rev` is [`Error::Git`](crate::Error::Git) naming it.
     fn merge_base(&self, rev: &str) -> Result<String>;
 }

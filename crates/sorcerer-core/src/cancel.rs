@@ -8,10 +8,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub struct Cancel(Arc<AtomicBool>);
 
 impl Cancel {
+    /// Asks every holder of this flag to stop. It stays set.
     pub fn cancel(&self) {
         self.0.store(true, Ordering::SeqCst);
     }
 
+    /// Whether someone asked to stop; long work checks this between steps.
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
