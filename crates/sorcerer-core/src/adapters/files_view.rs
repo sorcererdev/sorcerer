@@ -1,4 +1,4 @@
-//! `FilesView` answers the view's questions from the working tree, git and
+//! `FilesView` answers the codebase view's questions from the files on disk, git and
 //! tree-sitter.
 
 use std::path::{Path, PathBuf};
@@ -17,66 +17,22 @@ use crate::domain::unit::{Unit, units_of};
 use crate::ports::view::{CodebaseView, GrepHit};
 use crate::{Error, Result};
 
+/// The codebase as it is on disk, with git for its history.
 pub struct FilesView {
     project: Arc<Project>,
     cache: GrammarCache,
 }
 
 impl FilesView {
+    /// A view of the project; grammars are built or loaded through the cache.
     pub fn new(project: Arc<Project>, cache: GrammarCache) -> FilesView {
         FilesView { project, cache }
     }
 
+    /// The project this view reads.
     pub fn project(&self) -> &Project {
         &self.project
     }
-
-    fn git(&self, args: &[&str]) -> std::result::Result<String, String> {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&self.project.root)
-            .args(args)
-            .output()
-            .map_err(|e| e.to_string())?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-        } else {
-            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-        }
-    }
-
-    /// Every file under the root that git would not ignore, relative, sorted.
-    fn files(&self) -> Vec<PathBuf> {
-        let root = &self.project.root;
-        let mut out: Vec<PathBuf> = ignore::WalkBuilder::new(root)
-            .require_git(false)
-            .build()
-            .flatten()
-            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-            .filter_map(|e| e.path().strip_prefix(root).ok().map(Path::to_path_buf))
-            .collect();
-        out.sort();
-        out
-    }
-
-    fn units_in(&self, path: &Path, text: &str) -> Result<Vec<Unit>> {
-        match self.project.languages.for_path(path) {
-            None => Ok(Vec::new()),
-            Some(lang) => {
-                let loaded = self.project.languages.load(&lang.name, &self.cache)?;
-                units_of(&loaded, text)
-            }
-        }
-    }
-}
-
-fn glob_matcher(pattern: &str) -> Result<globset::GlobMatcher> {
-    Glob::new(pattern)
-        .map(|g| g.compile_matcher())
-        .map_err(|e| Error::Config {
-            file: PathBuf::from(pattern),
-            why: e.to_string(),
-        })
 }
 
 impl CodebaseView for FilesView {
@@ -93,31 +49,12 @@ impl CodebaseView for FilesView {
     }
 
     fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>> {
-        let commit = format!("{rev}^{{commit}}");
-        self.git(&[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            &commit,
-        ])
-        .map_err(|_| Error::Git {
-            why: format!("{rev} is not a commit"),
-        })?;
+        self.require_commit(rev)?;
         let object = format!("{rev}:./{}", path.display());
-        if self
-            .git(&["cat-file", "-e", "--end-of-options", &object])
-            .is_err()
-        {
+        if !self.git_has(&object) {
             return Ok(None);
         }
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&self.project.root)
-            .args(["show", "--end-of-options", &object])
-            .output()
-            .map_err(|e| Error::Git { why: e.to_string() })?;
-        String::from_utf8(out.stdout)
+        String::from_utf8(self.git_show(&object)?)
             .map(Some)
             .map_err(|_| Error::NotText {
                 path: path.to_path_buf(),
@@ -156,36 +93,25 @@ impl CodebaseView for FilesView {
             why: e.to_string(),
         })?;
         let only = glob.map(glob_matcher).transpose()?;
-        let mut hits = Vec::new();
-        for path in self.files() {
-            if only.as_ref().is_some_and(|g| !g.is_match(&path)) {
-                continue;
-            }
-            let full = self.project.root.join(&path);
-            let _ = Searcher::new().search_path(
-                &matcher,
-                &full,
-                UTF8(|line, text| {
-                    hits.push(GrepHit {
-                        path: path.clone(),
-                        line: line as u32,
-                        text: text.trim_end_matches(['\n', '\r']).to_string(),
-                    });
-                    Ok(true)
-                }),
-            );
-        }
-        Ok(hits)
+        Ok(self
+            .files()
+            .into_iter()
+            .filter(|path| only.as_ref().is_none_or(|only| only.is_match(path)))
+            .flat_map(|path| self.grep_file(&matcher, path))
+            .collect())
     }
 
     fn glob(&self, pattern: &str) -> Result<Vec<PathBuf>> {
-        let g = glob_matcher(pattern)?;
-        Ok(self.files().into_iter().filter(|p| g.is_match(p)).collect())
+        let matcher = glob_matcher(pattern)?;
+        Ok(self
+            .files()
+            .into_iter()
+            .filter(|path| matcher.is_match(path))
+            .collect())
     }
 
     fn changed_since(&self, rev: &str) -> Result<Vec<PathBuf>> {
-        let git = |args: &[&str]| self.git(args).map_err(|why| Error::Git { why });
-        let mut out: Vec<PathBuf> = git(&[
+        let changed = self.git_or_error(&[
             "diff",
             "--name-only",
             "--no-renames",
@@ -193,20 +119,22 @@ impl CodebaseView for FilesView {
             "--end-of-options",
             rev,
             "--",
-        ])?
-        .lines()
-        .chain(git(&["ls-files", "--others", "--exclude-standard"])?.lines())
-        .filter(|l| !l.is_empty())
-        .map(PathBuf::from)
-        .collect();
-        out.sort();
-        out.dedup();
-        Ok(out)
+        ])?;
+        let untracked = self.git_or_error(&["ls-files", "--others", "--exclude-standard"])?;
+        let mut paths: Vec<PathBuf> = changed
+            .lines()
+            .chain(untracked.lines())
+            .filter(|line| !line.is_empty())
+            .map(PathBuf::from)
+            .collect();
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
     }
 
     fn diff(&self, path: &Path, rev: &str) -> Result<String> {
-        let rel = path.display().to_string();
-        self.git(&[
+        let relative = path.display().to_string();
+        self.git_or_error(&[
             "diff",
             "--no-color",
             "--no-ext-diff",
@@ -214,9 +142,8 @@ impl CodebaseView for FilesView {
             "--end-of-options",
             rev,
             "--",
-            &rel,
+            &relative,
         ])
-        .map_err(|why| Error::Git { why })
     }
 
     fn merge_base(&self, rev: &str) -> Result<String> {
@@ -226,4 +153,113 @@ impl CodebaseView for FilesView {
                 why: format!("no merge base with {rev}: {why}"),
             })
     }
+}
+
+impl FilesView {
+    /// Every file under the root that git would not ignore, relative to the root, sorted.
+    fn files(&self) -> Vec<PathBuf> {
+        let root = &self.project.root;
+        let mut files: Vec<PathBuf> = ignore::WalkBuilder::new(root)
+            .require_git(false)
+            .build()
+            .flatten()
+            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+            .filter_map(|e| e.path().strip_prefix(root).ok().map(Path::to_path_buf))
+            .collect();
+        files.sort();
+        files
+    }
+
+    /// The lines of one file the regular expression matches. A file that cannot be searched
+    /// (not text, gone since the listing) has none.
+    fn grep_file(&self, matcher: &RegexMatcher, path: PathBuf) -> Vec<GrepHit> {
+        let mut hits = Vec::new();
+        let full = self.project.root.join(&path);
+        let _ = Searcher::new().search_path(
+            matcher,
+            &full,
+            UTF8(|line, text| {
+                hits.push(GrepHit {
+                    path: path.clone(),
+                    line: line as u32,
+                    text: text.trim_end_matches(['\n', '\r']).to_string(),
+                });
+                Ok(true)
+            }),
+        );
+        hits
+    }
+
+    /// The units of a file's text, using the language its path belongs to.
+    fn units_in(&self, path: &Path, text: &str) -> Result<Vec<Unit>> {
+        match self.project.languages.for_path(path) {
+            None => Ok(Vec::new()),
+            Some(lang) => {
+                let loaded = self.project.languages.load(&lang.name, &self.cache)?;
+                units_of(&loaded, text)
+            }
+        }
+    }
+
+    /// An error naming `rev` unless it is a commit.
+    fn require_commit(&self, rev: &str) -> Result<()> {
+        let commit = format!("{rev}^{{commit}}");
+        self.git(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &commit,
+        ])
+        .map(|_| ())
+        .map_err(|_| Error::Git {
+            why: format!("{rev} is not a commit"),
+        })
+    }
+
+    /// Whether git has the object, such as `HEAD:./src/orders.rs` (that file at that commit).
+    fn git_has(&self, object: &str) -> bool {
+        self.git(&["cat-file", "-e", "--end-of-options", object])
+            .is_ok()
+    }
+
+    /// The object's raw bytes, which may not be UTF-8.
+    fn git_show(&self, object: &str) -> Result<Vec<u8>> {
+        Command::new("git")
+            .arg("-C")
+            .arg(&self.project.root)
+            .args(["show", "--end-of-options", object])
+            .output()
+            .map(|out| out.stdout)
+            .map_err(|e| Error::Git { why: e.to_string() })
+    }
+
+    fn git_or_error(&self, args: &[&str]) -> Result<String> {
+        self.git(args).map_err(|why| Error::Git { why })
+    }
+
+    /// Runs git in the project root: its output on success, else what it printed to stderr.
+    fn git(&self, args: &[&str]) -> std::result::Result<String, String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&self.project.root)
+            .args(args)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+}
+
+/// A glob over paths; a bad pattern is a config error naming it.
+fn glob_matcher(pattern: &str) -> Result<globset::GlobMatcher> {
+    Glob::new(pattern)
+        .map(|g| g.compile_matcher())
+        .map_err(|e| Error::Config {
+            file: PathBuf::from(pattern),
+            why: e.to_string(),
+        })
 }
