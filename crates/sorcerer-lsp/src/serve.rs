@@ -51,20 +51,33 @@ pub fn unknown_method(method: &str) -> ResponseError {
 /// 3. The loop: opens, closes and saves of `file:` documents go to the product (other URIs are
 ///    dropped), requests are answered by it, replies go to whatever waits for them, and
 ///    `shutdown` is passed on and answered.
+/// 4. The end: when the editor hung up without `exit`, the product is shut down too, and
+///    every question still waiting for a reply is dropped.
 pub fn serve<P: Product>(
     connection: Connection,
     make: impl FnOnce(Client, Option<PathBuf>) -> P,
 ) -> anyhow::Result<()> {
     let (client, root) = handshake(&connection, &P::capabilities())?;
     let mut product = make(client.clone(), root);
+    let mut said_exit = false;
     for message in &connection.receiver {
         match message {
             Message::Request(request) => answer(&connection, &mut product, request),
             Message::Response(response) => client.replied(response),
-            Message::Notification(note) if note.method == "exit" => return Ok(()),
+            Message::Notification(note) if note.method == "exit" => {
+                said_exit = true;
+                break;
+            }
             Message::Notification(note) => pass_on(&client, &mut product, &note),
         }
     }
+    if !said_exit {
+        // The editor is gone without saying `shutdown`: stop the product's work.
+        product.shutdown();
+    }
+    // Nothing will answer now. A waiting callback may hold a client, and so the connection's
+    // sender, which would keep the writer thread (and the process) alive.
+    client.forget_waiting();
     Ok(())
 }
 

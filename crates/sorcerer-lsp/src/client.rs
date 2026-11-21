@@ -217,6 +217,13 @@ impl Client {
         }
     }
 
+    /// Drops every callback still waiting for a reply, unrun. Called when the connection
+    /// ends: a callback may hold a [`Client`], and a client keeps the connection open.
+    pub(crate) fn forget_waiting(&self) {
+        let forgotten = std::mem::take(&mut lock(&self.shared.state).waiting_for_reply);
+        drop(forgotten);
+    }
+
     fn notify(&self, method: &str, params: impl serde::Serialize) {
         let note = Notification::new(method.to_string(), params);
         let _ = self.shared.sender.send(Message::Notification(note));
