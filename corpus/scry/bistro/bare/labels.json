@@ -119,7 +119,9 @@
  },
  "t11": {
   "hits": [],
-  "unplanted": []
+  "unplanted": [
+   "`weeks` is only checked for being below 1, with no upper bound. A very large value makes `day + timedelta(weeks=week)` overflow `date.max`, raising an uncaught OverflowError (HTTP 500). A merely big value creates thousands of bookings in one request."
+  ]
  },
  "t12": {
   "hits": [],

@@ -35,7 +35,9 @@
  },
  "n01": {
   "hits": [],
-  "unplanted": []
+  "unplanted": [
+   "A booking on an earlier day is always reported as over, but a late sitting (start after 22:30) runs past midnight into the next day. For example a 23:00 booking on day D evaluated at D+1 00:10 returns true although the sitting lasts until 00:30, so the table would be treated as free early."
+  ]
  },
  "n02": {
   "hits": [],
@@ -79,7 +81,9 @@
  },
  "t06": {
   "hits": [],
-  "unplanted": []
+  "unplanted": [
+   "`weeks` is only checked for zero, with no upper bound. A form value like weeks=4000000000 (accepted by the u32 parse in the route) makes `handle` build a Vec of billions of slots and loop over them, exhausting memory or hanging the request. A weekly booking should be limited to a sensible number of weeks, with a failure variant and status for it."
+  ]
  },
  "t07": {
   "hits": [],

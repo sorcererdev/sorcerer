@@ -42,5 +42,7 @@ recorded = "2026-11-21"
 scry = "1c144e0"
 review_model = "sonnet"
 b = 7
-t_mean = 0.056
-n_mean = 0.000
+# 2026-11-21: true findings nobody planted (labelled `unplanted` in bare/labels.json) are left out
+# of the shown count; the recording is unchanged (before: T 0.056, N 0.000).
+t_mean = 0.0
+n_mean = 0.0
