@@ -1,0 +1,12 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0230912,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py"
+      ],
+      "reply": "The change adds a global party cap (`MAX_PARTY = 8`) checked after the table lookup, and a test that covers it. I found no problems:\n\n- The new check at line 56 sits after the table-not-found check, so an unknown table still returns `TableNotFound` first. That matches the existing flow.\n- The test uses a 12-seat table with a party of 9. That isolates the cap from the table-seats check and confirms nothing is saved.\n- The boundary is `>`, so a party of exactly 8 is allowed, which is consistent with the message wording.\n\nI did not open any other files, and the steering has no rules to check against.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

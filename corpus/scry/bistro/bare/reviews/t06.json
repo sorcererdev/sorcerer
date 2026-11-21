@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0298408,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "I found no problems in this change. I searched the repo for other uses of `CreateBookingFailure` and `PartyTooLarge`. The only exhaustive match on the failure type is `create_booking_status` in `src/bistro/web/bookings/failures.py`, and it already handles the new `PartySizeNotAllowed` case.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

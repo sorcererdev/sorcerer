@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0591072,
+      "files": [
+        "src/bistro/booking/commands/create_weekly_booking.py",
+        "src/bistro/booking/commands/create_weekly_booking__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/failures.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "The one problem I found is that `weeks` has no upper bound. I did not open the repository, the template or run any code, so this comes from reading the diff alone.\n\nOn `create_weekly_booking.py:44-51`, only `weeks < 1` is rejected. The route at `routes.py:64` accepts any integer from the form. A large value such as `weeks=1000000` makes `input.slot.day + timedelta(weeks=week)` go past `date.max`, which raises an uncaught `OverflowError` and returns a 500 instead of a 422 `InvalidWeekCount`. A moderately large value, such as 5000, passes validation and builds thousands of bookings. It then makes that many `booking_at` calls and `save` calls in one request.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/create_weekly_booking.py\", \"lines\": [44, 51], \"statement\": \"`weeks` is only checked for being below 1, with no upper bound. A very large value makes `day + timedelta(weeks=week)` overflow `date.max`, raising an uncaught OverflowError (HTTP 500). A merely big value creates thousands of bookings in one request.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/web/bookings/routes.py\", \"lines\": [64, 70]}]}], \"open\": []}\n```"
+    }
+  ]
+}

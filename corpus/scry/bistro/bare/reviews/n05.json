@@ -1,0 +1,15 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0433312,
+      "files": [
+        "src/bistro/booking/queries/get_day_summary.py",
+        "src/bistro/booking/queries/get_day_summary__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "No problems found in this change. `bookings_on` and `tables` both exist on the repository port and on the in-memory and SQLite adapters. `summary.html` uses the same fields the `DaySummary` dataclass defines.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

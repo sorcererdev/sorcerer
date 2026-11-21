@@ -1,0 +1,18 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0401044,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/booking/ports/clock/clock.py",
+        "src/bistro/booking/ports/clock/in_memory_clock.py",
+        "src/bistro/booking/ports/clock/system_clock.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/failures.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "All constructor callers pass `clock`, and the new failure type is handled in `failures.py`. I found no problems in this change.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

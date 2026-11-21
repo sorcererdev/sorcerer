@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0212987,
+      "files": [
+        "src/main.rs"
+      ],
+      "reply": "No problems found in this change. I searched the repo for other uses of `--memory`, `bistro.db` and `--file` and found them only in `src/main.rs`, so nothing else still refers to the old flag. The flipped default (in-memory unless `--file`) is consistent between the doc comment, the usage message and the `create` call.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

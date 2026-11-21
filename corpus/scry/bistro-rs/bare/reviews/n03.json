@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.06665700000000001,
+      "files": [
+        "src/booking/commands/mod.rs",
+        "src/booking/commands/seat_walk_in.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "The change has no problems I could point to in the code. `SeatWalkIn::handle` applies the same checks as `CreateBooking::handle`: it finds a table, checks the slot is free, then saves. Neither command rejects a party of 0, so that is not new here.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

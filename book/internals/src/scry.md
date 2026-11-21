@@ -196,9 +196,10 @@ steering text, `reported` (always empty in v1; spellbook's slot) and the `open` 
 re-answer. `review_prompt` renders it; `tests/golden/review-prompt.txt` is the golden, matched
 byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first line.
 
-`parse_review` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
-to the last `}`, then the first `[` to the last `]` (the array first when it opens first, so a
-bare array of findings is not mistaken for its first object); the first that decodes wins. A
+`parse_review` reads the reply: JSON is located from fenced chunks last-first, then the longest text that starts at a
+`{` and ends at the last `}`, or starts at a `[` and ends at the last `]`, and decodes
+(`json_between_brackets`; longest, so a bare array of findings is not mistaken for its first
+object, and braces in the prose before the JSON, `Booked: {} for {}`, are skipped). A
 finding needs one of the four issue types (the reply's `issue_type`), a file, a statement and `lines` (`[a, z]`, one element, or
 `line`); a bad finding is dropped, a bad evidence entry is dropped and the finding kept. `open`
 answers need `holds` to be exactly `still holds` or `no longer holds`; a numeric id is accepted.
@@ -793,6 +794,18 @@ question Jev is asked (kind, key, P(yes), the findings), and asserts no passing 
 run once by hand with `JEV_API_KEY` set:
 `SCRY_RECORD=jev cargo test -p scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
+
+The **bare table** runs the same cases with no steering: `bare(name)` (`bare_of`) reads the
+corpus's `[bare]` table (`sets`, `[bare.passing_scores]` without `v_must_min`, `[bare.baseline]`)
+and gives a `Corpus` whose `steering` is `CorpusSteering::Bare`: `project_for_case` writes no
+`.sorcerer/scry.toml`, and `recordings` is `<corpus>/bare/`, where `reviews/`, `checks.json` and
+`jev/` are read and recorded (`labels.json`, `base/` and `cases/` stay under the corpus). Only the
+cases in the `[bare]` sets (B, T, N) run. A bare review words its findings differently from the
+rules-on one, so a finding is a hit by the exact statement listed in `bare/labels.json`
+(`bare_labels`, `{case: {"hits": [...], "unplanted": [...]}}`), judged against each case's `expect`.
+Its tests are `bistro_bare_reaches_its_passing_scores` and `bistro_rs_bare_reaches_its_passing_scores`;
+record one with `SCRY_RECORD=all cargo test -p scry --test eval bistro_bare -- --nocapture`
+(then write `bare/labels.json` from the B findings and set the scores).
 
 To record a corpus, run its test once by hand with `JEV_API_KEY` set and `claude` on `PATH`:
 `SCRY_RECORD=all cargo test -p scry --test eval bistro_rs -- --nocapture` (name one corpus: a

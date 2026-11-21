@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0202791,
+      "files": [
+        "src/bistro/booking/models/booking.py"
+      ],
+      "reply": "I found no problems in this change. `Slot.day` is a `date` and `Slot.start` is a `time`, so `datetime.combine` in `ends_at` gets the types it expects. `is_over` is a plain comparison of `now` against `ends_at`.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

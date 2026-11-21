@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.09547,
+      "files": [
+        "src/booking/commands/create_weekly_booking.rs",
+        "src/booking/commands/mod.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "`weeks` is parsed as a `u32` from the form (`routes.rs:92-94`) and goes straight to the command. `handle` then builds a `Vec<Slot>` of that length and calls `booking_at` once per element (`create_weekly_booking.rs:74-89`). A request with `weeks=4000000000` therefore tries to build billions of slots, which means a huge allocation and a very long loop. If the table is free, it would then try to save that many bookings.\n\nThis is a code-path finding, not something I ran.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_weekly_booking.rs\", \"lines\": [55, 79], \"statement\": \"`weeks` is only checked for zero, with no upper bound. A form value like weeks=4000000000 (accepted by the u32 parse in the route) makes `handle` build a Vec of billions of slots and loop over them, exhausting memory or hanging the request. A weekly booking should be limited to a sensible number of weeks, with a failure variant and status for it.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/web/bookings/routes.rs\", \"lines\": [90, 102]}]}], \"open\": []}\n```"
+    }
+  ]
+}

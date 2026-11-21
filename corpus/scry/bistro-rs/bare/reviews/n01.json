@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0403296,
+      "files": [
+        "src/booking/models/booking.rs"
+      ],
+      "reply": "The change has one bug: `is_over` ignores sittings that run past midnight.\n\n`is_over` returns `self.slot.day < today` for any booking on a different day (`src/booking/models/booking.rs:21-23`). A booking at 23:00 on day D runs until 00:30 on D+1. If `is_over(D+1, 00:10)` is called, the booking's day is earlier than today, so it returns true. The sitting still has 20 minutes left. Any start time after 22:30 is affected. The tests only cover a 19:00 start, so they miss this.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/models/booking.rs\", \"lines\": [20, 26], \"statement\": \"A booking on an earlier day is always reported as over, but a late sitting (start after 22:30) runs past midnight into the next day. For example a 23:00 booking on day D evaluated at D+1 00:10 returns true although the sitting lasts until 00:30, so the table would be treated as free early.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/models/booking.rs\", \"lines\": [21, 25]}]}], \"open\": []}\n```"
+    }
+  ]
+}

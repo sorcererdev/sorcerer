@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0562692,
+      "files": [
+        "src/bistro/booking/commands/create_weekly_booking.py",
+        "src/bistro/booking/commands/create_weekly_booking__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/failures.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "Line 53 has a clear bug: the loop checks `input.slot` instead of `slot`, so only the first week is ever checked for conflicts. That is visible in the diff, so no further file reads were needed.\n\nThe test `test_one_taken_week_books_nothing` doesn't catch this. It pre-books SEVEN, which is the first slot, so the check on `input.slot` happens to find it. If a later week is taken and the first is free, the command saves overlapping bookings. It may also overwrite the existing booking, depending on how `save` behaves.\n\nSeparately, the error message on line 54 uses `slot.day`, which is the right week. That makes the message and the check disagree about which slot is being examined.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/create_weekly_booking.py\", \"lines\": [52, 54], \"statement\": \"The conflict loop calls booking_at(table.id, input.slot) instead of the loop variable slot, so it checks the first week on every iteration. A conflict in week 2 or later is never detected, so the command books over an existing reservation instead of returning SlotTaken, which breaks the all-or-nothing promise.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_weekly_booking__test.py\", \"lines\": [43, 49]}]}], \"open\": []}\n```"
+    }
+  ]
+}

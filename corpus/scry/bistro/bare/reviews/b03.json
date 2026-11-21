@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.033455,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "The one problem is in the new duplicate-booking check at `create_booking.py:63`. The check also requires `b.table_id == input.table_id`, so it only fires when the guest books the same table twice in a day. The same guest can still book a different table on the same day. That contradicts the failure message (\"already has a booking on {day}\") and the test name `test_a_guest_cannot_book_twice_in_a_day`. The test only covers the same-table case, so it doesn't catch this.\n\nI confirmed that `bookings_on` exists on the repository port and both implementations. I did not run the tests.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [63, 64], \"statement\": \"The duplicate check also requires `b.table_id == input.table_id`, so a guest who already has a booking that day can still book a different table. The failure message and the test name both say one booking per guest per day. The test only covers the same-table case, so it misses this.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking__test.py\", \"lines\": [45, 50]}]}], \"open\": []}\n```"
+    }
+  ]
+}

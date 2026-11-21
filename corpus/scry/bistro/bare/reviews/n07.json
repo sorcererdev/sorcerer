@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0309973,
+      "files": [
+        "src/bistro/booking/ports/booking_repository/booking_repository__test.py"
+      ],
+      "reply": "I found no problems in the changed test. `test_lists_only_the_days_bookings` saves one booking on each of two days. It then checks that `bookings_on` returns only that day's booking. Both adapters filter by day, so the test passes against each:\n\n- **In-memory:** filters on `b.slot.day == day`.\n- **SQLite:** uses `where day = ?`.\n\nEach day has exactly one booking, so the SQLite sort order can't change the result.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

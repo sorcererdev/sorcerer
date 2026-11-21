@@ -1,0 +1,15 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0561876,
+      "files": [
+        "src/booking/commands/change_party_size.rs",
+        "src/booking/commands/mod.rs",
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "Nothing in this change needs a finding. I checked the code paths below.\n\n- **`BookingRepository` implementations:** only the in-memory and file repositories implement the trait, and both gained `booking`. The new trait method can't break any other implementer.\n- **Party size check:** `handle` compares the new party size against the table's seat count, so an oversized party is refused and the saved booking stays unchanged. The tests cover this.\n- **`save` as upsert:** both repositories now replace an existing booking with the same id and append otherwise. Creating a booking still appends.\n- **File repository rewrite:** `save` now rewrites the whole file instead of appending. That is consistent with how `all()` reads it back.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

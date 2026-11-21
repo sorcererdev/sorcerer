@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0338839,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "I found no problems in this change. The one other place that uses `CreateBookingFailure` is `create_booking_status` in `src/bistro/web/bookings/failures.py`, and it now handles `OutsideOpeningHours`. The new opening-hours checks and the tests that cover them (Monday, before opening, after the last booking, and exactly 21:30) are consistent with each other.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

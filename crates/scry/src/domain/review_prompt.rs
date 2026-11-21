@@ -237,9 +237,12 @@ const REPLY_FORMAT: &str = r#"End your answer with one JSON object and nothing a
 ///
 /// 1. each piece between ``` fences, the last first (a leading `json` tag
 ///    is dropped), since the answer usually ends the reply;
-/// 2. the text from the first `{` to the last `}`, and from the first `[`
-///    to the last `]`, whichever opens first tried first, so a bare list
-///    of objects is read as the list and not as its first object.
+/// 2. the longest text that starts at a `{` and ends at the last `}`, or
+///    starts at a `[` and ends at the last `]`, and decodes. Longest, so a
+///    bare list of objects is read as the list and not as its first object,
+///    and so braces or brackets in the prose before the JSON (`Booked: {}`,
+///    `#[should_panic]`) are skipped without picking up a small fragment
+///    such as a trailing `[]`.
 ///
 /// Example: `I found one problem: {"findings": [...]}` gives the object.
 pub fn json_in(reply: &str) -> Option<Value> {
@@ -258,14 +261,31 @@ fn json_in_fences(reply: &str) -> Option<Value> {
 }
 
 fn json_between_brackets(reply: &str) -> Option<Value> {
-    let brackets = match (reply.find('{'), reply.find('[')) {
-        (Some(brace), Some(square)) if square < brace => [('[', ']'), ('{', '}')],
-        _ => [('{', '}'), ('[', ']')],
+    [('{', '}'), ('[', ']')]
+        .into_iter()
+        .flat_map(|(open, close)| json_from_each_opening_to_last_closing(reply, open, close))
+        .max_by_key(|(text_len, _)| *text_len)
+        .map(|(_, value)| value)
+}
+
+/// Every text in REPLY that starts at an OPEN, ends at the last CLOSE and
+/// decodes, each with its length. Openings that do not decode (a stray `{}`
+/// in the prose before the JSON) are skipped.
+///
+/// Example: for `Booked: {} for {}. {"a": 1}` the texts from the first two
+/// `{` do not decode and the one from the third does, giving `{"a": 1}`.
+fn json_from_each_opening_to_last_closing(
+    reply: &str,
+    open: char,
+    close: char,
+) -> Vec<(usize, Value)> {
+    let Some(last) = reply.rfind(close) else {
+        return Vec::new();
     };
-    brackets.into_iter().find_map(|(open, close)| {
-        let (first, last) = (reply.find(open)?, reply.rfind(close)?);
-        (first <= last).then(|| decode(&reply[first..=last]))?
-    })
+    reply[..=last]
+        .match_indices(open)
+        .filter_map(|(first, _)| Some((last + 1 - first, decode(&reply[first..=last])?)))
+        .collect()
 }
 
 fn decode(text: &str) -> Option<Value> {

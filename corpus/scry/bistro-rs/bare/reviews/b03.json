@@ -1,0 +1,12 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0471126,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/web/bookings/failures.rs"
+      ],
+      "reply": "The check at line 49 is `input.slot.start <= Time::new(17, 0)`, so a booking at exactly 17:00 is refused. The error message says \"we take bookings 17:00 to 21:30\", and the upper bound at 21:30 is inclusive. That makes the 17:00 boundary look wrong, and the test only tries 16:30 and 17:30, so it doesn't cover the case.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [48, 51], \"statement\": \"The opening-hours check uses `start <= Time::new(17, 0)`, so a 17:00 booking is rejected. The error message says bookings are taken from 17:00 and the 21:30 end is inclusive, so the lower bound is probably meant to be `<`. The test uses 16:30 and 17:30 and never tries 17:00, so it does not catch this.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [159, 188]}]}], \"open\": []}\n```"
+    }
+  ]
+}

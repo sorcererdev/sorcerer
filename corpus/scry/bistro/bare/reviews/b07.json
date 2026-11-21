@@ -1,0 +1,15 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0403132,
+      "files": [
+        "src/bistro/booking/queries/get_day_summary.py",
+        "src/bistro/booking/queries/get_day_summary__test.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "The empty-table count is wrong because it compares the wrong ids. Line 23 builds `booked_tables` from `b.id`, the booking id (e.g. \"b1\"). Line 24 then compares it against `t.id`, the table id (e.g. \"t1\"). The two never match, so every table counts as empty. In the unit test's data, `empty_tables` would come out as 3 instead of 1. The test never asserts `empty_tables`, so it doesn't catch this.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/queries/get_day_summary.py\", \"lines\": [23, 25], \"statement\": \"`booked_tables` is built from `b.id` (booking ids), but is compared against table ids (`t.id`) on the next line. No table id matches a booking id, so `empty_tables` always equals the total number of tables, even on days with bookings. The test also never asserts `empty_tables`, so the bug is not caught.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/queries/get_day_summary__test.py\", \"lines\": [12, 21]}]}], \"open\": []}\n```"
+    }
+  ]
+}

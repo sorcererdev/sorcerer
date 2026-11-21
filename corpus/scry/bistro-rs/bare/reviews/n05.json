@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0630989,
+      "files": [
+        "src/booking/queries/get_day_summary.rs",
+        "src/booking/queries/mod.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/pages.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "I found no problems in this change. I checked that `bookings_on` and `tables` exist on the `BookingRepository` trait. I also checked that `Day` is `Copy` and implements `Display`, which the summary page and `handle` rely on.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.059736,
+      "files": [
+        "src/bistro/booking/commands/swap_tables.py",
+        "src/bistro/booking/commands/swap_tables__test.py",
+        "src/bistro/booking/ports/booking_repository/booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "The check is against the table the booking is already on, not the one it is moving to. `create_booking` checks the destination table's seats.\n\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/swap_tables.py\", \"lines\": [52, 54], \"statement\": \"The party-size check loads `booking.table_id`, which is the booking's current table, and the party already fits there. The booking is moving to `other.table_id`, so that is the table whose seats should be checked. As written, a party of 4 on t1 can be swapped onto the 2-seat t2 and `PartyTooLarge` is never returned. The tests don't cover this case.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/swap_tables.py\", \"lines\": [51, 57]}, {\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [53, 54]}]}], \"open\": []}"
+    }
+  ]
+}
