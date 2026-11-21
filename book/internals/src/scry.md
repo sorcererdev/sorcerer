@@ -795,6 +795,18 @@ run once by hand with `JEV_API_KEY` set:
 `SCRY_RECORD=jev cargo test -p scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
 
+The **bare table** runs the same cases with no steering: `bare(name)` (`bare_of`) reads the
+corpus's `[bare]` table (`sets`, `[bare.passing_scores]` without `v_must_min`, `[bare.baseline]`)
+and gives a `Corpus` whose `steering` is `CorpusSteering::Bare`: `project_for_case` writes no
+`.sorcerer/scry.toml`, and `recordings` is `<corpus>/bare/`, where `reviews/`, `checks.json` and
+`jev/` are read and recorded (`labels.json`, `base/` and `cases/` stay under the corpus). Only the
+cases in the `[bare]` sets (B, T, N) run. A bare review words its findings differently from the
+rules-on one, so a finding is a hit by the exact statement listed in `bare/labels.json`
+(`bare_labels`, `{case: {"hits": [...], "unplanted": [...]}}`), judged against each case's `expect`.
+Its tests are `bistro_bare_reaches_its_passing_scores` and `bistro_rs_bare_reaches_its_passing_scores`;
+record one with `SCRY_RECORD=all cargo test -p scry --test eval bistro_bare -- --nocapture`
+(then write `bare/labels.json` from the B findings and set the scores).
+
 To record a corpus, run its test once by hand with `JEV_API_KEY` set and `claude` on `PATH`:
 `SCRY_RECORD=all cargo test -p scry --test eval bistro_rs -- --nocapture` (name one corpus: a
 statement with no verdict in another corpus would be checked too). `run_corpus` then calls

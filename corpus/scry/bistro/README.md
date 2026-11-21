@@ -36,3 +36,7 @@ run for commit `081e1ec`).
 
 See `../README.md`: `cargo test -p scry --test eval -- --exact bistro_reaches_its_passing_scores --nocapture` runs
 this corpus alone.
+
+## The bare table (2026-11-21)
+
+The same non-V cases reviewed with no `scry.toml`; `bare/labels.json` lists the findings judged hits. bare: B 7 of 8 with a hit shown, T 0.056, N 0.000 a case; passing scores 6, 0.5, 0.5. The recording (2026-11-21, `recorded: 34 reviews $1.506, 8 checks $0.050, 9 jev answers`) is under `bare/`.

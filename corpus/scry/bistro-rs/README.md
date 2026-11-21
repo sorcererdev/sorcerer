@@ -159,3 +159,7 @@ is empty); no override could change the numbers, since every V-must and B findin
 
 The baseline and the passing scores are in `corpus.toml`: V-must 10/10 with a hit shown, B 4/6, T
 0.100, N 0.167 shown a case; passing scores 9, 3, 0.5, 0.5.
+
+## The bare table (2026-11-21)
+
+The same non-V cases reviewed with no `scry.toml`; `bare/labels.json` lists the findings judged hits. bare: B 5 of 6 with a hit shown, T 0.100, N 0.167 a case; passing scores 4, 0.5, 0.5. The recording (2026-11-21, about $1.26 in reviews over two runs, the first stopped by a reply parser bug fixed since) is under `bare/`.

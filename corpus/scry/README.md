@@ -17,12 +17,13 @@ nitpick: nothing shown), **V-taste** (breaks a rule of taste: shown is allowed, 
 
 | path | what it is |
 |---|---|
-| `corpus.toml` | `name`, `language` (the one `[languages]` names in each case's project), `sets` (the table's rows, in order), `[passing_scores]` (`v_must_min`, `b_min`, `t_mean_max`, `n_mean_max`), `[baseline]` (the recording the passing scores were set from). A corpus with no `[passing_scores]` fails its test after printing its table. |
+| `corpus.toml` | `name`, `language` (the one `[languages]` names in each case's project), `sets` (the table's rows, in order), `[passing_scores]` (`v_must_min`, `b_min`, `t_mean_max`, `n_mean_max`), `[baseline]` (the recording the passing scores were set from), and `[bare]` (`sets`, its own `[bare.passing_scores]` with no `v_must_min`, `[bare.baseline]`). A corpus with no `[passing_scores]` fails its test after printing its table. |
 | `base/` | the project every case starts from, as plain files |
 | `cases/<id>.toml`, `cases/<id>.patch` | one case each: the patch is the change, applied to `base/` uncommitted |
 | `scry.toml` | the steering the reviewer reads |
 | `labels.json` | per case: its set, the statements that count as a hit, the `unplanted` ones (true findings nobody planted, left out of the shown count) and its changed files |
 | `reviews/<case>.json` | the recorded review replies: `{"batches": [{"files": [...], "reply": "...", "cost_usd": …}]}`. Replayed by file: a batch's reply is every recorded finding (over all the case's batches) whose `file` is one of the batch's files, so a change in batching still replays. A case with no file, or a batch with a file no recorded batch holds (a recording stopped part way), fails the eval. |
+| `bare/` | the same recordings (`reviews/`, `checks.json`, `jev/`) made with no steering, and `labels.json` (per case, the exact statements of the bare findings that are hits). Read by the bare table only |
 | `checks.json` | the checker's recorded reply by the statement checked (whitespace collapsed): `verdict` (`right`, `wrong`, `cannot_tell`), `why` and the `evidence` it cited |
 | `jev/<key>.json` | Jev's recorded answers, one file per question, named by its `question_key` |
 
