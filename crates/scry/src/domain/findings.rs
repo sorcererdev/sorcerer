@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 
 use crate::domain::config::{MAX_SHOWN, ScryConfig};
@@ -43,7 +44,7 @@ impl Findings {
         let base = format!(
             "{}\0{}\0{}\0{}\0{}",
             at.to_rfc3339(),
-            file.display(),
+            forward_slashes(file),
             lines.start,
             lines.end,
             statement

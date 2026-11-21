@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::ports::view::CodebaseView;
 
 use crate::domain::model::{ToolCall, ToolSpec};
@@ -114,7 +115,7 @@ fn read(path: &Path, lines: Lines, view: &dyn CodebaseView, fences: &Fences) -> 
     let Some(relative) = fences.relative(path).filter(|_| fences.allows(path)) else {
         return ToolOutput::text(format!(
             "refused: {} is fenced (not evidence)",
-            path.display()
+            forward_slashes(path)
         ));
     };
     let text = match view.text(&relative) {
@@ -154,7 +155,7 @@ fn grep(pattern: &str, glob: Option<&str>, view: &dyn CodebaseView, fences: &Fen
         .map(|hit| {
             format!(
                 "{}:{}: {}",
-                hit.path.display(),
+                forward_slashes(&hit.path),
                 hit.line,
                 hit.text.chars().take(GREP_WIDTH).collect::<String>()
             )
@@ -190,7 +191,7 @@ fn glob(pattern: &str, view: &dyn CodebaseView, fences: &Fences) -> String {
     let allowed: Vec<String> = paths
         .into_iter()
         .filter(|path| fences.allows(path))
-        .map(|path| path.display().to_string())
+        .map(|path| forward_slashes(&path))
         .collect();
     let shown = first_of(allowed, GLOB_PATHS, |more| {
         format!("… ({more} more not shown)")

@@ -15,6 +15,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use sorcerer_core::domain::fingerprint::Fingerprint;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Unit;
 
 use super::{Pass, Progress, SentUnit};
@@ -367,7 +368,7 @@ fn first_of_each<'a>(files: impl Iterator<Item = &'a PathBuf>) -> Vec<PathBuf> {
 fn file_list(files: &[PathBuf]) -> String {
     files
         .iter()
-        .map(|f| f.display().to_string())
+        .map(|f| forward_slashes(f))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -399,7 +400,7 @@ fn units_text(scope: &Scope, to_send: &[&ScopedUnit], fresh: bool) -> String {
         };
         text.push_str(&format!(
             "- `{}` `{}` ({}-{}, fingerprint {}): {what}\n",
-            u.file.display(),
+            forward_slashes(&u.file),
             u.unit.name,
             u.unit.span.start,
             u.unit.span.end,
@@ -424,7 +425,7 @@ fn review_calls_heading_text(nothing_to_send: bool) -> String {
 fn batch_heading_text(n: usize, batch: &[UnitToSend]) -> String {
     let unit_names: Vec<String> = batch
         .iter()
-        .map(|u| format!("`{}` `{}`", u.prompt.file.display(), u.prompt.name))
+        .map(|u| format!("`{}` `{}`", forward_slashes(&u.prompt.file), u.prompt.name))
         .collect();
     format!(
         "{}- units: {}\n",

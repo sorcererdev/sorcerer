@@ -31,7 +31,8 @@ method names and the domain file stays pure.
   `unit.rs` (units from the queries), `fingerprint.rs`, `compare.rs` (units before and
   after), `facts.rs`, `versioned.rs` (`Versioned`, `Snapshot`: a product's state file as data),
   `errand.rs` (one paid call), `cost.rs` (`spent_since`), `fences.rs` (the
-  patterns and `allows_relative`), `trust.rs` (`needs_trust`), `fnv.rs`.
+  patterns and `allows_relative`), `trust.rs` (`needs_trust`), `fnv.rs`, `paths.rs`
+  (`forward_slashes`).
 - `ports/`: `view.rs` (`CodebaseView`), `ledger.rs` (`Ledger`), `env.rs` (`Env`).
 - `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars fetched,
   built and loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
@@ -126,6 +127,12 @@ platform where it was needed:
   group on Unix, a job object on Windows, through the `process-wrap` crate) and returns a
   `Running`; `Running::stop()` ends the program and everything it started, then waits.
   `is_running(pid)` is for tests.
+
+A project-relative path that becomes text (a prompt, the store, a run log, a research tool's
+answer, a recording key, a `claude` deny rule) goes through `forward_slashes(path)`
+(`sorcerer_core::domain::paths`), which writes it with `/` on every platform, so the same
+change gives the same text on Windows; on Linux and macOS it is the path's own text. A path
+shown only to the user (an absolute root, a file to open) keeps the platform's form.
 
 Finding a program on PATH needs nothing of its own: `SystemEnv::which` uses the `which`
 crate, which tries `PATHEXT`'s extensions on Windows, so `claude` finds `claude.cmd`.

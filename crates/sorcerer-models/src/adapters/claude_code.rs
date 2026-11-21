@@ -11,6 +11,7 @@ use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
 
@@ -98,8 +99,8 @@ impl ClaudeCodeResearcher {
         });
         let fenced_links = self.fences.fenced_links().into_iter().flat_map(|link| {
             [
-                format!("Read(./{})", link.display()),
-                format!("Read(./{}/**)", link.display()),
+                format!("Read(./{})", forward_slashes(&link)),
+                format!("Read(./{}/**)", forward_slashes(&link)),
             ]
         });
         fenced_files

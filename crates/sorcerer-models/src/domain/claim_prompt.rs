@@ -15,6 +15,7 @@ use std::path::Path;
 
 use serde_json::Value;
 use sorcerer_core::domain::language::Languages;
+use sorcerer_core::domain::paths::forward_slashes;
 
 use crate::domain::claim::{Claim, Verdict};
 use crate::domain::decide::{Question, Shape, UnsureAnswer};
@@ -56,7 +57,7 @@ fn hint_line(claim: &Claim) -> Option<String> {
     let place = claim.about.first()?;
     Some(format!(
         "Hint: the writer pointed at `{}:{}`: a place to start, not the answer.",
-        place.file.display(),
+        forward_slashes(&place.file),
         place.lines.start
     ))
 }
@@ -133,7 +134,7 @@ struct FilesNamingUnitsAlike {
 fn files_by_unit_words(claim: &Claim, languages: Option<&Languages>) -> Vec<FilesNamingUnitsAlike> {
     claim.about.iter().fold(Vec::new(), |mut groups, place| {
         let unit_words = unit_words_for(&place.file, languages);
-        let file = format!("`{}`", place.file.display());
+        let file = format!("`{}`", forward_slashes(&place.file));
         match groups
             .iter_mut()
             .find(|group: &&mut FilesNamingUnitsAlike| group.unit_words == unit_words)

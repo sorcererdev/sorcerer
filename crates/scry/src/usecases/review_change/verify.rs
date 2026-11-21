@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::{Span, unit_at};
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::domain::claim::{Checked, CitationCheck, Claim, Escalation, Verdict};
@@ -477,7 +478,7 @@ fn ranges_as_checked(
     ranges
         .iter()
         .map(|(file, lines)| StoredCitation {
-            path: file.display().to_string(),
+            path: forward_slashes(file),
             unit: None,
             line: Some(lines.start),
             confirmed: cites(view, fences, file, *lines),
