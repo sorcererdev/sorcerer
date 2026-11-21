@@ -146,7 +146,8 @@ crate, which tries `PATHEXT`'s extensions on Windows, so `claude` finds `claude.
 `scripts/platform` keeps it so (beside `scripts/layers`, below): in every `.rs` file under
 `crates/` (sources, tests, examples and test modules alike) outside that directory it
 refuses `cfg(unix)`, `cfg(windows)`, `cfg(target_os …)` (also inside `not(…)` or `any(…)`),
-the same in `cfg!(…)`, `std::os::`, `.canonicalize(`, `"HOME"`, `process_group` and
+the same in `cfg!(…)` and `cfg_attr(…)`, `std::os::`, `os::unix` and `os::windows` (as in
+`use std::{fs, os::unix::…}`), `.canonicalize(`, `"HOME"`, `process_group` and
 `Command::new("kill"`, skipping comment lines. Each refusal is printed as
 `file:line: platform code outside crates/sorcerer-core/src/adapters/platform/: <form>`, and
 the script exits 1. `scripts/platform-test` plants every form and checks each is named, that

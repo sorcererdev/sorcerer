@@ -29,6 +29,16 @@ fn i(c: &mut Command) { c.process_group(0); }
 fn j() { Command::new("kill"); }
 #[cfg(not(windows))]
 fn k() {}
+#[cfg_attr(unix, allow(dead_code))]
+fn l() {}
+#[cfg_attr(windows, allow(dead_code))]
+fn m() {}
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn n() {}
+use std::{fs, os::unix::fs::symlink};
+use std::{
+    os::windows::fs::symlink_dir,
+};
 RS
 }
 
@@ -58,6 +68,11 @@ want=(
   "crates/x/src/lib.rs:13: $where: process_group"
   "crates/x/src/lib.rs:14: $where: Command::new(\"kill\""
   "crates/x/src/lib.rs:15: $where: cfg(windows)"
+  "crates/x/src/lib.rs:17: $where: cfg_attr(unix"
+  "crates/x/src/lib.rs:19: $where: cfg_attr(windows"
+  "crates/x/src/lib.rs:21: $where: cfg_attr(target_os"
+  "crates/x/src/lib.rs:23: $where: os::unix"
+  "crates/x/src/lib.rs:25: $where: os::windows"
   "crates/x/tests/t.rs:1: $where: cfg(unix)"
   "crates/x/tests/t.rs:14: $where: Command::new(\"kill\""
   "crates/x/src/adapters/platform/mod.rs:10: $where: std::os::"
@@ -70,7 +85,7 @@ for quiet in "crates/x/src/clean.rs" "crates/sorcerer-core/src/adapters/platform
   if grep -qF "$quiet:" <<<"$out"; then echo "FAIL: named $quiet"; fail=1; fi
 done
 lines=$(wc -l <<<"$out" | tr -d ' ')
-[ "$lines" -eq 36 ] || { echo "FAIL: $lines lines, want 36 (12 forms in each of 3 files)"; fail=1; }
+[ "$lines" -eq 51 ] || { echo "FAIL: $lines lines, want 51 (17 forms in each of 3 files)"; fail=1; }
 [ "$fail" -eq 0 ] || { echo "$out"; exit 1; }
 
 mkdir -p "$clean/crates/x/src"

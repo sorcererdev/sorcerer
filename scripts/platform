@@ -5,7 +5,9 @@
 # portable API. Refused forms:
 #   cfg(unix)  cfg(windows)  cfg(target_os …)   (also inside not(…), any(…))
 #   cfg!(unix) cfg!(windows) cfg!(target_os …)
-#   std::os::  .canonicalize(  "HOME"  process_group  Command::new("kill"
+#   cfg_attr(unix, …) cfg_attr(windows, …) cfg_attr(target_os …, …)
+#   std::os::  os::unix / os::windows (as in `use std::{fs, os::unix::…}`)
+#   .canonicalize(  "HOME"  process_group  Command::new("kill"
 # Comment lines are skipped.
 #
 # Usage: scripts/platform [ROOT]   (ROOT defaults to the repository)
@@ -27,10 +29,15 @@ find crates -name '*.rs' -print0 2>/dev/null | sort -z | perl -0 -ne '
     $n++;
     next if $line =~ m{^\s*//};
     my @found;
-    while ($line =~ /\b(cfg!?)\(([^)\n]*?)\b(unix|windows|target_os)\b/g) {
+    while ($line =~ /\b(cfg_attr|cfg!?)\(([^)\n]*?)\b(unix|windows|target_os)\b/g) {
       my ($macro, $what) = ($1, $3);
-      push @found, $what eq "target_os" ? "$macro(target_os" : "$macro($what)";
+      push @found,
+          $macro eq "cfg_attr"    ? "cfg_attr($what"
+        : $what eq "target_os"    ? "$macro(target_os"
+        :                           "$macro($what)";
     }
+    # an os module reached other than as std::os:: (which is named below)
+    while ($line =~ /(?<!std::)\bos::(unix|windows)\b/g) { push @found, "os::$1" }
     for my $form (@plain) {
       push @found, $form if index($line, $form) >= 0;
     }
