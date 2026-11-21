@@ -236,8 +236,10 @@ impl<W: Wiring + 'static> Server<W> {
         }
         match self.diagnostics_for(path) {
             Ok(Some((shown, diagnostics))) => {
-                self.client.publish(path, diagnostics);
+                // remembered first: an editor may ask for the actions on a diagnostic as soon
+                // as it arrives
                 lock(&self.published).insert(path.to_path_buf(), shown);
+                self.client.publish(path, diagnostics);
                 lock(&self.errors_logged).clear();
             }
             Ok(None) => {}
