@@ -1,0 +1,12 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0549544,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/web/bookings/failures.rs"
+      ],
+      "reply": "I found no problems in this change. The opening-hours check in `handle` behaves as intended, and the new failure variant is handled everywhere it needs to be.\n\n- **Time comparison:** `Time` derives `PartialOrd` with `hour` declared before `minute`, so the `< 17:00` and `> 21:30` comparisons are correct.\n- **Weekday:** `Day::weekday` maps day 0 (1970-01-01) to Thursday, which is correct. The existing test confirms 2026-10-09 is a Friday, so 2026-10-12 is a Monday.\n- **Boundaries:** the tests cover both edges of the hours, 17:00 and 21:30, which are accepted.\n- **Match arms:** the new variant is handled in `reason` and in `create_booking_status`, so the matches stay exhaustive.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

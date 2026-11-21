@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0267939,
+      "files": [
+        "src/bistro/main.py"
+      ],
+      "reply": "`create_demo_booking` has no callers, and I found no code path in it that does the wrong thing, so I'm reporting no problems. Its constructor calls match the real signatures: `InMemoryBookingRepository(tables=...)` takes an iterable of tables, and `InMemoryIdGenerator()` takes no arguments.\n\nIt is also not wired into `create`, which still builds `CreateBooking` from the SQLite repository. An unused function is not a defect I can pin to a code path, so I left it out.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0535978,
+      "files": [
+        "src/bistro/booking/commands/change_party_size.py",
+        "src/bistro/booking/commands/change_party_size__test.py",
+        "src/bistro/booking/ports/booking_repository/booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "`ChangePartySize.handle` has an off-by-one in its capacity check, and it contradicts `create_booking`.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/change_party_size.py\", \"lines\": [43, 45], \"statement\": \"The check `input.party >= table.seats` refuses a party that exactly fills the table. A 4-seat table rejects a change to 4 with PartyTooLarge, and the message then reads 'seats 4, not 4'. `create_booking` uses `>` and accepts such a party, so the two commands disagree. The tests only try 3 and 5, so they don't catch it.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [53, 54]}]}], \"open\": []}\n```"
+    }
+  ]
+}

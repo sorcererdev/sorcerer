@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0262484,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "No problems found in this change. `ClosedOnMonday` is added to the `CreateBookingFailure` union and handled in `create_booking_status`. Those are the only places that reference these failure types, so no other `match` is left without the new case.\n\n```json\n{\"findings\": [], \"open\": []}\n```"
+    }
+  ]
+}

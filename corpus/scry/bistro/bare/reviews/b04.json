@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0332452,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "One bug: a booking at exactly 17:00 is refused, although the message says bookings start at 17:00.\n\nOn line 64, `OPENING < input.slot.start` is a strict comparison. A slot starting at 17:00 therefore fails the check and returns `OutsideOpeningHours(\"bookings are taken from 17:00 to 21:30\")`. The upper bound uses `<=` and the new tests cover 21:30, but nothing tests 17:00, so the mistake isn't caught.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [64, 65], \"statement\": \"The check `OPENING < input.slot.start` uses a strict comparison, so a booking at exactly 17:00 is refused. The error message itself says bookings are taken from 17:00. The tests cover 16:30 and 21:30 but not 17:00, so this boundary is untested.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/commands/create_booking.py\", \"lines\": [64, 65]}, {\"file\": \"src/bistro/booking/commands/create_booking__test.py\", \"lines\": [58, 76]}]}], \"open\": []}\n```"
+    }
+  ]
+}

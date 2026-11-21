@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0673533,
+      "files": [
+        "src/bistro/booking/commands/swap_tables.py",
+        "src/bistro/booking/commands/swap_tables__test.py",
+        "src/bistro/booking/ports/booking_repository/booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "I found no problems in this change, so the findings list is empty.\n\n- **Swap logic:** `SwapTables.handle` handles the same-slot case correctly. When both bookings share a slot, the `booking_at` lookup returns the other booking, and the `taken.id != other.id` check lets the swap through.\n- **Database constraint:** the SQLite schema has no unique constraint on table and slot. The first `update` therefore can't collide with the second booking mid-swap.\n\nI didn't flag the two separate `update` commits in `handle` (`swap_tables.py:60-61`). A failure between them could leave a half-swapped state, but I found no code path that triggers it.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

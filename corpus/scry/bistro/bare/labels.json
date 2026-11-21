@@ -1,0 +1,152 @@
+{
+ "b01": {
+  "hits": [
+   "The check `input.party >= table.seats` refuses a party that exactly fills the table. A 4-seat table rejects a change to 4 with PartyTooLarge, and the message then reads 'seats 4, not 4'. `create_booking` uses `>` and accepts such a party, so the two commands disagree. The tests only try 3 and 5, so they don't catch it."
+  ],
+  "unplanted": []
+ },
+ "b02": {
+  "hits": [
+   "delete executes the SQL delete but never commits, unlike save and add_tables. The change is only visible on this connection and is lost if the process exits before another commit; the cancel route still returns 204. The shared repository test uses the same connection, so it does not catch this."
+  ],
+  "unplanted": []
+ },
+ "b03": {
+  "hits": [
+   "The duplicate check also requires `b.table_id == input.table_id`, so a guest who already has a booking that day can still book a different table. The failure message and the test name both say one booking per guest per day. The test only covers the same-table case, so it misses this."
+  ],
+  "unplanted": []
+ },
+ "b04": {
+  "hits": [
+   "The check `OPENING < input.slot.start` uses a strict comparison, so a booking at exactly 17:00 is refused. The error message itself says bookings are taken from 17:00. The tests cover 16:30 and 21:30 but not 17:00, so this boundary is untested."
+  ],
+  "unplanted": []
+ },
+ "b05": {
+  "hits": [
+   "The conflict loop calls booking_at(table.id, input.slot) instead of the loop variable slot, so it checks the first week on every iteration. A conflict in week 2 or later is never detected, so the command books over an existing reservation instead of returning SlotTaken, which breaks the all-or-nothing promise."
+  ],
+  "unplanted": []
+ },
+ "b06": {
+  "hits": [
+   "The party-size check loads `booking.table_id`, which is the booking's current table, and the party already fits there. The booking is moving to `other.table_id`, so that is the table whose seats should be checked. As written, a party of 4 on t1 can be swapped onto the 2-seat t2 and `PartyTooLarge` is never returned. The tests don't cover this case."
+  ],
+  "unplanted": []
+ },
+ "b07": {
+  "hits": [
+   "`booked_tables` is built from `b.id` (booking ids), but is compared against table ids (`t.id`) on the next line. No table id matches a booking id, so `empty_tables` always equals the total number of tables, even on days with bookings. The test also never asserts `empty_tables`, so the bug is not caught."
+  ],
+  "unplanted": []
+ },
+ "b08": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n01": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n02": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n03": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n04": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n05": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n06": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n07": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n08": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t01": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t02": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t03": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t04": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t05": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t06": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t07": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t08": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t09": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t10": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t11": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t12": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t13": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t14": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t15": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t16": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t17": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t18": {
+  "hits": [],
+  "unplanted": []
+ }
+}

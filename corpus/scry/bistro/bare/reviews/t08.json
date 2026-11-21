@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0527744,
+      "files": [
+        "src/bistro/booking/commands/hold_earliest_slot.py",
+        "src/bistro/booking/commands/hold_earliest_slot__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "I found no problems in this change. `HoldEarliestSlot` is consistent with the repository interface and with `CreateBooking`, and the tests' slot counts match the 10 start times (17:00 to 21:30).\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

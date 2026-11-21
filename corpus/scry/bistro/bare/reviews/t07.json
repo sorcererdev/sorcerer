@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0291636,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "Nothing found. `bookings_on` is declared on the repository port and implemented in both the in-memory and SQLite repositories. The new failure type is handled in the status match in `failures.py`, and the new test covers the new rule.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

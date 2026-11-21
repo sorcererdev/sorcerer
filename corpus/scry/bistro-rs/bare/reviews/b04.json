@@ -1,0 +1,16 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0772992,
+      "files": [
+        "src/booking/commands/create_weekly_booking.rs",
+        "src/booking/commands/mod.rs",
+        "src/main.rs",
+        "src/web/app.rs",
+        "src/web/bookings/failures.rs",
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "One bug: the availability check skips the last week of the series.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_weekly_booking.rs\", \"lines\": [80, 89], \"statement\": \"The loop iterates over `&slots[..slots.len() - 1]`, so the final week's slot is never checked with `booking_at`. If the last week is already booked, `save` still runs for it, which double-books the table and breaks the all-or-nothing guarantee. For example, with weeks=2 and week 1 already taken, no conflict is reported. The existing test only passes because its taken week is in the middle of the series.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/create_weekly_booking.rs\", \"lines\": [161, 176]}]}], \"open\": []}\n```"
+    }
+  ]
+}

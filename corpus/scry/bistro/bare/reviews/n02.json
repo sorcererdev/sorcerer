@@ -1,0 +1,12 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.034398200000000004,
+      "files": [
+        "src/bistro/main.py",
+        "src/bistro/main__test.py"
+      ],
+      "reply": "The new test can't fail, so it doesn't check the behaviour its name claims. `tmp_path` is never passed to `create` or used as the working directory, and no `chdir` or `monkeypatch` points at it. `list(tmp_path.iterdir()) == []` is therefore always true. If `create(None)` fell back to SQLite and wrote `bistro.sqlite3` in the cwd, the test would still pass. The `isinstance(..., FastAPI)` check is the only real assertion, and it would also pass with SQLite.\n\nThe production change itself looks correct. `InMemoryBookingRepository(tables=TABLES)` matches the constructor signature in `in_memory_booking_repository.py:12`.\n\n```json\n{\"findings\": [{\"issue_type\": \"design\", \"file\": \"src/bistro/main__test.py\", \"lines\": [24, 28], \"statement\": \"The test asserts that tmp_path is empty, but tmp_path is never given to create() or made the cwd, so the assertion is always true. It would still pass if create(None) wrote a SQLite file, so it doesn't verify the in-memory behaviour it claims to.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/main__test.py\", \"lines\": [24, 28]}, {\"file\": \"src/bistro/main.py\", \"lines\": [23, 31]}]}], \"open\": []}\n```"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0630092,
+      "files": [
+        "src/bistro/booking/commands/cancel_booking.py",
+        "src/bistro/booking/commands/cancel_booking__test.py",
+        "src/bistro/booking/ports/booking_repository/booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/booking_repository__test.py",
+        "src/bistro/booking/ports/booking_repository/in_memory_booking_repository.py",
+        "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "src/bistro/main.py",
+        "src/bistro/web/bookings/failures.py",
+        "src/bistro/web/bookings/routes.py",
+        "src/bistro/web/bookings/routes__test.py"
+      ],
+      "reply": "Cancelling a booking in the SQLite repository is never committed, so it can be lost.\n\n`SqliteBookingRepository.delete` at line 48 runs the `delete` but never calls `self._db.commit()`. Python's `sqlite3` opens an implicit transaction for DML, and `save` and `add_tables` both commit explicitly.\n\nThe delete is visible on the same connection, so the repository test and the in-memory tests pass. It stays uncommitted until some later `save` happens to commit it. If the process stops first, it rolls back, so a booking the route reported as cancelled (204) reappears after a restart. Meanwhile the open transaction holds a write lock.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py\", \"lines\": [47, 48], \"statement\": \"delete executes the SQL delete but never commits, unlike save and add_tables. The change is only visible on this connection and is lost if the process exits before another commit; the cancel route still returns 204. The shared repository test uses the same connection, so it does not catch this.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py\", \"lines\": [50, 55]}]}], \"open\": []}\n```"
+    }
+  ]
+}

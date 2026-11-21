@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0470626,
+      "files": [
+        "src/main.rs"
+      ],
+      "reply": "I found no problems in this change.\n\nI read `demo` and `main` in `src/main.rs`, and checked the code they call:\n\n- **`Day`:** it is `Copy` and implements `FromStr`, so reusing `day` in the demo loop and parsing it from the form both compile and behave as intended.\n- **Table capacities:** the three demo parties (2, 4 and 5) fit the seat counts of t1, t2 and t3 (2, 4 and 6), so none of the demo bookings is rejected.\n- **`Form::get`:** it exists and returns `Option<&str>`, which matches how `main` uses it.\n\nAn unparseable `day=` value with `--demo` silently falls back to 2026-10-09. I did not report this: it is a choice of behaviour, not an error.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

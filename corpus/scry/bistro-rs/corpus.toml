@@ -31,3 +31,20 @@ n_mean = 0.0
 # gets before writing rules. Recorded under bare/. Scores are set once, from the recording.
 [bare]
 sets = ["B", "T", "N"]
+
+# Set 2026-11-21 from the first bare recording by the corpus rule: B hits minus one, 0.5 shown a case
+# on T and N. A bare finding is a hit by the exact statement listed in bare/labels.json (judged by the
+# builder against each case's expect; the user reads them, as for the rules-on labels).
+[bare.passing_scores]
+b_min = 4
+t_mean_max = 0.5
+n_mean_max = 0.5
+
+# The first bare recording, 2026-11-21 (reviews via claude -p, claim checks with Jev guarding, no scry.toml).
+[bare.baseline]
+recorded = "2026-11-21"
+scry = "1c144e0"
+review_model = "sonnet"
+b = 5
+t_mean = 0.100
+n_mean = 0.167

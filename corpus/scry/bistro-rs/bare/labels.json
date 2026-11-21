@@ -1,0 +1,100 @@
+{
+ "b01": {
+  "hits": [
+   "The check `input.party >= table.seats` rejects a party equal to the table's seat count, so a 4-seat table cannot take a party of 4. create_booking uses `>`, so the two commands disagree on the rule, and no test covers the boundary."
+  ],
+  "unplanted": []
+ },
+ "b02": {
+  "hits": [
+   "The check compares `existing.slot == input.slot`, which includes the start time, not just the day. A guest with a 19:00 booking can still book 21:00 on the same day, so the once-a-day rule the error message and test name describe is not enforced; it only blocks double-booking the same time slot. The test only uses an identical slot, so it does not catch this."
+  ],
+  "unplanted": []
+ },
+ "b03": {
+  "hits": [
+   "The opening-hours check uses `start <= Time::new(17, 0)`, so a 17:00 booking is rejected. The error message says bookings are taken from 17:00 and the 21:30 end is inclusive, so the lower bound is probably meant to be `<`. The test uses 16:30 and 17:30 and never tries 17:00, so it does not catch this."
+  ],
+  "unplanted": []
+ },
+ "b04": {
+  "hits": [
+   "The loop iterates over `&slots[..slots.len() - 1]`, so the final week's slot is never checked with `booking_at`. If the last week is already booked, `save` still runs for it, which double-books the table and breaks the all-or-nothing guarantee. For example, with weeks=2 and week 1 already taken, no conflict is reported. The existing test only passes because its taken week is in the middle of the series."
+  ],
+  "unplanted": []
+ },
+ "b05": {
+  "hits": [
+   "Only first_moved is validated with check(); second_moved is never checked for party size or slot conflicts on its new table. A swap can therefore seat a party at a table that is too small, or double-book first's old table, and both bookings are saved anyway."
+  ],
+  "unplanted": []
+ },
+ "b06": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n01": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n02": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n03": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n04": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n05": {
+  "hits": [],
+  "unplanted": []
+ },
+ "n06": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t01": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t02": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t03": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t04": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t05": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t06": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t07": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t08": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t09": {
+  "hits": [],
+  "unplanted": []
+ },
+ "t10": {
+  "hits": [],
+  "unplanted": []
+ }
+}

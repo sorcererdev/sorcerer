@@ -1,0 +1,12 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0406032,
+      "files": [
+        "src/booking/commands/create_booking.rs",
+        "src/web/bookings/failures.rs"
+      ],
+      "reply": "The change has one problem. The duplicate-guest check doesn't enforce the \"once a day\" rule that its error message and test name describe.\n\nAt `src/booking/commands/create_booking.rs:66-70`, the check is `existing.guest == input.guest && existing.slot == input.slot`. `Slot` has both `day` and `start` (see `seven()` in the tests), so `existing.slot == input.slot` only matches when the start time is also the same.\n\n`bookings_on(input.slot.day)` already limits the list to that day. The extra slot comparison means a guest who has a 19:00 booking can still book 21:00 on the same day. The message (\"already has a booking that day\") and the test `a_guest_may_book_once_a_day` both describe a per-day limit. The test only covers the identical-slot case, so it doesn't catch this. I did not open the `Slot` definition or run the tests; this comes from how `seven()` builds a `Slot`.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [66, 75], \"statement\": \"The check compares `existing.slot == input.slot`, which includes the start time, not just the day. A guest with a 19:00 booking can still book 21:00 on the same day, so the once-a-day rule the error message and test name describe is not enforced; it only blocks double-booking the same time slot. The test only uses an identical slot, so it does not catch this.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [96, 101]}, {\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [148, 166]}]}], \"open\": []}\n```"
+    }
+  ]
+}

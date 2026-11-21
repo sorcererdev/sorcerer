@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.03401320000000001,
+      "files": [
+        "src/web/bookings/routes.rs"
+      ],
+      "reply": "I found no problems in this change. The new whitespace normalisation in `create_booking_input` is correct. The test's expected string matches the `\"Booked: {} for {} at table {} on {} at {}\"` format in `src/web/bookings/pages.rs:43`.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

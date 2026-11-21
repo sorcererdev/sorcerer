@@ -1,0 +1,170 @@
+{
+  "The check `OPENING < input.slot.start` uses a strict comparison, so a booking at exactly 17:00 is refused. The error message itself says bookings are taken from 17:00. The tests cover 16:30 and 21:30 but not 17:00, so this boundary is untested.": {
+    "verdict": "right",
+    "why": "The strict `OPENING < input.slot.start` check on line 64 refuses a 17:00 start, the message on line 65 says bookings are taken from 17:00, and no test uses 17:00 (tests use 16:30 and 21:30 only).",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/commands/create_booking.py",
+        "unit": "CreateBooking.handle",
+        "line": 64,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/create_booking.py",
+        "unit": "CreateBooking.handle",
+        "line": 65,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/create_booking__test.py",
+        "unit": null,
+        "line": 60,
+        "confirmed": true
+      }
+    ]
+  },
+  "The check `input.party >= table.seats` refuses a party that exactly fills the table. A 4-seat table rejects a change to 4 with PartyTooLarge, and the message then reads 'seats 4, not 4'. `create_booking` uses `>` and accepts such a party, so the two commands disagree. The tests only try 3 and 5, so they don't catch it.": {
+    "verdict": "right",
+    "why": "ChangePartySize.handle refuses with `input.party >= table.seats`, so a party equal to the table size gets PartyTooLarge with the message 'seats 4, not 4', while create_booking uses `>` and accepts that party, so the two commands disagree.",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/commands/change_party_size.py",
+        "unit": "ChangePartySize.handle",
+        "line": 43,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/change_party_size.py",
+        "unit": "ChangePartySize.handle",
+        "line": 45,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/create_booking.py",
+        "unit": null,
+        "line": 53,
+        "confirmed": true
+      }
+    ]
+  },
+  "The conflict loop calls booking_at(table.id, input.slot) instead of the loop variable slot, so it checks the first week on every iteration. A conflict in week 2 or later is never detected, so the command books over an existing reservation instead of returning SlotTaken, which breaks the all-or-nothing promise.": {
+    "verdict": "right",
+    "why": "Line 53 calls booking_at with input.slot instead of the loop variable slot, so only the first week is checked, and the save loop at lines 59-60 then books over any later-week conflict instead of returning SlotTaken.",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/commands/create_weekly_booking.py",
+        "unit": "CreateWeeklyBooking.handle",
+        "line": 53,
+        "confirmed": true
+      }
+    ]
+  },
+  "The duplicate check also requires `b.table_id == input.table_id`, so a guest who already has a booking that day can still book a different table. The failure message and the test name both say one booking per guest per day. The test only covers the same-table case, so it misses this.": {
+    "verdict": "right",
+    "why": "The duplicate check at create_booking.py:63 includes `b.table_id == input.table_id`, so a guest booked at a different table on that day is not refused, while the message and test name describe one booking per day and the test only uses the same table t1.",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/commands/create_booking.py",
+        "unit": "CreateBooking.handle",
+        "line": 63,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/create_booking__test.py",
+        "unit": "test_a_guest_cannot_book_twice_in_a_day",
+        "line": 45,
+        "confirmed": true
+      }
+    ]
+  },
+  "The party-size check loads `booking.table_id`, which is the booking's current table, and the party already fits there. The booking is moving to `other.table_id`, so that is the table whose seats should be checked. As written, a party of 4 on t1 can be swapped onto the 2-seat t2 and `PartyTooLarge` is never returned. The tests don't cover this case.": {
+    "verdict": "right",
+    "why": "SwapTables.handle loads each booking's current table (booking.table_id) and checks party against that table's seats, never against other.table_id's seats, so a party of 4 moved from t1 to the 2-seat t2 is not rejected with PartyTooLarge.",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/commands/swap_tables.py",
+        "unit": "SwapTables.handle",
+        "line": 53,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/swap_tables.py",
+        "unit": "SwapTables.handle",
+        "line": 52,
+        "confirmed": true
+      }
+    ]
+  },
+  "`booked_tables` is built from `b.id` (booking ids), but is compared against table ids (`t.id`) on the next line. No table id matches a booking id, so `empty_tables` always equals the total number of tables, even on days with bookings. The test also never asserts `empty_tables`, so the bug is not caught.": {
+    "verdict": "right",
+    "why": "Line 23 collects booking ids, line 24 compares table ids against that set, so every table counts as empty and empty_tables equals the total table count; the test asserts only bookings and covers, so it never checks empty_tables.",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/queries/get_day_summary.py",
+        "unit": "GetDaySummary.handle",
+        "line": 23,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/queries/get_day_summary.py",
+        "unit": "GetDaySummary.handle",
+        "line": 24,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/queries/get_day_summary__test.py",
+        "unit": null,
+        "line": 20,
+        "confirmed": true
+      }
+    ]
+  },
+  "`weeks` is only checked for being below 1, with no upper bound. A very large value makes `day + timedelta(weeks=week)` overflow `date.max`, raising an uncaught OverflowError (HTTP 500). A merely big value creates thousands of bookings in one request.": {
+    "verdict": "right",
+    "why": "The only check on `weeks` is `< 1`, in both the command and the route, so there is no upper bound. The slot list is built with `day + timedelta(weeks=week)`, which raises OverflowError past `date.max`. Nothing in `src` catches OverflowError or registers an exception handler, so it surfaces as a 500. A large value that stays in range makes the command build and save one booking per week.",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/commands/create_weekly_booking.py",
+        "unit": "CreateWeeklyBooking.handle",
+        "line": 44,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/commands/create_weekly_booking.py",
+        "unit": "CreateWeeklyBooking.handle",
+        "line": 51,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/web/bookings/routes.py",
+        "unit": null,
+        "line": 64,
+        "confirmed": true
+      }
+    ]
+  },
+  "delete executes the SQL delete but never commits, unlike save and add_tables. The change is only visible on this connection and is lost if the process exits before another commit; the cancel route still returns 204. The shared repository test uses the same connection, so it does not catch this.": {
+    "verdict": "right",
+    "why": "SqliteBookingRepository.delete executes the DELETE with no commit, unlike save and add_tables, so the change is uncommitted and the cancel route still returns 204 after the call.",
+    "evidence": [
+      {
+        "path": "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "unit": "SqliteBookingRepository.delete",
+        "line": 48,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/booking/ports/booking_repository/sqlite_booking_repository.py",
+        "unit": "SqliteBookingRepository.save",
+        "line": 55,
+        "confirmed": true
+      },
+      {
+        "path": "src/bistro/web/bookings/routes.py",
+        "unit": null,
+        "line": 61,
+        "confirmed": true
+      }
+    ]
+  }
+}

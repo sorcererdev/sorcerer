@@ -1,0 +1,12 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.049650200000000005,
+      "files": [
+        "src/bistro/booking/commands/seat_walk_in.py",
+        "src/bistro/booking/commands/seat_walk_in__test.py"
+      ],
+      "reply": "No problems found in the changed units. The command, the in-memory repository and the tests agree with each other.\n\n- **Table lookup:** `_smallest_free_table` relies on `tables()` and `booking_at()`, and both behave as it expects in `InMemoryBookingRepository`. I did not read `sqlite_booking_repository.py`.\n- **Tests:** the three tests match the code's behaviour. A 3-person party gets `mid`, a second 3-person party gets `big`, and a 9-person party matches no table.\n- **Input checks:** `CreateBooking` checks party size against the chosen table, but `SeatWalkIn` has no equivalent to get wrong. It only picks tables with `seats >= party`.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

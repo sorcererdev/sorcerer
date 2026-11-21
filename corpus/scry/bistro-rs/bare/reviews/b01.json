@@ -1,0 +1,15 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0574956,
+      "files": [
+        "src/booking/commands/change_party_size.rs",
+        "src/booking/commands/mod.rs",
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "The change has one bug: the party-size check in `ChangePartySize::handle` refuses a party that exactly fills the table.\n\n`create_booking.rs:51` uses `input.party > table.seats`. `change_party_size.rs:49` uses `>=`. A party of 4 at a 4-seat table is therefore refused with \"table t1 seats 4, not 4\". The tests only try 3 and 5, so they don't catch the boundary.\n\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/change_party_size.rs\", \"lines\": [49, 56], \"statement\": \"The check `input.party >= table.seats` rejects a party equal to the table's seat count, so a 4-seat table cannot take a party of 4. create_booking uses `>`, so the two commands disagree on the rule, and no test covers the boundary.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/create_booking.rs\", \"lines\": [51, 51]}, {\"file\": \"src/booking/commands/change_party_size.rs\", \"lines\": [49, 49]}]}], \"open\": []}"
+    }
+  ]
+}

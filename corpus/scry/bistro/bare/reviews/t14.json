@@ -1,0 +1,15 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0317759,
+      "files": [
+        "src/bistro/booking/ports/clock/clock.py",
+        "src/bistro/booking/ports/clock/in_memory_clock.py",
+        "src/bistro/booking/ports/clock/system_clock.py",
+        "src/bistro/booking/queries/get_upcoming_bookings.py",
+        "src/bistro/booking/queries/get_upcoming_bookings__test.py"
+      ],
+      "reply": "I found no problems in the changed units. `GetUpcomingBookings.handle` filters on `bookings_on(now.date())` and compares `slot.start` against `now.time()`, and both types match what `Slot` and the repository use. The clock classes are trivial and `InMemoryClock` and `SystemClock` both satisfy the `Clock` protocol. The test exercises started, upcoming and other-day bookings.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

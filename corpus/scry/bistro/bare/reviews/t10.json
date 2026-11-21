@@ -1,0 +1,13 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0308041,
+      "files": [
+        "src/bistro/booking/commands/create_booking.py",
+        "src/bistro/booking/commands/create_booking__test.py",
+        "src/bistro/web/bookings/failures.py"
+      ],
+      "reply": "The change adds `InvalidGuestName` consistently. It is in the failure union, and `create_booking_status` in `src/bistro/web/bookings/failures.py` maps it to 422. The new tests cover the blank, 61-character and 60-character cases. A grep for `TableNotFound` and `CreateBookingFailure` found no other place that matches on the failure types, so nothing else needs updating. I found no problems.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

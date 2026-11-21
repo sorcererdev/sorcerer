@@ -1,0 +1,15 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0705572,
+      "files": [
+        "src/booking/commands/mod.rs",
+        "src/booking/commands/swap_tables.rs",
+        "src/booking/ports/booking_repository/file.rs",
+        "src/booking/ports/booking_repository/in_memory.rs",
+        "src/booking/ports/booking_repository/mod.rs"
+      ],
+      "reply": "The swap only validates one of the two moves, so it can save an invalid state.\n\n`handle` builds `first_moved` and `second_moved` (`swap_tables.rs:43-50`) but calls `check` only on `first_moved` (`swap_tables.rs:51`). Nothing checks `second_moved` against its new table, and both writes are then saved (`swap_tables.rs:52-53`). Two things go wrong as a result:\n\n- **Party size:** suppose b1 (party 2) sits on t2 (2 seats) and b2 (party 4) sits on t1 (4 seats). `first_moved` goes to t1 and passes. `second_moved` puts a party of 4 on the 2-seat t2 and is never checked, so it is saved.\n- **Slot conflicts:** if another booking already holds first's table at second's slot, `second_moved` collides with it. `check` is never run for that, so `SlotTaken` is not raised.\n\nThe tests only cover the first booking's failures, so they don't catch this.\n\n```json\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"src/booking/commands/swap_tables.rs\", \"lines\": [51, 53], \"statement\": \"Only first_moved is validated with check(); second_moved is never checked for party size or slot conflicts on its new table. A swap can therefore seat a party at a table that is too small, or double-book first's old table, and both bookings are saved anyway.\", \"rule\": \"\", \"evidence\": [{\"file\": \"src/booking/commands/swap_tables.rs\", \"lines\": [43, 53]}, {\"file\": \"src/booking/commands/swap_tables.rs\", \"lines\": [65, 85]}]}], \"open\": []}\n```"
+    }
+  ]
+}

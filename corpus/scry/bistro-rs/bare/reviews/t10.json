@@ -1,0 +1,11 @@
+{
+  "batches": [
+    {
+      "cost_usd": 0.0293672,
+      "files": [
+        "src/booking/commands/create_booking.rs"
+      ],
+      "reply": "I found no problems in this change. I reviewed the diff only and did not open other files or run the tests.\n\n- **Ordering:** The `MAX_PARTY` check runs before the table lookup, so a party over 8 is refused on any table. This is the behaviour the new test describes.\n- **Test setup:** The test uses a 12-seat table, so `PartyTooLarge` can only come from the new cap and not from the table-capacity check.\n\n{\"findings\": [], \"open\": []}"
+    }
+  ]
+}

@@ -254,6 +254,8 @@ struct Case {
 
 fn cases(corpus: &Corpus) -> Vec<Case> {
     let labels = read_json(&corpus.dir.join("labels.json"));
+    let own_labels = bare_labels(corpus);
+    let own = |id: &str, key: &str| own_labels.as_ref().and_then(|l| l.get(id)?.get(key));
     let strings = |v: &Value| -> Vec<String> {
         v.as_array()
             .unwrap()
@@ -268,14 +270,26 @@ fn cases(corpus: &Corpus) -> Vec<Case> {
         .map(|(id, c)| Case {
             id: id.clone(),
             set: c["set"].as_str().unwrap().to_string(),
-            hits: strings(&c["hits"]),
-            unplanted: c.get("unplanted").map_or_else(Vec::new, strings),
+            hits: strings(own(id, "hits").unwrap_or(&c["hits"])),
+            unplanted: own(id, "unplanted")
+                .or_else(|| c.get("unplanted"))
+                .map_or_else(Vec::new, strings),
             changed: strings(&c["changed"])
                 .into_iter()
                 .map(PathBuf::from)
                 .collect(),
         })
         .collect()
+}
+
+/// The labels of a bare corpus's own findings, from `bare/labels.json`
+/// (`{case: {"hits": [...], "unplanted": [...]}}`): a finding is a hit by its
+/// exact statement, and a bare review words its findings differently from the
+/// rules-on one. None for a corpus with steering, and for a bare one not yet
+/// labelled (no hits: every shown finding counts).
+fn bare_labels(corpus: &Corpus) -> Option<Value> {
+    let file = corpus.recordings.join("labels.json");
+    (corpus.steering == CorpusSteering::Bare && file.exists()).then(|| read_json(&file))
 }
 
 /// The findings of every batch recorded in `reviews/<case>.json`, in order.
@@ -1056,6 +1070,20 @@ fn assert_passing_scores(corpus: &Corpus, by: &BySet) {
 #[test]
 fn bistro_reaches_its_passing_scores() {
     let c = corpus("bistro");
+    let (_, by) = run_corpus(&c);
+    assert_passing_scores(&c, &by);
+}
+
+#[test]
+fn bistro_bare_reaches_its_passing_scores() {
+    let c = bare("bistro");
+    let (_, by) = run_corpus(&c);
+    assert_passing_scores(&c, &by);
+}
+
+#[test]
+fn bistro_rs_bare_reaches_its_passing_scores() {
+    let c = bare("bistro-rs");
     let (_, by) = run_corpus(&c);
     assert_passing_scores(&c, &by);
 }
