@@ -26,3 +26,8 @@ b = 5
 # V-must reads 1.000 (vm06), T 0.0 (t06), N 0.0 (n01); the recording is unchanged.
 t_mean = 0.0
 n_mean = 0.0
+
+# The bare table: the same cases reviewed with no steering at all (no scry.toml), what a stranger
+# gets before writing rules. Recorded under bare/. Scores are set once, from the recording.
+[bare]
+sets = ["B", "T", "N"]

@@ -53,9 +53,22 @@ use sorcerer_models::ports::decider::Decider;
 use support::{FixedClock, errand, git};
 use tempfile::TempDir;
 
+/// Whether a corpus's cases are reviewed with the corpus's own steering
+/// (`scry.toml`, the rules-on table) or with none at all (the bare table,
+/// what a stranger gets before writing any rules).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CorpusSteering {
+    Corpus,
+    Bare,
+}
+
 /// A corpus directory and what its `corpus.toml` says.
 struct Corpus {
     dir: PathBuf,
+    /// Where the reviews, the claim checks and Jev's answers are recorded:
+    /// `dir` for the rules-on table, `dir/bare` for the bare one.
+    recordings: PathBuf,
+    steering: CorpusSteering,
     name: String,
     language: String,
     sets: Vec<String>,
@@ -64,7 +77,8 @@ struct Corpus {
 
 #[derive(Deserialize)]
 struct PassingScores {
-    v_must_min: usize,
+    /// Absent from a `[bare.passing_scores]`: the bare table has no V-must.
+    v_must_min: Option<usize>,
     b_min: usize,
     t_mean_max: f64,
     n_mean_max: f64,
@@ -74,6 +88,15 @@ struct PassingScores {
 struct CorpusFile {
     name: String,
     language: String,
+    sets: Vec<String>,
+    passing_scores: Option<PassingScores>,
+    bare: Option<BareTable>,
+}
+
+/// The `[bare]` table of `corpus.toml`: the sets run with no steering and
+/// the scores they must reach.
+#[derive(Deserialize)]
+struct BareTable {
     sets: Vec<String>,
     passing_scores: Option<PassingScores>,
 }
@@ -89,6 +112,29 @@ fn corpus(name: &str) -> Corpus {
     c
 }
 
+/// The corpus at `corpus/scry/<name>/`, run with no steering: its `[bare]`
+/// sets and scores, its recordings under `bare/`.
+fn bare(name: &str) -> Corpus {
+    bare_of(corpus(name))
+}
+
+/// CORPUS run with no steering.
+fn bare_of(c: Corpus) -> Corpus {
+    let file = c.dir.join("corpus.toml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let f: CorpusFile = toml::from_str(&text).unwrap();
+    let table = f
+        .bare
+        .unwrap_or_else(|| panic!("{}: no [bare] table in corpus.toml", c.name));
+    Corpus {
+        recordings: c.dir.join("bare"),
+        steering: CorpusSteering::Bare,
+        sets: table.sets,
+        passing_scores: table.passing_scores,
+        ..c
+    }
+}
+
 /// The corpus in DIR, as its `corpus.toml` describes it.
 fn corpus_at(dir: &Path) -> Corpus {
     let dir = dir.to_path_buf();
@@ -96,6 +142,8 @@ fn corpus_at(dir: &Path) -> Corpus {
     let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
     let f: CorpusFile = toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
     Corpus {
+        recordings: dir.clone(),
+        steering: CorpusSteering::Corpus,
         dir,
         name: f.name,
         language: f.language,
@@ -164,7 +212,7 @@ fn live(corpus: &Corpus, project: &Arc<Project>, view: &Arc<FilesView>) -> Live 
     Live {
         reviewer: Box::new(ResearchReviewer { researcher }),
         checker,
-        decider: Box::new(RecordedDecider::new(corpus.dir.join("jev")).recording_with(jev)),
+        decider: Box::new(RecordedDecider::new(corpus.recordings.join("jev")).recording_with(jev)),
     }
 }
 
@@ -286,7 +334,7 @@ impl<'a> CorpusReviewer<'a> {
         live: Option<&'a dyn Reviewer>,
         tally: &'a Mutex<Tally>,
     ) -> CorpusReviewer<'a> {
-        let file = corpus.dir.join("reviews").join(format!("{id}.json"));
+        let file = corpus.recordings.join("reviews").join(format!("{id}.json"));
         let findings = file.exists().then(|| recorded_findings(&file));
         let covered = if file.exists() {
             recorded_files(&file)
@@ -561,11 +609,13 @@ fn project_for_case(corpus: &Corpus, case: &Case) -> (TempDir, Arc<Project>, Arc
     git(root, &["commit", "-q", "-m", "base"]);
     let patch = corpus.dir.join("cases").join(format!("{}.patch", case.id));
     git(root, &["apply", patch.to_str().unwrap()]);
-    support::write(
-        root,
-        ".sorcerer/scry.toml",
-        &std::fs::read_to_string(corpus.dir.join("scry.toml")).unwrap(),
-    );
+    if corpus.steering == CorpusSteering::Corpus {
+        support::write(
+            root,
+            ".sorcerer/scry.toml",
+            &std::fs::read_to_string(corpus.dir.join("scry.toml")).unwrap(),
+        );
+    }
     support::write(
         root,
         ".sorcerer/config.toml",
@@ -581,7 +631,7 @@ fn project_for_case(corpus: &Corpus, case: &Case) -> (TempDir, Arc<Project>, Arc
 /// Jev's recording for CORPUS; under `SCRY_RECORD=jev` the live Jev answers
 /// what is not recorded, its ledger the case's project's.
 fn recorded_decider(corpus: &Corpus, record: Record, project: &Project) -> RecordedDecider {
-    let recorded = RecordedDecider::new(corpus.dir.join("jev"));
+    let recorded = RecordedDecider::new(corpus.recordings.join("jev"));
     if record == Record::Jev {
         recorded.recording_with(jev_for(project, &SystemEnv).unwrap())
     } else {
@@ -631,6 +681,10 @@ impl RecordedCheck {
 
 /// The recordings in FILE, refusing the older form (a verdict word alone).
 fn read_recorded_checks(file: &Path) -> BTreeMap<String, RecordedCheck> {
+    // a corpus's first recording under `bare/` has no `checks.json` yet
+    if !file.exists() {
+        return BTreeMap::new();
+    }
     let json = read_json(file);
     let old_form = json
         .as_object()
@@ -688,8 +742,9 @@ impl CorpusChecker<'_> {
     fn record_check(&self, key: String, checked: &Checked) {
         let mut checks = self.run.checks.lock().unwrap();
         checks.insert(key, RecordedCheck::of(checked));
+        std::fs::create_dir_all(&self.run.corpus.recordings).unwrap();
         std::fs::write(
-            self.run.corpus.dir.join("checks.json"),
+            self.run.corpus.recordings.join("checks.json"),
             serde_json::to_string_pretty(&*checks).unwrap() + "\n",
         )
         .unwrap();
@@ -831,8 +886,13 @@ type BySet = BTreeMap<String, (usize, usize, f64)>;
 fn table(corpus: &Corpus, rows: &[Row]) -> (String, BySet) {
     let mut by = BTreeMap::new();
     let mut out = format!(
-        "# {}\n\n| set | cases | with a hit shown | shown a case | unplanted |\n|---|---|---|---|---|\n",
-        corpus.name
+        "# {}{}\n\n| set | cases | with a hit shown | shown a case | unplanted |\n|---|---|---|---|---|\n",
+        corpus.name,
+        if corpus.steering == CorpusSteering::Bare {
+            " (bare)"
+        } else {
+            ""
+        }
     );
     for k in &corpus.sets {
         let mine: Vec<&Row> = rows.iter().filter(|r| &r.set == k).collect();
@@ -895,8 +955,8 @@ fn run_corpus_with(
     record: Record,
     live_for: LiveFor,
 ) -> (String, BySet) {
-    let checks = read_recorded_checks(&corpus.dir.join("checks.json"));
-    let jev_files = || std::fs::read_dir(corpus.dir.join("jev")).map_or(0, |d| d.count());
+    let checks = read_recorded_checks(&corpus.recordings.join("checks.json"));
+    let jev_files = || std::fs::read_dir(corpus.recordings.join("jev")).map_or(0, |d| d.count());
     let jev_before = jev_files();
     let run = Run {
         corpus,
@@ -912,6 +972,7 @@ fn run_corpus_with(
     let mut rows = Vec::new();
     for c in cases
         .iter()
+        .filter(|c| corpus.sets.contains(&c.set))
         .filter(|c| only.as_ref().is_none_or(|o| o.contains(&c.id)))
     {
         rows.push(run_case(&run, c));
@@ -963,16 +1024,22 @@ fn assert_passing_scores(corpus: &Corpus, by: &BySet) {
     let Some(p) = &corpus.passing_scores else {
         panic!("{}: no passing scores yet (corpus.toml)", corpus.name);
     };
-    let (vn, v, _) = by["V-must"];
     let (bn, b, _) = by["B"];
     let (_, _, t) = by["T"];
     let (_, _, n) = by["N"];
     let name = &corpus.name;
     assert!(
-        v >= p.v_must_min,
-        "{name}: V-must with a hit shown: {v} of {vn}, the passing score is {}",
-        p.v_must_min
+        p.v_must_min.is_some() || corpus.steering == CorpusSteering::Bare,
+        "{}: passing_scores needs v_must_min",
+        corpus.name
     );
+    if let Some(v_must_min) = p.v_must_min {
+        let (vn, v, _) = by["V-must"];
+        assert!(
+            v >= v_must_min,
+            "{name}: V-must with a hit shown: {v} of {vn}, the passing score is {v_must_min}"
+        );
+    }
     assert!(
         b >= p.b_min,
         "{name}: B with a hit shown: {b} of {bn}, the passing score is {}",
@@ -1387,4 +1454,69 @@ fn an_unknown_record_word_is_refused() {
 #[test]
 fn record_checks_is_a_record_mode() {
     assert!(record_mode_from(Some("checks"), false) == Record::Checks);
+}
+
+// ---- the bare table: no steering, its own recordings ----
+
+/// A fixture corpus with a `[bare]` table over V-must, as a bare corpus.
+fn bare_fixture(name: &str) -> Corpus {
+    let c = fixture_corpus(name);
+    let file = c.dir.join("corpus.toml");
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text += "\n[bare]\nsets = [\"V-must\"]\n";
+    std::fs::write(&file, text).unwrap();
+    bare_of(corpus_at(&c.dir))
+}
+
+#[test]
+fn a_bare_corpus_writes_no_steering() {
+    let c = bare_fixture("eval-fixture-bare-steering");
+    let case = &cases(&c)[0];
+    let (bare_dir, _, _) = project_for_case(&c, case);
+    assert!(!bare_dir.path().join(".sorcerer/scry.toml").exists());
+    let rules_on = Corpus {
+        steering: CorpusSteering::Corpus,
+        ..bare_fixture("eval-fixture-bare-steering")
+    };
+    let (rules_dir, _, _) = project_for_case(&rules_on, &cases(&rules_on)[0]);
+    assert_eq!(
+        std::fs::read_to_string(rules_dir.path().join(".sorcerer/scry.toml")).unwrap(),
+        std::fs::read_to_string(rules_on.dir.join("scry.toml")).unwrap()
+    );
+}
+
+#[test]
+fn a_bare_corpus_reads_and_writes_under_bare() {
+    let c = bare_fixture("eval-fixture-bare-record");
+    run_corpus_with(&c, None, Record::All, &stub_live);
+    assert!(c.dir.join("bare/reviews/c1.json").exists());
+    assert!(c.dir.join("bare/checks.json").exists());
+    // the corpus's own jev/ gets nothing (the stub Jev records no answers;
+    // the real one writes under `recordings`, see `live`)
+    assert_eq!(std::fs::read_dir(c.dir.join("jev")).unwrap().count(), 0);
+    assert!(!c.dir.join("reviews").exists());
+}
+
+#[test]
+fn bare_scores_need_no_v_must() {
+    let scores: PassingScores =
+        toml::from_str("b_min = 3\nt_mean_max = 0.5\nn_mean_max = 0.5\n").unwrap();
+    assert!(scores.v_must_min.is_none());
+    let mut c = bare_fixture("eval-fixture-bare-scores");
+    c.sets = ["B", "T", "N"].map(String::from).to_vec();
+    c.passing_scores = Some(scores);
+    let by: BySet = [("B", (1, 1, 0.0)), ("T", (1, 0, 0.0)), ("N", (1, 0, 0.0))]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    // b_min is 3 but only 1 hit: the assert reaches B (not V-must) and fails there
+    let missed = std::panic::catch_unwind(|| assert_passing_scores(&c, &by));
+    let msg = *missed.unwrap_err().downcast::<String>().unwrap();
+    assert!(msg.contains("B with a hit shown"), "{msg}");
+}
+
+#[test]
+#[should_panic(expected = "eval-fixture-no-bare: no [bare] table in corpus.toml")]
+fn a_corpus_with_no_bare_table_has_no_bare_test() {
+    let _ = bare_of(fixture_corpus("eval-fixture-no-bare"));
 }

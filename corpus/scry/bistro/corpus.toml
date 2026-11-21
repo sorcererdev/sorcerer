@@ -22,3 +22,8 @@ t_mean = 0.0
 # 2026-11-20: a true finding nobody planted (labelled `unplanted`) is left out of the shown count,
 # so n_mean reads 0.0 (n04's phone-column finding); the recording is unchanged.
 n_mean = 0.0
+
+# The bare table: the same cases reviewed with no steering at all (no scry.toml), what a stranger
+# gets before writing rules. Recorded under bare/. Scores are set once, from the recording.
+[bare]
+sets = ["B", "T", "N"]
