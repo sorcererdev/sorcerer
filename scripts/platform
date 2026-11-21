@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Platform code lives in one adapter: crates/sorcerer-core/src/adapters/platform/.
+# Everywhere else under crates/ (src, tests, examples and test modules alike),
+# code may not ask which operating system it runs on or reach past std's
+# portable API. Refused forms:
+#   cfg(unix)  cfg(windows)  cfg(target_os …)   (also inside not(…), any(…))
+#   cfg!(unix) cfg!(windows) cfg!(target_os …)
+#   std::os::  .canonicalize(  "HOME"  process_group  Command::new("kill"
+# Comment lines are skipped.
+#
+# Usage: scripts/platform [ROOT]   (ROOT defaults to the repository)
+set -euo pipefail
+root=${1:-$(cd "$(dirname "$0")/.." && pwd)}
+cd "$root"
+find crates -name '*.rs' -print0 2>/dev/null | sort -z | perl -0 -ne '
+  BEGIN {
+    $adapter = "crates/sorcerer-core/src/adapters/platform/";
+    @plain = ("std::os::", ".canonicalize(", "\"HOME\"", "process_group", "Command::new(\"kill\"");
+    $bad = 0;
+  }
+  chomp(my $file = $_);
+  next if index($file, $adapter) == 0;
+  open my $fh, "<", $file or die "$file: $!";
+  my $n = 0;
+  local $/ = "\n";
+  while (my $line = <$fh>) {
+    $n++;
+    next if $line =~ m{^\s*//};
+    my @found;
+    while ($line =~ /\b(cfg!?)\(([^)\n]*?)\b(unix|windows|target_os)\b/g) {
+      my ($macro, $what) = ($1, $3);
+      push @found, $what eq "target_os" ? "$macro(target_os" : "$macro($what)";
+    }
+    for my $form (@plain) {
+      push @found, $form if index($line, $form) >= 0;
+    }
+    for my $form (@found) {
+      print "$file:$n: platform code outside $adapter: $form\n";
+      $bad = 1;
+    }
+  }
+  close $fh;
+  END { exit $bad }
+'
