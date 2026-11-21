@@ -15,6 +15,8 @@ use process_wrap::std::{ChildWrapper, CommandWrap};
 #[derive(Debug)]
 pub struct Running {
     child: Box<dyn ChildWrapper>,
+    /// How the program ended, once [`Running::try_wait`] or [`Running::stop`] has seen it end.
+    ended: Option<ExitStatus>,
 }
 
 /// Starts the command in a group of its own. The command's pipes, folder and environment are
@@ -25,6 +27,7 @@ pub fn start(command: Command) -> io::Result<Running> {
     in_a_group_of_its_own(&mut wrapped);
     Ok(Running {
         child: wrapped.spawn()?,
+        ended: None,
     })
 }
 
@@ -54,9 +57,13 @@ impl Running {
         self.child.stderr().take()
     }
 
-    /// How the program exited, or `None` while it is still running. Does not wait.
+    /// How the program exited, or `None` while it is still running. Does not wait. Once it
+    /// has answered with the exit, it answers the same again without asking the system.
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        self.child.try_wait()
+        if self.ended.is_none() {
+            self.ended = self.child.try_wait()?;
+        }
+        Ok(self.ended)
     }
 
     /// The operating system's id for the program (the first process, not those it started).
@@ -66,9 +73,18 @@ impl Running {
 
     /// Ends the program and everything it started, and waits until they are gone. Prints
     /// nothing: in an editor's server, standard output is the protocol.
+    ///
+    /// A program already seen to end (by [`Running::try_wait`] or an earlier `stop`) is left
+    /// alone: on Unix its group id may since belong to another program, and on Windows waiting
+    /// on its job again could wait forever.
     pub fn stop(&mut self) {
+        if self.ended.is_some() {
+            return;
+        }
         let _ = self.child.start_kill();
-        let _ = self.child.wait();
+        if let Ok(status) = self.child.wait() {
+            self.ended = Some(status);
+        }
     }
 }
 
@@ -114,6 +130,31 @@ mod tests {
         assert!(is_running(pid));
         running.stop();
         assert!(!is_running(pid));
+    }
+
+    #[test]
+    fn stopping_twice_or_after_the_exit_returns_at_once() {
+        let mut stopped = start(long_sleep()).unwrap();
+        stopped.stop();
+        let first = stopped.try_wait().unwrap();
+        assert!(first.is_some());
+        stopped.stop();
+        assert_eq!(stopped.try_wait().unwrap(), first);
+
+        let mut exited = start(quick_exit()).unwrap();
+        while exited.try_wait().unwrap().is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let status = exited.try_wait().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            exited.stop();
+            let _ = done.send(exited.try_wait().unwrap());
+        });
+        let after_stop = finished
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("stop after the exit returns at once");
+        assert_eq!(after_stop, status);
     }
 
     #[test]

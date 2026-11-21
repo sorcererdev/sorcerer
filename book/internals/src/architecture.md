@@ -125,7 +125,9 @@ platform where it was needed:
   `compiler_hint()`, what to install on this platform.
 - `process.rs`: `process::start(command)` starts a program in a group of its own (a process
   group on Unix, a job object on Windows, through the `process-wrap` crate) and returns a
-  `Running`; `Running::stop()` ends the program and everything it started, then waits.
+  `Running`; `Running::stop()` ends the program and everything it started, then waits. A
+  program already seen to end (by `try_wait` or an earlier `stop`) is left alone, so a stop
+  never signals a reused process group id nor waits again on a finished job.
   `is_running(pid)` is for tests.
 
 A project-relative path that becomes text (a prompt, the store, a run log, a research tool's
