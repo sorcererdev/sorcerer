@@ -60,6 +60,9 @@ struct RunningPass {
     sent: Mutex<Vec<SentUnit>>,
     /// A save overtook its review call and cancelled it.
     overtaken: AtomicBool,
+    /// The per-pass budget held units back after a call answered, and the day's budget has
+    /// room: the next pass continues with them, with no save.
+    cut_short: AtomicBool,
     line: Mutex<Option<WorkDone>>,
 }
 
@@ -176,6 +179,7 @@ impl<W: Wiring + 'static> Server<W> {
             rest: Cancel::default(),
             sent: Mutex::new(Vec::new()),
             overtaken: AtomicBool::new(false),
+            cut_short: AtomicBool::new(false),
             line: Mutex::new(None),
         });
         passes.running = Some(Arc::clone(&pass));
@@ -186,10 +190,16 @@ impl<W: Wiring + 'static> Server<W> {
     /// wait (a burst of saves at the tail of a pass is still one pass). A pass a save
     /// overtook gives its files back: its later calls were cancelled unsent, and units it
     /// already reviewed are not sent again.
+    ///
+    /// A pass the per-pass budget cut short gives its files back too, and the next pass
+    /// starts at once: each pass has a fresh per-pass budget, so the change is reviewed a pass
+    /// at a time until it is done or the day's budget stops it.
     fn finish(self: &Arc<Self>, pass: &Arc<RunningPass>) {
+        let cut_short = pass.cut_short.load(Ordering::SeqCst);
         let more = {
             let mut passes = lock(&self.passes);
-            if pass.overtaken.load(Ordering::SeqCst) && !passes.shut_down {
+            let give_back = pass.overtaken.load(Ordering::SeqCst) || cut_short;
+            if give_back && !passes.shut_down {
                 passes.pending.extend(pass.files.iter().cloned());
             }
             if passes
@@ -202,7 +212,12 @@ impl<W: Wiring + 'static> Server<W> {
             !passes.pending.is_empty()
         };
         if more {
-            self.start_pass_after(self.cfg.settle);
+            let wait = if cut_short {
+                Duration::ZERO
+            } else {
+                self.cfg.settle
+            };
+            self.start_pass_after(wait);
         }
     }
 
@@ -299,6 +314,10 @@ impl<W: Wiring + 'static> Server<W> {
         }
         let failed = !report.failures.is_empty() && !pass.overtaken.load(Ordering::SeqCst);
         self.end_line(pass, failed);
+        // `looked_at` counts units in calls that answered: a pass whose cap is below one
+        // call's estimate, or whose calls fail, sends nothing that answers and is not repeated
+        let continues = report.capped > 0 && !report.day_spent && report.looked_at > 0;
+        pass.cut_short.store(continues, Ordering::SeqCst);
         if report.day_spent {
             let local_day = self
                 .cfg

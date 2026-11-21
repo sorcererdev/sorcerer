@@ -603,7 +603,12 @@ overtaking check).
   its later calls were cancelled unsent, and units it already reviewed are not sent again. So a
   pass that dies never leaves the server "running". A pass that fails before it reviews (the
   config does not parse) drops its files: they are reviewed at their next save (re-pending
-  them would loop on a config that stays broken).
+  them would loop on a config that stays broken). A pass the per-pass budget cut short
+  (`after_review` sets `cut_short` when `capped > 0`, not `day_spent`, and `looked_at > 0`)
+  also gives its files back, and the next pass starts at once with a fresh per-pass budget,
+  so a large change is reviewed a pass at a time with no further save until it is done or the
+  day's budget stops it. `looked_at` counts units in calls that answered, so a per-pass cap
+  below one call's estimate, or calls that keep failing, end the chain after one pass.
 - `Server::review(pass)`: opens the project, keeps the saved files that are its own
   (`project_file`), reads `[scry]` (turned off: the pass ends there, with no wiring, so no
   "cannot run" message for someone who turned scry off), builds the wiring with `cfg.wire(project, review_cancel,

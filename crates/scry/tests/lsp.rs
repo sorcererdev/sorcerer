@@ -1864,3 +1864,93 @@ fn a_unit_put_back_clears_its_finding_at_the_save() {
     assert_eq!(s.asks(), 1);
     s.stop();
 }
+
+// ---- a pass the per-pass budget cut short ----
+
+/// A project whose `steps.py` holds three changed functions of 400 lines each: three review
+/// calls, one a pass under CONFIG's caps.
+fn three_call_project(config: &str) -> TempDir {
+    let dir = project();
+    let three = |change: &str| -> String {
+        ["one", "two", "three"]
+            .iter()
+            .map(|name| long_unit(name, 400).replacen("x1 = 1", change, 1))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    write(dir.path(), "steps.py", &three("x1 = 1"));
+    commit(dir.path(), "steps");
+    write(dir.path(), "steps.py", &three("x1 = 2"));
+    write(dir.path(), ".sorcerer/config.toml", config);
+    dir
+}
+
+/// A reviewer whose every call leaves a $0.04 row in DIR's ledger, as the live one does.
+fn paying_reviewer(dir: &Path) -> StubReviewer {
+    use sorcerer_core::ports::ledger::Ledger;
+    let ledger = sorcerer_core::adapters::jsonl_ledger::JsonlLedger::for_project(
+        &Project::open(dir).unwrap(),
+    )
+    .unwrap();
+    StubReviewer::new().on_review(move |_| {
+        let mut row = support::errand("review", "sonnet", 0.04);
+        row.at = "2026-11-18T23:00:00Z".parse().unwrap();
+        ledger.append(&row).unwrap();
+    })
+}
+
+fn units_asked(s: &Served) -> Vec<String> {
+    s.doubles
+        .reviewer
+        .asks()
+        .iter()
+        .flat_map(|a| a.units.iter().map(|u| u.name.clone()))
+        .collect()
+}
+
+#[test]
+fn a_pass_cut_short_by_its_budget_continues_with_no_save() {
+    let dir = three_call_project("[scry]\nbudget_per_pass = 0.05\n");
+    let (setup, passes) = counting_passes(Setup::default());
+    let s = served_with(dir.path(), paying_reviewer(dir.path()), setup);
+    s.save(&dir.path().join("steps.py"));
+    s.wait_for_asks(3);
+    let mut asked = units_asked(&s);
+    asked.sort();
+    assert_eq!(asked, ["one", "three", "two"]);
+    std::thread::sleep(QUIET);
+    assert_eq!(s.asks(), 3);
+    assert_eq!(passes.load(Ordering::SeqCst), 3);
+    s.stop();
+}
+
+#[test]
+fn a_per_pass_budget_below_one_call_makes_no_endless_passes() {
+    let dir = three_call_project("[scry]\nbudget_per_pass = 0.01\n");
+    let (setup, passes) = counting_passes(Setup::default());
+    let s = served_with(dir.path(), paying_reviewer(dir.path()), setup);
+    s.save(&dir.path().join("steps.py"));
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(s.asks(), 0);
+    assert_eq!(passes.load(Ordering::SeqCst), 1);
+    s.stop();
+}
+
+#[test]
+fn the_days_budget_stops_the_chain() {
+    let dir = three_call_project("[scry]\nbudget_per_pass = 0.05\nbudget_per_day = 0.09\n");
+    let s = served(dir.path(), paying_reviewer(dir.path()));
+    s.save(&dir.path().join("steps.py"));
+    let said = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"),
+    );
+    assert!(said.is_some(), "no day message");
+    let more = s.all_within(Duration::from_millis(500));
+    assert!(
+        notifications(&more, "window/showMessage").is_empty(),
+        "{more:?}"
+    );
+    assert_eq!(s.asks(), 2);
+    s.stop();
+}

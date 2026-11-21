@@ -32,7 +32,9 @@ Saves are reviewed one review at a time. Two quick saves (or your editor's autos
 review, two seconds after the last. A save during a review waits for it, and if you change
 every unit a running review call was sent, that call is stopped so your new code is reviewed
 sooner. If a review cannot start at all (your config does not parse, say), the files you saved
-are reviewed again at their next save. The editor reviews within `[scry] budget_per_pass` and `budget_per_day`
+are reviewed again at their next save. When a change is bigger than one review's budget (`budget_per_pass`), scry keeps going by
+itself, one review after another, until the change is reviewed or the day's budget is spent.
+The editor reviews within `[scry] budget_per_pass` and `budget_per_day`
 ([Scry](scry.md)).
 
 ## Setting it up
