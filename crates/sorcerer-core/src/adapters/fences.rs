@@ -4,6 +4,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::adapters::platform::paths::canonical;
 use crate::domain::fences::Fences;
 use crate::domain::project::Project;
 use crate::{Error, Result};
@@ -11,7 +12,7 @@ use crate::{Error, Result};
 impl Fences {
     /// The fences of a project, from its root and its `[model] not_evidence` setting.
     pub fn for_project(p: &Project) -> Result<Fences> {
-        let root = p.root.canonicalize().map_err(|e| Error::io(&p.root, e))?;
+        let root = canonical(&p.root).map_err(|e| Error::io(&p.root, e))?;
         Fences::new(root, &p.config.model.not_evidence)
     }
 
@@ -68,11 +69,11 @@ impl Fences {
 /// `new/mod.rs`. A `..` in the missing part cannot be resolved for certain, nor can a dangling
 /// symlink (its target could appear later, anywhere), so both give `None`.
 fn resolve(full: &Path) -> Option<PathBuf> {
-    if let Ok(resolved) = full.canonicalize() {
+    if let Ok(resolved) = canonical(full) {
         return Some(resolved);
     }
     let (existing, missing) = split_at_nearest_existing(full)?;
-    let resolved = existing.canonicalize().ok()?;
+    let resolved = canonical(existing).ok()?;
     missing
         .into_iter()
         .try_fold(resolved, |mut path, component| match component {

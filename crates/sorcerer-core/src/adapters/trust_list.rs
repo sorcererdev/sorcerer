@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::adapters::platform::dirs::user_config_dir;
 use crate::ports::env::Env;
 use crate::{Error, Result};
 
@@ -29,14 +30,12 @@ struct TrustedFile {
 }
 
 impl TrustList {
-    /// The user's list: `$XDG_CONFIG_HOME/sorcerer/trusted.toml`, else
-    /// `~/.config/sorcerer/trusted.toml`. `None` when neither variable is set, so there is no
-    /// place to keep it.
+    /// The user's list: `sorcerer/trusted.toml` in the user's config directory
+    /// (`~/.config/sorcerer/trusted.toml` on Linux, `%APPDATA%\sorcerer\trusted.toml` on
+    /// Windows). `None` when the environment names no config directory, so there is no place
+    /// to keep it.
     pub fn user(env: &dyn Env) -> Option<TrustList> {
-        let base = env
-            .var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| env.var("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+        let base = user_config_dir(env)?;
         Some(TrustList::at(&base.join("sorcerer")))
     }
 
@@ -109,7 +108,6 @@ fn root_key(root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::env::MapEnv;
     use crate::domain::project::Project;
 
     #[test]
@@ -144,26 +142,9 @@ mod tests {
         let target = dir.path().join("target");
         std::fs::create_dir_all(target.join(".sorcerer")).unwrap();
         let link = dir.path().join("link");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
+        crate::adapters::platform::paths::link_to(&target, &link).unwrap();
         let list = TrustList::at(&dir.path().join("config"));
         list.trust(&Project::open(&link).unwrap().root).unwrap();
         assert!(list.is_trusted(&Project::open(&target).unwrap().root));
-    }
-
-    #[test]
-    fn user_follows_xdg_then_home() {
-        let xdg = MapEnv::default()
-            .var_set("XDG_CONFIG_HOME", "/x")
-            .var_set("HOME", "/h");
-        assert_eq!(
-            TrustList::user(&xdg).unwrap().file(),
-            Path::new("/x/sorcerer/trusted.toml")
-        );
-        let home = MapEnv::default().var_set("HOME", "/h");
-        assert_eq!(
-            TrustList::user(&home).unwrap().file(),
-            Path::new("/h/.config/sorcerer/trusted.toml")
-        );
-        assert!(TrustList::user(&MapEnv::default()).is_none());
     }
 }

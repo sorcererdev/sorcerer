@@ -27,6 +27,7 @@ use serde_json::Value;
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::platform::paths::canonical;
 use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
@@ -286,7 +287,7 @@ impl<W: Wiring + 'static> Server<W> {
 /// The editor's path may differ from the canonical one (a symlinked directory, `/var` and
 /// `/private/var`), so the comparison is made on the canonical path.
 fn project_file(project: &Project, path: &Path) -> Option<PathBuf> {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let canonical = canonical(path).unwrap_or_else(|_| path.to_path_buf());
     let directory = canonical.parent()?;
     if Project::root_above(directory)? != project.root {
         return None;

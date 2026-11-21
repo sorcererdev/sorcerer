@@ -4,11 +4,29 @@ mod support;
 use std::path::Path;
 
 use sorcerer_core::Error;
+use sorcerer_core::adapters::env::SystemEnv;
 use sorcerer_core::adapters::grammar::{self, GrammarCache};
+use sorcerer_core::adapters::platform::compiler::{CCompiler, c_compiler};
 use sorcerer_core::domain::language::GrammarSource;
 
 fn local(name: &str) -> GrammarSource {
     GrammarSource::Local(support::vendored(name))
+}
+
+fn compiler() -> Option<CCompiler> {
+    c_compiler(&SystemEnv)
+}
+
+#[test]
+fn a_cache_under_a_spaced_non_ascii_directory_builds_and_loads() {
+    let d = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(d.path().join("a b é"));
+    let lang = grammar::load(&cache, "python", &local("python")).unwrap();
+    let mut p = tree_sitter::Parser::new();
+    p.set_language(&lang).unwrap();
+    let tree = p.parse("x = 1\n", None).unwrap();
+    assert_eq!(tree.root_node().kind(), "module");
+    assert!(!tree.root_node().has_error());
 }
 
 #[test]
@@ -47,9 +65,11 @@ fn the_rust_grammar_loads_too() {
 fn a_second_build_reuses_the_library() {
     let d = tempfile::TempDir::new().unwrap();
     let cache = GrammarCache::at(d.path().into());
-    let first = grammar::build_if_absent(&cache, "python", &local("python"), "cc").unwrap();
+    let first =
+        grammar::build_if_absent(&cache, "python", &local("python"), compiler().as_ref()).unwrap();
     let t = std::fs::metadata(&first).unwrap().modified().unwrap();
-    let second = grammar::build_if_absent(&cache, "python", &local("python"), "cc").unwrap();
+    let second =
+        grammar::build_if_absent(&cache, "python", &local("python"), compiler().as_ref()).unwrap();
     assert_eq!(first, second);
     assert_eq!(std::fs::metadata(&second).unwrap().modified().unwrap(), t);
 }
@@ -74,10 +94,11 @@ fn no_compiler_is_a_stop_with_a_hint() {
         &GrammarCache::at(d.path().into()),
         "python",
         &local("python"),
-        "definitely-not-a-compiler",
+        None,
     )
     .unwrap_err();
     assert!(matches!(e, Error::NoCompiler { .. }), "{e}");
+    assert!(e.to_string().contains("cc, gcc or clang"), "{e}");
     assert!(e.to_string().contains("install"), "{e}");
 }
 
@@ -87,7 +108,16 @@ fn eight_threads_building_at_once_leave_one_library() {
     let cache = GrammarCache::at(d.path().into());
     std::thread::scope(|s| {
         let hs: Vec<_> = (0..8)
-            .map(|_| s.spawn(|| grammar::build_if_absent(&cache, "python", &local("python"), "cc")))
+            .map(|_| {
+                s.spawn(|| {
+                    grammar::build_if_absent(
+                        &cache,
+                        "python",
+                        &local("python"),
+                        compiler().as_ref(),
+                    )
+                })
+            })
             .collect();
         for h in hs {
             h.join().unwrap().unwrap();
