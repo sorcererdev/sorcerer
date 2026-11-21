@@ -1,8 +1,9 @@
 //! `SystemEnv` reads the real environment; `MapEnv` is a fixed one for tests.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use crate::adapters::platform::dirs::user_dir_vars;
 use crate::ports::env::Env;
 
 /// The real environment.
@@ -36,6 +37,15 @@ impl MapEnv {
     pub fn on_path(mut self, exe: &str) -> MapEnv {
         self.on_path.push(exe.to_string());
         self
+    }
+
+    /// This environment with every user directory (cache, config) under `home`, whatever the
+    /// platform calls them. Example: on Linux, `with_user_dirs("/t")` sets `HOME=/t`,
+    /// `XDG_CONFIG_HOME=/t/.config` and `XDG_CACHE_HOME=/t/.cache`.
+    pub fn with_user_dirs(self, home: &Path) -> MapEnv {
+        user_dir_vars(home)
+            .into_iter()
+            .fold(self, |env, (key, value)| env.var_set(key, &value))
     }
 }
 

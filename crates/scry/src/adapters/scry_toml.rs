@@ -218,8 +218,11 @@ mod tests {
             files.extend_from_slice(extra);
             let (d, s) = project(&files);
             if include == "link.md" {
-                std::os::unix::fs::symlink(outside.path().join("x.md"), d.path().join("link.md"))
-                    .unwrap();
+                sorcerer_core::adapters::platform::paths::link_to(
+                    &outside.path().join("x.md"),
+                    &d.path().join("link.md"),
+                )
+                .unwrap();
             }
             let e = s.steering().unwrap_err().to_string();
             assert!(

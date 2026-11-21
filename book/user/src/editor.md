@@ -140,4 +140,4 @@ A project that sets none of these needs no trust, and is never asked about.
 - Move text in your buffer.
 - Show findings for files you have not opened (`scry list` is the whole project).
 - Filter findings its own way: the editor shows what `scry` would print.
-- Download a binary, offer a fix, or run on Windows, for now.
+- Download a binary or offer a fix, for now.

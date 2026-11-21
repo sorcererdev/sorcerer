@@ -5,6 +5,7 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
+use sorcerer_core::adapters::platform::dirs::NO_CONFIG_DIR;
 use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::{TrustReason, needs_trust};
@@ -19,7 +20,7 @@ pub(super) fn trust(
     out: &mut dyn Write,
 ) -> Result<i32> {
     let list = TrustList::user(env)
-        .context("there is no place for the trust list: neither XDG_CONFIG_HOME nor HOME is set")?;
+        .with_context(|| format!("there is no place for the trust list: {NO_CONFIG_DIR}"))?;
     let root = &project.root;
     if revoke {
         let was_there = list.revoke(root)?;

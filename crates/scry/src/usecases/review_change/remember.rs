@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use sorcerer_core::domain::fingerprint::Fingerprint;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Unit;
 
 use super::ask::ReviewResults;
@@ -357,7 +358,7 @@ fn remember_text(
     for (file, name) in &changed.0 {
         text.push_str(&format!(
             "- `{}` `{}` changed while the pass ran: its new findings are dropped, it is not reviewed\n",
-            file.display(),
+            forward_slashes(file),
             name
         ));
     }
@@ -387,14 +388,14 @@ fn reviewed_text(changed: &ChangedUnits, reviewed: &[&SentUnit]) -> String {
     for (file, name) in &changed.0 {
         text.push_str(&format!(
             "- `{}` `{}` changed while the checks ran: not reviewed\n",
-            file.display(),
+            forward_slashes(file),
             name
         ));
     }
     for unit in reviewed {
         text.push_str(&format!(
             "- `{}` `{}` reviewed at {}\n",
-            unit.file.display(),
+            forward_slashes(&unit.file),
             unit.unit,
             unit.fingerprint
         ));

@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use sorcerer_core::domain::fingerprint::Fingerprint;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::{Span, Unit};
 use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
 
@@ -514,7 +515,7 @@ fn finding_heading_text(n: usize, raw: &RawFinding) -> String {
         "Finding {}: {} at {}:{}-{}",
         n + 1,
         raw.issue_type,
-        raw.file.display(),
+        forward_slashes(&raw.file),
         raw.lines.start,
         raw.lines.end
     ))
@@ -533,7 +534,7 @@ fn found_text(raw: &RawFinding, cited_rule: Option<&str>) -> String {
     let evidence: Vec<String> = raw
         .evidence
         .iter()
-        .map(|(f, l)| format!("{}:{}-{}", f.display(), l.start, l.end))
+        .map(|(f, l)| format!("{}:{}-{}", forward_slashes(f), l.start, l.end))
         .collect();
     format!(
         "- statement: {}\n- rule: {rule}\n- evidence: {}\n",

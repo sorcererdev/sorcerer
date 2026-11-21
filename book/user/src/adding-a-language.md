@@ -8,8 +8,8 @@ Say your project has Go. Write `.sorcerer/languages/go/language.toml`:
 ```toml
 # Which files are Go.
 files = ["**/*.go"]
-# The grammar: fetched at this commit, compiled once into ~/.cache/sorcerer/grammars,
-# and loaded when a tool needs it. You need a C compiler (`cc`).
+# The grammar: fetched at this commit, compiled once into your cache, and loaded when a
+# tool needs it. You need a C compiler (see below).
 grammar = { git = "https://github.com/tree-sitter/tree-sitter-go", rev = "<a commit>" }
 comment = "//"
 ```
@@ -17,6 +17,20 @@ comment = "//"
 Then copy the grammar's own `queries/tags.scm` into `.sorcerer/languages/go/queries/`.
 That is enough: tools find the *units* of a Go file (its functions, methods and types),
 which is what scry reads and reports on.
+
+A grammar of your project's own is compiled on your machine, so you need a C compiler on
+PATH: `cc`, `gcc` or `clang`, whichever is found first. Without one, `scry doctor` and the
+first review say so and how to get one:
+
+| platform | install |
+|---|---|
+| macOS | `xcode-select --install` |
+| Linux | `apt install gcc` (or your distribution's `gcc`) |
+| Windows | install MinGW-w64 (gcc) |
+
+The compiled grammar is kept in your cache: `~/.cache/sorcerer/grammars` on Linux and macOS
+(`$XDG_CACHE_HOME/sorcerer/grammars` when that is set), `%LOCALAPPDATA%\sorcerer\grammars` on
+Windows.
 
 ## What a language file holds
 

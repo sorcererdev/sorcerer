@@ -1,13 +1,14 @@
 //! Grammars at run time. No grammar is compiled into sorcerer: a language file names where its
 //! grammar's C sources are, `{ git, rev }` or a local directory. The first time the grammar is
-//! needed, the sources are fetched into the user's cache, compiled with `cc` into a shared
-//! library, and the library is loaded into the running process.
+//! needed, the sources are fetched into the user's cache, compiled with the first of `cc`, `gcc`
+//! or `clang` on PATH into a shared library, and the library is loaded into the running
+//! process.
 //!
 //! Layout under the cache directory:
 //!
 //! ```text
 //! src/<name>-<rev7>/          a git checkout at the pinned revision
-//! <name>-<key>.<dylib|so>     the compiled grammar
+//! <name>-<key>.<dylib|so|dll> the compiled grammar
 //! ```
 //!
 //! Every write goes to a temporary name first and is renamed into place, so a reader never sees
@@ -20,6 +21,12 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::adapters::env::SystemEnv;
+use crate::adapters::platform::compiler::{
+    CCompiler, c_compiler, compiler_hint, shared_library_extension,
+};
+use crate::adapters::platform::dirs::user_cache_dir;
+use crate::adapters::platform::paths::canonical;
 use crate::domain::fnv::fnv64_hex;
 use crate::domain::language::{GrammarSource, Languages, Layer, Loaded, parse_toml};
 use crate::domain::query::compile;
@@ -33,16 +40,13 @@ pub struct GrammarCache {
 }
 
 impl GrammarCache {
-    /// The user's cache: `$XDG_CACHE_HOME/sorcerer/grammars`, else
-    /// `~/.cache/sorcerer/grammars`.
+    /// The user's cache: `sorcerer/grammars` in the user's cache directory
+    /// (`~/.cache/sorcerer/grammars` on Linux and macOS, `%LOCALAPPDATA%\sorcerer\grammars` on
+    /// Windows), else `.cache/sorcerer/grammars` in the current directory.
     pub fn user(env: &dyn Env) -> GrammarCache {
-        let base = env
-            .var("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .or_else(|| env.var("HOME").map(|h| PathBuf::from(h).join(".cache")))
-            .unwrap_or_else(|| PathBuf::from(".cache"));
+        let base = user_cache_dir(env).unwrap_or_else(|| PathBuf::from(".cache"));
         GrammarCache {
-            dir: base.join("sorcerer/grammars"),
+            dir: base.join("sorcerer").join("grammars"),
         }
     }
 
@@ -51,12 +55,6 @@ impl GrammarCache {
         GrammarCache { dir }
     }
 }
-
-const EXT: &str = if cfg!(target_os = "macos") {
-    "dylib"
-} else {
-    "so"
-};
 
 /// What this process got when it last tried to load each library: the grammar, or the error
 /// text.
@@ -85,8 +83,9 @@ pub fn load(
             why,
         });
     }
-    let result =
-        build_if_absent(cache, name, source, "cc").and_then(|lib| open_library(name, &lib));
+    let compiler = c_compiler(&SystemEnv);
+    let result = build_if_absent(cache, name, source, compiler.as_ref())
+        .and_then(|lib| open_library(name, &lib));
     if !may_pass(&result) {
         tried.insert(
             path,
@@ -103,7 +102,7 @@ fn may_pass(result: &Result<tree_sitter::Language>) -> bool {
     matches!(result, Err(Error::GrammarFetch { .. } | Error::Io { .. }))
 }
 
-/// Where the compiled library for these sources is: `<cache>/<name>-<key>.<dylib|so>`.
+/// Where the compiled library for these sources is: `<cache>/<name>-<key>.<dylib|so|dll>`.
 ///
 /// The key is a hash of the sources' identity (the git revision, or a local directory's path
 /// and its C files' sizes and times), tree-sitter's ABI version, the operating system and the
@@ -120,7 +119,9 @@ pub fn library_path(cache: &GrammarCache, name: &str, source: &GrammarSource) ->
         )
         .as_bytes(),
     );
-    Ok(cache.dir.join(format!("{name}-{key}.{EXT}")))
+    Ok(cache
+        .dir
+        .join(format!("{name}-{key}.{}", shared_library_extension())))
 }
 
 /// What names a version of the sources: a git revision, or for a local directory its full path
@@ -130,7 +131,7 @@ fn sources_identity(source: &GrammarSource) -> Result<String> {
         GrammarSource::Git { rev, .. } => Ok(rev.clone()),
         GrammarSource::Local(dir) => {
             let src = local_src(dir);
-            let canonical = src.canonicalize().map_err(|e| Error::io(&src, e))?;
+            let canonical = canonical(&src).map_err(|e| Error::io(&src, e))?;
             let stamp = |file: &str| {
                 std::fs::metadata(src.join(file))
                     .map(|m| format!("{}:{:?}", m.len(), m.modified().ok()))
@@ -146,15 +147,16 @@ fn sources_identity(source: &GrammarSource) -> Result<String> {
     }
 }
 
-/// Builds the grammar's library with the C compiler `cc` unless the cache already has it, and
-/// returns the library's path. Public for tests, which pass a compiler name that does not exist
-/// to see the missing-compiler error.
+/// Builds the grammar's library with the C compiler unless the cache already has it, and
+/// returns the library's path. With no compiler (`None`) and no library yet it is
+/// `NoCompiler`, with how to install one. Public for tests, which pass `None` to see that
+/// error.
 #[doc(hidden)]
 pub fn build_if_absent(
     cache: &GrammarCache,
     name: &str,
     source: &GrammarSource,
-    cc: &str,
+    compiler: Option<&CCompiler>,
 ) -> Result<PathBuf> {
     let lib = library_path(cache, name, source)?;
     if lib.exists() {
@@ -164,9 +166,12 @@ pub fn build_if_absent(
         GrammarSource::Local(dir) => local_src(dir),
         GrammarSource::Git { url, rev } => fetch(cache, name, url, rev)?.join("src"),
     };
+    let compiler = compiler.ok_or_else(|| Error::NoCompiler {
+        hint: compiler_hint().into(),
+    })?;
     std::fs::create_dir_all(&cache.dir).map_err(|e| Error::io(&cache.dir, e))?;
     let temporary = aside(&lib);
-    compile_library(name, cc, &src, &temporary)?;
+    compile_library(name, compiler, &src, &temporary)?;
     std::fs::rename(&temporary, &lib).map_err(|e| Error::io(&lib, e))?;
     Ok(lib)
 }
@@ -174,10 +179,11 @@ pub fn build_if_absent(
 /// Compiles `parser.c` (and `scanner.c`, when there is one) into a shared library at `out`. A
 /// missing compiler is `NoCompiler` with how to install one; a failed compile is
 /// `GrammarBuild` with the compiler's output, and leaves no file behind.
-fn compile_library(name: &str, cc: &str, src: &Path, out: &Path) -> Result<()> {
-    let mut command = Command::new(cc);
+fn compile_library(name: &str, compiler: &CCompiler, src: &Path, out: &Path) -> Result<()> {
+    let mut command = Command::new(&compiler.program);
     command
-        .args(["-shared", "-fPIC", "-O2", "-I"])
+        .args(compiler.flags)
+        .arg("-I")
         .arg(src)
         .arg(src.join("parser.c"));
     if src.join("scanner.c").exists() {
@@ -204,14 +210,6 @@ fn compile_library(name: &str, cc: &str, src: &Path, out: &Path) -> Result<()> {
         });
     }
     Ok(())
-}
-
-fn compiler_hint() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "xcode-select --install"
-    } else {
-        "apt install gcc"
-    }
 }
 
 /// A local grammar directory holds `parser.c` itself, or is a checkout with `src/parser.c`.

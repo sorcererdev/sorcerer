@@ -15,6 +15,7 @@ use anyhow::{Context, bail};
 use sorcerer_core::adapters::env::SystemEnv;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::platform::paths::canonical;
 use sorcerer_core::domain::compare::{UnitChange, compare_units};
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::units_of;
@@ -25,10 +26,7 @@ fn main() -> anyhow::Result<()> {
         bail!("usage: units PATH");
     };
     let project = Arc::new(Project::open(&std::env::current_dir()?)?);
-    let path = std::env::current_dir()?
-        .join(&arg)
-        .canonicalize()
-        .with_context(|| arg.clone())?;
+    let path = canonical(&std::env::current_dir()?.join(&arg)).with_context(|| arg.clone())?;
     let rel: PathBuf = path
         .strip_prefix(&project.root)
         .context("the file is outside the project")?

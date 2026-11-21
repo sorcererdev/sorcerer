@@ -8,5 +8,6 @@ pub mod files_view;
 pub mod grammar;
 pub mod json_store;
 pub mod jsonl_ledger;
+pub mod platform;
 pub mod project;
 pub mod trust_list;

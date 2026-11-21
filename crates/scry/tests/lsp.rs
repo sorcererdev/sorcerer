@@ -19,6 +19,9 @@ use scry::ports::claim_checker::ClaimChecker;
 use scry::usecases::review_change::ReviewDeps;
 use serde_json::{Value, json};
 use sorcerer_core::Cancel;
+use sorcerer_core::adapters::env::MapEnv;
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::platform::dirs::user_dir_vars;
 use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
@@ -706,6 +709,47 @@ fn a_save_reviews_after_the_settle_and_publishes() {
     assert_eq!(shown.len(), 1);
     assert_eq!(shown[0].message, "cancel ignores now");
     assert_eq!(s.asks(), 1);
+    s.stop();
+}
+
+#[test]
+fn a_file_in_a_folder_is_named_with_a_slash_on_every_platform() {
+    let dir = git_project();
+    write(dir.path(), "shop/orders.py", ORDERS);
+    commit(dir.path(), "orders");
+    write(
+        dir.path(),
+        "shop/orders.py",
+        &ORDERS.replace("order.cancel()", "order.cancel(now=True)"),
+    );
+    let reply =
+        reply_with(&[("bug", "cancel ignores now")]).replace("\"orders.py\"", "\"shop/orders.py\"");
+    let sent = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = Arc::clone(&sent);
+    let reviewer = StubReviewer::new()
+        .reply(&["shop/orders.py"], &reply)
+        .on_review(move |ask| {
+            let files = ask
+                .units
+                .iter()
+                .map(|u| u.file.to_string_lossy().into_owned());
+            seen.lock().unwrap().extend(files);
+        });
+    let s = served(dir.path(), reviewer);
+    let file = dir.path().join("shop").join("orders.py");
+    s.open(&file);
+    s.save(&file);
+    let shown = s.diagnostics_until(&file, WAIT, |d| !d.is_empty());
+    assert!(shown.is_some(), "no diagnostic");
+    // the path the editor's pass reviews, stores and logs is git's form, `/` on Windows too
+    let sent = sent.lock().unwrap().clone();
+    assert!(
+        !sent.is_empty() && sent.iter().all(|f| f == "shop/orders.py"),
+        "{sent:?}"
+    );
+    let project = Project::open(dir.path()).unwrap();
+    let stored = &support::read_store(&project).findings[0];
+    assert_eq!(stored.place.file.to_string_lossy(), "shop/orders.py");
     s.stop();
 }
 
@@ -1581,20 +1625,19 @@ fn the_binary_speaks_lsp_over_stdio() {
     write(
         dir.path(),
         ".sorcerer/languages/python/language.toml",
-        &format!("grammar = {{ path = \"{}\" }}\n", grammar.display()),
+        &format!("grammar = {{ path = '{}' }}\n", grammar.display()),
     );
     seed(dir.path(), vec![in_cancel(dir.path(), "b00001", "bug")]);
     let home = TempDir::new().unwrap();
-    let config_home = home.path().join("config");
     let root = Project::open(dir.path()).unwrap().root;
-    TrustList::at(&config_home.join("sorcerer"))
+    TrustList::user(&MapEnv::default().with_user_dirs(home.path()))
+        .unwrap()
         .trust(&root)
         .unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_scry"))
         .arg("lsp")
         .current_dir(dir.path())
-        .env("XDG_CONFIG_HOME", &config_home)
-        .env("XDG_CACHE_HOME", home.path().join("cache"))
+        .envs(user_dir_vars(home.path()))
         .env_remove("JEV_API_KEY")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1645,7 +1688,8 @@ fn the_binary_speaks_lsp_over_stdio() {
         }
     };
     assert_eq!(diagnostics.as_array().unwrap().len(), 1, "{diagnostics}");
-    let built = std::fs::read_dir(home.path().join("cache/sorcerer/grammars"))
+    let user_cache = GrammarCache::user(&MapEnv::default().with_user_dirs(home.path()));
+    let built = std::fs::read_dir(&user_cache.dir)
         .map(|entries| entries.count())
         .unwrap_or(0);
     assert!(built > 0, "the server built no grammar");

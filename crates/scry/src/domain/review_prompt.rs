@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde_json::{Map, Value};
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 
 use crate::domain::finding::Finding;
@@ -134,7 +135,7 @@ fn numbered_unit(unit: &ReviewUnit) -> String {
     };
     let heading = format!(
         "--- {}:{}-{} {}{enclosing}{in_progress}",
-        unit.file.display(),
+        forward_slashes(&unit.file),
         unit.lines.start,
         unit.lines.end,
         unit.name
@@ -188,7 +189,7 @@ fn open_finding_line(finding: &Finding) -> String {
         "- id {}: [{}] {}:{}: {}",
         finding.id.0,
         finding.issue_type,
-        finding.place.file.display(),
+        forward_slashes(&finding.place.file),
         finding.place.lines.start,
         finding.statement
     )

@@ -27,6 +27,7 @@ use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::fingerprint::fingerprint;
 use sorcerer_core::domain::language::Languages;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::{Span, Unit};
 use sorcerer_core::ports::view::CodebaseView;
 
@@ -394,7 +395,7 @@ fn evidence_label(cited: &RawCitation, file: &CitedFile) -> String {
         .line
         .map(|line| format!(" line {line}"))
         .unwrap_or_default();
-    format!("{}{unit}{line}", file.path.display())
+    format!("{}{unit}{line}", forward_slashes(&file.path))
 }
 
 fn twelve_lines_from(text: &str, start: u32) -> String {

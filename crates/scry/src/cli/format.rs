@@ -1,8 +1,11 @@
 //! How the commands print: findings as text or JSON, and tables.
 
-use crate::adapters::why_text::lines_text;
-use serde_json::json;
+use std::path::Path;
 
+use serde_json::json;
+use sorcerer_core::domain::paths::forward_slashes;
+
+use crate::adapters::why_text::lines_text;
 use crate::domain::finding::Finding;
 
 /// How a command prints what it found: as text for a person, or as JSON for
@@ -80,7 +83,7 @@ pub(super) fn cut_to(n: usize, text: &str) -> String {
 pub(super) fn finding_text(f: &Finding, width: usize) -> String {
     let head = format!(
         "{}:{}  {}  ",
-        f.place.file.display(),
+        forward_slashes(&f.place.file),
         f.place.lines.start,
         f.issue_type
     );
@@ -131,7 +134,7 @@ fn evidence_line(f: &Finding) -> String {
         .map(|e| {
             format!(
                 "{}:{}",
-                e.file.display(),
+                forward_slashes(&e.file),
                 lines_text(e.lines.start, e.lines.end)
             )
         })
@@ -157,4 +160,13 @@ pub(super) fn finding_json(f: &Finding) -> serde_json::Value {
         "verdict": f.verdict.as_ref().map(|v| v.verdict.clone()),
         "status": f.status,
     })
+}
+
+/// A file under the project's root as its project-relative path, written with `/`
+/// (`.sorcerer/scry.toml`); a file elsewhere as its absolute path, in the platform's own form.
+pub(super) fn relative_or_absolute(file: &Path, root: &Path) -> String {
+    match file.strip_prefix(root) {
+        Ok(relative) => forward_slashes(relative),
+        Err(_) => file.display().to_string(),
+    }
 }

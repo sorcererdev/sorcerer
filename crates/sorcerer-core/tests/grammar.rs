@@ -4,11 +4,48 @@ mod support;
 use std::path::Path;
 
 use sorcerer_core::Error;
+use sorcerer_core::adapters::env::SystemEnv;
 use sorcerer_core::adapters::grammar::{self, GrammarCache};
+use sorcerer_core::adapters::platform::compiler::{CCompiler, c_compiler};
 use sorcerer_core::domain::language::GrammarSource;
 
 fn local(name: &str) -> GrammarSource {
     GrammarSource::Local(support::vendored(name))
+}
+
+fn compiler() -> Option<CCompiler> {
+    c_compiler(&SystemEnv)
+}
+
+/// Copies a directory tree, files and folders, to a new place.
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_cache_under_a_spaced_non_ascii_directory_builds_and_loads() {
+    // both the sources and the cache under the directory, as a fetched grammar's sources
+    // are: the compiler's `-I`, input and output arguments all carry the space and the `é`
+    let d = tempfile::TempDir::new().unwrap();
+    let spaced = d.path().join("a b é");
+    let sources = spaced.join("src").join("python");
+    copy_dir(&support::vendored("python"), &sources);
+    let cache = GrammarCache::at(spaced.join("cache"));
+    let lang = grammar::load(&cache, "python", &GrammarSource::Local(sources)).unwrap();
+    let mut p = tree_sitter::Parser::new();
+    p.set_language(&lang).unwrap();
+    let tree = p.parse("x = 1\n", None).unwrap();
+    assert_eq!(tree.root_node().kind(), "module");
+    assert!(!tree.root_node().has_error());
 }
 
 #[test]
@@ -47,16 +84,19 @@ fn the_rust_grammar_loads_too() {
 fn a_second_build_reuses_the_library() {
     let d = tempfile::TempDir::new().unwrap();
     let cache = GrammarCache::at(d.path().into());
-    let first = grammar::build_if_absent(&cache, "python", &local("python"), "cc").unwrap();
+    let first =
+        grammar::build_if_absent(&cache, "python", &local("python"), compiler().as_ref()).unwrap();
     let t = std::fs::metadata(&first).unwrap().modified().unwrap();
-    let second = grammar::build_if_absent(&cache, "python", &local("python"), "cc").unwrap();
+    let second =
+        grammar::build_if_absent(&cache, "python", &local("python"), compiler().as_ref()).unwrap();
     assert_eq!(first, second);
     assert_eq!(std::fs::metadata(&second).unwrap().modified().unwrap(), t);
 }
 
 #[test]
 fn the_key_changes_with_the_rev() {
-    let cache = GrammarCache::at("/c".into());
+    let d = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(d.path().into());
     let src = |rev: &str| GrammarSource::Git {
         url: "https://example.com/g".into(),
         rev: rev.into(),
@@ -64,7 +104,7 @@ fn the_key_changes_with_the_rev() {
     let a = grammar::library_path(&cache, "g", &src("aaaaaaa")).unwrap();
     let b = grammar::library_path(&cache, "g", &src("bbbbbbb")).unwrap();
     assert_ne!(a, b);
-    assert!(a.starts_with("/c") && a.file_name().unwrap().to_string_lossy().starts_with("g-"));
+    assert!(a.starts_with(d.path()) && a.file_name().unwrap().to_string_lossy().starts_with("g-"));
 }
 
 #[test]
@@ -74,10 +114,11 @@ fn no_compiler_is_a_stop_with_a_hint() {
         &GrammarCache::at(d.path().into()),
         "python",
         &local("python"),
-        "definitely-not-a-compiler",
+        None,
     )
     .unwrap_err();
     assert!(matches!(e, Error::NoCompiler { .. }), "{e}");
+    assert!(e.to_string().contains("cc, gcc or clang"), "{e}");
     assert!(e.to_string().contains("install"), "{e}");
 }
 
@@ -87,7 +128,16 @@ fn eight_threads_building_at_once_leave_one_library() {
     let cache = GrammarCache::at(d.path().into());
     std::thread::scope(|s| {
         let hs: Vec<_> = (0..8)
-            .map(|_| s.spawn(|| grammar::build_if_absent(&cache, "python", &local("python"), "cc")))
+            .map(|_| {
+                s.spawn(|| {
+                    grammar::build_if_absent(
+                        &cache,
+                        "python",
+                        &local("python"),
+                        compiler().as_ref(),
+                    )
+                })
+            })
             .collect();
         for h in hs {
             h.join().unwrap().unwrap();
@@ -134,7 +184,7 @@ fn a_git_grammar_is_fetched_at_its_rev() {
         .to_string();
     let d = tempfile::TempDir::new().unwrap();
     let src = GrammarSource::Git {
-        url: format!("file://{}", repo.path().display()),
+        url: support::file_url(repo.path()),
         rev,
     };
     let lang = grammar::load(&GrammarCache::at(d.path().into()), "python", &src).unwrap();
@@ -145,13 +195,14 @@ fn a_git_grammar_is_fetched_at_its_rev() {
 #[test]
 fn a_url_outside_gits_transports_is_refused() {
     let d = tempfile::TempDir::new().unwrap();
+    let pwned = d.path().join("pwned");
     let src = GrammarSource::Git {
-        url: "ext::sh -c touch% /tmp/pwned".into(),
+        url: format!("ext::sh -c touch% {}", pwned.display()),
         rev: "a".repeat(40),
     };
-    let e = grammar::load(&GrammarCache::at(d.path().into()), "x", &src).unwrap_err();
+    let e = grammar::load(&GrammarCache::at(d.path().join("cache")), "x", &src).unwrap_err();
     assert!(matches!(e, Error::GrammarFetch { .. }), "{e}");
-    assert!(!Path::new("/tmp/pwned").exists());
+    assert!(!pwned.exists());
 }
 
 #[test]
@@ -179,7 +230,7 @@ fn a_failed_fetch_is_tried_again_on_the_next_load() {
     let d = tempfile::TempDir::new().unwrap();
     let cache = GrammarCache::at(d.path().into());
     let src = GrammarSource::Git {
-        url: format!("file://{}", repo.path().display()),
+        url: support::file_url(repo.path()),
         rev,
     };
     assert!(matches!(

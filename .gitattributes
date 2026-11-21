@@ -1,0 +1,9 @@
+# Every text file is checked out with LF on every platform, so embedded queries, golden files
+# and the eval's recording keys read the same on Windows.
+* text=auto eol=lf
+# The eval's recordings are compared byte for byte: never converted.
+corpus/scry/*/reviews/** -text
+corpus/scry/*/checks.json -text
+corpus/scry/*/jev/** -text
+corpus/scry/*/bare/** -text
+*.patch -text

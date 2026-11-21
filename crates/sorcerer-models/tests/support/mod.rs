@@ -3,9 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// The fake `claude` script.
+/// The fake `claude` program (`tests/support/fake_claude.rs`).
 pub fn fake_claude() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/fake-claude")
+    PathBuf::from(env!("CARGO_BIN_EXE_fake-claude"))
 }
 
 /// Files the fake writes into, and the variables pointing it at them.

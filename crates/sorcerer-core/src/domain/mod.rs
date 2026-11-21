@@ -9,6 +9,7 @@ pub mod fences;
 pub mod fingerprint;
 pub mod fnv;
 pub mod language;
+pub mod paths;
 pub mod project;
 pub mod query;
 pub mod trust;

@@ -3,6 +3,8 @@
 //! that write the log. Only the words: where the log goes is the run log
 //! port's business.
 
+use sorcerer_core::domain::paths::forward_slashes;
+
 use crate::domain::finding::StoredCitation;
 use crate::domain::scope::{Base, Scope, ScopeRequest, ScopedFile};
 
@@ -103,7 +105,7 @@ pub fn scope_text(scope: &Scope) -> String {
         scope
             .skipped
             .iter()
-            .map(|(file, why)| format!("- `{}`: skipped ({why})", file.display())),
+            .map(|(file, why)| format!("- `{}`: skipped ({why})", forward_slashes(file))),
     );
     let body: String = lines.map(|line| line + "\n").collect();
     section("Scope") + &body
@@ -114,7 +116,7 @@ fn why_the_pass_runs(request: &ScopeRequest) -> String {
         ScopeRequest::Files(paths) => {
             let named: Vec<String> = paths
                 .iter()
-                .map(|path| format!("`{}`", path.display()))
+                .map(|path| format!("`{}`", forward_slashes(path)))
                 .collect();
             format!("the files named: {}", named.join(", "))
         }
@@ -133,7 +135,7 @@ fn base_text(base: &Base) -> String {
 /// A file in scope: deleted, or the units it added or changed with their
 /// lines.
 fn file_in_scope_line(scope: &Scope, file: &ScopedFile) -> String {
-    let name = file.file.display();
+    let name = forward_slashes(&file.file);
     if file.deleted {
         return format!("- `{name}`: in, deleted (its findings are gone)");
     }

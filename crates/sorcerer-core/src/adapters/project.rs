@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::adapters::platform::paths::canonical;
 use crate::domain::config::Config;
 use crate::domain::language::Languages;
 use crate::domain::project::Project;
@@ -16,7 +17,7 @@ impl Project {
     /// `.sorcerer/` anywhere, the root is `~/shop` with the default settings. With neither
     /// above, it is an error.
     pub fn open(dir: &Path) -> Result<Project> {
-        let dir = dir.canonicalize().map_err(|e| Error::io(dir, e))?;
+        let dir = canonical(dir).map_err(|e| Error::io(dir, e))?;
         let root = root_above_canonical(&dir).ok_or(Error::NoProject { from: dir.clone() })?;
         let config = read_config(&root)?;
         let languages = Languages::assemble(&root, &config.languages)?;
@@ -36,7 +37,7 @@ impl Project {
     /// Example: for `~/shop/libs/pay/src` with `~/shop/.sorcerer/` and `~/shop/libs/pay/.git`,
     /// the root is `~/shop`: a `.sorcerer/` directory anywhere above wins over a nearer `.git`.
     pub fn root_above(dir: &Path) -> Option<PathBuf> {
-        root_above_canonical(&dir.canonicalize().ok()?)
+        root_above_canonical(&canonical(dir).ok()?)
     }
 
     /// The directory where products keep what they remember, `.sorcerer/state`. The first call

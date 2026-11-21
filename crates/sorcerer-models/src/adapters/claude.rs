@@ -5,12 +5,13 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sorcerer_core::Cancel;
+use sorcerer_core::adapters::platform::process::{self, Running};
 use sorcerer_core::domain::config::ProviderConfig;
 
 use crate::domain::model::{Completion, Content, ModelId, Reply, StopReason, Usage};
@@ -68,9 +69,9 @@ impl ClaudeRun<'_> {
     /// Example: `claude` exits 1 printing only "Not logged in" as an error: the error
     /// reads "exited exit status: 1 with no JSON reply: Not logged in".
     pub(crate) fn run(&self, cancel: &Cancel) -> Result<ClaudeReply> {
-        let mut child = self.start()?;
-        let printing = Printing::start(&mut child, self.prompt);
-        let status = self.wait_for_exit(&mut child, cancel)?;
+        let mut runner = self.start()?;
+        let printing = Printing::start(&mut runner, self.prompt);
+        let status = self.wait_for_exit(&mut runner, cancel)?;
         reply_from(&printing.finish(), status)
     }
 
@@ -78,10 +79,10 @@ impl ClaudeRun<'_> {
         self.runner.display().to_string()
     }
 
-    /// Starts `claude` in its own process group, so a kill reaches whatever it started.
-    /// `CLAUDECODE` is removed, so a run from inside Claude Code is not refused as nested,
-    /// and CLAUDE.md files are turned off.
-    fn start(&self) -> Result<Child> {
+    /// Starts `claude` in a group of its own (a process group on Unix, a job object on
+    /// Windows), so stopping it reaches whatever it started. `CLAUDECODE` is removed, so a run
+    /// from inside Claude Code is not refused as nested, and CLAUDE.md files are turned off.
+    fn start(&self) -> Result<Running> {
         let mut command = Command::new(self.runner);
         command
             .args(&self.args)
@@ -94,20 +95,18 @@ impl ClaudeRun<'_> {
         if let Some(folder) = self.cwd {
             command.current_dir(folder);
         }
-        #[cfg(unix)]
-        std::os::unix::process::CommandExt::process_group(&mut command, 0);
-        command.spawn().map_err(|e| Error::Subprocess {
+        process::start(command).map_err(|e| Error::Subprocess {
             runner: self.runner_name(),
             why: e.to_string(),
         })
     }
 
-    /// Checks every 50 milliseconds whether `claude` has exited, killing it on a cancel
-    /// or once the timeout has passed.
-    fn wait_for_exit(&self, child: &mut Child, cancel: &Cancel) -> Result<ExitStatus> {
+    /// Checks every 50 milliseconds whether `claude` has exited, stopping it and everything
+    /// it started on a cancel or once the timeout has passed.
+    fn wait_for_exit(&self, runner: &mut Running, cancel: &Cancel) -> Result<ExitStatus> {
         let deadline = Instant::now() + self.timeout;
         loop {
-            let exited = child.try_wait().map_err(|e| Error::Subprocess {
+            let exited = runner.try_wait().map_err(|e| Error::Subprocess {
                 runner: self.runner_name(),
                 why: e.to_string(),
             })?;
@@ -115,11 +114,11 @@ impl ClaudeRun<'_> {
                 return Ok(status);
             }
             if cancel.is_cancelled() {
-                kill_group(child);
+                runner.stop();
                 return Err(Error::Cancelled);
             }
             if Instant::now() >= deadline {
-                kill_group(child);
+                runner.stop();
                 return Err(Error::Timeout {
                     provider: "claude".into(),
                     seconds: self.timeout.as_secs(),
@@ -145,15 +144,15 @@ struct Printed {
 
 impl Printing {
     /// Writes the prompt to the child's input and starts reading what it prints.
-    fn start(child: &mut Child, prompt: &str) -> Printing {
-        let mut input = child.stdin.take().expect("piped");
+    fn start(runner: &mut Running, prompt: &str) -> Printing {
+        let mut input = runner.take_stdin().expect("piped");
         let prompt = prompt.to_string();
         std::thread::spawn(move || {
             let _ = input.write_all(prompt.as_bytes());
         });
         Printing {
-            stdout: read_all_on_its_own_thread(child.stdout.take().expect("piped")),
-            stderr: read_all_on_its_own_thread(child.stderr.take().expect("piped")),
+            stdout: read_all_on_its_own_thread(runner.take_stdout().expect("piped")),
+            stderr: read_all_on_its_own_thread(runner.take_stderr().expect("piped")),
         }
     }
 
@@ -206,19 +205,6 @@ fn reply_error(why: String) -> Error {
         provider: "claude".into(),
         why,
     }
-}
-
-/// Kills the child and every process in its group.
-fn kill_group(child: &mut Child) {
-    #[cfg(unix)]
-    // its output goes nowhere: in an editor's server, standard output is the protocol's
-    let _ = Command::new("kill")
-        .args(["-KILL", "--", &format!("-{}", child.id())])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 impl Provider for Claude {

@@ -136,7 +136,11 @@ mod tests {
             reasons[0].key,
             ".sorcerer/languages/toy/language.toml grammar path"
         );
-        assert!(reasons[0].value.ends_with("languages/toy/g"), "{reasons:?}");
+        // an absolute path in the platform's own form: compared by its components
+        assert!(
+            std::path::Path::new(&reasons[0].value).ends_with("languages/toy/g"),
+            "{reasons:?}"
+        );
     }
 
     #[test]

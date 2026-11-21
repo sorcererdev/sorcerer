@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use scry::domain::config::ScryConfig;
 use scry::domain::scope::{Base, Scope, ScopeRequest};
 use scry::usecases::review_change::scope::scope_of;
+use sorcerer_core::adapters::platform::paths::canonical;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
 
@@ -287,7 +288,7 @@ fn a_deleted_file_that_was_never_at_the_base_is_skipped() {
 #[test]
 fn a_named_file_is_taken_once_however_often_it_is_named() {
     let d = committed();
-    let root = d.path().canonicalize().unwrap();
+    let root = canonical(d.path()).unwrap();
     let named = ScopeRequest::Files(vec![
         "orders.py".into(),
         "orders.py".into(),

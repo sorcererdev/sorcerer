@@ -4,6 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use serde_json::json;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 
 use super::format::{Output, cut_to, table};
@@ -66,7 +67,7 @@ fn findings_table_text(findings: &[Finding]) -> String {
             vec![
                 status_word(f.status),
                 f.issue_type.clone(),
-                f.place.file.display().to_string(),
+                forward_slashes(&f.place.file),
                 f.place.lines.start.to_string(),
                 f.rule.clone().unwrap_or_else(|| "-".into()),
                 cut_to(80, &f.statement),

@@ -7,6 +7,7 @@ use std::path::Path;
 
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::fnv::fnv64_hex;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::{Span, Unit, unit_at};
 use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape, UnsureAnswer, Weighed};
 
@@ -128,7 +129,7 @@ pub fn finding_text(
 ) -> String {
     format!(
         "{issue_type} at {}:{line}; rule: {}; {statement}",
-        file.display(),
+        forward_slashes(file),
         rule.unwrap_or("none")
     )
 }
@@ -208,7 +209,7 @@ pub const WORTH_SAYING_IS: &str = "ignoring it leaves wrong behaviour, a failure
 /// finding cites, or all of them when it cites none (or a rule the project
 /// does not have).
 pub fn nitpick(steering: &Steering, raw: &RawFinding, cited: &str) -> Question {
-    let place = format!("{}:{}", raw.file.display(), raw.lines.start);
+    let place = format!("{}:{}", forward_slashes(&raw.file), raw.lines.start);
     Question {
         kind: "nitpick".into(),
         instructions: "Is this code review finding a nitpick?".into(),

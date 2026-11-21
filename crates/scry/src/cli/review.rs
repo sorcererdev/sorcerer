@@ -13,10 +13,11 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use sorcerer_core::domain::errand::Errand;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
 
-use super::format::{Output, finding_json, finding_text};
+use super::format::{Output, finding_json, finding_text, relative_or_absolute};
 use super::{Console, RunArgs};
 use crate::adapters::markdown_run_log::{self, RESULT, StreamingLog};
 use crate::adapters::scry_toml::{STEERING_FILE, ScryToml};
@@ -138,10 +139,7 @@ fn steering_section(settings: &dyn Settings, root: &Path) -> String {
 
 fn steering_lines(steering: &Steering, source: Option<PathBuf>, root: &Path) -> Vec<String> {
     let file = match source {
-        Some(file) => format!(
-            "- file: {}",
-            file.strip_prefix(root).unwrap_or(&file).display()
-        ),
+        Some(file) => format!("- file: {}", relative_or_absolute(&file, root)),
         None => format!("- none: no {STEERING_FILE}"),
     };
     let context = steering.context.trim();
@@ -152,7 +150,7 @@ fn steering_lines(steering: &Steering, source: Option<PathBuf>, root: &Path) -> 
     };
     let includes = steering.includes.iter().map(|include| {
         let size = bytes(include.text.len());
-        format!("- include {}: {size}", include.path.display())
+        format!("- include {}: {size}", forward_slashes(&include.path))
     });
     let ids: Vec<&str> = steering.rules.iter().map(|r| r.id.as_str()).collect();
     let rules = if ids.is_empty() {
@@ -465,7 +463,7 @@ fn touched_line(
         "- {} {} at {}:{}: {}{verdict}; {printed}\n",
         f.id.0,
         f.issue_type,
-        f.place.file.display(),
+        forward_slashes(&f.place.file),
         f.place.lines.start,
         status_word(f.status),
     )

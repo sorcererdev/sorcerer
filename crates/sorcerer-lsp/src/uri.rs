@@ -33,10 +33,18 @@ mod tests {
 
     #[test]
     fn paths_round_trip() {
-        let path = Path::new("/tmp/a b/c#d/é.txt");
-        let uri = uri_of(path);
-        assert_eq!(uri.as_str(), "file:///tmp/a%20b/c%23d/%C3%A9.txt");
-        assert_eq!(path_of(&uri).as_deref(), Some(path));
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("a b").join("c#d").join("é.txt");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "").unwrap();
+        let uri = uri_of(&path);
+        assert!(uri.as_str().starts_with("file:///"), "{}", uri.as_str());
+        assert!(
+            uri.as_str().ends_with("/a%20b/c%23d/%C3%A9.txt"),
+            "{}",
+            uri.as_str()
+        );
+        assert_eq!(path_of(&uri), Some(path));
     }
 
     #[test]

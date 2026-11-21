@@ -690,8 +690,8 @@ exit 0, and 2 when the list cannot be written or there is no project. `scry doct
 
 **Standard output is the protocol's.** `scry lsp` writes framed messages from `lsp-server`'s
 writer thread, so `main.rs` does not hold the stdout lock for the run, and nothing the server
-starts may write to it: `cc` and `git` run with their output captured, and the `claude`
-runner's group kill sends its output nowhere. `tests/lsp.rs::the_binary_speaks_lsp_over_stdio`
+starts may write to it: the C compiler and `git` run with their output captured, and
+stopping the `claude` runner (`Running::stop`) prints nothing. `tests/lsp.rs::the_binary_speaks_lsp_over_stdio`
 drives the real binary through a project grammar build and checks every byte it wrote parses
 as a framed message.
 

@@ -11,6 +11,16 @@ use serde_json::{Value, json};
 use sorcerer_lsp::{Answer, Client, Product, serve, serve::unknown_method, uri_of};
 
 const WAIT: Duration = Duration::from_secs(5);
+
+/// The editor's workspace: an absolute path on every platform (it need not exist).
+fn shop() -> PathBuf {
+    std::env::temp_dir().join("work").join("shop")
+}
+
+/// The `file:` URI of a path, as text.
+fn uri(path: &Path) -> String {
+    uri_of(path).as_str().to_string()
+}
 const QUIET: Duration = Duration::from_millis(200);
 
 /// What reached the product, in order, and the client it was given.
@@ -93,7 +103,7 @@ impl Editor {
         editor.request(
             1,
             "initialize",
-            json!({ "capabilities": capabilities, "rootUri": "file:///work/shop" }),
+            json!({ "capabilities": capabilities, "rootUri": uri(&shop()) }),
         );
         editor.notify("initialized", json!({}));
         editor
@@ -195,10 +205,7 @@ fn the_handshake_announces_open_close_and_save_only() {
     assert!(sync.get("change").is_none(), "{sync}");
     assert_eq!(sync["save"], json!({ "includeText": false }));
     editor.client();
-    assert_eq!(
-        editor.seen.lock().unwrap().root.as_deref(),
-        Some(Path::new("/work/shop"))
-    );
+    assert_eq!(editor.seen.lock().unwrap().root, Some(shop()));
     editor.stop();
 }
 
@@ -218,8 +225,8 @@ fn the_first_workspace_folder_is_the_root() {
     let request = Request::new(
         RequestId::from(1),
         "initialize".into(),
-        json!({ "capabilities": {}, "rootUri": "file:///a",
-                "workspaceFolders": [{ "uri": "file:///b", "name": "b" }] }),
+        json!({ "capabilities": {}, "rootUri": uri(&shop().join("a")),
+                "workspaceFolders": [{ "uri": uri(&shop().join("b")), "name": "b" }] }),
     );
     editor_end.sender.send(request.into()).unwrap();
     editor_end
@@ -231,21 +238,22 @@ fn the_first_workspace_folder_is_the_root() {
         .send(Notification::new("exit".into(), Value::Null).into())
         .unwrap();
     server.join().unwrap().unwrap();
-    assert_eq!(*root.lock().unwrap(), Some(Some(PathBuf::from("/b"))));
+    assert_eq!(*root.lock().unwrap(), Some(Some(shop().join("b"))));
 }
 
 #[test]
 fn open_save_close_reach_the_product_and_the_open_set() {
     let editor = Editor::plain();
-    editor.document("textDocument/didOpen", "file:///work/shop/a.txt");
-    editor.document("textDocument/didSave", "file:///work/shop/a.txt");
-    editor.document("textDocument/didClose", "file:///work/shop/a.txt");
+    let a = shop().join("a.txt");
+    editor.document("textDocument/didOpen", &uri(&a));
+    editor.document("textDocument/didSave", &uri(&a));
+    editor.document("textDocument/didClose", &uri(&a));
     assert_eq!(
         editor.wait_for_events(3),
         vec![
-            "opened /work/shop/a.txt (open: true)",
-            "saved /work/shop/a.txt",
-            "closed /work/shop/a.txt (open: false)",
+            format!("opened {} (open: true)", a.display()),
+            format!("saved {}", a.display()),
+            format!("closed {} (open: false)", a.display()),
         ]
     );
     assert!(editor.client().open_paths().is_empty());
@@ -260,8 +268,12 @@ fn a_save_of_a_non_file_uri_is_dropped() {
         "textDocument/didSave",
         "fugitive:///work/shop/.git//0/a.txt",
     );
-    editor.document("textDocument/didSave", "file:///work/shop/a.txt");
-    assert_eq!(editor.wait_for_events(1), vec!["saved /work/shop/a.txt"]);
+    let a = shop().join("a.txt");
+    editor.document("textDocument/didSave", &uri(&a));
+    assert_eq!(
+        editor.wait_for_events(1),
+        vec![format!("saved {}", a.display())]
+    );
     editor.stop();
 }
 
@@ -303,11 +315,12 @@ fn say_once_says_a_key_once() {
 fn publish_and_log_reach_the_editor() {
     let editor = Editor::plain();
     let client = editor.client();
-    client.publish(Path::new("/work/shop/a b.txt"), Vec::new());
+    let spaced = shop().join("a b.txt");
+    client.publish(&spaced, Vec::new());
     let published = notifications(&editor, "textDocument/publishDiagnostics");
     assert_eq!(
         published,
-        vec![json!({ "uri": uri_of(Path::new("/work/shop/a b.txt")).as_str(), "diagnostics": [] })]
+        vec![json!({ "uri": uri(&spaced), "diagnostics": [] })]
     );
     client.log("hello");
     assert_eq!(

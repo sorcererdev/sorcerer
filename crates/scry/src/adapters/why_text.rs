@@ -2,6 +2,7 @@
 //! code it cites, what the check said, and its history. `scry why` prints
 //! it; the editor's *Show why* writes it to a file and opens it.
 
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 
 use crate::adapters::scry_toml::STEERING_FILE;
@@ -45,7 +46,7 @@ fn heading_text(f: &Finding) -> String {
     format!(
         "# {}: {}:{}\n\n{}\n\n",
         f.issue_type,
-        f.place.file.display(),
+        forward_slashes(&f.place.file),
         lines_text(f.place.lines.start, f.place.lines.end),
         f.statement
     )
@@ -66,7 +67,7 @@ fn unit_text(f: &Finding) -> String {
         (Some(unit), Some(start)) => {
             format!(
                 "Unit: {unit} (starts at {}:{start})\n\n",
-                f.place.file.display()
+                forward_slashes(&f.place.file)
             )
         }
         (Some(unit), None) => format!("Unit: {unit}\n\n"),
@@ -89,7 +90,7 @@ fn evidence_text(evidence: &[(Evidence, CitedText)]) -> String {
                 CitedText::Text(text) => cited_range(text, e.lines),
                 CitedText::Unreadable => "(the file cannot be read)".to_string(),
             };
-            format!("{}:{range}\n{code}\n", e.file.display())
+            format!("{}:{range}\n{code}\n", forward_slashes(&e.file))
         })
         .collect();
     format!("Evidence:\n{cited}\n")

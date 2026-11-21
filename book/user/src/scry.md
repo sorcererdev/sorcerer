@@ -199,7 +199,8 @@ one.
 - `scry trust` in the project trusts it from a terminal, and prints what in its config needed
   it (`trusted: /home/you/shop`, then `[model.providers.mine] runner = /opt/run`). It trusts
   the root even when nothing needs trust today. `scry trust --revoke` takes it off the list.
-- The list is `trusted.toml` in `$XDG_CONFIG_HOME/sorcerer/`, else `~/.config/sorcerer/`. It
+- The list is `trusted.toml` in `$XDG_CONFIG_HOME/sorcerer/`, else `~/.config/sorcerer/`
+  (on Windows, `%APPDATA%\sorcerer\`). It
   holds project roots: trust is by path, so a change you pull into a trusted project is
   trusted, as its build scripts are.
 

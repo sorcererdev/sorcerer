@@ -13,6 +13,8 @@ chrono.workspace = true
 toml.workspace = true
 thiserror.workspace = true
 which.workspace = true
+dunce.workspace = true
+process-wrap.workspace = true
 include_dir.workspace = true
 globset.workspace = true
 tree-sitter.workspace = true
@@ -26,6 +28,7 @@ grep-searcher.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 tempfile.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

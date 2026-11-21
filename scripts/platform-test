@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Tests scripts/platform over a throwaway tree: each refused form planted
+# outside the adapter is named, clean code passes, and the same forms are
+# allowed only in sorcerer-core's own adapters/platform/ directory.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+check="$here/platform"
+d=$(mktemp -d)
+clean=$(mktemp -d)
+trap 'rm -rf "$d" "$clean"' EXIT
+
+put() { mkdir -p "$(dirname "$d/$1")"; cat > "$d/$1"; }
+
+forms() {
+  cat <<'RS'
+#[cfg(unix)]
+fn a() {}
+#[cfg(windows)]
+fn b() {}
+#[cfg(target_os = "macos")]
+fn c() {}
+fn d() -> bool { cfg!(unix) }
+fn e() -> bool { cfg!(windows) }
+fn f() -> bool { cfg!(target_os = "linux") }
+use std::os::unix::fs::symlink;
+fn g(p: &Path) { p.canonicalize(); }
+fn h() { std::env::var("HOME"); }
+fn i(c: &mut Command) { c.process_group(0); }
+fn j() { Command::new("kill"); }
+#[cfg(not(windows))]
+fn k() {}
+#[cfg_attr(unix, allow(dead_code))]
+fn l() {}
+#[cfg_attr(windows, allow(dead_code))]
+fn m() {}
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn n() {}
+use std::{fs, os::unix::fs::symlink};
+use std::{
+    os::windows::fs::symlink_dir,
+};
+RS
+}
+
+forms | put crates/x/src/lib.rs
+forms | put crates/x/tests/t.rs
+forms | put crates/x/src/adapters/platform/mod.rs
+forms | put crates/sorcerer-core/src/adapters/platform/mod.rs
+put crates/x/src/clean.rs <<'RS'
+// a comment may say cfg(unix) or "HOME"
+#[cfg(test)]
+fn windows_free() {}
+fn portable(p: &Path) -> PathBuf { canonical(p).unwrap() }
+RS
+
+out=$("$check" "$d" 2>&1) && { echo "FAIL: platform passed a tree full of platform code"; exit 1; }
+where="platform code outside crates/sorcerer-core/src/adapters/platform/"
+want=(
+  "crates/x/src/lib.rs:1: $where: cfg(unix)"
+  "crates/x/src/lib.rs:3: $where: cfg(windows)"
+  "crates/x/src/lib.rs:5: $where: cfg(target_os"
+  "crates/x/src/lib.rs:7: $where: cfg!(unix)"
+  "crates/x/src/lib.rs:8: $where: cfg!(windows)"
+  "crates/x/src/lib.rs:9: $where: cfg!(target_os"
+  "crates/x/src/lib.rs:10: $where: std::os::"
+  "crates/x/src/lib.rs:11: $where: .canonicalize("
+  "crates/x/src/lib.rs:12: $where: \"HOME\""
+  "crates/x/src/lib.rs:13: $where: process_group"
+  "crates/x/src/lib.rs:14: $where: Command::new(\"kill\""
+  "crates/x/src/lib.rs:15: $where: cfg(windows)"
+  "crates/x/src/lib.rs:17: $where: cfg_attr(unix"
+  "crates/x/src/lib.rs:19: $where: cfg_attr(windows"
+  "crates/x/src/lib.rs:21: $where: cfg_attr(target_os"
+  "crates/x/src/lib.rs:23: $where: os::unix"
+  "crates/x/src/lib.rs:25: $where: os::windows"
+  "crates/x/tests/t.rs:1: $where: cfg(unix)"
+  "crates/x/tests/t.rs:14: $where: Command::new(\"kill\""
+  "crates/x/src/adapters/platform/mod.rs:10: $where: std::os::"
+)
+fail=0
+for w in "${want[@]}"; do
+  grep -qxF "$w" <<<"$out" || { echo "FAIL: not named: $w"; fail=1; }
+done
+for quiet in "crates/x/src/clean.rs" "crates/sorcerer-core/src/adapters/platform/mod.rs"; do
+  if grep -qF "$quiet:" <<<"$out"; then echo "FAIL: named $quiet"; fail=1; fi
+done
+lines=$(wc -l <<<"$out" | tr -d ' ')
+[ "$lines" -eq 51 ] || { echo "FAIL: $lines lines, want 51 (17 forms in each of 3 files)"; fail=1; }
+[ "$fail" -eq 0 ] || { echo "$out"; exit 1; }
+
+mkdir -p "$clean/crates/x/src"
+cp "$d/crates/x/src/clean.rs" "$clean/crates/x/src/"
+"$check" "$clean" || { echo "FAIL: platform refused clean code"; exit 1; }
+echo "platform-test: ok"
