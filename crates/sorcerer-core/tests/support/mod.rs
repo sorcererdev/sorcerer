@@ -45,6 +45,16 @@ pub fn commit(dir: &Path, msg: &str) {
     git(dir, &["commit", "-q", "-m", msg]);
 }
 
+/// A `file://` URL for a local directory, written the way git reads it on every platform:
+/// `file:///tmp/repo` on Unix, `file:///C:/Users/ann/repo` on Windows.
+pub fn file_url(dir: &Path) -> String {
+    url::Url::from_directory_path(dir)
+        .expect("an absolute path")
+        .as_str()
+        .trim_end_matches('/')
+        .to_string()
+}
+
 /// The vendored grammar sources for NAME (no network).
 pub fn vendored(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

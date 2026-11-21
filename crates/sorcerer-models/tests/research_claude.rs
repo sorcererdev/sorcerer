@@ -137,7 +137,8 @@ fn deny_rules_cover_the_root_form_and_fenced_symlinks() {
     let d = support::git_project(None);
     let outside = tempfile::TempDir::new().unwrap();
     std::fs::create_dir_all(d.path().join("src")).unwrap();
-    std::os::unix::fs::symlink(outside.path(), d.path().join("src/link")).unwrap();
+    sorcerer_core::adapters::platform::paths::link_to(outside.path(), &d.path().join("src/link"))
+        .unwrap();
     let f = support::FakeClaude::new();
     let (r, _) = researcher(d.path(), &f, &[]);
     r.research(research(Duration::from_secs(5)), &Cancel::default())

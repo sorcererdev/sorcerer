@@ -12,6 +12,8 @@ use scry::cli::{doctor_rows, main_with};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::adapters::platform::dirs::NO_CONFIG_DIR;
+use sorcerer_core::adapters::platform::paths::canonical;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::ledger::Ledger;
@@ -1402,7 +1404,7 @@ fn the_run_log_head_is_as_recorded() {
     let r = scry(dir.path(), &d, &["--budget", "0.5"]);
     assert_eq!(r.code, 1, "{}{}", r.out, r.err);
     // the machine's: the project's path and scry's version
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path()).unwrap();
     let log = the_run_log(dir.path())
         .replace(&root.display().to_string(), "<project>")
         .replace(env!("CARGO_PKG_VERSION"), "<version>");
@@ -1716,7 +1718,7 @@ fn trust_adds_and_revoke_removes() {
     let dir = git_project();
     write(dir.path(), ".sorcerer/config.toml", RUNNER);
     let home = TempDir::new().unwrap();
-    let env = MapEnv::default().var_set("XDG_CONFIG_HOME", home.path().to_str().unwrap());
+    let env = MapEnv::default().with_user_dirs(home.path());
     let root = Project::open(dir.path()).unwrap().root;
     let r = scry_with_env(dir.path(), &env, &["trust"]);
     assert_eq!(r.code, 0, "{}", r.err);
@@ -1744,13 +1746,13 @@ fn trust_adds_and_revoke_removes() {
     );
     let nowhere = scry_with_env(dir.path(), &MapEnv::default(), &["trust"]);
     assert_eq!(nowhere.code, 2);
-    assert!(nowhere.err.contains("XDG_CONFIG_HOME"), "{}", nowhere.err);
+    assert!(nowhere.err.contains(NO_CONFIG_DIR), "{}", nowhere.err);
 }
 
 #[test]
 fn doctor_has_the_trust_row() {
     let home = TempDir::new().unwrap();
-    let env = MapEnv::default().var_set("XDG_CONFIG_HOME", home.path().to_str().unwrap());
+    let env = MapEnv::default().with_user_dirs(home.path());
     let trust_row = |dir: &Path| {
         let project = Project::open(dir).unwrap();
         doctor_rows(&project, &env, &support::test_cache())

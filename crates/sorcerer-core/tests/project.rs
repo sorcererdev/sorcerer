@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_lines)]
 mod support;
 
+use sorcerer_core::adapters::platform::paths::canonical;
 use sorcerer_core::domain::project::Project;
 
 #[test]
@@ -8,7 +9,7 @@ fn opens_the_git_root_with_defaults_when_there_is_no_sorcerer_dir() {
     let d = support::git_project();
     std::fs::create_dir_all(d.path().join("src/a")).unwrap();
     let p = Project::open(&d.path().join("src/a")).unwrap();
-    assert_eq!(p.root, d.path().canonicalize().unwrap());
+    assert_eq!(p.root, canonical(d.path()).unwrap());
     assert!(p.config.model.provider.is_none());
     assert_eq!(p.state, p.root.join(".sorcerer/state"));
 }
@@ -23,7 +24,7 @@ fn a_sorcerer_dir_is_the_root_and_its_config_is_read() {
     );
     std::fs::create_dir_all(d.path().join("sub/src")).unwrap();
     let p = Project::open(&d.path().join("sub/src")).unwrap();
-    assert_eq!(p.root, d.path().join("sub").canonicalize().unwrap());
+    assert_eq!(p.root, canonical(&d.path().join("sub")).unwrap());
     assert_eq!(p.config.model.provider.as_deref(), Some("anthropic"));
 }
 
@@ -83,12 +84,12 @@ fn root_above_prefers_the_sorcerer_directory_over_git() {
     std::fs::create_dir_all(d.path().join("libs/pay/.git")).unwrap();
     std::fs::create_dir_all(d.path().join("libs/pay/src")).unwrap();
     let root = Project::root_above(&d.path().join("libs/pay/src"));
-    assert_eq!(root, Some(d.path().canonicalize().unwrap()));
+    assert_eq!(root, Some(canonical(d.path()).unwrap()));
     let bare = tempfile::TempDir::new().unwrap();
     std::fs::create_dir_all(bare.path().join("a/.git")).unwrap();
     assert_eq!(
         Project::root_above(&bare.path().join("a")),
-        Some(bare.path().join("a").canonicalize().unwrap())
+        Some(canonical(&bare.path().join("a")).unwrap())
     );
     assert_eq!(Project::root_above(&bare.path().join("missing")), None);
 }

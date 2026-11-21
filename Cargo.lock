@@ -1592,6 +1592,7 @@ dependencies = [
  "toml",
  "tree-sitter",
  "tree-sitter-language",
+ "url",
  "which",
 ]
 

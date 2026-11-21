@@ -1,8 +1,6 @@
 #![allow(clippy::too_many_lines)]
 mod support;
 
-use std::path::Path;
-
 use sorcerer_core::Error;
 use sorcerer_core::adapters::env::SystemEnv;
 use sorcerer_core::adapters::grammar::{self, GrammarCache};
@@ -76,7 +74,8 @@ fn a_second_build_reuses_the_library() {
 
 #[test]
 fn the_key_changes_with_the_rev() {
-    let cache = GrammarCache::at("/c".into());
+    let d = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(d.path().into());
     let src = |rev: &str| GrammarSource::Git {
         url: "https://example.com/g".into(),
         rev: rev.into(),
@@ -84,7 +83,7 @@ fn the_key_changes_with_the_rev() {
     let a = grammar::library_path(&cache, "g", &src("aaaaaaa")).unwrap();
     let b = grammar::library_path(&cache, "g", &src("bbbbbbb")).unwrap();
     assert_ne!(a, b);
-    assert!(a.starts_with("/c") && a.file_name().unwrap().to_string_lossy().starts_with("g-"));
+    assert!(a.starts_with(d.path()) && a.file_name().unwrap().to_string_lossy().starts_with("g-"));
 }
 
 #[test]
@@ -164,7 +163,7 @@ fn a_git_grammar_is_fetched_at_its_rev() {
         .to_string();
     let d = tempfile::TempDir::new().unwrap();
     let src = GrammarSource::Git {
-        url: format!("file://{}", repo.path().display()),
+        url: support::file_url(repo.path()),
         rev,
     };
     let lang = grammar::load(&GrammarCache::at(d.path().into()), "python", &src).unwrap();
@@ -175,13 +174,14 @@ fn a_git_grammar_is_fetched_at_its_rev() {
 #[test]
 fn a_url_outside_gits_transports_is_refused() {
     let d = tempfile::TempDir::new().unwrap();
+    let pwned = d.path().join("pwned");
     let src = GrammarSource::Git {
-        url: "ext::sh -c touch% /tmp/pwned".into(),
+        url: format!("ext::sh -c touch% {}", pwned.display()),
         rev: "a".repeat(40),
     };
-    let e = grammar::load(&GrammarCache::at(d.path().into()), "x", &src).unwrap_err();
+    let e = grammar::load(&GrammarCache::at(d.path().join("cache")), "x", &src).unwrap_err();
     assert!(matches!(e, Error::GrammarFetch { .. }), "{e}");
-    assert!(!Path::new("/tmp/pwned").exists());
+    assert!(!pwned.exists());
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn a_failed_fetch_is_tried_again_on_the_next_load() {
     let d = tempfile::TempDir::new().unwrap();
     let cache = GrammarCache::at(d.path().into());
     let src = GrammarSource::Git {
-        url: format!("file://{}", repo.path().display()),
+        url: support::file_url(repo.path()),
         rev,
     };
     assert!(matches!(

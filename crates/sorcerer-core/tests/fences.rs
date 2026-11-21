@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_lines)]
 mod support;
 
-use std::os::unix::fs::symlink;
+use sorcerer_core::adapters::platform::paths::link_to;
 use std::path::Path;
 
 use sorcerer_core::domain::fences::Fences;
@@ -59,7 +59,7 @@ fn a_symlink_out_of_the_root_is_fenced() {
     let d = project();
     let outside = tempfile::TempDir::new().unwrap();
     std::fs::write(outside.path().join("hosts"), "x").unwrap();
-    symlink(outside.path(), d.path().join("src/link")).unwrap();
+    link_to(outside.path(), &d.path().join("src/link")).unwrap();
     let f = fences(d.path());
     assert!(!f.allows(Path::new("src/link/hosts")));
     assert!(!f.allows(Path::new("src/link")));
@@ -68,7 +68,7 @@ fn a_symlink_out_of_the_root_is_fenced() {
 #[test]
 fn a_symlink_inside_to_a_fenced_file_is_fenced() {
     let d = project();
-    symlink(d.path().join(".env"), d.path().join("src/e")).unwrap();
+    link_to(&d.path().join(".env"), &d.path().join("src/e")).unwrap();
     assert!(!fences(d.path()).allows(Path::new("src/e")));
 }
 
@@ -108,7 +108,8 @@ fn relative_gives_the_path_inside_the_root() {
 #[test]
 fn a_dangling_symlink_is_fenced() {
     let d = project();
-    symlink("/nonexistent/secret", d.path().join("src/dangling")).unwrap();
+    let gone = tempfile::TempDir::new().unwrap();
+    link_to(&gone.path().join("secret"), &d.path().join("src/dangling")).unwrap();
     assert!(!fences(d.path()).allows(Path::new("src/dangling")));
 }
 
@@ -137,9 +138,9 @@ fn a_directory_style_not_evidence_entry_fences_the_whole_directory() {
 fn fenced_links_lists_symlinks_out_of_the_root_or_onto_fenced_files() {
     let d = project();
     let outside = tempfile::TempDir::new().unwrap();
-    symlink(outside.path(), d.path().join("src/out")).unwrap();
-    symlink(d.path().join(".env"), d.path().join("src/e")).unwrap();
-    symlink(d.path().join("src/a.py"), d.path().join("src/ok")).unwrap();
+    link_to(outside.path(), &d.path().join("src/out")).unwrap();
+    link_to(&d.path().join(".env"), &d.path().join("src/e")).unwrap();
+    link_to(&d.path().join("src/a.py"), &d.path().join("src/ok")).unwrap();
     let mut links = fences(d.path()).fenced_links();
     links.sort();
     assert_eq!(
