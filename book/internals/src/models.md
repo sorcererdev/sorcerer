@@ -57,9 +57,14 @@ and `duration_ms` the time; `is_error` is an error with the result's text.
 
 `ClaudeRun` (the runner, its arguments, folder, prompt, timeout and extra environment) is
 shared with the claude researcher. `ClaudeRun::run` reads as its steps: `start` the child
-in its own process group, `Printing::start` (the prompt in, the output read on threads of
-their own), `wait_for_exit` (which kills the group on timeout or cancel, so nothing
-`claude` started is left running), then `reply_from` what it printed. Aliases pass straight through: `claude` understands `sonnet` and `haiku` itself.
+through the platform adapter's `process::start`, in a group of its own (a process group on
+Unix, a job object on Windows, where `claude.cmd` runs `cmd.exe`, which runs `node`),
+`Printing::start` (the prompt in, the output read on threads of their own), `wait_for_exit`
+(which calls `Running::stop` on timeout or cancel, ending the whole group or job, so nothing
+`claude` started is left running), then `reply_from` what it printed. The tests run a fake
+`claude` written in Rust (`tests/support/fake_claude.rs`, the `fake-claude` binary), so they
+run on Windows too; `a_timeout_stops_the_runner_and_what_it_started` has the fake start a
+child of its own and checks both are gone after the timeout. Aliases pass straight through: `claude` understands `sonnet` and `haiku` itself.
 
 ### openai-compatible
 

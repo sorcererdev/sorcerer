@@ -37,7 +37,8 @@ method names and the domain file stays pure.
   built and loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
   `json_store.rs` (`Store`), `jsonl_ledger.rs` (`JsonlLedger`),
   `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`), `env.rs`
-  (`SystemEnv`, `MapEnv`), `trust_list.rs` (`TrustList`).
+  (`SystemEnv`, `MapEnv`), `trust_list.rs` (`TrustList`), and `platform/`, the platform
+  adapter (below).
 
 **sorcerer-models**
 
@@ -99,6 +100,49 @@ An editor's language server is one more caller beside `cli/`: it calls the same 
   a scripted provider; never a network or a model.
 - **The command line**: `main_with` with a `Wiring` of doubles, asserting on stdout, stderr and
   the exit code.
+
+## The platform adapter
+
+Everything that differs between Windows, macOS and Linux is in one directory,
+`crates/sorcerer-core/src/adapters/platform/`, the only code allowed to ask which operating
+system it runs on. The models crate and scry reach it as `sorcerer_core::adapters::platform`
+from their adapters and cli (and from tests). Each file replaces what used to be written per
+platform where it was needed:
+
+- `paths.rs`: `canonical(path)` (`dunce::canonicalize`: `C:\…` on Windows, never `\\?\C:\…`,
+  which a compiler or git does not accept), used by `Project::open`, `Fences`, the grammar
+  key and scry's server; `link_to(target, link)` makes a symlink for tests (`symlink_dir` or
+  `symlink_file` on Windows).
+- `dirs.rs`: `user_cache_dir(env)` (`$XDG_CACHE_HOME`, else `$HOME/.cache`; `%LOCALAPPDATA%`
+  on Windows) and `user_config_dir(env)` (`$XDG_CONFIG_HOME`, else `$HOME/.config`;
+  `%APPDATA%`), which `GrammarCache::user` and `TrustList::user` call instead of reading
+  `HOME`; `NO_CONFIG_DIR`, the words for "there is none"; `user_dir_vars(home)`, the variables
+  that put every user directory under one folder, for tests (`MapEnv::with_user_dirs(home)`
+  is built on it).
+- `compiler.rs`: `c_compiler(env)`, the first of `cc`, `gcc`, `clang` on PATH as a
+  `CCompiler { program, flags }`; `shared_library_extension()` (`dylib`, `so`, `dll`);
+  `compiler_hint()`, what to install on this platform.
+- `process.rs`: `process::start(command)` starts a program in a group of its own (a process
+  group on Unix, a job object on Windows, through the `process-wrap` crate) and returns a
+  `Running`; `Running::stop()` ends the program and everything it started, then waits.
+  `is_running(pid)` is for tests.
+
+Finding a program on PATH needs nothing of its own: `SystemEnv::which` uses the `which`
+crate, which tries `PATHEXT`'s extensions on Windows, so `claude` finds `claude.cmd`.
+
+`scripts/platform` keeps it so (beside `scripts/layers`, below): in every `.rs` file under
+`crates/` (sources, tests, examples and test modules alike) outside that directory it
+refuses `cfg(unix)`, `cfg(windows)`, `cfg(target_os …)` (also inside `not(…)` or `any(…)`),
+the same in `cfg!(…)`, `std::os::`, `.canonicalize(`, `"HOME"`, `process_group` and
+`Command::new("kill"`, skipping comment lines. Each refusal is printed as
+`file:line: platform code outside crates/sorcerer-core/src/adapters/platform/: <form>`, and
+the script exits 1. `scripts/platform-test` plants every form and checks each is named, that
+clean code passes, and that the same forms pass only in sorcerer-core's own `platform/`
+directory. CI runs both, and tests the workspace on ubuntu, macOS and Windows.
+
+`.gitattributes` checks every text file out with LF on every platform, and leaves the eval's
+recordings (`corpus/scry/*/{reviews,jev,bare}/`, `checks.json`) and `*.patch` files
+byte for byte, so a recording key made on macOS matches on Windows.
 
 ## The rule, checked
 

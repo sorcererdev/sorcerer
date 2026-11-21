@@ -44,15 +44,16 @@ of `*` into it, so nothing a tool remembers is ever committed.
 `domain/trust.rs` decides; `adapters/trust_list.rs` remembers. Three things a project's own
 files can set run code or move the user's API key: a provider's `runner` (a program sorcerer
 starts), a provider's `url` (where the code and the key are sent) and a grammar the
-project's `.sorcerer/languages/<name>/language.toml` names (C source compiled with `cc` and
-loaded into the process). `needs_trust(project)` lists each one as a `TrustReason { key,
+project's `.sorcerer/languages/<name>/language.toml` names (C source compiled with the C
+compiler and loaded into the process). `needs_trust(project)` lists each one as a `TrustReason { key,
 value }`, providers by name (runner, then url), then languages by name; a language counts
 when `origins["grammar"] == "project"`, so a shipped grammar or a project file that only
 changes `files` needs nothing. A git grammar needs trust with or without a pinned `rev`.
 
-`TrustList` is the user's list of trusted project roots, `trusted.toml` in
-`$XDG_CONFIG_HOME/sorcerer/`, else `~/.config/sorcerer/` (`TrustList::user`, `None` with
-neither variable; `TrustList::at(dir)` for tests). It reads `projects = [ … ]`, sorted. Every
+`TrustList` is the user's list of trusted project roots, `trusted.toml` in `sorcerer/` under
+the user's config directory (`TrustList::user`, through the platform adapter's
+`user_config_dir`: `$XDG_CONFIG_HOME`, else `~/.config`, on Unix; `%APPDATA%` on Windows;
+`None` when the environment names none; `TrustList::at(dir)` for tests). It reads `projects = [ … ]`, sorted. Every
 question reads the file afresh; `trust` and `revoke` write it whole beside itself and rename
 it over. A missing file is an empty list; a broken one trusts nothing and refuses to be
 written. The key is the root `Project::open` picks, which is canonical, so a symlink and its
@@ -88,27 +89,35 @@ match a project-relative path.
 `adapters/grammar.rs`. No grammar is compiled into a
 binary. `grammar::load(cache, name, source)` returns a `tree_sitter::Language`:
 
-1. `library_path` names the compiled library `<cache>/<name>-<key>.<dylib|so>`. The key is
+1. `library_path` names the compiled library `<cache>/<name>-<key>.<ext>`, the extension
+   from the platform adapter's `shared_library_extension()` (`dylib`, `so`, `dll`). The key is
    FNV-1a 64 (`domain/fnv.rs`) over the source's identity (the git rev, or a local directory's
    path with `parser.c`'s and `scanner.c`'s sizes and times), the tree-sitter runtime's
    ABI, the OS and the arch. A changed key is a new file.
 2. `build_if_absent` fetches a git source into `<cache>/src/<name>-<rev7>/` (`fetch`:
    `check_fetchable` allows only `https`, `ssh`, `git` and `file` URLs, since git's `ext::`
    transport would run a command, then `fetch_commit_into` runs `git fetch --depth 1` of the
-   pinned rev) and compiles `parser.c` and `scanner.c` with `cc -shared -fPIC -O2`
-   (`compile_library`).
+   pinned rev) and compiles `parser.c` and `scanner.c` with the compiler it is given
+   (`compile_library`). `load` asks the platform adapter for it: `c_compiler(env)` is the
+   first of `cc`, `gcc` and `clang` on PATH, with `-shared -fPIC -O2` on Unix and
+   `-shared -O2` on Windows.
 3. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`
    (`load_language_symbol`), checks the ABI
    against the runtime's range, and leaks the library handle so the language outlives
    every parser.
 
-The cache is the user's (`GrammarCache::user`: `~/.cache/sorcerer/grammars`), shared by
+The cache is the user's (`GrammarCache::user`: `sorcerer/grammars` under the adapter's
+`user_cache_dir`, `~/.cache/sorcerer/grammars` on Linux and macOS,
+`%LOCALAPPDATA%\sorcerer\grammars` on Windows), shared by
 every project. Every write goes to a temporary name and is renamed into place, so a
 reader never sees half a library and two processes building at once race harmlessly.
 `load` remembers each library once per process, failures included, except a failed fetch
 or file error: being offline at first start must not cost units until a restart.
 
-A missing compiler is `Error::NoCompiler` with an install hint, never a silent fallback:
+A missing compiler (`build_if_absent` given `None`, and no library in the cache yet) is
+`Error::NoCompiler`, "no C compiler (cc, gcc or clang) found; install one: <hint>", with the
+platform adapter's `compiler_hint()`: `xcode-select --install` on macOS, `apt install gcc`
+on Linux, `install MinGW-w64 (gcc) or LLVM (clang)` on Windows. Never a silent fallback:
 every reader of units would be wrong in a different way.
 
 Tests never fetch: `tests/grammars/{python,rust}` hold the vendored sources at the
