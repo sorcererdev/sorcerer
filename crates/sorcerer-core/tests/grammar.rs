@@ -1,6 +1,8 @@
 #![allow(clippy::too_many_lines)]
 mod support;
 
+use std::path::Path;
+
 use sorcerer_core::Error;
 use sorcerer_core::adapters::env::SystemEnv;
 use sorcerer_core::adapters::grammar::{self, GrammarCache};
@@ -15,11 +17,30 @@ fn compiler() -> Option<CCompiler> {
     c_compiler(&SystemEnv)
 }
 
+/// Copies a directory tree, files and folders, to a new place.
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
 #[test]
 fn a_cache_under_a_spaced_non_ascii_directory_builds_and_loads() {
+    // both the sources and the cache under the directory, as a fetched grammar's sources
+    // are: the compiler's `-I`, input and output arguments all carry the space and the `é`
     let d = tempfile::TempDir::new().unwrap();
-    let cache = GrammarCache::at(d.path().join("a b é"));
-    let lang = grammar::load(&cache, "python", &local("python")).unwrap();
+    let spaced = d.path().join("a b é");
+    let sources = spaced.join("src").join("python");
+    copy_dir(&support::vendored("python"), &sources);
+    let cache = GrammarCache::at(spaced.join("cache"));
+    let lang = grammar::load(&cache, "python", &GrammarSource::Local(sources)).unwrap();
     let mut p = tree_sitter::Parser::new();
     p.set_language(&lang).unwrap();
     let tree = p.parse("x = 1\n", None).unwrap();
