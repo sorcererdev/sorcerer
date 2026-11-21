@@ -29,3 +29,19 @@ jobs:
       - run: bash scripts/book-check-test
       - if: github.event_name == 'pull_request'
         run: scripts/book-check origin/${{ github.base_ref }}
+  vscode:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode/scry
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/scry/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:unit
+      - run: npm run build
