@@ -117,7 +117,7 @@ or file error: being offline at first start must not cost units until a restart.
 A missing compiler (`build_if_absent` given `None`, and no library in the cache yet) is
 `Error::NoCompiler`, "no C compiler (cc, gcc or clang) found; install one: <hint>", with the
 platform adapter's `compiler_hint()`: `xcode-select --install` on macOS, `apt install gcc`
-on Linux, `install MinGW-w64 (gcc) or LLVM (clang)` on Windows. Never a silent fallback:
+on Linux, `install MinGW-w64 (gcc)` on Windows. Never a silent fallback:
 every reader of units would be wrong in a different way.
 
 Tests never fetch: `tests/grammars/{python,rust}` hold the vendored sources at the

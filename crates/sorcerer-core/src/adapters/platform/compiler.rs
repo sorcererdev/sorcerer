@@ -43,7 +43,7 @@ pub fn compiler_hint() -> &'static str {
     if cfg!(target_os = "macos") {
         "xcode-select --install"
     } else if cfg!(windows) {
-        "install MinGW-w64 (gcc) or LLVM (clang)"
+        "install MinGW-w64 (gcc)"
     } else {
         "apt install gcc"
     }
@@ -61,5 +61,11 @@ mod tests {
         assert!(found.program.ends_with("gcc"), "{found:?}");
         assert!(found.flags.contains(&"-shared"));
         assert!(c_compiler(&MapEnv::default()).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_hint_names_mingw() {
+        assert_eq!(compiler_hint(), "install MinGW-w64 (gcc)");
     }
 }

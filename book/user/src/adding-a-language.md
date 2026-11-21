@@ -26,7 +26,7 @@ first review say so and how to get one:
 |---|---|
 | macOS | `xcode-select --install` |
 | Linux | `apt install gcc` (or your distribution's `gcc`) |
-| Windows | install MinGW-w64 (gcc) or LLVM (clang) |
+| Windows | install MinGW-w64 (gcc) |
 
 The compiled grammar is kept in your cache: `~/.cache/sorcerer/grammars` on Linux and macOS
 (`$XDG_CACHE_HOME/sorcerer/grammars` when that is set), `%LOCALAPPDATA%\sorcerer\grammars` on
