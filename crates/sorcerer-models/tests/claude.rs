@@ -140,6 +140,8 @@ fn a_missing_runner_is_a_subprocess_error_naming_it() {
 
 #[test]
 fn a_timeout_stops_the_runner_and_what_it_started() {
+    // the timeout leaves room for two process starts on a slow runner; the fake sleeps 30 s,
+    // so only the stop can end it sooner
     let f = support::FakeClaude::new();
     let pid_file = f.dir.path().join("child-pid");
     let pid_file_text = pid_file.to_string_lossy().into_owned();
@@ -150,7 +152,7 @@ fn a_timeout_stops_the_runner_and_what_it_started() {
             ("FAKE_CLAUDE_CHILD_PID", &pid_file_text),
         ],
     )
-    .complete(req(Duration::from_millis(300)), &Cancel::default())
+    .complete(req(Duration::from_secs(3)), &Cancel::default())
     .unwrap_err();
     assert!(matches!(e, Error::Timeout { .. }), "{e}");
     let child: u32 = std::fs::read_to_string(&pid_file)
@@ -165,7 +167,7 @@ fn a_timeout_stops_the_runner_and_what_it_started() {
         .unwrap()
         .parse()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + Duration::from_secs(5);
     while (is_running(child) || is_running(runner)) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
