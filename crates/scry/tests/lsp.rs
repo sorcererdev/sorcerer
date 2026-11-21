@@ -713,6 +713,47 @@ fn a_save_reviews_after_the_settle_and_publishes() {
 }
 
 #[test]
+fn a_file_in_a_folder_is_named_with_a_slash_on_every_platform() {
+    let dir = git_project();
+    write(dir.path(), "shop/orders.py", ORDERS);
+    commit(dir.path(), "orders");
+    write(
+        dir.path(),
+        "shop/orders.py",
+        &ORDERS.replace("order.cancel()", "order.cancel(now=True)"),
+    );
+    let reply =
+        reply_with(&[("bug", "cancel ignores now")]).replace("\"orders.py\"", "\"shop/orders.py\"");
+    let sent = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = Arc::clone(&sent);
+    let reviewer = StubReviewer::new()
+        .reply(&["shop/orders.py"], &reply)
+        .on_review(move |ask| {
+            let files = ask
+                .units
+                .iter()
+                .map(|u| u.file.to_string_lossy().into_owned());
+            seen.lock().unwrap().extend(files);
+        });
+    let s = served(dir.path(), reviewer);
+    let file = dir.path().join("shop").join("orders.py");
+    s.open(&file);
+    s.save(&file);
+    let shown = s.diagnostics_until(&file, WAIT, |d| !d.is_empty());
+    assert!(shown.is_some(), "no diagnostic");
+    // the path the editor's pass reviews, stores and logs is git's form, `/` on Windows too
+    let sent = sent.lock().unwrap().clone();
+    assert!(
+        !sent.is_empty() && sent.iter().all(|f| f == "shop/orders.py"),
+        "{sent:?}"
+    );
+    let project = Project::open(dir.path()).unwrap();
+    let stored = &support::read_store(&project).findings[0];
+    assert_eq!(stored.place.file.to_string_lossy(), "shop/orders.py");
+    s.stop();
+}
+
+#[test]
 fn two_quick_saves_are_one_pass() {
     let dir = changed_project();
     let (setup, passes) = counting_passes(with_progress());

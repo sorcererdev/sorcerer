@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,10 +232,10 @@ impl Steering {
             text: context.into(),
         });
         let include_parts = self.includes.iter().map(|include| SteeringPart {
-            name: format!("include {}", include.path.display()),
+            name: format!("include {}", forward_slashes(&include.path)),
             text: format!(
                 "<include path=\"{}\">\n{}\n</include>",
-                include.path.display(),
+                forward_slashes(&include.path),
                 include.text.trim()
             ),
         });

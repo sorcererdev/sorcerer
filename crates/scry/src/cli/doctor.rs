@@ -26,6 +26,7 @@ use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_models::adapters::jev::Jev;
 use sorcerer_models::adapters::providers::{default_decider, default_provider_for};
 
+use super::format::relative_or_absolute;
 use crate::adapters::json_finding_store::JsonFindingStore;
 use crate::adapters::scry_toml::ScryToml;
 use crate::domain::finding::Status;
@@ -163,7 +164,7 @@ fn steering_row(settings: &dyn Settings, root: &Path) -> Result<String, String> 
         count(steering.rules.len(), "rule"),
         count(steering.includes.len(), "include"),
         bytes(steering.size()),
-        file.strip_prefix(root).unwrap_or(&file).display()
+        relative_or_absolute(&file, root)
     ))
 }
 

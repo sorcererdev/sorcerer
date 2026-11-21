@@ -579,7 +579,7 @@ fn cite(view: &dyn CodebaseView, fences: &Fences, path: &Path, lines: Span) -> O
 const NOBODY_FITS_TEXT: &str = "- nobody fits: the rounds end\n";
 
 fn verification_heading_text(file: &Path) -> String {
-    section(&format!("Verification: {}", file.display()))
+    section(&format!("Verification: {}", forward_slashes(file)))
 }
 
 /// A round's heading, the file's slots, the findings this round takes and
@@ -637,7 +637,7 @@ fn citations_hold_text(id: &FindingId, evidence: &[Evidence]) -> String {
         .map(|e| {
             format!(
                 "`{}` {}-{} (print {})",
-                e.file.display(),
+                forward_slashes(&e.file),
                 e.lines.start,
                 e.lines.end,
                 e.print.as_deref().unwrap_or("none")

@@ -129,10 +129,14 @@ platform where it was needed:
   `is_running(pid)` is for tests.
 
 A project-relative path that becomes text (a prompt, the store, a run log, a research tool's
-answer, a recording key, a `claude` deny rule) goes through `forward_slashes(path)`
-(`sorcerer_core::domain::paths`), which writes it with `/` on every platform, so the same
-change gives the same text on Windows; on Linux and macOS it is the path's own text. A path
-shown only to the user (an absolute root, a file to open) keeps the platform's form.
+answer, a recording key, a `claude` deny rule, and what `scry list`, `why` and `review` print)
+goes through `forward_slashes(path)` (`sorcerer_core::domain::paths`), which writes it with
+`/` on every platform, so the same change gives the same text on Windows; on Linux and macOS
+it is the path's own text. Paths enter `/`-separated where they are made: git names files
+that way, and scry's server turns an editor's path into the project-relative one with `/`
+(`project_file` in `adapters/lsp/mod.rs`), so the editor route and the terminal route store
+the same text. An absolute path (a root, the cache, the trust list, a file to open) keeps the
+platform's form.
 
 Finding a program on PATH needs nothing of its own: `SystemEnv::which` uses the `which`
 crate, which tries `PATHEXT`'s extensions on Windows, so `claude` finds `claude.cmd`.

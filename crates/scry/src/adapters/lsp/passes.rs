@@ -22,6 +22,7 @@ use std::time::Duration;
 use lsp_types::MessageType;
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::WorkDone;
@@ -505,7 +506,10 @@ fn failed_run_text(files: &[PathBuf], engine_log: &str, e: &sorcerer_core::Error
 }
 
 fn head_text(files: &[PathBuf]) -> String {
-    let saved: Vec<String> = files.iter().map(|f| format!("`{}`", f.display())).collect();
+    let saved: Vec<String> = files
+        .iter()
+        .map(|f| format!("`{}`", forward_slashes(f)))
+        .collect();
     format!(
         "# scry lsp: a pass after a save\n{}- saved: {}\n",
         section("Run"),

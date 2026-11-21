@@ -29,6 +29,7 @@ use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::platform::paths::canonical;
 use sorcerer_core::adapters::trust_list::TrustList;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 use sorcerer_lsp::serve::unknown_method;
@@ -284,7 +285,9 @@ impl<W: Wiring + 'static> Server<W> {
 }
 
 /// The path relative to the project's root, when the file is the project's (the nearest
-/// project root above it is this project's) and the project has a language for it.
+/// project root above it is this project's) and the project has a language for it. It is
+/// written with `/` on every platform (`src/orders.py`, never `src\orders.py`), as git names
+/// files, so the store and the run log read the same whichever route found the file.
 ///
 /// The editor's path may differ from the canonical one (a symlinked directory, `/var` and
 /// `/private/var`), so the comparison is made on the canonical path.
@@ -294,7 +297,7 @@ fn project_file(project: &Project, path: &Path) -> Option<PathBuf> {
     if Project::root_above(directory)? != project.root {
         return None;
     }
-    let relative = canonical.strip_prefix(&project.root).ok()?.to_path_buf();
+    let relative = PathBuf::from(forward_slashes(canonical.strip_prefix(&project.root).ok()?));
     project.languages.for_path(&relative)?;
     Some(relative)
 }
