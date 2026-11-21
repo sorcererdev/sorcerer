@@ -26,7 +26,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   verification rounds (`Pass::verify_findings_per_file`, `verify_findings_in_file`, `verify_round`, `PrioritizedFindings`, `FindingsToVerify`, `DisplaySlots`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
-  `DayCost`).
+  `DayCost`), `show_findings.rs` (`Shown`, `shown_in_file`: what an editor shows in a file).
 
 **Domain** (`src/domain/`), data and rules, no I/O:
 
@@ -46,6 +46,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   `Placement`, `Match`, `match_stored`, `nitpick`, `confidence_of`, `asked_on`, `cited_code`.
 - `budget.rs`: `Caps`, `Budget`, `review_estimate`, `check_estimate`, `cost_of`.
 - `verification.rs`: `needs_claim`, `claim_of`, `verdict_word`.
+- `placing.rs`: `Placed`, `placed`: where a stored finding sits in its file now.
 - `log_text.rs`: the run log's text: `section`, `sub`, `block`, `usd`, `count`, `citation`,
   `scope_text`.
 
@@ -59,16 +60,23 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `research_reviewer.rs` (`ResearchReviewer`), `markdown_run_log.rs` (`StreamingLog`,
 `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`, `result_of`, `KEEP`, `RESULT`),
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`LiveWiring`, `Wiring`, `jev_for`,
-`researcher_for`, `claim_checker`, `PRODUCT`).
+`researcher_for`, `claim_checker`, `PRODUCT`), and `lsp/`, the editor's server (below):
+`mod.rs` (`ServerConfig`, `serve`, `SETTLE`, the product `ScryServer` and its shared `Server`),
+`diagnostics.rs` (`diagnostic`, `STALE_LINE`), `passes.rs` (`Passes`, `RunningPass`, a save
+to a pass), `commands.rs` (the code actions and the three commands), `trust.rs` (the trust
+gate and its question); and `why_text.rs`
+(`why_text`, `lines_text`: a finding in full as Markdown, for `scry why` and the editor's
+*Show why*).
 
 **The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `run_command`,
-`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`,
+`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`, `trust.rs`,
 `doctor.rs` with `doctor_rows` (a `DoctorRow` each), `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`Output`: text or `--json`; `table`, `cut_to`, `finding_text`,
 `finding_json`, `cited_range`, `lines_text`). `src/main.rs` is the binary, `cli::main` with
 the real environment.
 
 Tests: `tests/support/mod.rs` holds git fixtures, `project_with_vendored_grammars`, the
-doubles `StubReviewer`, `StubDecider`, `FixedClock`, and `Ports` (the store, ledger and
+doubles `StubReviewer`, `StubDecider`, `FixedClock`, `Doubles` (all of them as one `Wiring`),
+`open_finding` and `put_findings` (a store seeded by hand), and `Ports` (the store, ledger and
 settings adapters over a fixture project). `.sorcerer/scry.toml` at the repository root is
 sorcerer's own steering.
 
@@ -156,6 +164,29 @@ keeps six digits, rehashing with a counter while taken. `get` takes an id or a u
 at least four characters. `dismiss` sets `dismissed-here` or `dismissed-everywhere`. `shown_in`
 is a file's open findings whose issue type is in `[scry] issue_types`, best confidence first, at most
 `MAX_SHOWN`.
+
+## Where a finding sits now
+
+The store keeps the line a finding had when it was reviewed; the file moves on. An editor
+needs the line as the file is now, so `domain/placing.rs` places a finding among the file's
+units now: `placed(finding, units_now, line_count) -> Option<Placed { line, stale }>`.
+
+- Its unit is the one named `place.unit`; of two with that name, the one at the stored
+  fingerprint, else the first. With none of that name it is not placed (`None`): the next
+  pass marks it gone.
+- Its line is the unit's start now plus its distance from the unit's start when it was
+  reviewed (`place.lines.start - place.unit_start`, 0 when `unit_start` was not stored), kept
+  inside the unit's lines.
+- It is stale when the unit's fingerprint differs from the stored one.
+- A finding with no unit (about the whole file) keeps its stored line, moved up to the last
+  line when the file got shorter, and is never stale.
+
+`usecases/show_findings.rs` is what an editor shows in a file: `shown_in_file(store,
+settings, view, file)` reads the store afresh, takes `Findings::shown_in` (exactly what
+`scry` shows there: open, of the shown issue types, most confident first, at most three),
+and places each with `placed`, dropping the ones whose unit is gone. It is empty when
+`[scry] enabled = false`. A file whose units cannot be read counts as having none. It adds
+no filter of its own, so the editor and `scry list` agree about what is open.
 
 ## The review call
 
@@ -268,12 +299,19 @@ finding unsure. Each `Evidence` carries a print: the enclosing unit's fingerprin
 means the command line's, `Caps { pass: None, day: budget_per_day, budget }`) and its ports:
 the `CodebaseView`, the `Reviewer`, the `Decider` (Jev), the `ClaimChecker`, the
 `FindingStore`, core's `Ledger`, the `Settings`, a `Clock` (`SystemClock` live, `FixedClock`
-in tests), the `RunLog` (below), a `progress` callback told `Progress::Reviewed(n)` after each
-review call that answered and `Progress::Stored` after the write, and the `Cancel`. It reads
+in tests), the `RunLog` (below), a `progress` callback told `Progress::Sending(units)` right before each
+review call goes out (the `SentUnit { file, unit, fingerprint }` of each unit in it; told only for
+a call that really goes, after the caps and the cancel let it), `Progress::Reviewed(n)` after each
+review call that answered and `Progress::Stored` after the write, and two cancels: `cancel`
+stops Jev and the claim checks, `review_cancel` the review calls only (the one in flight, and
+`send_batch` checks it before each call). The command line passes one `Cancel` for both; an
+editor's server sets `review_cancel` when a save overtakes what a call was sent. It reads
 `[scry]` and returns `Skipped` when it is off, works out the scope (`scope_of`, logged with
 `scope_text`) and the caps (`caps_for`), then returns `ReviewOutcome::Ran(ReviewReport)` (`looked_at` units sent and answered, the `new` ids,
 `spent`, `capped` units, one `failures` line per failed call, `whole`, `checks_capped`
-when a claim check did not fit, and `touched`, every finding the pass added or changed: those
+when a claim check did not fit, `day_spent` when what was held back was held by the day's cap
+(`Pass::day_held_something_back`: a capped call and `Budget::day_is_spent(review_estimate)`, or
+a capped check and `day_is_spent(check_estimate)`), and `touched`, every finding the pass added or changed: those
 of `Pass::working_copy` not equal to the store as read (`touched_since`), mapped through the renames), or
 `ReviewOutcome::Skipped` when `[scry] enabled` is false or Jev did not answer; the report
 carries the `scope` so the caller prints what was in it. The command line
@@ -292,10 +330,16 @@ by saving it and making the report (`Pass::report`). The steps, in
    The ledger is read once too (`SpentSoFar::read`, which also fixes the pass's `now`), through the `Ledger` port: its `review` and `check` rows give the estimates and, through
    core's `cost::spent_since` in the `Clock`'s offset, what scry spent earlier in the local day,
    which starts the pass's `Budget` (Jev's `decide` rows are not counted: a fraction of a cent each).
-2. **What to send, and the gone sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
+2. **What to send, the gone sweep and the put-back sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
    `reviewed[file]` (every one with `fresh`). `Pass::sweep_gone`: an open, unverified or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
-   `gone`.
+   `gone`. `Pass::sweep_put_back`: an open or unverified finding of a scoped file whose unit
+   is in that file's `ScopedFile::same` (the units equal to the base's, filled by
+   `Scoping::compared_with_base` where `compare_units` runs; empty with `--all` or no base) at a
+   fingerprint other than the finding's is `resolved` with no call: the user undid the change
+   it was about, so no pass would review that unit again. A finding whose fingerprint is the
+   base's (the change was committed, bug and all) stays open; one stored with no fingerprint
+   is left alone. The store is written even when nothing is sent.
 3. **Review** (`ask.rs`). `batch_units` batches them; each batch is a `ReviewAsk` with its files' diffs
    (`diff_of`), `Steering::steering_text`, `reported` empty, and the open and unverified findings on its
    units (`Pass::open_on`). Before each call `Budget::allows(find_estimate)`; once one batch is
@@ -310,8 +354,8 @@ by saving it and making the report (`Pass::report`). The steps, in
    other failure. In the code, `Pass::send` is that story in order: `units_not_yet_reviewed`,
    `batches_of` (each a `UnitToSend`: the prompt's `ReviewUnit` and the fingerprint it is sent at,
    batched by `batch_by_lines`), then `send_batch` per batch: `must_hold_back` →
-   `hold_back_for_a_later_run`, a cancel → a failure line, or `review_one_batch` (`ask_for`,
-   `cap_for_one_call`, the call, `cost_of_call`, the reply parsed, `Pass::tell_progress`). Each
+   `hold_back_for_a_later_run`, `review_cancel` set → a failure line (`review cancelled for …`), or `review_one_batch` (`ask_for`,
+   `cap_for_one_call`, `Progress::Sending`, the call with `review_cancel`, `cost_of_call`, the reply parsed, `Pass::tell_progress`). Each
    returns a `BatchOutcome` (`HeldBack`, `Failed`, `Answered`), and `ReviewResults::with` adds it to
    the results so far (an answer on an open finding the call was not shown is ignored there).
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
@@ -391,7 +435,8 @@ ledger rows of product `scry` and verb `review` / `check`, else $0.04 a review (
 model name contains `haiku`) and $0.016 a check. `Budget::new(caps, spent_today)` holds the
 `Caps` (`pass`, `day`, `budget`); `allows(e)` is false when `spent + e` passes `pass` or
 `budget` (when set) or `spent_earlier_today + spent + e` passes `day`; `charge` adds a cost; `money_left` is the
-least left under any finite cap. `cost_of(errands)` sums a call's priced errands.
+least left under any finite cap; `day_is_spent(e)` is whether `spent_earlier_today + spent + e`
+passes `day`. `cost_of(errands)` sums a call's priced errands.
 
 `Pass::verify_findings_in_file(file, unverified_from_earlier_runs)` takes the file's unverified findings,
 best confidence first (`PrioritizedFindings::unverified_in`, the only way to build one, so the order holds), in rounds. A round takes the candidates that would fit if all passed
@@ -412,11 +457,14 @@ next round, which takes the rest; `DisplaySlots::after_round` returns the slots 
 ## Wiring
 
 `adapters/wiring.rs`. `Wiring` is what the command line needs from a wiring: `deps()`, the
-review's `ReviewDeps`. `LiveWiring` is the real one, built by `LiveWiring::open(project, env)`:
+review's `ReviewDeps`. `LiveWiring` is the real one, built by `LiveWiring::open(project, env)`,
+which is `LiveWiring::open_with(project, env, review, rest)` with one `Cancel` twice (an
+editor's server passes two: `review` becomes `review_cancel`, `rest` the claim checker's and
+`cancel`):
 
 - Jev first, by `jev_for`: `Jev::from_env` over `[decide]` with the project's ledger, then
   `for_product("scry")`, so its errands are scry's `decide`. No key is an error naming the
-  variable (`JEV_API_KEY` unless `[decide] key_env` says otherwise).
+  variable (always `JEV_API_KEY`; config cannot name another).
 - The view, a `FilesView` on the user's `GrammarCache`.
 - The researcher by `researcher_for(project, env, view)`: the provider by
   `default_provider_for`; when its kind is `claude` the researcher is `ClaudeCodeResearcher`
@@ -502,6 +550,162 @@ cache), `steering` (`2 rules, 1 include, context 120 B, 1.4 KB; .sorcerer/scry.t
 `no .sorcerer/scry.toml: no rules`, or the error), `store` and `ledger`. `doctor` prints them `name  ok|FAIL  detail` and
 exits 2 when any failed.
 
+## The editor's server
+
+`scry lsp` (`cli/lsp.rs`) serves the editor over standard input and output:
+`serve(Connection::stdio(), ServerConfig::live(SystemEnv))`, then it exits 0. It is a product
+on the host crate ([The language-server host](lsp.md)); `adapters/lsp/` holds what a save
+means to scry, and it calls the use cases the command line calls.
+
+**What it is built from.** `ServerConfig<W: Wiring>`: `open` (how to open the
+project at a root: `Project::open` live), the grammar `cache`, the user's `trust` list, the
+`settle` wait, the `clock`, and `wire` (a pass's wiring from the project and its two cancels:
+`LiveWiring::open_with` live, which holds the environment). `ServerConfig::live(env)` is the real one; the tests in
+`tests/lsp.rs` give a 20 ms settle, a fixed clock, vendored grammars and a wiring of the pass
+doubles, over `Connection::memory()`. The binary has no test hook.
+
+**Which files.** The server serves one project: `open` of the root the editor sent at
+initialize (its first workspace folder, else `rootUri`; the working directory when it sent
+neither), opened afresh each time it publishes, so a config edit needs no restart. A file is
+the project's when `Project::root_above` its directory is the project's root, compared on the
+canonical path (`project_file`); a file of a nested project, outside the root, or with no
+language is ignored without a word.
+
+**Publishing.** One thread, started with the server (`start_publisher`), publishes in the
+order it is asked, so the main loop never waits on a parse or a grammar build and a close
+always lands after the open before it. `Publish::File(path)` is sent at an open and at a save,
+`Publish::Clear(path)` at a close (an empty list), `Publish::AllOpen` for every open document,
+and `Publish::After(f)` runs `f` once everything asked before it is published. For a file that is open and the project's,
+`Server::diagnostics_for` reads the store afresh (`JsonFindingStore::at`, so a read creates
+nothing), takes `shown_in_file` and turns each `Shown` into a diagnostic. Only open documents
+are ever published. An error (the config does not parse, the store is from a newer scry) goes
+to the editor's log (`window/logMessage`), each text once until the server next publishes
+(`log_error`, over `errors_logged`), and publishes nothing; the next save tries again.
+`publish_open` (`Publish::AllOpen`) republishes every open document; a pass and a dismissal
+call it.
+
+**From a save to a pass** (`passes.rs`). The threads: the main loop (the host's), the
+publisher, and job threads from `Jobs` (the settle wait, then the pass itself, and the
+overtaking check).
+
+- `Server::saved(file)` publishes the file, adds it to `Passes::pending`, and submits
+  `run_pending` under the key `pass` after `settle`, so a burst of saves restarts the wait and
+  becomes one pass. A save of a file outside the project (`under_root`: `Project::root_above`
+  of its directory is not the one above the server's root; no config is read) changes
+  nothing, so saving files elsewhere does not keep delaying a review.
+- `run_pending`, on the job's thread: `take_pending` turns the whole pending set into a
+  `RunningPass` (its files, two fresh `Cancel`s, the units its last call was sent, its
+  progress line), unless one is running (it starts the next itself) or the server is shutting
+  down. The pass runs inside `catch_unwind`; whatever happens (an error, a panic) is logged,
+  the progress line ends, the pass stops being the running one (`finish`), and if files were
+  saved meanwhile the next pass is submitted after the settle (a burst of saves at the tail of a
+  pass is still one pass). A pass a save overtook puts its own files back in `pending` first:
+  its later calls were cancelled unsent, and units it already reviewed are not sent again. So a
+  pass that dies never leaves the server "running". A pass that fails before it reviews (the
+  config does not parse) drops its files: they are reviewed at their next save (re-pending
+  them would loop on a config that stays broken). A pass the per-pass budget cut short
+  (`after_review` sets `cut_short` when `capped > 0`, not `day_spent`, and `looked_at > 0`)
+  also gives its files back, and the next pass starts at once with a fresh per-pass budget,
+  so a large change is reviewed a pass at a time with no further save until it is done or the
+  day's budget stops it. `looked_at` counts units in calls that answered, so a per-pass cap
+  below one call's estimate, or calls that keep failing, end the chain after one pass.
+- `Server::review(pass)`: opens the project, keeps the saved files that are its own
+  (`project_file`), reads `[scry]` (turned off: the pass ends there, with no wiring, so no
+  "cannot run" message for someone who turned scry off), builds the wiring with `cfg.wire(project, review_cancel,
+  rest)`, and calls `review_change` with `ScopeRequest::Files`, `all` and `fresh` false, and
+  `Caps { pass: Some(budget_per_pass), day: budget_per_day, budget: None }`; the run log goes
+  to a buffer and `progress` to `told`.
+- `told`: `Progress::Sending(units)` remembers the units (for the overtaking check) and begins
+  the progress line (`work_done("scry", "reviewing 1 unit")`) or reports on it;
+  `Progress::Stored` republishes, once the pass has made a call (a finding that needs no claim
+  check shows before the checks end).
+- `after_review`: republish when the pass touched a finding without a call (a put-back
+  resolve; a pass that made a call already republished at its last `Stored`); end the line,
+  through the publisher's queue (`Publish::After`) so it ends after the pass's findings show, with `review failed, see "scry log"` when a call failed and no save cancelled
+  it on purpose; when `ReviewReport::day_spent`, `say_once("day-<local date>", …)` the day's
+  message with `budget_per_day`. A run log is written (`write_run`) only when the pass made a
+  call or failed, so `scry log` is not filled with empty saves. A clean save says nothing.
+- **The wiring fails** (no Jev key, no provider): `cannot_run` logs it always, and says
+  `scry is not reviewing: <reason>. Run "scry doctor".` once a session (`say_once("cannot-run")`)
+  when `scope_of` the saved files has a unit to review.
+- **Overtaking.** A save during a pass, of a file the running call was sent units of, runs
+  `overtakes` on a thread of its own (one a save, so a second save cannot replace the first's
+  check): it reads the units now of the sent units' files, and
+  when none of them still has the fingerprint it was sent at, it sets the pass's
+  `review_cancel` (only that one: Jev and the claim checks run on) and marks the pass
+  `overtaken`. The cancelled call ends as a failure line the progress line does not report;
+  the pass's files go back to pending, so the next pass reviews the fresh text and whatever the
+  cancelled pass had not sent yet.
+- `Server::shutdown` (the product's `shutdown`) sets both cancels of the running pass, drops
+  what is pending and stops new passes, then waits up to a second (`STOP_WAIT`) for the pass to
+  end, so a `claude` run it started is killed before the editor's `exit` ends the process.
+
+**The four actions** (`commands.rs`). The product announces `codeActionProvider` and the
+commands `scry.why`, `scry.showCode`, `scry.dismiss`. `Server::published` keeps what the server
+last published for each open file, keyed by the path as the editor named it. `code_actions`
+answers `textDocument/codeAction` from it (`on_the_line`): first by the ids in the `data` of the
+diagnostics the editor sends with the request, so the actions still match after unsaved edits
+moved the diagnostic, then, when the editor sent none of scry's, by the line each finding was
+published on. This overrides the plan's call 11 ("from what the server last published for the
+line, not from the diagnostic's `data`"): an editor moves a diagnostic with the text between
+saves, and the line it was published on no longer matches. For each finding, `scry: Show why`, `scry: Show code` (left out when it cites no
+evidence), `scry: Dismiss here`, `scry: Dismiss everywhere`, each a `quickfix` carrying its
+`Command`. `execute` runs `workspace/executeCommand`:
+
+- `scry.why [id]`: `explain_finding`, then `why_text` written to
+  `.sorcerer/state/scry/why-<id>.md` and opened with `show_document`;
+- `scry.showCode [id]`: the first evidence's file, its lines selected;
+- `scry.dismiss [id, "here" | "everywhere"]`: `dismiss_finding` at `cfg.clock`'s now,
+  `publish_open`, then `Server::queue` of the finding's file (a pass with no settle wait), so a
+  finding waiting behind the limit of three can take the place.
+
+An unknown id, a missing argument or another word is an `InvalidParams` error naming it, and
+nothing is written (the id is looked up before the dismissal).
+
+**The trust gate** (`trust.rs`; the rule and the list are core's, see [The core](core.md)).
+Before anything reads a file of the project (a publish, a pass, the overtaking check, a
+command), the server asks `Server::trusted(project)`: `needs_trust(project)` is empty, or the
+root is on `cfg.trust`. If not, nothing is published, nothing parsed (so no project grammar is
+built), and no pass starts. Only `Project::open` runs, which reads the config and the language
+files but builds nothing. In a pass, `trusted_at_save` also keeps the saved files in
+`TrustQuestion::waiting` and, once a session, asks: `Client::ask` with the question
+(`question_text`: `scry: this project's config sets`, one `<key> = <value>` line each, a value
+over 60 characters cut with `…`, `Trust this project?`) and the answers `Trust` and `Not now`.
+`Picked("Trust")` writes the list (`TrustList::trust`), republishes and queues the waiting
+files; another answer or a closed question (`Answer::Closed`) declines for the session; an
+editor that cannot ask (`Answer::Unsupported`, which also drops the waiting files), or no list
+to write (`cfg.trust` is `None`), gets the fallback through `say_once("trust", …)`: `scry is not reviewing: this project's config
+sets <key>, <key>. Run "scry trust" in this project to allow that.` Nothing waits on the
+answer: the main loop, opens and shutdown go on, and further saves ask nothing more. When the
+list cannot be written on *Trust*, the waiting files are dropped and `say_once("trust", …)` says
+`scry is not reviewing: the trust list <file> could not be written (<why>). Run "scry trust" in
+this project to allow that.`
+
+`scry trust` (`cli/trust.rs`) adds the root to the user's list (always, also when nothing needs
+trust today) and prints `trusted: <root>` and each reason, or `(nothing in its config needs
+trust today)`; `--revoke` prints `no longer trusted: <root>` or `was not trusted: <root>`. Both
+exit 0, and 2 when the list cannot be written or there is no project. `scry doctor`'s last row,
+`trust_row`, is `not needed`, `trusted`, or `not trusted: the editor will ask (<key>, …)`.
+
+**Standard output is the protocol's.** `scry lsp` writes framed messages from `lsp-server`'s
+writer thread, so `main.rs` does not hold the stdout lock for the run, and nothing the server
+starts may write to it: `cc` and `git` run with their output captured, and the `claude`
+runner's group kill sends its output nowhere. `tests/lsp.rs::the_binary_speaks_lsp_over_stdio`
+drives the real binary through a project grammar build and checks every byte it wrote parses
+as a framed message.
+
+**A finding as a diagnostic** (`diagnostic(shown, root, text, related)`):
+
+| field | value |
+|---|---|
+| `range` | the placed line, from character 0 to its length in UTF-16 units |
+| `severity` | `Error` for `bug`, `Warning` for every other issue type |
+| `source` | `scry` |
+| `code` | the issue type, or `<issue type>-stale` |
+| `message` | the statement; then `rule: <id>` when it cites a rule; then `(the code changed since this review)` when stale; one per line |
+| `relatedInformation` | each evidence, its file and whole lines, message `evidence`; only when the editor announced `relatedInformation` |
+| `data` | the finding's id, as a string |
+
 ## Test support
 
 `crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
@@ -518,7 +722,16 @@ straight into the store with `cancel` already reviewed, so no review call runs, 
 claim checker closure; the pass tests use one that always errs (an unverified finding stays
 unverified).
 
-The command line tests (`tests/cli.rs`) wire a `Doubles` (a vendored-grammar view, `StubReviewer`,
+The server's tests (`tests/lsp.rs`) drive `serve` over `Connection::memory()`: `served` (and
+`served_with` a `Setup`: the editor's capabilities, how a pass's wiring is built, the trust
+directory, the claim checker) runs it on a thread with a 20 ms settle, vendored grammars, a
+fixed clock and a `TestWiring` (the shared `Doubles` with the pass's two cancels); `Served`
+plays the editor (answering progress-token and show-document requests as one would) and keeps
+what the server sent in an inbox the tests search (`wait_for`, `next_diagnostics`,
+`all_within`).
+
+The command line tests (`tests/cli.rs`) wire a `Doubles` (in `tests/support/`, shared with the
+editor's server tests: a vendored-grammar view, `StubReviewer`,
 `StubDecider`, `FixedClock`, a checker that says right and the fixture's `Ports`) into `main_with` through
 `impl Wiring for &Doubles`, so the reviewer's asks can be read after two runs.
 

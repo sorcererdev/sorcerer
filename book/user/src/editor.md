@@ -1,0 +1,143 @@
+# Scry in your editor
+
+Scry reviews as you work: you save a file, scry reviews the units you changed, and each
+finding it can stand behind appears on its line. A save with nothing worth saying shows
+nothing at all.
+
+## What you see
+
+You edit `cancel.rs` and save.
+
+- **A status line**: `scry: reviewing 2 units` appears a couple of seconds after the save and
+  clears when the review ends. It appears only when scry actually sends something to a model,
+  so a save with nothing new to review shows nothing.
+- **A finding**: a diagnostic on its line, from source `scry`. A bug is an error; every other
+  issue type (`assumption`, `convention`, your project's own) is a warning. The message is the
+  finding's statement, then `rule: <id>` when it cites one of your project's rules. Editors
+  that show related locations (VS Code does) link the code it cites as evidence.
+- **Nothing to say**: nothing. No "all clear", no count.
+- **You edit the unit again**: the finding moves with its unit and, from your next save until
+  the next review ends, says `(the code changed since this review)` on its last line (its
+  code becomes `bug-stale`). The review then raises it again or resolves it. Undo your change
+  so the unit is again what you committed, and the finding is resolved at the next save, with
+  no model call.
+
+A finding shows only after it passed the nitpick screen and, where it makes a claim that can
+be checked, the claim check; a finding still waiting for its check is not shown. At most three
+show in a file. These are the same rules `scry` follows in a terminal, and the editor and the
+terminal share one store: `scry list` shows the same finding with the same id, and a dismissal
+in either place holds in both.
+
+Saves are reviewed one review at a time. Two quick saves (or your editor's autosave) become one
+review, two seconds after the last. A save during a review waits for it, and if you change
+every unit a running review call was sent, that call is stopped so your new code is reviewed
+sooner. If a review cannot start at all (your config does not parse, say), the files you saved
+are reviewed again at their next save. When a change is bigger than one review's budget (`budget_per_pass`), scry keeps going by
+itself, one review after another, until the change is reviewed or the day's budget is spent.
+The editor reviews within `[scry] budget_per_pass` and `budget_per_day`
+([Scry](scry.md)).
+
+## Setting it up
+
+You need `scry` on your PATH (`cargo install --git https://github.com/sorcererdev/sorcerer
+scry`), and what `scry` itself needs: `JEV_API_KEY`, and Claude Code on PATH or
+`ANTHROPIC_API_KEY` ([What sorcerer is](what-sorcerer-is.md)). Your editor starts `scry lsp`,
+a language server, in the folder you open; you never run it yourself.
+
+### Neovim
+
+`sorcerer.nvim` (Neovim 0.10 or later), with lazy.nvim:
+
+```lua
+{
+  "sorcererdev/sorcerer.nvim",
+  config = function()
+    require("sorcerer").setup({
+      scry = {
+        enabled = true,
+        cmd = { "scry", "lsp" },
+        signs = { bug = "!", assumption = "?", convention = "§", design = "~" },  -- false: plain diagnostics
+        bug_text = true,   -- a bug's first sentence at the end of its line
+      },
+    })
+  end,
+}
+```
+
+Those are the defaults. The plugin starts `scry lsp` for every ordinary file buffer, at the
+nearest directory upward holding `.sorcerer/`, else `.git`. Signs show one mark per finding
+line by issue type (an issue type with no mark of its own gets `•`), tint the line number, and
+dim a stale finding; Neovim's own sign and virtual text are turned off for scry's diagnostics
+so nothing is drawn twice. No text in your buffer moves. `require("sorcerer").status()` gives
+`scry: reviewing 2 units` or an empty string, for your status line; any LSP progress display
+(fidget, `vim.lsp.status()`) shows the same. `:checkhealth sorcerer` says whether `scry` is on
+your PATH and its version.
+
+### VS Code
+
+The `scry` extension, installed from its `.vsix` (`code --install-extension scry-*.vsix`). It
+finds `scry` from the setting `scry.path`, then your PATH, then `~/.cargo/bin`; with none of
+them it says how to install it, once. It starts one `scry lsp` per workspace folder. The
+diagnostics, the lightbulb and the progress in the status bar are VS Code's own.
+
+## The four actions
+
+Your editor's code-action menu on a finding's line (Neovim: your code-action key; VS Code:
+the lightbulb) offers:
+
+- **scry: Show why**: the finding in full, as `scry why` prints it, opened beside your code
+  (it is written to `.sorcerer/state/scry/why-<id>.md`).
+- **scry: Show code**: opens the first piece of code it cites, selected. Left out when it
+  cites none.
+- **scry: Dismiss here**: stops showing this finding. A finding waiting behind the limit of
+  three takes its place.
+- **scry: Dismiss everywhere**: also keeps the same problem from being raised in any other
+  unit of the project.
+
+## What it says unprompted
+
+Three messages, each rare. Everything else goes to the editor's log for the server and to the
+run log (`scry log`).
+
+- **The day's budget is spent**, once a local day: `scry: today's budget ($3.00) is spent.
+  Reviews resume tomorrow; "scry cost" shows the days.`
+- **Scry cannot run** (no `JEV_API_KEY`, no provider), once a session, at the first save
+  that had something to review: `scry is not reviewing: <reason>. Run "scry doctor".`
+- **The trust question**, once a session (below).
+
+A review call that fails (a model error, a timeout) ends the status line with `review failed,
+see "scry log"` and shows no message.
+
+## Trust
+
+A project whose own files set something that runs code or moves your API key (a provider's
+`runner` or `url`, or a grammar of its own in `.sorcerer/languages/`) is not reviewed by the
+editor until you trust it, because your editor starts scry by itself in whatever folder you
+open. At the first save in such a project the editor asks:
+
+```
+scry: this project's config sets
+[model.providers.mine] runner = /opt/run
+Trust this project?
+```
+
+*Trust* puts the project on your trust list and reviews what you saved. *Not now*, or closing
+the question, leaves the project alone until your editor starts scry again. An editor that
+cannot ask gets `scry is not reviewing: this project's config sets <key>. Run "scry trust" in
+this project to allow that.` instead.
+
+`scry trust` trusts the project from a terminal, `scry trust --revoke` stops trusting it, and
+`scry doctor`'s `trust` row says where the project stands. [Scry](scry.md#trust) has the rest.
+A project that sets none of these needs no trust, and is never asked about.
+
+## What it never does
+
+- Show a message, a count or a badge when there is nothing to say.
+- Show a finding before its claim check.
+- Review while you type: only a save starts a review.
+- Slow or replace hover, go-to-definition or completion: scry adds no hover handler and hears
+  only opens and saves.
+- Move text in your buffer.
+- Show findings for files you have not opened (`scry list` is the whole project).
+- Filter findings its own way: the editor shows what `scry` would print.
+- Download a binary, offer a fix, or run on Windows, for now.

@@ -763,6 +763,7 @@ fn pass_over(
         log,
         progress: &progress,
         cancel: &cancel,
+        review_cancel: &cancel,
     };
     let req = ReviewRequest {
         caps: Some(Caps {

@@ -75,3 +75,20 @@ fn a_store_in_the_project_writes_the_state_gitignore() {
     );
     assert!(p.state.join("scry/findings.json").exists());
 }
+
+#[test]
+fn root_above_prefers_the_sorcerer_directory_over_git() {
+    let d = support::git_project();
+    support::write(d.path(), ".sorcerer/config.toml", "[scry");
+    std::fs::create_dir_all(d.path().join("libs/pay/.git")).unwrap();
+    std::fs::create_dir_all(d.path().join("libs/pay/src")).unwrap();
+    let root = Project::root_above(&d.path().join("libs/pay/src"));
+    assert_eq!(root, Some(d.path().canonicalize().unwrap()));
+    let bare = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(bare.path().join("a/.git")).unwrap();
+    assert_eq!(
+        Project::root_above(&bare.path().join("a")),
+        Some(bare.path().join("a").canonicalize().unwrap())
+    );
+    assert_eq!(Project::root_above(&bare.path().join("missing")), None);
+}

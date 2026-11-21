@@ -178,14 +178,6 @@ fn no_key_is_an_error_naming_the_variable() {
         panic!()
     };
     assert!(e.to_string().contains("ANTHROPIC_API_KEY"), "{e}");
-    let cfg = ProviderConfig {
-        api_key_env: Some("MY_KEY".into()),
-        ..Default::default()
-    };
-    let Err(e) = Anthropic::from_config(&cfg, &MapEnv::default()) else {
-        panic!()
-    };
-    assert!(e.to_string().contains("MY_KEY"), "{e}");
 }
 
 #[test]

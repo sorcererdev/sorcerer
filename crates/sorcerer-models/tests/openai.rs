@@ -15,11 +15,15 @@ use sorcerer_models::ports::provider::Provider;
 fn provider(url: &str, key: bool) -> OpenAiCompatible {
     let cfg = ProviderConfig {
         url: Some(url.into()),
-        api_key_env: key.then(|| "LOCAL_KEY".into()),
         aliases: [("sonnet".to_string(), "qwen3:32b".to_string())].into(),
         ..Default::default()
     };
-    OpenAiCompatible::from_config("local", &cfg, &MapEnv::default().var_set("LOCAL_KEY", "k"))
+    let env = if key {
+        MapEnv::default().var_set("OPENAI_API_KEY", "k")
+    } else {
+        MapEnv::default()
+    };
+    OpenAiCompatible::from_config("local", &cfg, &env)
         .unwrap()
         .with_backoff(Duration::ZERO)
 }

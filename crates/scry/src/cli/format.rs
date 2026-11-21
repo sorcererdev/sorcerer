@@ -1,7 +1,7 @@
 //! How the commands print: findings as text or JSON, and tables.
 
+use crate::adapters::why_text::lines_text;
 use serde_json::json;
-use sorcerer_core::domain::unit::Span;
 
 use crate::domain::finding::Finding;
 
@@ -63,30 +63,6 @@ pub(super) fn cut_to(n: usize, text: &str) -> String {
         format!("{kept}…")
     } else {
         text.to_string()
-    }
-}
-
-/// The cited lines, with 2 lines either side, each numbered the way the
-/// claim prompt numbers them. A range past the end of the file stops at
-/// its last line.
-///
-/// Example: lines 5-6 of a long file show lines 3 to 8, as `   3 code`.
-pub(super) fn cited_range(text: &str, lines: Span) -> String {
-    let file_lines: Vec<&str> = text.lines().collect();
-    let first = lines.start.saturating_sub(2).max(1) as usize;
-    let last = (lines.end.max(lines.start) as usize + 2).min(file_lines.len());
-    (first..=last)
-        .filter_map(|n| file_lines.get(n - 1).map(|code| format!("{n:>4} {code}")))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// A line range in short: `2` for one line, `2-5` for several.
-pub(super) fn lines_text(first: u32, last: u32) -> String {
-    if first == last {
-        first.to_string()
-    } else {
-        format!("{first}-{last}")
     }
 }
 

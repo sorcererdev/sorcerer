@@ -98,6 +98,7 @@ impl Fixture {
             log: &Quiet,
             progress,
             cancel: &cancel,
+            review_cancel: &cancel,
         };
         let req = ReviewRequest {
             caps: Some(caps.clone()),
@@ -588,6 +589,7 @@ fn run_logged(
         log: &trace,
         progress: &on_progress,
         cancel: &cancel,
+        review_cancel: &cancel,
     };
     let req = ReviewRequest {
         caps: Some(caps.clone()),
@@ -689,8 +691,9 @@ fn the_run_log_of_the_rounds_is_as_recorded() {
 
     assert!(r.checks_capped);
     assert_eq!(r.new.len(), 1);
+    assert!(matches!(progress.first(), Some(Progress::Sending(units)) if units.len() == 1));
     assert_eq!(
-        progress,
+        progress[1..],
         [
             Progress::Reviewed(1),
             Progress::Stored,

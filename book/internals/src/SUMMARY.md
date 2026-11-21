@@ -6,3 +6,4 @@
 - [The core](core.md)
 - [Models](models.md)
 - [Scry](scry.md)
+- [The language-server host](lsp.md)

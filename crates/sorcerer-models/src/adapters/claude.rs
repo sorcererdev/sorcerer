@@ -211,8 +211,11 @@ fn reply_error(why: String) -> Error {
 /// Kills the child and every process in its group.
 fn kill_group(child: &mut Child) {
     #[cfg(unix)]
+    // its output goes nowhere: in an editor's server, standard output is the protocol's
     let _ = Command::new("kill")
         .args(["-KILL", "--", &format!("-{}", child.id())])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
     let _ = child.kill();
     let _ = child.wait();

@@ -2,7 +2,7 @@
 mod support;
 
 use sorcerer_core::adapters::env::MapEnv;
-use sorcerer_core::domain::config::{DecideConfig, ModelConfig};
+use sorcerer_core::domain::config::ModelConfig;
 use sorcerer_core::domain::project::Project;
 use sorcerer_models::adapters::providers::{
     default_decider, default_provider, default_provider_for, provider_named,
@@ -89,17 +89,11 @@ fn the_default_provider_prefers_claude_on_path() {
 
 #[test]
 fn jev_is_the_decider_when_its_key_is_set() {
-    let d = DecideConfig::default();
     assert_eq!(
-        default_decider(&d, &MapEnv::default().var_set("JEV_API_KEY", "k"))
+        default_decider(&MapEnv::default().var_set("JEV_API_KEY", "k"))
             .unwrap()
             .name,
         "jev"
     );
-    assert!(default_decider(&d, &MapEnv::default()).is_none());
-    let own = DecideConfig {
-        key_env: Some("MY_JEV".into()),
-        ..Default::default()
-    };
-    assert!(default_decider(&own, &MapEnv::default().var_set("MY_JEV", "k")).is_some());
+    assert!(default_decider(&MapEnv::default()).is_none());
 }

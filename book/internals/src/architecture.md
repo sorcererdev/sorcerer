@@ -31,13 +31,13 @@ method names and the domain file stays pure.
   `unit.rs` (units from the queries), `fingerprint.rs`, `compare.rs` (units before and
   after), `facts.rs`, `versioned.rs` (`Versioned`, `Snapshot`: a product's state file as data),
   `errand.rs` (one paid call), `cost.rs` (`spent_since`), `fences.rs` (the
-  patterns and `allows_relative`), `fnv.rs`.
+  patterns and `allows_relative`), `trust.rs` (`needs_trust`), `fnv.rs`.
 - `ports/`: `view.rs` (`CodebaseView`), `ledger.rs` (`Ledger`), `env.rs` (`Env`).
 - `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars fetched,
   built and loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
   `json_store.rs` (`Store`), `jsonl_ledger.rs` (`JsonlLedger`),
   `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`), `env.rs`
-  (`SystemEnv`, `MapEnv`).
+  (`SystemEnv`, `MapEnv`), `trust_list.rs` (`TrustList`).
 
 **sorcerer-models**
 
@@ -68,6 +68,13 @@ method names and the domain file stays pure.
   `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `doctor.rs`, `log.rs`), `format.rs`.
 
 [Scry](scry.md) says what each file holds.
+
+**sorcerer-lsp** is a flat crate: `src/{lib,serve,client,jobs,uri}.rs`, with no layer
+directories. All of it is adapter code (a connection, threads, the protocol's types), and
+nothing in it is a product's domain, so splitting it into layers would leave every layer but
+one empty; `scripts/layers` checks only layer directories and passes it as it is. A product's
+server lives in that product's `adapters/` and calls its use cases.
+[The language-server host](lsp.md) says what it owns.
 
 ## Adding a feature
 

@@ -18,6 +18,9 @@ use crate::domain::model::{
 use crate::ports::provider::Provider;
 use crate::{Error, Result};
 
+/// The only variable the key is read from; absent means no authorization header.
+pub const KEY_VAR: &str = "OPENAI_API_KEY";
+
 pub struct OpenAiCompatible {
     name: String,
     url: String,
@@ -29,8 +32,7 @@ pub struct OpenAiCompatible {
 
 impl OpenAiCompatible {
     /// From `[model.providers.<name>]`. The `url` is required; the key is optional (a
-    /// local server such as Ollama needs none) and is read from the variable `api_key_env`
-    /// names. A price may be keyed by an alias or by a model id.
+    /// local server such as Ollama needs none) and is read from `OPENAI_API_KEY` only. A price may be keyed by an alias or by a model id.
     ///
     /// Example: `url = "http://localhost:11434/v1"` with `aliases.haiku = "qwen3:8b"` sends
     /// requests for `haiku` to Ollama's `qwen3:8b`.
@@ -53,7 +55,7 @@ impl OpenAiCompatible {
         Ok(OpenAiCompatible {
             name: name.into(),
             url: url.trim_end_matches('/').into(),
-            key: cfg.api_key_env.as_deref().and_then(|var| env.var(var)),
+            key: env.var(KEY_VAR),
             aliases: cfg.aliases.clone(),
             prices,
             backoff: Duration::from_secs(1),

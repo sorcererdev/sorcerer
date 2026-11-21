@@ -8,6 +8,7 @@ pub mod findings;
 pub mod issue_type;
 pub mod judging;
 pub mod log_text;
+pub mod placing;
 pub mod review_prompt;
 pub mod scope;
 pub mod steering;

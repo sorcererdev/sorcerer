@@ -3,7 +3,8 @@ use std::io::Write;
 use sorcerer_core::adapters::env::SystemEnv;
 
 fn main() {
-    let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());
+    // not locked for the whole run: `scry lsp` writes the protocol from a thread of its own
+    let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
     let code = scry::cli::main(
         std::env::args_os().collect(),
         &SystemEnv,

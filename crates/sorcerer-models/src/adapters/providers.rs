@@ -5,12 +5,13 @@
 
 use std::sync::Arc;
 
-use sorcerer_core::domain::config::{DecideConfig, ModelConfig};
+use sorcerer_core::domain::config::ModelConfig;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
-use crate::adapters::anthropic::Anthropic;
+use crate::adapters::anthropic::{Anthropic, KEY_VAR as ANTHROPIC_KEY_VAR};
 use crate::adapters::claude::Claude;
+use crate::adapters::jev::KEY_VAR as JEV_KEY_VAR;
 use crate::adapters::openai::OpenAiCompatible;
 use crate::ports::provider::Provider;
 use crate::{Error, Result};
@@ -40,17 +41,16 @@ pub fn default_provider(cfg: &ModelConfig, env: &dyn Env) -> Option<ProviderChoi
     if env.which("claude").is_some() {
         return choice("claude", "claude is on PATH");
     }
-    if env.var("ANTHROPIC_API_KEY").is_some() {
+    if env.var(ANTHROPIC_KEY_VAR).is_some() {
         return choice("anthropic", "ANTHROPIC_API_KEY is set");
     }
     None
 }
 
-/// The decider: Jev when its key (`[decide] key_env`, default `JEV_API_KEY`) is set.
-pub fn default_decider(cfg: &DecideConfig, env: &dyn Env) -> Option<ProviderChoice> {
-    let var = cfg.key_env.as_deref().unwrap_or("JEV_API_KEY");
-    env.var(var)
-        .and_then(|_| choice("jev", &format!("{var} is set")))
+/// The decider: Jev when `JEV_API_KEY` is set.
+pub fn default_decider(env: &dyn Env) -> Option<ProviderChoice> {
+    env.var(JEV_KEY_VAR)
+        .and_then(|_| choice("jev", &format!("{JEV_KEY_VAR} is set")))
 }
 
 /// The provider `[model.providers.<name>]` describes. Its `kind` says which adapter

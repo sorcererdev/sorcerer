@@ -7,14 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use scry::adapters::wiring::{LiveWiring, Wiring, claim_checker, jev_for};
+use scry::adapters::wiring::{LiveWiring, claim_checker, jev_for};
 use scry::cli::{doctor_rows, main_with};
-use scry::ports::claim_checker::ClaimChecker;
-use scry::ports::run_log::Quiet;
-use scry::usecases::review_change::{Progress, ReviewDeps};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::env::MapEnv;
-use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
@@ -25,14 +21,10 @@ use sorcerer_models::domain::decide::{Question, Shape, UnsureAnswer};
 use sorcerer_models::domain::research::{Research, Researched};
 use sorcerer_models::ports::decider::Decider;
 use sorcerer_models::ports::researcher::Researcher;
-use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
+use support::{Doubles, FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
-
-fn t0() -> DateTime<Utc> {
-    "2026-11-18T23:00:00Z".parse().unwrap()
-}
 
 /// orders.py committed, then `cancel` changed in the working tree.
 fn changed_project() -> TempDir {
@@ -60,62 +52,6 @@ fn bug_reply(statement: &str) -> String {
         "open": [],
     })
     .to_string()
-}
-
-/// The pass's doubles: the vendored grammars' view, a stub reviewer and
-/// decider, a fixed clock and a claim checker that says right.
-struct Doubles {
-    view: FilesView,
-    reviewer: StubReviewer,
-    decider: StubDecider,
-    clock: FixedClock,
-    checker: Box<dyn ClaimChecker>,
-    ports: support::Ports,
-    cancel: Cancel,
-}
-
-fn quiet(_: &Progress) {}
-
-impl Doubles {
-    fn new(dir: &Path, reviewer: StubReviewer) -> Doubles {
-        let (project, view) = support::project_with_vendored_grammars(dir);
-        Doubles {
-            view,
-            ports: support::Ports::of(&project),
-            cancel: Cancel::default(),
-            reviewer,
-            decider: StubDecider::new(),
-            clock: FixedClock::at(t0()),
-            checker: Box::new(|_: &Claim| {
-                Ok(Checked {
-                    verdict: Verdict::Right,
-                    why: "it does".into(),
-                    citations: Vec::new(),
-                    cited: Vec::new(),
-                    escalation: Escalation::No,
-                    errands: Vec::new(),
-                })
-            }),
-        }
-    }
-}
-
-impl Wiring for &Doubles {
-    fn deps(&self) -> ReviewDeps<'_> {
-        ReviewDeps {
-            view: &self.view,
-            reviewer: &self.reviewer,
-            decider: &self.decider,
-            checker: &*self.checker,
-            store: &self.ports.store,
-            ledger: &self.ports.ledger,
-            settings: &self.ports.settings,
-            clock: &self.clock,
-            log: &Quiet,
-            progress: &quiet,
-            cancel: &self.cancel,
-        }
-    }
 }
 
 struct Ran {
@@ -430,6 +366,7 @@ fn doctor_lists_each_row() {
         "steering",
         "store",
         "ledger",
+        "trust",
     ];
     let good = MapEnv::default()
         .on_path("claude")
@@ -1656,7 +1593,8 @@ fn doctor_output_is_as_recorded() {
                 languages  ok    no file here is in a language sorcerer knows\n\
                 steering   ok    no .sorcerer/scry.toml: no rules\n\
                 store      ok    no findings yet\n\
-                ledger     ok    0 rows, 0 of them scry's\n";
+                ledger     ok    0 rows, 0 of them scry's\n\
+                trust      ok    not needed\n";
     assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, want, ""));
     let r = doctor(dir.path(), &MapEnv::default());
     let want = "provider   FAIL  no model provider: put claude on PATH or set ANTHROPIC_API_KEY\n\
@@ -1664,7 +1602,8 @@ fn doctor_output_is_as_recorded() {
                 languages  ok    no file here is in a language sorcerer knows\n\
                 steering   ok    no .sorcerer/scry.toml: no rules\n\
                 store      ok    no findings yet\n\
-                ledger     ok    0 rows, 0 of them scry's\n";
+                ledger     ok    0 rows, 0 of them scry's\n\
+                trust      ok    not needed\n";
     assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (2, want, ""));
 }
 
@@ -1714,4 +1653,90 @@ fn a_store_that_says_waiting_reads_as_unverified() {
         assert_eq!(r.code, 0, "{}", r.err);
         assert!(r.out.contains("unverified  bug"), "{status}: {}", r.out);
     }
+}
+
+// ---- trust ----
+
+/// `scry ARGS` in DIR with ENV, wiring no pass.
+fn scry_with_env(dir: &Path, env: &MapEnv, a: &[&str]) -> Ran {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = main_with(
+        args(a),
+        dir,
+        env,
+        &mut out,
+        &mut err,
+        100,
+        |_: &Project| -> anyhow::Result<LiveWiring> { panic!("no pass here") },
+    );
+    Ran {
+        code,
+        out: String::from_utf8(out).unwrap(),
+        err: String::from_utf8(err).unwrap(),
+    }
+}
+
+const RUNNER: &str = "[model.providers.mine]\nrunner = \"/x/run\"\n";
+
+#[test]
+fn trust_adds_and_revoke_removes() {
+    let dir = git_project();
+    write(dir.path(), ".sorcerer/config.toml", RUNNER);
+    let home = TempDir::new().unwrap();
+    let env = MapEnv::default().var_set("XDG_CONFIG_HOME", home.path().to_str().unwrap());
+    let root = Project::open(dir.path()).unwrap().root;
+    let r = scry_with_env(dir.path(), &env, &["trust"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert_eq!(
+        r.out,
+        format!(
+            "trusted: {}\n[model.providers.mine] runner = /x/run\n",
+            root.display()
+        )
+    );
+    let list = sorcerer_core::adapters::trust_list::TrustList::user(&env).unwrap();
+    assert!(list.is_trusted(&root));
+    let r = scry_with_env(dir.path(), &env, &["trust", "--revoke"]);
+    assert_eq!(r.out, format!("no longer trusted: {}\n", root.display()));
+    assert!(!list.is_trusted(&root));
+    let r = scry_with_env(dir.path(), &env, &["trust", "--revoke"]);
+    assert_eq!(r.out, format!("was not trusted: {}\n", root.display()));
+    let plain = git_project();
+    let r = scry_with_env(plain.path(), &env, &["trust"]);
+    assert!(
+        r.out
+            .ends_with("(nothing in its config needs trust today)\n"),
+        "{}",
+        r.out
+    );
+    let nowhere = scry_with_env(dir.path(), &MapEnv::default(), &["trust"]);
+    assert_eq!(nowhere.code, 2);
+    assert!(nowhere.err.contains("XDG_CONFIG_HOME"), "{}", nowhere.err);
+}
+
+#[test]
+fn doctor_has_the_trust_row() {
+    let home = TempDir::new().unwrap();
+    let env = MapEnv::default().var_set("XDG_CONFIG_HOME", home.path().to_str().unwrap());
+    let trust_row = |dir: &Path| {
+        let project = Project::open(dir).unwrap();
+        doctor_rows(&project, &env, &support::test_cache())
+            .into_iter()
+            .last()
+            .unwrap()
+    };
+    let plain = git_project();
+    let row = trust_row(plain.path());
+    assert_eq!(
+        (row.name, row.result),
+        ("trust", Ok("not needed".to_string()))
+    );
+    let dir = git_project();
+    write(dir.path(), ".sorcerer/config.toml", RUNNER);
+    assert_eq!(
+        trust_row(dir.path()).result,
+        Ok("not trusted: the editor will ask ([model.providers.mine] runner)".to_string())
+    );
+    scry_with_env(dir.path(), &env, &["trust"]);
+    assert_eq!(trust_row(dir.path()).result, Ok("trusted".to_string()));
 }

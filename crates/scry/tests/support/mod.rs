@@ -11,11 +11,15 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use scry::adapters::json_finding_store::JsonFindingStore;
 use scry::adapters::scry_toml::ScryToml;
+use scry::adapters::wiring::Wiring;
 use scry::domain::findings::Findings;
 use scry::domain::review_prompt::ReviewAsk;
+use scry::ports::claim_checker::ClaimChecker;
 use scry::ports::clock::Clock;
 use scry::ports::finding_store::FindingStore;
 use scry::ports::reviewer::{Reviewed, Reviewer};
+use scry::ports::run_log::Quiet;
+use scry::usecases::review_change::{Progress, ReviewDeps};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
@@ -24,6 +28,7 @@ use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
+use sorcerer_models::domain::claim::{Checked, Claim, Escalation, Verdict};
 use sorcerer_models::domain::decide::{Answer, Confidence, Question, Weighed};
 use sorcerer_models::ports::decider::Decider;
 use tempfile::TempDir;
@@ -115,7 +120,7 @@ pub fn errand(verb: &str, model: &str, cost: f64) -> Errand {
     }
 }
 
-type Hook = Box<dyn Fn(&ReviewAsk) + Send + Sync>;
+type Hook = Box<dyn Fn(&ReviewAsk, &Cancel) + Send + Sync>;
 
 /// The review call's stand-in: replies by the set of files in the batch (an
 /// empty findings list for a batch it has no reply for), and records every ask.
@@ -128,6 +133,9 @@ pub struct StubReviewer {
     pub caps: Mutex<Vec<f64>>,
     timeout: bool,
     hook: Option<Hook>,
+    /// A call whose cancel is set by the time its hook returns fails as cancelled, as a live
+    /// reviewer's would.
+    honours_cancel: bool,
 }
 
 impl StubReviewer {
@@ -139,6 +147,7 @@ impl StubReviewer {
             caps: Mutex::new(Vec::new()),
             timeout: false,
             hook: None,
+            honours_cancel: false,
         }
     }
 
@@ -150,7 +159,18 @@ impl StubReviewer {
 
     /// Runs HOOK during every review call, as a user acting mid-pass would.
     pub fn on_review(mut self, hook: impl Fn(&ReviewAsk) + Send + Sync + 'static) -> StubReviewer {
+        self.hook = Some(Box::new(move |ask, _| hook(ask)));
+        self
+    }
+
+    /// Runs HOOK during every review call with the call's cancel; a call cancelled by the
+    /// time HOOK returns fails as cancelled.
+    pub fn on_review_cancellable(
+        mut self,
+        hook: impl Fn(&ReviewAsk, &Cancel) + Send + Sync + 'static,
+    ) -> StubReviewer {
         self.hook = Some(Box::new(hook));
+        self.honours_cancel = true;
         self
     }
 
@@ -178,7 +198,7 @@ impl Reviewer for StubReviewer {
         ask: &ReviewAsk,
         model: &str,
         cap_usd: f64,
-        _cancel: &Cancel,
+        cancel: &Cancel,
     ) -> sorcerer_models::Result<Reviewed> {
         self.asks.lock().unwrap().push(ask.clone());
         self.caps.lock().unwrap().push(cap_usd);
@@ -189,7 +209,10 @@ impl Reviewer for StubReviewer {
             });
         }
         if let Some(h) = &self.hook {
-            h(ask);
+            h(ask, cancel);
+        }
+        if self.honours_cancel && cancel.is_cancelled() {
+            return Err(sorcerer_models::Error::Cancelled);
         }
         let files: BTreeSet<PathBuf> = ask.units.iter().map(|u| u.file.clone()).collect();
         let reply = self
@@ -359,5 +382,133 @@ pub fn read_store(project: &Project) -> Findings {
         Snapshot::Current(s) => s,
         Snapshot::Absent => Findings::default(),
         Snapshot::Unreadable(why) => panic!("{why}"),
+    }
+}
+
+/// An open finding as a pass would store it: ID, of ISSUE_TYPE, about FILE on LINE, in the
+/// unit UNIT (a file-level finding when `None`) that started on UNIT_START and had the
+/// fingerprint PRINT, citing its own line as evidence, with confidence 0.9.
+pub fn open_finding(
+    id: &str,
+    issue_type: &str,
+    file: &str,
+    unit: Option<(&str, u32, &str)>,
+    line: u32,
+) -> scry::domain::finding::Finding {
+    use scry::domain::finding::{Evidence, Finding, FindingId, Place, Scores, Status};
+    use sorcerer_core::domain::fingerprint::Fingerprint;
+    use sorcerer_core::domain::unit::Span;
+    let t: DateTime<Utc> = "2026-11-20T12:00:00Z".parse().unwrap();
+    Finding {
+        id: FindingId(id.into()),
+        issue_type: issue_type.into(),
+        rule: None,
+        statement: format!("statement of {id}"),
+        place: Place {
+            file: file.into(),
+            unit: unit.map(|(name, _, _)| name.to_string()),
+            lines: Span {
+                start: line,
+                end: line,
+            },
+            unit_start: unit.map(|(_, start, _)| start),
+            fingerprint: unit.and_then(|(_, _, print)| Fingerprint::parse(print)),
+        },
+        evidence: vec![Evidence {
+            file: file.into(),
+            lines: Span {
+                start: line,
+                end: line,
+            },
+            print: None,
+        }],
+        scores: Scores {
+            confidence: Some(0.9),
+            asked_on: None,
+        },
+        verdict: None,
+        status: Status::Open,
+        seen: 1,
+        first: t,
+        last: t,
+        history: vec![(t, Status::Open)],
+        model: "sonnet".into(),
+        cost_usd: 0.0,
+    }
+}
+
+/// PROJECT's store holding exactly FINDINGS.
+pub fn put_findings(project: &Project, findings: Vec<scry::domain::finding::Finding>) {
+    update_store(project, |s| {
+        *s = Findings {
+            findings,
+            ..Default::default()
+        };
+    })
+    .unwrap();
+}
+
+/// The pass's doubles: the vendored grammars' view, a stub reviewer and
+/// decider, a fixed clock (2026-11-18 23:00 UTC), a claim checker that says
+/// right, and one cancel for everything.
+pub struct Doubles {
+    pub view: FilesView,
+    pub reviewer: StubReviewer,
+    pub decider: StubDecider,
+    pub clock: FixedClock,
+    pub checker: Box<dyn ClaimChecker + Send>,
+    pub ports: Ports,
+    pub cancel: Cancel,
+}
+
+fn quiet(_: &Progress) {}
+
+impl Doubles {
+    pub fn new(dir: &Path, reviewer: StubReviewer) -> Doubles {
+        let (project, view) = project_with_vendored_grammars(dir);
+        Doubles {
+            view,
+            ports: Ports::of(&project),
+            cancel: Cancel::default(),
+            reviewer,
+            decider: StubDecider::new(),
+            clock: FixedClock::at("2026-11-18T23:00:00Z".parse().unwrap()),
+            checker: Box::new(|_: &Claim| {
+                Ok(Checked {
+                    verdict: Verdict::Right,
+                    why: "it does".into(),
+                    citations: Vec::new(),
+                    cited: Vec::new(),
+                    escalation: Escalation::No,
+                    errands: Vec::new(),
+                })
+            }),
+        }
+    }
+}
+
+impl Wiring for Doubles {
+    fn deps(&self) -> ReviewDeps<'_> {
+        ReviewDeps {
+            view: &self.view,
+            reviewer: &self.reviewer,
+            decider: &self.decider,
+            checker: &*self.checker,
+            store: &self.ports.store,
+            ledger: &self.ports.ledger,
+            settings: &self.ports.settings,
+            clock: &self.clock,
+            log: &Quiet,
+            progress: &quiet,
+            cancel: &self.cancel,
+            review_cancel: &self.cancel,
+        }
+    }
+}
+
+/// The command line's tests hand `main_with` a borrowed `Doubles`.
+impl Wiring for &Doubles {
+    fn deps(&self) -> ReviewDeps<'_> {
+        (**self).deps()
     }
 }

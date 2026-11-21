@@ -29,6 +29,10 @@ which = "7"
 regex = "1"
 tempfile = "3"
 mockito = "1"
+lsp-server = "0.10"
+lsp-types = "0.97"
+url = "2"
+crossbeam-channel = "0.5"
 
 [workspace.lints.clippy]
 too_many_lines = "warn"

@@ -6,6 +6,7 @@ pub mod explain_finding;
 pub mod list_findings;
 pub mod report_cost;
 pub mod review_change;
+pub mod show_findings;
 
 use sorcerer_core::domain::versioned::Snapshot;
 

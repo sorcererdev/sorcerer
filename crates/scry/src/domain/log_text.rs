@@ -165,6 +165,7 @@ mod tests {
             file: name.into(),
             diff: String::new(),
             units_now: vec![],
+            same: vec![],
             deleted,
         }
     }
