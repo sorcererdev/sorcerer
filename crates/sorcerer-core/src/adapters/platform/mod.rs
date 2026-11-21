@@ -13,3 +13,4 @@
 pub mod compiler;
 pub mod dirs;
 pub mod paths;
+pub mod process;

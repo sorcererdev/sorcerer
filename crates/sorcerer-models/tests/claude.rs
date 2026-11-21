@@ -4,6 +4,7 @@ mod support;
 use std::time::{Duration, Instant};
 
 use sorcerer_core::Cancel;
+use sorcerer_core::adapters::platform::process::is_running;
 use sorcerer_models::Error;
 use sorcerer_models::adapters::claude::Claude;
 use sorcerer_models::domain::model::{Completion, Message, ModelId};
@@ -138,20 +139,39 @@ fn a_missing_runner_is_a_subprocess_error_naming_it() {
 }
 
 #[test]
-fn a_timeout_kills_the_childs_children_too() {
+fn a_timeout_stops_the_runner_and_what_it_started() {
     let f = support::FakeClaude::new();
-    let e = claude(&f, &[("FAKE_CLAUDE_SLEEP", "7.317")])
-        .complete(req(Duration::from_millis(300)), &Cancel::default())
-        .unwrap_err();
+    let pid_file = f.dir.path().join("child-pid");
+    let pid_file_text = pid_file.to_string_lossy().into_owned();
+    let e = claude(
+        &f,
+        &[
+            ("FAKE_CLAUDE_SLEEP", "30"),
+            ("FAKE_CLAUDE_CHILD_PID", &pid_file_text),
+        ],
+    )
+    .complete(req(Duration::from_millis(300)), &Cancel::default())
+    .unwrap_err();
     assert!(matches!(e, Error::Timeout { .. }), "{e}");
-    std::thread::sleep(Duration::from_millis(300));
-    let left = std::process::Command::new("pgrep")
-        .args(["-f", "sleep 7.317"])
-        .output()
+    let child: u32 = std::fs::read_to_string(&pid_file)
+        .expect("the fake started its child before the timeout")
+        .trim()
+        .parse()
         .unwrap();
+    let runner: u32 = f
+        .env()
+        .lines()
+        .find_map(|line| line.strip_prefix("PID="))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while (is_running(child) || is_running(runner)) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!is_running(runner), "the runner {runner} is still running");
     assert!(
-        left.stdout.is_empty(),
-        "still running: {}",
-        String::from_utf8_lossy(&left.stdout)
+        !is_running(child),
+        "the runner's child {child} is still running"
     );
 }
