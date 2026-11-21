@@ -295,3 +295,19 @@ fn research_reviewer_asks_for_the_review_errand() {
     assert_eq!(r.prompt, review_prompt(&ask));
     assert_eq!((r.model.as_str(), r.cap_usd), ("sonnet", 0.5));
 }
+
+#[test]
+fn braces_in_the_prose_before_the_json_are_skipped() {
+    let reply = "The test's expected string matches the \"Booked: {} for {}\" format.\n\n{\"findings\": [], \"open\": []}";
+    assert!(parse_review(reply).unwrap().findings.is_empty());
+    assert_eq!(
+        json_in(reply),
+        Some(serde_json::json!({"findings": [], "open": []}))
+    );
+}
+
+#[test]
+fn brackets_in_the_prose_do_not_turn_into_a_trailing_empty_list() {
+    let reply = "It locks in the panic with `#[should_panic]`.\n\n{\"findings\": [{\"issue_type\": \"bug\", \"file\": \"a.rs\", \"lines\": [1, 2], \"statement\": \"s\", \"rule\": \"\", \"evidence\": []}], \"open\": []}";
+    assert_eq!(parse_review(reply).unwrap().findings.len(), 1);
+}

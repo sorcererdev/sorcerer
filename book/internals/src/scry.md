@@ -196,9 +196,10 @@ steering text, `reported` (always empty in v1; spellbook's slot) and the `open` 
 re-answer. `review_prompt` renders it; `tests/golden/review-prompt.txt` is the golden, matched
 byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first line.
 
-`parse_review` reads the reply: JSON is located from fenced chunks last-first, then the first `{`
-to the last `}`, then the first `[` to the last `]` (the array first when it opens first, so a
-bare array of findings is not mistaken for its first object); the first that decodes wins. A
+`parse_review` reads the reply: JSON is located from fenced chunks last-first, then the longest text that starts at a
+`{` and ends at the last `}`, or starts at a `[` and ends at the last `]`, and decodes
+(`json_between_brackets`; longest, so a bare array of findings is not mistaken for its first
+object, and braces in the prose before the JSON, `Booked: {} for {}`, are skipped). A
 finding needs one of the four issue types (the reply's `issue_type`), a file, a statement and `lines` (`[a, z]`, one element, or
 `line`); a bad finding is dropped, a bad evidence entry is dropped and the finding kept. `open`
 answers need `holds` to be exactly `still holds` or `no longer holds`; a numeric id is accepted.
