@@ -436,3 +436,27 @@ fn shutdown_then_exit_ends_serve() {
     assert_eq!(editor.wait_for_events(1), vec!["shutdown"]);
     editor.stop();
 }
+
+#[test]
+fn a_hang_up_with_a_question_unanswered_shuts_down_and_lets_the_connection_close() {
+    let editor = Editor::plain();
+    let client = editor.client();
+    // The callback holds a client, as scry's trust question holds the server.
+    let held = client.clone();
+    client.ask("trust?", &["Trust"], move |_| drop(held));
+    drop(client);
+    assert!(matches!(editor.next(WAIT), Some(Message::Response(_))));
+    assert!(matches!(editor.next(WAIT), Some(Message::Request(_))));
+    let Editor {
+        connection,
+        seen,
+        server,
+    } = editor;
+    let Connection { sender, receiver } = connection;
+    drop(sender);
+    server.unwrap().join().unwrap().unwrap();
+    assert_eq!(seen.lock().unwrap().events, vec!["shutdown"]);
+    // Every sender on the server's side is gone, so the editor's receiver sees the end.
+    seen.lock().unwrap().client = None;
+    assert!(receiver.recv_timeout(WAIT).unwrap_err().is_disconnected());
+}

@@ -29,7 +29,10 @@ through the `url` crate). There is no async runtime.
   Notifications about documents that are not files (`untitled:`, `fugitive://`) are dropped.
 - **Requests.** Each goes to `Product::request` by method name; a product answers a method it
   does not serve with `unknown_method` (`-32601`). `shutdown` calls `Product::shutdown` and is
-  answered with null; `exit` ends `serve`.
+  answered with null; `exit` ends `serve`. So does the editor hanging up (stdin EOF): `serve` then calls
+  `Product::shutdown` itself, so a running pass stops. Either way `Client::forget_waiting` drops
+  every callback still waiting for a reply, because a callback that holds a `Client` keeps the
+  connection's sender alive and so the process with it.
 - **Replies.** The server's own requests (`window/showMessageRequest`,
   `window/workDoneProgress/create`, `window/showDocument`) are numbered by the `Client`, which
   keeps what to do with each reply; the main loop hands every reply over by id
