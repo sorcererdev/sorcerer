@@ -360,6 +360,7 @@ fn doctor(dir: &Path, env: &MapEnv) -> Ran {
 fn doctor_lists_each_row() {
     let dir = git_project();
     let names = [
+        "git",
         "provider",
         "jev",
         "languages",
@@ -369,6 +370,7 @@ fn doctor_lists_each_row() {
         "trust",
     ];
     let good = MapEnv::default()
+        .on_path("git")
         .on_path("claude")
         .var_set("JEV_API_KEY", "k");
     let r = doctor(dir.path(), &good);
@@ -379,7 +381,7 @@ fn doctor_lists_each_row() {
         assert!(l.starts_with(n), "{l}");
         assert!(l.contains(" ok "), "{l}");
     }
-    assert!(lines[0].contains("claude"), "{}", lines[0]);
+    assert!(lines[1].contains("claude"), "{}", lines[1]);
 
     let r = doctor(dir.path(), &MapEnv::default());
     assert_eq!(r.code, 2);
@@ -1581,24 +1583,55 @@ fn exit_codes_and_held_back_lines_are_as_before() {
 }
 
 #[test]
+fn doctor_without_git_says_how_to_get_it() {
+    let dir = git_project();
+    let env = MapEnv::default()
+        .on_path("claude")
+        .var_set("JEV_API_KEY", "k");
+    let r = doctor(dir.path(), &env);
+    let git = r.out.lines().find(|l| l.starts_with("git")).unwrap();
+    assert!(git.contains("FAIL"), "{git}");
+    assert!(git.contains("https://git-scm.com/downloads"), "{git}");
+}
+
+#[test]
+fn doctor_without_a_jev_key_says_where_to_sign_up() {
+    let dir = git_project();
+    let env = MapEnv::default().on_path("git").on_path("claude");
+    let r = doctor(dir.path(), &env);
+    let jev = r.out.lines().find(|l| l.starts_with("jev")).unwrap();
+    assert!(jev.contains("typesafe.ai"), "{jev}");
+}
+
+#[test]
 fn doctor_output_is_as_recorded() {
     // no source file: no grammar is loaded (nor built into the working directory)
     let dir = git_project();
     let good = MapEnv::default()
+        .on_path("git")
         .on_path("claude")
         .var_set("JEV_API_KEY", "k");
     let r = doctor(dir.path(), &good);
-    let want = "provider   ok    claude (claude is on PATH)\n\
+    let git = Path::new("/fake/bin").join("git");
+    let want = format!(
+        "git        ok    {}\n\
+         provider   ok    claude (claude is on PATH)\n\
                 jev        ok    jev (JEV_API_KEY is set)\n\
                 languages  ok    no file here is in a language sorcerer knows\n\
                 steering   ok    no .sorcerer/scry.toml: no rules\n\
                 store      ok    no findings yet\n\
                 ledger     ok    0 rows, 0 of them scry's\n\
-                trust      ok    not needed\n";
-    assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, want, ""));
+                trust      ok    not needed\n",
+        git.display()
+    );
+    assert_eq!(
+        (r.code, r.out.as_str(), r.err.as_str()),
+        (0, want.as_str(), "")
+    );
     let r = doctor(dir.path(), &MapEnv::default());
-    let want = "provider   FAIL  no model provider: put claude on PATH or set ANTHROPIC_API_KEY\n\
-                jev        FAIL  jev: no key; set JEV_API_KEY; scry does not run without Jev\n\
+    let want = "git        FAIL  git is not on PATH; scry reads your changes through git. Install it: https://git-scm.com/downloads\n\
+                provider   FAIL  no model provider: put claude on PATH or set ANTHROPIC_API_KEY\n\
+                jev        FAIL  jev: no key; set JEV_API_KEY; scry does not run without Jev. Get a key at https://typesafe.ai\n\
                 languages  ok    no file here is in a language sorcerer knows\n\
                 steering   ok    no .sorcerer/scry.toml: no rules\n\
                 store      ok    no findings yet\n\

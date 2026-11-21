@@ -80,6 +80,7 @@ fn check_setup(
 ) -> Vec<DoctorRow> {
     let row = |name, result| DoctorRow { name, result };
     vec![
+        row("git", git_row(env)),
         row("provider", provider_row(project, env)),
         row("jev", jev_row(project, env)),
         row("languages", languages_row(project, cache)),
@@ -107,6 +108,20 @@ fn trust_row(project: &Project, list: Option<&TrustList>) -> Result<String, Stri
     })
 }
 
+/// Where `git` was found: scry reads your changes through it. A missing git
+/// fails with where to get it.
+///
+/// Example: `/usr/bin/git`.
+fn git_row(env: &dyn Env) -> Result<String, String> {
+    env.which("git")
+        .map(|path| path.display().to_string())
+        .ok_or_else(|| {
+            "git is not on PATH; scry reads your changes through git. Install it: \
+             https://git-scm.com/downloads"
+                .to_string()
+        })
+}
+
 /// The model provider a review would use, and why it was chosen:
 /// `claude (claude is on PATH)`.
 fn provider_row(project: &Project, env: &dyn Env) -> Result<String, String> {
@@ -122,7 +137,9 @@ fn jev_row(project: &Project, env: &dyn Env) -> Result<String, String> {
         Ok(_) => Ok(default_decider(env)
             .map(|c| format!("{} ({})", c.name, c.why))
             .unwrap_or_else(|| "jev".into())),
-        Err(e) => Err(format!("{e}; scry does not run without Jev")),
+        Err(e) => Err(format!(
+            "{e}; scry does not run without Jev. Get a key at https://typesafe.ai"
+        )),
     }
 }
 
