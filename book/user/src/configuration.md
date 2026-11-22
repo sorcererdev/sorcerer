@@ -2,8 +2,19 @@
 
 Everything is optional. With no `.sorcerer/config.toml`, the tools use their defaults
 (see [What sorcerer is](what-sorcerer-is.md)). Each tool reads its own table (`[scry]`,
-and later `[conjure]` and `[spellbook]`) and refuses keys it does not know; a top-level
+`[conjure]` and later `[spellbook]`) and refuses keys it does not know; a top-level
 table no tool knows is reported as a warning, since it is probably a typo.
+
+## `[conjure]`
+
+| key | meaning |
+|---|---|
+| `writer` | the model alias that writes the first attempt: `haiku` by default |
+| `try_harder` | the stronger model Try harder asks: `sonnet` by default; `""` turns Try harder off |
+| `budget_per_day` | the most conjure may spend in a local day, in dollars: 3.00 by default |
+| `exclude` | globs of files conjure never writes, such as `gen/**` |
+
+See [Conjure](conjure.md).
 
 ## `[model]`
 

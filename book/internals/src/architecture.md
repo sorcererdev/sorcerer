@@ -73,6 +73,14 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
 
 [Scry](scry.md) says what each file holds.
 
+**sorcerer-conjure** (library and program `conjure`) has the same five layers:
+`usecases/` (`conjure_change/`, `report_cost.rs`, `show_log.rs`), `domain/` (`config`,
+`templates`, `language_tables`, `change_prompt`, `situation`, `scry_notes`, `rules`, `reply`,
+`edits`, `record`, `budget`, `log_text`), `ports/` (`writer`, `change_store`, `clock`,
+`project_context`), `adapters/` (`provider_writer`, `research_writer`, `imports`, `scry_files`,
+`steering_files`, `project_context`, `jsonl_change_store`, `system_clock`, `wiring`) and `cli/`.
+[Conjure](conjure.md) says what each file holds.
+
 **sorcerer-lsp** is a flat crate: `src/{lib,serve,client,jobs,uri}.rs`, with no layer
 directories. All of it is adapter code (a connection, threads, the protocol's types), and
 nothing in it is a product's domain, so splitting it into layers would leave every layer but

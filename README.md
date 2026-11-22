@@ -1,11 +1,12 @@
 # Sorcerer
 
 A suite of small tools that read your code alongside you: **scry** (a reviewer in the
-margin), **conjure** (one reviewed AI-written step), **spellbook** (conventions). They
+margin), **conjure** (one small change where you ask), **spellbook** (conventions). They
 share one core and compose through files in `.sorcerer/`.
 
-**Status: M1, scry.** The core and the first tool are here; conjure, spellbook and plans
-come later.
+**Status: scry is here; conjure's engine and command line are here.** `conjure FILE:LINE`
+conjures one change and prints it, landing nothing; landing it in your editor comes next.
+Spellbook and plans come later.
 
 ## Try scry
 

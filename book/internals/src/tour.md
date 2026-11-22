@@ -8,7 +8,7 @@ Sorcerer is a Cargo workspace. The libraries are:
 | `sorcerer-models` | providers, researchers, the decider (Jev), the claim checker | `sorcerer-core` |
 | `sorcerer-lsp` | the language-server host: handshake, main loop, delayed jobs, the client's senders | nothing of ours |
 
-Products (scry first) depend on both and never on each other. A product that needs
+Products (scry, conjure) depend on both and never on each other. A product that needs
 another's results reads a versioned file under `.sorcerer/state/`.
 
 Core is synchronous and makes no model calls. Everything that spends money lives in
@@ -72,6 +72,11 @@ root.
 and the small commands' use cases), `domain/`, `ports/` and `adapters/` (the store file, the
 run log, the settings, the reviewer over a researcher, the wiring). Its module map is in
 [Scry](scry.md).
+
+`crates/conjure/src/` is in the same five layers: `usecases/conjure_change/` writes one change
+from a place in the code (the unit, what is around it, one writer call, the check) and lands
+nothing; `cli/` prints it, and `doctor`, `cost`, `log` and `trust` look at what conjure keeps.
+Its module map is in [Conjure](conjure.md).
 
 Two demos show the core working on a real repository: `examples/units.rs` in core and
 `examples/ask.rs` in models (see the README).

@@ -80,6 +80,9 @@ have `files` and `grammar`.
 Core reads `files`, `grammar`, `comment`, `unit_words`, `unit_separator` and `[unit] name`
 (the `CORE_KEYS`). Every other table stays in `Language::rest` for the product that owns it;
 the product reads it with the same strictness as its config table.
+The shipped languages carry conjure's `[test]` and `[imports]` tables there and an
+`imports.scm` beside `tags.scm`; core compiles the query like any other, and it adds no unit
+because it captures only `@import.path`.
 
 `Languages::for_path(rel)` gives the first language, in name order, whose `files` globs
 match a project-relative path.
