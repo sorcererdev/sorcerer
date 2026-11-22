@@ -169,6 +169,53 @@ mod tests {
         assert!(status.success());
     }
 
+    /// The chain npm's `claude.cmd` makes: `cmd.exe` runs a program that starts a long-running
+    /// child. Stopping the first program must end the child too.
+    #[cfg(windows)]
+    #[test]
+    fn stopping_a_cmd_script_also_stops_the_child_it_started() {
+        let folder = tempfile::TempDir::new().unwrap();
+        let pid_file = folder.path().join("child.pid");
+        let script = folder.path().join("starts a child.cmd");
+        std::fs::write(
+            &script,
+            "@echo off\r\npowershell -NoProfile -Command \"$child = Start-Process ping \
+             -ArgumentList '-n','60','127.0.0.1' -PassThru -WindowStyle Hidden; \
+             Set-Content -Path $env:CHILD_PID_FILE -Value $child.Id; \
+             Wait-Process -Id $child.Id\"\r\n",
+        )
+        .unwrap();
+        let mut command = Command::new(&script);
+        command.env("CHILD_PID_FILE", &pid_file);
+        command.stdout(std::process::Stdio::null());
+        let mut running = start(command).unwrap();
+
+        let child_pid = wait_for_pid_in(&pid_file);
+        assert!(is_running(child_pid));
+        running.stop();
+        let gone = (0..100).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            !is_running(child_pid)
+        });
+        assert!(gone, "the child {child_pid} outlived the stop");
+    }
+
+    /// The process id the script writes once its child runs, waiting up to 30 seconds.
+    #[cfg(windows)]
+    fn wait_for_pid_in(pid_file: &std::path::Path) -> u32 {
+        for _ in 0..300 {
+            if let Ok(pid) = std::fs::read_to_string(pid_file)
+                .unwrap_or_default()
+                .trim()
+                .parse()
+            {
+                return pid;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        panic!("the script never recorded its child's pid");
+    }
+
     #[cfg(unix)]
     fn long_sleep() -> Command {
         let mut command = Command::new("sleep");
