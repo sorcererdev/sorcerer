@@ -24,7 +24,9 @@ method names and the domain file stays pure.
 
 ## The crates
 
-**sorcerer-core** has no feature of its own, so no `usecases/` or `cli/`.
+**sorcerer-core** has no feature of its own, so no `usecases/` or `cli/`. The languages it
+ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded with
+`include_dir!`; they live inside the crate so the published crate carries them.
 
 - `domain/`: `config.rs` (the parsed `.sorcerer/config.toml`), `project.rs` (`Project`),
   `language.rs` (the merged language layers, `Languages`), `query.rs` (compiled queries),
@@ -34,8 +36,8 @@ method names and the domain file stays pure.
   patterns and `allows_relative`), `trust.rs` (`needs_trust`), `fnv.rs`, `paths.rs`
   (`forward_slashes`).
 - `ports/`: `view.rs` (`CodebaseView`), `ledger.rs` (`Ledger`), `env.rs` (`Env`).
-- `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars fetched,
-  built and loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
+- `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars downloaded
+  prebuilt or fetched and built, then loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
   `json_store.rs` (`Store`), `jsonl_ledger.rs` (`JsonlLedger`),
   `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`), `env.rs`
   (`SystemEnv`, `MapEnv`), `trust_list.rs` (`TrustList`), and `platform/`, the platform
@@ -54,7 +56,7 @@ method names and the domain file stays pure.
   `claude_code.rs`, `tool_loop.rs`, `tools.rs`, `jev.rs`, and the doubles
   `scripted_provider.rs`, `recorded_researcher.rs`, `recorded_decider.rs`.
 
-**scry**
+**scry** (the package `sorcerer-scry`, whose library and program are both `scry`)
 
 - `usecases/`: `review_change/` (`mod.rs` with `review_change` and its request, ports and
   report; the steps `scope.rs`, `ask.rs`, `judge.rs`, `remember.rs`, `verify.rs`),

@@ -7,3 +7,4 @@
 - [Models](models.md)
 - [Scry](scry.md)
 - [The language-server host](lsp.md)
+- [Releasing](releasing.md)

@@ -5,8 +5,8 @@
 //! cargo run -p sorcerer-core --example units -- src/orders.py
 //! ```
 //!
-//! The first run for a language fetches and compiles its grammar into
-//! `~/.cache/sorcerer/grammars`.
+//! The first run for a language downloads its grammar prebuilt (or fetches
+//! and compiles it) into `~/.cache/sorcerer/grammars`.
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -86,25 +86,52 @@ match a project-relative path.
 
 ## Grammars
 
-`adapters/grammar.rs`. No grammar is compiled into a
-binary. `grammar::load(cache, name, source)` returns a `tree_sitter::Language`:
+`adapters/grammar.rs`. No grammar is compiled into a binary.
+`grammar::load(cache, name, source, origin)` returns a `tree_sitter::Language` and a
+`GrammarObtained` (`domain/language.rs`) that says how its library got into the cache:
+`Cached`, `Downloaded`, or `Built { compiler }` (the compiler's name, such as `cc`).
+`Languages::load` passes the language's `grammar_origin()`: `GrammarOrigin::Shipped` when the
+`grammar` key still comes from the shipped layer, `Project` when the project's layer or
+`override_grammar` set it. `Loaded.obtained` keeps the answer for doctor.
 
 1. `library_path` names the compiled library `<cache>/<name>-<key>.<ext>`, the extension
    from the platform adapter's `shared_library_extension()` (`dylib`, `so`, `dll`). The key is
    FNV-1a 64 (`domain/fnv.rs`) over the source's identity (the git rev, or a local directory's
    path with `parser.c`'s and `scanner.c`'s sizes and times), the tree-sitter runtime's
-   ABI, the OS and the arch. A changed key is a new file.
-2. `build_if_absent` fetches a git source into `<cache>/src/<name>-<rev7>/` (`fetch`:
-   `check_fetchable` allows only `https`, `ssh`, `git` and `file` URLs, since git's `ext::`
-   transport would run a command, then `fetch_commit_into` runs `git fetch --depth 1` of the
-   pinned rev) and compiles `parser.c` and `scanner.c` with the compiler it is given
-   (`compile_library`). `load` asks the platform adapter for it: `c_compiler(env)` is the
-   first of `cc`, `gcc` and `clang` on PATH, with `-shared -fPIC -O2` on Unix and
-   `-shared -O2` on Windows.
-3. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`
+   ABI, the OS and the arch. A changed key is a new file. A file already there is `Cached`.
+2. **Downloaded** (`put_in_cache`, `may_download`, `download_prebuilt`). A `Shipped` grammar
+   with a `{ git, rev }` source asks the cache's release for the file of that exact name: the
+   name already says the platform. `GrammarCache::user` sets `releases` to `RELEASES`,
+   `https://github.com/sorcererdev/sorcerer/releases/download/v<CARGO_PKG_VERSION>`;
+   `GrammarCache::at` sets none, so tests never download unless they call `with_releases`
+   with a local `mockito` server. `download_prebuilt` makes two GETs on one `reqwest` blocking
+   client (`release_client`: 10 s to connect, 60 s in all, `https_only` when the release URL
+   is https, so a redirect cannot drop to http): `<releases>/<file>`, refused past 20 MB
+   (`LIBRARY_CAP`, read through `take`, so a lying `Content-Length` cannot grow it), and
+   `<file>.sha256`, refused past 4 KB. `sum_matches` compares the library's SHA-256
+   (`sha256_hex`) with the first word of the sum file. Only then does `put_in_place` write the
+   bytes beside the library (`aside`) and rename them in. Every failure (no release, a 404,
+   offline, a cut-off or oversized body, an HTML page, a bad sum) is one `DownloadFailed`, and
+   `put_in_cache` falls through to step 3. A project's own grammar, an override and a local
+   directory never download. `put_in_cache_and_open` then opens the library; a `Downloaded`
+   one that will not open (built for a newer system, or wrong in the release) is deleted and
+   built here instead (`build_here`).
+3. **Built** (`build_here`, `build_if_absent`). It fetches a git source into
+   `<cache>/src/<name>-<rev7>/` (`fetch`: `check_fetchable` allows only `https`, `ssh`, `git`
+   and `file` URLs, since git's `ext::` transport would run a command, then
+   `fetch_commit_into` runs `git fetch --depth 1` of the pinned rev) and compiles `parser.c`
+   and `scanner.c` with the compiler it is given (`compile_library`). `build_here` asks the
+   platform adapter for it: `c_compiler(env)` is the first of `cc`, `gcc` and `clang` on
+   PATH, with `-shared -fPIC -O2` on Unix and `-shared -O2` on Windows.
+4. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`
    (`load_language_symbol`), checks the ABI
    against the runtime's range, and leaks the library handle so the language outlives
    every parser.
+
+Only two kinds of file reach `libloading`: one this machine compiled, and one whose SHA-256
+matched the `.sha256` beside it on the release. The sum comes from the same server as the
+library, so it guards against a broken or cut-off download, not against the release itself;
+trust in the release is trust in GitHub's https.
 
 The cache is the user's (`GrammarCache::user`: `sorcerer/grammars` under the adapter's
 `user_cache_dir`, `~/.cache/sorcerer/grammars` on Linux and macOS,
@@ -112,16 +139,27 @@ The cache is the user's (`GrammarCache::user`: `sorcerer/grammars` under the ada
 every project. Every write goes to a temporary name and is renamed into place, so a
 reader never sees half a library and two processes building at once race harmlessly.
 `load` remembers each library once per process, failures included, except a failed fetch
-or file error: being offline at first start must not cost units until a restart.
+or file error: being offline at first start must not cost units until a restart. A second
+`load` of a library this process already opened says `Cached`.
 
 A missing compiler (`build_if_absent` given `None`, and no library in the cache yet) is
 `Error::NoCompiler`, `no C compiler (cc, gcc or clang) found; install one: {hint}`, with the
 platform adapter's `compiler_hint()`: `xcode-select --install` on macOS, `apt install gcc`
 on Linux, `install MinGW-w64 (gcc)` on Windows. Never a silent fallback:
-every reader of units would be wrong in a different way.
+every reader of units would be wrong in a different way. With a release for this version
+and a network, a shipped language never gets that far.
+
+The release's files come from `examples/build-grammars.rs`
+(`cargo run -p sorcerer-core --example build-grammars -- <out dir>`): for each shipped
+language it calls `build_if_absent` with `GrammarCache::at(<out dir>)`, so each file has the
+name `library_path` will ask for, writes `<file>.sha256` (`<hex>  <file name>`) beside it, and
+removes the fetched sources. The release job runs it on each platform's runner
+([Releasing](releasing.md)).
 
 Tests never fetch: `tests/grammars/{python,rust}` hold the vendored sources at the
-shipped pins, and `Languages::override_grammar` points a language at them.
+shipped pins, and `Languages::override_grammar` points a language at them. The download
+tests in `tests/grammar.rs` serve a library built from those sources, and a local
+repository stands in for GitHub when they fall back to fetching.
 
 ## Units
 
