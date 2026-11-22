@@ -330,7 +330,7 @@ fn release_client() -> std::result::Result<reqwest::blocking::Client, DownloadFa
             } else if from.is_none_or(|from| follows_redirect(from, attempt.url())) {
                 attempt.follow()
             } else {
-                attempt.stop()
+                attempt.error("a redirect from https to plain http is refused")
             }
         }))
         .build()
