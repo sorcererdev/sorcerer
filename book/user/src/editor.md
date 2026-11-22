@@ -89,10 +89,24 @@ your PATH and its version.
 
 ### VS Code
 
-The `scry` extension, installed from its `.vsix` (`code --install-extension scry-*.vsix`). It
-finds `scry` from the setting `scry.path`, then your PATH, then `~/.cargo/bin`; with none of
-them it says how to install it, once. It starts one `scry lsp` per workspace folder. The
-diagnostics, the lightbulb and the progress in the status bar are VS Code's own.
+The Scry extension (`sorcererdev.scry`). It looks for `scry` in the setting `scry.path`, then
+your PATH, then `~/.cargo/bin`, then `~/.local/bin` (where the installers put it), then the
+binary it downloaded itself (`scry.exe` on Windows). It starts one `scry lsp` per workspace
+folder. The diagnostics, the lightbulb and the progress in the status bar are VS Code's own.
+
+With no `scry` in any of those places, it offers, once per version:
+
+> scry 0.1.0 is not installed. Download it (12 MB, from github.com/sorcererdev/sorcerer
+> releases)? [Download] [I'll install it myself]
+
+**Download** fetches the release of the extension's own version for your machine (macOS on
+Apple silicon or Intel, Linux on x64 or arm64, Windows on x64) and its `.sha256`, checks the
+sum, and unpacks `scry` into the extension's own storage (VS Code's `globalStorage` directory
+for `sorcererdev.scry`, under `bin/<version>/`); then it starts the server. A sum that does not
+match installs nothing and says so. The next extension version offers its own `scry` the same
+way and removes the old one. **I'll install it myself** shows the install line for your
+platform and stays quiet until the next version. On a machine the release has no binary for
+(Linux on 32-bit ARM, Windows on ARM), it says once to use `cargo install sorcerer-scry`.
 
 ## The four actions
 
@@ -154,4 +168,4 @@ A project that sets none of these needs no trust, and is never asked about.
 - Move text in your buffer.
 - Show findings for files you have not opened (`scry list` is the whole project).
 - Filter findings its own way: the editor shows what `scry` would print.
-- Download a binary or offer a fix, for now.
+- Offer a fix, for now.

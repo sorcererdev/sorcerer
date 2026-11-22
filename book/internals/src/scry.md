@@ -707,6 +707,44 @@ as a framed message.
 | `relatedInformation` | each evidence, its file and whole lines, message `evidence`; only when the editor announced `relatedInformation` |
 | `data` | the finding's id, as a string |
 
+## The VS Code extension
+
+`editors/vscode/scry/` is a thin client: VS Code's own language client starts `scry lsp` and
+shows what it publishes. What it adds is finding the binary, and downloading it when there is
+none.
+
+- **`src/binary.ts`**: `candidates(setting, env, home, platform, storage)` lists where `scry`
+  may be, best first: the `scry.path` setting, `scry` (`scry.exe` on `win32`) in each PATH
+  directory, `~/.cargo/bin`, `~/.local/bin`, then `storage`, the extension's
+  `bin/<version>/` directory. `find` takes the first that `isExecutable`.
+- **`src/download.ts`**: the release's side, with no VS Code in it. `targetFor(platform,
+  arch)` is the target triple (five, as `dist-workspace.toml` builds; anything else is
+  `undefined`); `assetFor(target)` is `sorcerer-scry-<target>.zip` on Windows, else `.tar.gz`;
+  `releaseBase(env)` is GitHub's `releases/download`, or `SCRY_RELEASES_URL` (the e2e test's
+  local release; not documented for users); `releaseSize(url)` asks with a `HEAD` for the
+  offer's size (`undefined`: no such release); `install(base, version, target, storage)`
+  fetches the archive and its `.sha256`, compares the sum (`sumOf` reads cargo-dist's
+  `<hex>  <name>`) before anything is written, unpacks with `tar -xf` in a scratch directory
+  under `bin/` (Windows' own `System32\tar.exe`, which reads `.zip`; `tarProgram`), moves
+  `scry` into `binDir(storage, version)`, marks it executable, removes the scratch directory
+  and other versions' directories, and returns the binary's path. A mismatch throws and
+  writes nothing.
+- **`src/extension.ts`**: `activate` serves with the binary it finds; with none,
+  `offerDownload` (not awaited) asks once per version (the `globalState` key `scry.declined`
+  holds the version last asked about, whatever the answer): no target or no release is said
+  once with the install line; offline is said and asked again next time; Download runs
+  `install` under a progress notification and then `serve`s.
+
+Tests: `test/unit/` (`node --test`: the lookup order, the targets, the sum, a mismatched and a
+matching download against a local `http` server). `test/e2e/run.ts` launches a VS Code per
+suite (`SCRY_E2E_SUITES`, default `scry,download`), each with its own `--user-data-dir`:
+`scry.test.ts` against `test/fake-lsp/fake-lsp` (Python, so ubuntu only), and
+`download.test.ts`, which packs the real `target/debug/scry` (or `SCRY_E2E_BINARY`) as the
+release does, serves it on 127.0.0.1, accepts the offer through a stubbed
+`showInformationMessage`, and waits for the real server's `scry is not reviewing: …`
+(the runner has no model provider). CI's `vscode` job runs both on ubuntu under `xvfb-run`
+and the download suite on windows.
+
 ## Test support
 
 `crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
