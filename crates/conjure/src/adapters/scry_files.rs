@@ -5,17 +5,7 @@ use sorcerer_core::adapters::json_store::Store;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::versioned::Snapshot;
 
-use crate::domain::scry_notes::{StoredFinding, StoredFindings};
-
-/// What reading scry's findings file found.
-#[derive(Debug, Clone, PartialEq)]
-pub enum FindingsRead {
-    Found(Vec<StoredFinding>),
-    /// scry has not stored anything here.
-    NoFile,
-    /// The file is of a version conjure does not read (or does not read at all); why.
-    OtherVersion(String),
-}
+use crate::domain::scry_notes::{FindingsRead, StoredFindings};
 
 /// scry's findings, `.sorcerer/state/scry/findings.json`, read without creating anything. Only
 /// version 2 is read; any other is `OtherVersion` with the reason, which `doctor` shows.

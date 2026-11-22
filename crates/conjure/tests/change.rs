@@ -4,10 +4,10 @@ mod support;
 
 use std::path::PathBuf;
 
-use conjure::adapters::scry_files::{FindingsRead, read_findings};
+use conjure::adapters::scry_files::read_findings;
 use conjure::domain::change_prompt::CHANGE_SYSTEM;
 use conjure::domain::rules::{RULES_CAP, rules_text};
-use conjure::domain::scry_notes::{ScryNote, StoredFinding, notes_near};
+use conjure::domain::scry_notes::{FindingsRead, ScryNote, StoredFinding, notes_near};
 use conjure::domain::situation::{Situation, situation_text};
 use sorcerer_core::domain::unit::Span;
 use support::*;
@@ -528,4 +528,284 @@ fn a_cursor_trigger_is_the_word_cursor_and_ids_are_six_hex_digits() {
     );
     assert_eq!(id.len(), 6);
     assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+// Task 10: the use case.
+
+use conjure::domain::budget::day_allows;
+use conjure::domain::edits::DropReason;
+use conjure::domain::record::Attempt as AttemptKind;
+use conjure::usecases::conjure_change::{ChangeRefused, ChangeRequest, conjure_change};
+
+fn ask(file: &str, line: u32) -> ChangeRequest {
+    ChangeRequest {
+        file: file.into(),
+        line,
+        selection: None,
+        finding: None,
+        attempt: AttemptKind::First,
+        situation: None,
+    }
+}
+
+#[test]
+fn a_change_on_a_stub_lands_in_the_file_and_its_new_test_file() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert_eq!(change.goal.as_deref(), Some("fill total"));
+    assert_eq!(change.unit, "Cart.total");
+    assert!(change.facts.body_empty);
+    assert_eq!(change.files.len(), 2);
+    let (cart, test) = (&change.files[0], &change.files[1]);
+    assert_eq!(cart.path, std::path::Path::new("src/shop/cart.py"));
+    assert!(!cart.new && cart.before.is_some());
+    assert_eq!(cart.first_changed_line, 3);
+    assert_eq!(cart.lines_changed, 1);
+    assert!(cart.parsed && cart.parse_errors.is_empty());
+    assert!(test.new && test.before.is_none());
+    assert_eq!(test.edits.len(), 1);
+    assert_eq!(change.id.len(), 6);
+    // nothing is written to disk
+    assert!(
+        std::fs::read_to_string(d.path().join("src/shop/cart.py"))
+            .unwrap()
+            .contains("pass")
+    );
+    assert!(!d.path().join("src/shop/cart__test.py").exists());
+    // the writer was shown the situation: the unit, its file and where its tests would go
+    let shown = &rig.writer.situations()[0];
+    assert!(
+        shown.contains("The cursor is in `Cart.total` in src/shop/cart.py, line 3"),
+        "{shown}"
+    );
+    assert!(shown.contains("There is no test file for this module yet (its tests would go in src/shop/cart__test.py)."), "{shown}");
+}
+
+#[test]
+fn outside_a_unit_is_refused_with_its_sentence() {
+    let d = cart_project();
+    write(d.path(), "src/shop/notes.py", "# only a comment\n\nx = 1\n");
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let refused = conjure_change(&ask("src/shop/notes.py", 1), &rig.deps()).unwrap_err();
+    assert_eq!(refused, ChangeRefused::OutsideAUnit);
+    assert_eq!(refused.text(), "put the cursor in a function to conjure");
+    assert!(rig.writer.situations().is_empty());
+    // a file in no language is outside a unit as well
+    let refused = conjure_change(&ask("README.md", 1), &rig.deps()).unwrap_err();
+    assert_eq!(refused, ChangeRefused::OutsideAUnit);
+}
+
+#[test]
+fn a_selection_takes_its_lines() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    let mut request = ask("src/shop/cart.py", 5);
+    request.selection = Some(Span { start: 5, end: 6 });
+    conjure_change(&request, &rig.deps()).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(shown.contains("(the unit is lines 5-6)"), "{shown}");
+    assert!(shown.contains("`Cart.empty`"), "{shown}");
+}
+
+#[test]
+fn a_finding_asked_leads_the_situation() {
+    let d = cart_project();
+    write(
+        d.path(),
+        ".sorcerer/state/scry/findings.json",
+        r#"{"version": 2, "data": {"findings": [{"id": "3fa9c0", "issue_type": "bug", "rule": null,
+        "statement": "total ignores the items", "place": {"file": "src/shop/cart.py", "unit": "Cart.total",
+        "lines": {"start": 3, "end": 3}, "fingerprint": null}, "evidence": [], "status": "open"}]}}"#,
+    );
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    let mut request = ask("src/shop/cart.py", 3);
+    request.finding = Some("3fa9c0".into());
+    conjure_change(&request, &rig.deps()).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(
+        shown.starts_with("The person asked you to conjure for this finding: [bug] total ignores the items (src/shop/cart.py:3)"),
+        "{shown}"
+    );
+    assert!(shown.contains("scry's open findings here"), "{shown}");
+    let mut unknown = ask("src/shop/cart.py", 3);
+    unknown.finding = Some("nope".into());
+    let e = conjure_change(&unknown, &rig.deps()).unwrap_err();
+    assert!(e.text().contains("nope"), "{}", e.text());
+}
+
+#[test]
+fn a_fenced_path_is_dropped() {
+    let d = cart_project();
+    let outside = tempfile::tempdir().unwrap();
+    sorcerer_core::adapters::platform::paths::link_to(outside.path(), &d.path().join("link"))
+        .unwrap();
+    write(
+        d.path(),
+        ".sorcerer/config.toml",
+        "[conjure]\nexclude = [\"gen/**\"]\n",
+    );
+    let mut reply = String::from("<goal>g</goal>\n");
+    for path in [
+        ".env",
+        ".env.local",
+        ".sorcerer/x",
+        ".git/hooks/pre-commit",
+        "gen/x.py",
+        "link/x.py",
+        "../x.py",
+        "src/shop/ok.py",
+    ] {
+        reply.push_str(&format!("<file path=\"{path}\">\nx = 1\n</file>\n"));
+    }
+    let rig = Rig::new(d.path(), &reply);
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    let kept: Vec<_> = change.files.iter().map(|f| f.path.clone()).collect();
+    assert_eq!(kept, [std::path::PathBuf::from("src/shop/ok.py")]);
+    let reasons: std::collections::BTreeMap<_, _> = change.dropped.iter().cloned().collect();
+    assert_eq!(reasons[".env"], DropReason::Fenced);
+    assert_eq!(reasons[".env.local"], DropReason::Fenced);
+    assert_eq!(reasons[".sorcerer/x"], DropReason::Fenced);
+    assert_eq!(reasons[".git/hooks/pre-commit"], DropReason::Fenced);
+    assert_eq!(reasons["gen/x.py"], DropReason::Excluded);
+    assert_eq!(reasons["link/x.py"], DropReason::Fenced);
+    assert_eq!(reasons["../x.py"], DropReason::OutsideProject);
+    assert_eq!(change.dropped.len(), 7);
+    assert!(!outside.path().join("x.py").exists());
+}
+
+#[test]
+fn a_reply_with_nothing_is_no_change() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert!(change.files.is_empty());
+    assert_eq!(change.goal.as_deref(), Some("nothing"));
+}
+
+#[test]
+fn files_equal_to_their_base_are_no_change() {
+    let d = cart_project();
+    let same = std::fs::read_to_string(d.path().join("src/shop/cart.py")).unwrap();
+    let rig = Rig::new(
+        d.path(),
+        &format!("<goal>tidy</goal>\n<file path=\"src/shop/cart.py\">\n{same}</file>\n"),
+    );
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert!(change.files.is_empty());
+    assert_eq!(change.goal.as_deref(), Some("tidy"));
+}
+
+#[test]
+fn a_crlf_file_in_the_project_keeps_its_line_endings() {
+    let d = git_project();
+    write(d.path(), "src/a.py", "def f():\r\n    pass\r\n");
+    commit(d.path(), "a");
+    let rig = Rig::new(
+        d.path(),
+        "<goal>g</goal>\n<file path=\"src/a.py\">\ndef f():\n    return 1\n</file>\n",
+    );
+    let change = conjure_change(&ask("src/a.py", 1), &rig.deps()).unwrap();
+    assert_eq!(change.files[0].after, "def f():\r\n    return 1\r\n");
+    assert_eq!(change.files[0].edits[0].text, "    return 1\r\n");
+}
+
+#[test]
+fn a_file_that_does_not_parse_says_its_lines() {
+    let d = cart_project();
+    let rig = Rig::new(
+        d.path(),
+        "<goal>g</goal>\n<file path=\"src/shop/cart.py\">\nclass Cart:\n    def total(self:\n        return 0\n</file>\n",
+    );
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert!(!change.files[0].parse_errors.is_empty());
+}
+
+#[test]
+fn a_spent_day_is_refused_before_any_call() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let mut spent = errand("conjure", "haiku", 3.00);
+    spent.at = "2026-11-22T09:00:00Z".parse().unwrap();
+    rig.ledger.append(&spent).unwrap();
+    let refused = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap_err();
+    assert_eq!(refused, ChangeRefused::DaySpent { budget: 3.0 });
+    assert_eq!(
+        refused.text(),
+        "conjure: today's budget ($3.00) is spent. Conjuring resumes tomorrow; \"conjure cost\" shows the days, and [conjure] budget_per_day sets the budget."
+    );
+    assert!(rig.writer.situations().is_empty());
+}
+
+#[test]
+fn yesterdays_spending_does_not_count() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    let mut spent = errand("conjure", "haiku", 9.00);
+    spent.at = "2026-11-21T09:00:00Z".parse().unwrap();
+    rig.ledger.append(&spent).unwrap();
+    assert!(conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).is_ok());
+}
+
+#[test]
+fn try_harder_is_refused_when_its_cap_would_pass_the_day() {
+    assert!(day_allows(2.80, 3.00, AttemptKind::First));
+    assert!(!day_allows(2.80, 3.00, AttemptKind::TryHarder));
+    assert!(day_allows(2.75, 3.00, AttemptKind::TryHarder));
+    assert!(!day_allows(3.00, 3.00, AttemptKind::First));
+    let d = cart_project();
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let mut spent = errand("conjure", "haiku", 2.80);
+    spent.at = "2026-11-22T09:00:00Z".parse().unwrap();
+    rig.ledger.append(&spent).unwrap();
+    let mut harder = ask("src/shop/cart.py", 3);
+    harder.attempt = AttemptKind::TryHarder;
+    assert_eq!(
+        conjure_change(&harder, &rig.deps()).unwrap_err(),
+        ChangeRefused::DaySpent { budget: 3.0 }
+    );
+    assert!(rig.writer.situations().is_empty());
+}
+
+#[test]
+fn try_harder_reuses_the_situation_it_is_given() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    let mut harder = ask("src/shop/cart.py", 3);
+    harder.attempt = AttemptKind::TryHarder;
+    harder.situation = Some("the first situation, kept".into());
+    let change = conjure_change(&harder, &rig.deps()).unwrap();
+    assert_eq!(rig.writer.situations(), ["the first situation, kept"]);
+    assert_eq!(change.situation, "the first situation, kept");
+}
+
+#[test]
+fn the_session_and_related_files_reach_the_situation() {
+    let d = git_project();
+    write(d.path(), "src/shop/item.py", "class Item:\n    price = 1\n");
+    write(
+        d.path(),
+        "src/shop/cart.py",
+        "from shop.item import Item\n\n\nclass Cart:\n    def total(self):\n        pass\n",
+    );
+    commit(d.path(), "base");
+    write(
+        d.path(),
+        "src/shop/cart.py",
+        "from shop.item import Item\n\n\nclass Cart:\n    def total(self):\n        pass  # wip\n",
+    );
+    write(d.path(), "src/shop/new_thing.py", "x = 1\n");
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    conjure_change(&ask("src/shop/cart.py", 5), &rig.deps()).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(shown.contains("Related file src/shop/item.py:"), "{shown}");
+    assert!(
+        shown.contains("What the person has been doing (uncommitted changes):"),
+        "{shown}"
+    );
+    assert!(shown.contains("+        pass  # wip"), "{shown}");
+    assert!(
+        shown.contains("New files, not yet in git: src/shop/new_thing.py"),
+        "{shown}"
+    );
 }

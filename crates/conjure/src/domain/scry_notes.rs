@@ -54,6 +54,16 @@ impl Versioned for StoredFindings {
     const VERSION: u32 = 2;
 }
 
+/// What reading scry's findings file found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FindingsRead {
+    Found(Vec<StoredFinding>),
+    /// scry has not stored anything here.
+    NoFile,
+    /// The file is of a version conjure does not read (or does not read at all); why.
+    OtherVersion(String),
+}
+
 /// A finding as the writer is told it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScryNote {
@@ -136,7 +146,8 @@ fn is_stale(
     }
 }
 
-fn note_of(finding: &StoredFinding, stale: bool) -> ScryNote {
+/// The finding as the writer is told it.
+pub fn note_of(finding: &StoredFinding, stale: bool) -> ScryNote {
     ScryNote {
         issue_type: finding.issue_type.clone(),
         rule: finding.rule.clone(),

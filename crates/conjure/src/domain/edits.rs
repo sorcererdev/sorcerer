@@ -21,6 +21,9 @@ pub enum DropReason {
     Fenced,
     /// A `[conjure] exclude` glob matches it.
     Excluded,
+    /// It is there but cannot be read as text (a binary file, or a directory), so there is no
+    /// text to edit.
+    NotText,
 }
 
 /// One edit of a file: lines `start_line` up to (not including) `end_line`, counted from 0,
@@ -155,7 +158,7 @@ mod tests {
 
     #[test]
     fn a_path_out_of_the_project_is_dropped() {
-        let root = Path::new(if cfg!(windows) { "C:\\proj" } else { "/proj" });
+        let root = &std::env::temp_dir().join("proj");
         for written in [
             "../x.txt",
             "a/../../x",

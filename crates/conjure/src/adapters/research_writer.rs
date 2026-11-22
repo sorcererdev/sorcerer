@@ -7,12 +7,11 @@ use sorcerer_core::Cancel;
 use sorcerer_models::domain::research::{Research, Tool};
 use sorcerer_models::ports::researcher::Researcher;
 
+use crate::domain::budget::TRY_HARDER_CAP_USD;
 use crate::domain::change_prompt::CHANGE_SYSTEM;
 use crate::domain::config::PRODUCT;
 use crate::ports::writer::{Writer, Written};
 
-/// Try harder spends at most 25 cents.
-pub const TRY_HARDER_CAP_USD: f64 = 0.25;
 /// Try harder is given 300 seconds.
 const TIMEOUT: Duration = Duration::from_secs(300);
 

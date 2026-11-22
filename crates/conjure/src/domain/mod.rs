@@ -1,5 +1,6 @@
 //! Data and rules with no I/O.
 
+pub mod budget;
 pub mod change_prompt;
 pub mod config;
 pub mod edits;

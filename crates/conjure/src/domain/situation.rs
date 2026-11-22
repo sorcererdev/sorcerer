@@ -109,6 +109,7 @@ fn file_lines(s: &Situation) -> Vec<String> {
 
 fn test_file_lines(s: &Situation) -> Vec<String> {
     match (&s.test_file, &s.test_text) {
+        (Some(path), _) if *path == s.file => vec!["Its tests live in this file.".into()],
         (Some(path), Some(text)) => vec![
             format!("Its test file {}:", forward_slashes(path)),
             "```".into(),
