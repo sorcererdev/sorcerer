@@ -157,7 +157,7 @@ mod tests {
     fn a_path_out_of_the_project_is_dropped() {
         let root = Path::new(if cfg!(windows) { "C:\\proj" } else { "/proj" });
         for written in [
-            "../x.py",
+            "../x.txt",
             "a/../../x",
             "",
             ".",
@@ -168,17 +168,17 @@ mod tests {
             assert_eq!(lexical_relative(root, written), None, "{written}");
         }
         assert_eq!(
-            lexical_relative(root, "src/./a.py"),
-            Some(PathBuf::from("src").join("a.py"))
+            lexical_relative(root, "src/./a.txt"),
+            Some(PathBuf::from("src").join("a.txt"))
         );
         assert_eq!(
-            lexical_relative(root, "src/x/../a.py"),
-            Some(PathBuf::from("src").join("a.py"))
+            lexical_relative(root, "src/x/../a.txt"),
+            Some(PathBuf::from("src").join("a.txt"))
         );
-        let inside = root.join("src").join("a.py");
+        let inside = root.join("src").join("a.txt");
         assert_eq!(
             lexical_relative(root, &inside.to_string_lossy()),
-            Some(PathBuf::from("src").join("a.py"))
+            Some(PathBuf::from("src").join("a.txt"))
         );
     }
 

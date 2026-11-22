@@ -325,3 +325,207 @@ fn the_session_keeps_the_languages_files_and_cuts_at_300_lines() {
     assert!(text.contains("new19.py … (5 more)"), "{text}");
     assert!(!text.contains("x.md"));
 }
+
+// Task 9: the writers and the records.
+
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use conjure::adapters::jsonl_change_store::JsonlChangeStore;
+use conjure::adapters::provider_writer::ProviderWriter;
+use conjure::adapters::research_writer::ResearchWriter;
+use conjure::domain::record::{
+    Attempt, ChangeRecord, Choice, RecordedFacts, RecordedFile, Trigger, change_id,
+};
+use conjure::ports::change_store::ChangeStore;
+use conjure::ports::writer::Writer;
+use sorcerer_core::Cancel;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::ports::ledger::Ledger;
+use sorcerer_models::adapters::scripted_provider::ScriptedProvider;
+use sorcerer_models::domain::model::{Reply, StopReason, Usage};
+use sorcerer_models::domain::research::{Research, Researched, Tool};
+use sorcerer_models::ports::researcher::Researcher;
+
+fn reply(text: &str, cost: Option<f64>) -> Reply {
+    Reply {
+        text: text.into(),
+        tool_calls: vec![],
+        usage: Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+        },
+        cost_usd: cost,
+        stop: StopReason::End,
+        seconds: 2.0,
+    }
+}
+
+fn clock() -> Arc<FixedClock> {
+    Arc::new(FixedClock::at("2026-11-22T12:00:00Z".parse().unwrap()))
+}
+
+#[test]
+fn the_provider_writer_sends_the_change_system_and_records_one_errand() {
+    let d = tempfile::tempdir().unwrap();
+    let ledger = Arc::new(JsonlLedger::at(d.path().join("ledger.jsonl")));
+    let provider = Arc::new(ScriptedProvider::new(vec![reply(
+        "<goal>g</goal>",
+        Some(0.001),
+    )]));
+    let writer = ProviderWriter {
+        provider: provider.clone(),
+        model: "haiku".into(),
+        ledger: ledger.clone(),
+        clock: clock(),
+    };
+    let written = writer.write("the situation", &Cancel::default()).unwrap();
+    assert_eq!(written.text, "<goal>g</goal>");
+    let seen = provider.seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].system, CHANGE_SYSTEM);
+    assert_eq!(seen[0].messages.len(), 1);
+    assert!(seen[0].tools.is_empty());
+    assert_eq!(seen[0].max_tokens, 8192);
+    assert_eq!(seen[0].timeout, Duration::from_secs(120));
+    assert_eq!(seen[0].model.0, "haiku");
+    let rows = ledger.read().unwrap().errands;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (rows[0].product.as_str(), rows[0].verb.as_str()),
+        ("conjure", "conjure")
+    );
+    assert_eq!(rows[0].cost_usd, Some(0.001));
+    assert!(rows[0].ok);
+    assert_eq!(
+        rows[0].at,
+        "2026-11-22T12:00:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_failed_call_is_recorded_not_ok() {
+    let d = tempfile::tempdir().unwrap();
+    let ledger = Arc::new(JsonlLedger::at(d.path().join("ledger.jsonl")));
+    let writer = ProviderWriter {
+        provider: Arc::new(ScriptedProvider::new(vec![])),
+        model: "haiku".into(),
+        ledger: ledger.clone(),
+        clock: clock(),
+    };
+    assert!(writer.write("s", &Cancel::default()).is_err());
+    let rows = ledger.read().unwrap().errands;
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].ok);
+    assert!(rows[0].note.as_deref().unwrap().contains("no more replies"));
+}
+
+struct SpyResearcher {
+    asked: Mutex<Vec<Research>>,
+}
+
+impl Researcher for SpyResearcher {
+    fn research(&self, research: Research, _: &Cancel) -> sorcerer_models::Result<Researched> {
+        self.asked.lock().unwrap().push(research);
+        Ok(Researched {
+            answer: "answer".into(),
+            errand: errand("try-harder", "sonnet", 0.02),
+            reads: vec![],
+        })
+    }
+}
+
+#[test]
+fn the_research_writer_asks_with_three_tools_and_a_quarter() {
+    let spy = Arc::new(SpyResearcher {
+        asked: Mutex::new(vec![]),
+    });
+    let writer = ResearchWriter {
+        researcher: spy.clone(),
+        model: "sonnet".into(),
+    };
+    let written = writer.write("the situation", &Cancel::default()).unwrap();
+    assert_eq!(written.text, "answer");
+    let asked = spy.asked.lock().unwrap();
+    assert_eq!(
+        (asked[0].product.as_str(), asked[0].verb.as_str()),
+        ("conjure", "try-harder")
+    );
+    assert_eq!(asked[0].tools, [Tool::Read, Tool::Grep, Tool::Glob]);
+    assert_eq!(asked[0].cap_usd, 0.25);
+    assert_eq!(asked[0].timeout, Duration::from_secs(300));
+    assert_eq!(asked[0].model, "sonnet");
+    assert!(
+        asked[0].prompt.starts_with(CHANGE_SYSTEM) && asked[0].prompt.ends_with("the situation")
+    );
+}
+
+fn a_record(id: &str) -> ChangeRecord {
+    ChangeRecord {
+        version: 1,
+        id: id.into(),
+        at: "2026-11-22T12:00:00Z".parse().unwrap(),
+        file: "src/a.py".into(),
+        line: 12,
+        unit: "A.f".into(),
+        trigger: Trigger::Finding("3fa9c0".into()),
+        attempt: Attempt::TryHarder,
+        try_harder_of: Some("111111".into()),
+        facts: RecordedFacts {
+            parse_errors: vec![],
+            todo_lines: vec![3],
+            body_empty: true,
+        },
+        model: "sonnet".into(),
+        goal: Some("fill it".into()),
+        files: vec![RecordedFile {
+            path: "src/a.py".into(),
+            new: false,
+            lines_changed: 7,
+            parse_errors: vec![],
+        }],
+        dropped: vec!["../x".into()],
+        seconds: 4.2,
+        cost_usd: Some(0.02),
+        choice: Choice::NoChange,
+    }
+}
+
+#[test]
+fn a_record_round_trips_and_a_line_of_another_version_is_skipped() {
+    let d = git_project();
+    let (project, _) = project_with_vendored_grammars(d.path());
+    let store = JsonlChangeStore::for_project(&project).unwrap();
+    assert_eq!(store.read().unwrap().records.len(), 0);
+    store.append(&a_record("aaaaaa")).unwrap();
+    store.append(&a_record("bbbbbb")).unwrap();
+    let path = d.path().join(".sorcerer/state/conjure/changes.jsonl");
+    let mut text = std::fs::read_to_string(&path).unwrap();
+    text.push_str("{\"version\": 2, \"id\": \"x\"}\nnot json\n");
+    std::fs::write(&path, text).unwrap();
+    let rows = store.read().unwrap();
+    assert_eq!(rows.records, [a_record("aaaaaa"), a_record("bbbbbb")]);
+    assert_eq!(rows.skipped, 2);
+    let first = std::fs::read_to_string(&path).unwrap();
+    let line: serde_json::Value = serde_json::from_str(first.lines().next().unwrap()).unwrap();
+    assert_eq!(line["trigger"], serde_json::json!({"finding": "3fa9c0"}));
+    assert_eq!(line["attempt"], "try-harder");
+    assert_eq!(line["choice"], "no-change");
+}
+
+#[test]
+fn a_cursor_trigger_is_the_word_cursor_and_ids_are_six_hex_digits() {
+    assert_eq!(
+        serde_json::to_string(&Trigger::Cursor).unwrap(),
+        "\"cursor\""
+    );
+    let id = change_id(
+        "2026-11-22T12:00:00Z".parse().unwrap(),
+        std::path::Path::new("src/a.py"),
+        12,
+    );
+    assert_eq!(id.len(), 6);
+    assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+}
