@@ -18,7 +18,8 @@ async function main(): Promise<void> {
   for (const [name, path] of [['conjure', conjure], ['fake-claude', fake]]) {
     if (!existsSync(path)) throw new Error(`no ${name} at ${path}: run cargo build -p sorcerer-conjure and cargo build -p sorcerer-models --bin fake-claude, or set CONJURE_E2E_*`);
   }
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'cj-e2e-')));
+  // the native realpath: it spells a Windows short name (RUNNER~1) as the server will
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'cj-e2e-')));
   try {
     await run(base, conjure, fake);
   } finally {
