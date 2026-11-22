@@ -60,7 +60,7 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `research_reviewer.rs` (`ResearchReviewer`), `markdown_run_log.rs` (`StreamingLog`,
 `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`, `result_of`, `KEEP`, `RESULT`),
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`LiveWiring`, `Wiring`, `jev_for`,
-`researcher_for`, `claim_checker`, `PRODUCT`), and `lsp/`, the editor's server (below):
+`claim_checker`, `PRODUCT`; the researcher comes from `sorcerer-models`' `researcher_for`), and `lsp/`, the editor's server (below):
 `mod.rs` (`ServerConfig`, `serve`, `SETTLE`, the product `ScryServer` and its shared `Server`),
 `diagnostics.rs` (`diagnostic`, `STALE_LINE`), `passes.rs` (`Passes`, `RunningPass`, a save
 to a pass), `commands.rs` (the code actions and the three commands), `trust.rs` (the trust
@@ -467,7 +467,8 @@ editor's server passes two: `review` becomes `review_cancel`, `rest` the claim c
   `for_product("scry")`, so its errands are scry's `decide`. No key is an error naming the
   variable (always `JEV_API_KEY`; config cannot name another).
 - The view, a `FilesView` on the user's `GrammarCache`.
-- The researcher by `researcher_for(project, env, view)`: the provider by
+- The researcher by `researcher_for(project, env, view)` (in `sorcerer-models`,
+  `adapters/researchers.rs`): the provider by
   `default_provider_for`; when its kind is `claude` the researcher is `ClaudeCodeResearcher`
   (Claude Code reads the files itself), otherwise `LoopResearcher` over the provider, the view,
   the project's fences and its ledger. The eval's record mode builds its researcher with the same
@@ -864,7 +865,7 @@ To record a corpus, run its test once by hand with `JEV_API_KEY` set and `claude
 `SCRY_RECORD=all cargo test -p sorcerer-scry --test eval bistro_rs -- --nocapture` (name one corpus: a
 statement with no verdict in another corpus would be checked too). `run_corpus` then calls
 `run_corpus_with(corpus, only, Record::All, &live)`; `live` builds, per case, the live calls in a
-`Live`: a `ResearchReviewer` over `researcher_for`, the real `claim_checker` with Jev guarding, and
+`Live`: a `ResearchReviewer` over `researcher_for` (`sorcerer-models`), the real `claim_checker` with Jev guarding, and
 a `RecordedDecider` recording with `jev_for`'s Jev. A batch is a miss when its case has no `reviews/<case>.json`, or when one of the batch's files is in none
 of the recorded batches (a recording that stopped part way through the case, `recorded_files`):
 `CorpusReviewer` asks the live reviewer with the pass's own `ReviewAsk` and model and appends

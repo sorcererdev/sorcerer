@@ -1,8 +1,9 @@
 # The language-server host
 
 `crates/sorcerer-lsp` is everything about being a language server that is not about one
-product. Scry's server (`scry lsp`) is the first product on it; conjure's and spellbook's will
-plug in the same way. No scry type appears in the crate.
+product. Scry's server (`scry lsp`) is the first product on it; conjure's server is next, and
+uses what the host added for it (the open documents' text, `apply_edit`); spellbook's will plug
+in the same way. No scry type appears in the crate.
 
 It is synchronous like the rest of the workspace: `lsp-server` gives a connection as two
 channels, and `lsp-types` the message types (its `Uri`, which `uri.rs` turns into paths
@@ -13,17 +14,27 @@ through the `url` crate). There is no async runtime.
 | file | holds |
 |---|---|
 | `src/serve.rs` | `Product`, the trait a product implements; `serve`, the handshake and the main loop; `unknown_method` |
-| `src/client.rs` | `Client`, what a product says to the editor; `WorkDone`, a progress line; `Answer`, the reply to a question |
+| `src/client.rs` | `Client`, what a product says to the editor; `WorkDone`, a progress line; `Answer`, the reply to a question; `Applied`, the reply to an edit |
 | `src/jobs.rs` | `Jobs`, work to run after a delay, one waiting job per key |
 | `src/uri.rs` | `path_of` and `uri_of`: only `file:` URIs are files |
 
 ## What the host owns
 
-- **The handshake** (`serve::handshake`). It reads two of the editor's abilities
-  (`window.workDoneProgress` and `textDocument.publishDiagnostics.relatedInformation`) and the
-  workspace root (the first workspace folder, else `rootUri`), and announces the product's
-  capabilities with the text sync replaced by its own: open and close, save without the text,
-  and no `change`. Nothing reaches a product while the person types.
+- **The handshake** (`serve::handshake`). It reads the editor's abilities (`serve::abilities_of`:
+  `window.workDoneProgress`, `textDocument.publishDiagnostics.relatedInformation`,
+  `workspace.applyEdit`, `workspace.workspaceEdit.documentChanges` and whether
+  `workspace.workspaceEdit.resourceOperations` holds `create` and `delete`) and the workspace
+  root (the first workspace folder, else `rootUri`), and announces the product's capabilities
+  with the text sync replaced by its own (`serve::open_close_and_save`): open and close, save
+  without the text, and no `change`, so nothing reaches a product while the person types. A
+  product whose `Product::tracks_text` says yes gets `change: Full` instead.
+- **The open documents' text, for a product that tracks it.** `didOpen` keeps the document's
+  version and text in the client's state, each `didChange` replaces them with the new version
+  and the whole text (the last content change, under full sync), and `didClose` drops them.
+  `Client::text_of(path)` reads them; it is `None` for a file not open, and always for a product
+  that does not track text. The host keeps the text before `Product::changed` runs, so the
+  product sees it already. A change notification never reaches a product that does not track
+  text.
 - **The open set.** `didOpen` and `didClose` update it before the product hears of them, so
   `Client::is_open` and `Client::open_paths` already agree when `Product::opened` runs.
   Notifications about documents that are not files (`untitled:`, `fugitive://`) are dropped.
@@ -37,7 +48,7 @@ through the `url` crate). There is no async runtime.
   `window/workDoneProgress/create`, `window/showDocument`) are numbered by the `Client`, which
   keeps what to do with each reply; the main loop hands every reply over by id
   (`Client::replied`). A reply never received leaves its handler waiting, and nothing blocks
-  on it.
+  on it. `workspace/applyEdit` goes the same way.
 
 ## The client's senders
 
@@ -56,6 +67,14 @@ thread.
 - `ask(text, answers, on_answer)`: `window/showMessageRequest`. `on_answer` gets
   `Answer::Picked(title)`, `Answer::Closed` for a null reply, or `Answer::Unsupported` for an
   error reply, on the main loop when the reply arrives.
+- `apply_edit(label, edit, on_reply)`: `workspace/applyEdit` with the label and the
+  `WorkspaceEdit`. `on_reply` gets `Applied { applied, failure_reason }` on the main loop when
+  the reply arrives; an error reply is `applied: false` with the error's message as the reason.
+
+What the editor can do, read at the handshake: `related_information()`; `can_apply_edits()`
+(it announced both `workspace.applyEdit` and `workspaceEdit.documentChanges`, without which a
+product cannot land an edit tied to a document's version); `can_create_files()` and
+`can_delete_files()` (its `resourceOperations` hold `create`, `delete`).
 
 ## Threads
 
@@ -88,6 +107,11 @@ impl Product for Mine {
 
 serve(Connection::stdio().0, |client, _root| Mine { client })
 ```
+
+Two methods have defaults a product may leave alone: `tracks_text()` (false; read once at the
+handshake, like `capabilities`) and `changed(path, version, text)` (nothing; called after each
+change of an open document, only when `tracks_text` is true). A product that lands edits asks
+`can_apply_edits`, `can_create_files` and `can_delete_files` before it offers to.
 
 The tests (`tests/serve.rs`, `tests/jobs.rs`) drive the host over `Connection::memory()` with
 a product that records what reaches it.
