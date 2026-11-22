@@ -1,5 +1,6 @@
 //! What implements the ports: the project's files, the models, the records.
 
+pub mod editor_view;
 pub mod imports;
 pub mod jsonl_change_store;
 pub mod project_context;
