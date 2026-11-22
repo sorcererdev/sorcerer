@@ -1,14 +1,33 @@
 import { constants, accessSync, statSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { posix, win32 } from 'node:path';
 
 // candidates lists where the scry binary may be, best first: the `scry.path` setting when it
-// is not empty, then `scry` in each PATH directory, then ~/.cargo/bin (where `cargo install`
-// puts it, and which a VS Code opened from the Dock may not have on its PATH).
-export function candidates(setting: string, env: NodeJS.ProcessEnv, home: string): string[] {
-  const out: string[] = [];
-  if (setting.trim() !== '') out.push(setting.trim());
-  for (const dir of (env.PATH ?? '').split(delimiter)) if (dir !== '') out.push(join(dir, 'scry'));
-  out.push(join(home, '.cargo', 'bin', 'scry'));
+// is not empty, then `scry` (`scry.exe` on Windows) in each PATH directory, then ~/.cargo/bin
+// (where `cargo install` puts it), ~/.local/bin (where the installers put it; a VS Code
+// opened from the Dock may have neither on its PATH), and last `storage`, the directory where
+// this extension downloads the binary of its own version.
+//
+// Example: candidates('', { PATH: '/a:/b' }, '/home/me', 'linux', '/store/bin/0.1.0') is
+// ['/a/scry', '/b/scry', '/home/me/.cargo/bin/scry', '/home/me/.local/bin/scry',
+// '/store/bin/0.1.0/scry'].
+export function candidates(
+  setting: string,
+  env: NodeJS.ProcessEnv,
+  home: string,
+  platform: NodeJS.Platform,
+  storage: string,
+): string[] {
+  const path = platform === 'win32' ? win32 : posix;
+  const name = platform === 'win32' ? 'scry.exe' : 'scry';
+  // Windows spells the variable Path; a copy of process.env no longer ignores the case
+  const dirs = (env.PATH ?? env.Path ?? '').split(path.delimiter).filter(dir => dir !== '');
+  const out = [
+    ...(setting.trim() !== '' ? [setting.trim()] : []),
+    ...dirs.map(dir => path.join(dir, name)),
+    path.join(home, '.cargo', 'bin', name),
+    path.join(home, '.local', 'bin', name),
+    path.join(storage, name),
+  ];
   return [...new Set(out)];
 }
 

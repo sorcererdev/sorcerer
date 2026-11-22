@@ -22,7 +22,11 @@
   ],
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "scry.path"
+      ],
+      "description": "In Restricted Mode the `scry.path` setting is not read; scry is looked up on PATH and in the usual places."
     }
   },
   "contributes": {
@@ -32,7 +36,8 @@
         "scry.path": {
           "type": "string",
           "default": "",
-          "markdownDescription": "The `scry` binary: an absolute path. Empty: `scry` is looked up on `PATH`, then in `~/.cargo/bin`."
+          "scope": "machine",
+          "markdownDescription": "The `scry` binary: an absolute path, read from your user settings only (a workspace's settings cannot choose the program the extension runs). Empty: `scry` (`scry.exe` on Windows) is looked up on `PATH`, then in `~/.cargo/bin`, `~/.local/bin` and the binary this extension downloaded."
         }
       }
     }
