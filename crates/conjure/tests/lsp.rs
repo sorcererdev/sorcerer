@@ -65,6 +65,14 @@ impl Script {
         self.seen.lock().unwrap().clone()
     }
 
+    /// Waits until the writer has been asked (it has read the situation).
+    fn wait_until_asked(&self) {
+        let deadline = Instant::now() + WAIT;
+        while self.seen.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// Calls wait until the sender sends.
     fn gated(&self) -> Sender<()> {
         let (open, gate) = channel();
@@ -1763,6 +1771,7 @@ fn a_file_rewritten_on_disk_while_conjuring_keeps_the_edit_from_being_sent() {
     let s = served(dir.path(), script);
     s.open("src/a.py");
     s.conjure_here("src/a.py", 5);
+    s.script.wait_until_asked();
     // a formatter, or a branch switch, rewrites the unopened b.py meanwhile
     write(dir.path(), "src/b.py", "def helper():\n\n    return 1\n");
     open.send(()).unwrap();
@@ -1782,6 +1791,7 @@ fn a_new_file_that_appeared_while_conjuring_keeps_the_edit_from_being_sent() {
     let s = served(dir.path(), script);
     s.open("src/a.py");
     s.conjure_here("src/a.py", 5);
+    s.script.wait_until_asked();
     write(dir.path(), "src/a__test.py", "def test_mine():\n    pass\n");
     open.send(()).unwrap();
     assert_eq!(

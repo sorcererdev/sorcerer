@@ -64,7 +64,9 @@ and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `R
 `imports.rs` (`related_files`, from `imports.scm` and `[imports]`), `scry_files.rs`
 (`read_findings`), `steering_files.rs` (`project_rules`), `project_context.rs` (`FilesContext`,
 the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.rs` (`Wired`,
-`live`, `writer_for`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`),
+`live`, `writer_for`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`, a picture of one
+moment: a file not open is read from the disk once and answered as first read, so a change is
+made against what the writer was shown and a disk that moved on meanwhile is seen),
 `why_text.rs` (`why_text`, Show why's file), and `lsp/` (the server, below).
 
 **Command line** (`src/cli/`): `mod.rs` (the clap types, `main`, `main_with`), `run.rs`
@@ -128,8 +130,8 @@ person must hear goes through `Client::say`, and an error answers only a malform
 `changes.rs`, a change's life:
 
 1. **Asked.** `conjure` calls `start`, which takes `running` (`begin_running`; busy is said) and
-   reads `open_documents` (an `OpenDocuments`, with `read_at`) on the main loop, so the edit is
-   made at the versions the person saw when they asked. A thread runs `conjure_and_land` under `work_done("conjure", "conjuring a
+   reads `open_documents` (an `OpenDocuments`) on the main loop, so the edit is made at the
+   versions the person saw when they asked. A thread runs `conjure_and_land` under `work_done("conjure", "conjuring a
    change")`.
 2. **Conjured.** `conjured` opens the project, checks trust (`needs_trust`, the user's
    `TrustList`), maps the open documents into a `landing::Snapshot` (`snapshot_of`), builds an
@@ -139,7 +141,7 @@ person must hear goes through `Client::say`, and an error answers only a malform
 3. **Landed.** `land`: no files is shown at once as no change and recorded `no-change`. Otherwise
    `moved_on` refuses to send when a file the change edits moved on since it was read (an open
    file at another version; a file not open then and open now with other text, or on disk with
-   other text or written after `read_at`; a new file that is there now), since an editor may not
+   other text than the change read; a new file that is there now), since an editor may not
    check (Neovim checks only the first file's version) and a file with no version is not checked
    at all; then `landing::workspace_edit` builds one
    `WorkspaceEdit` (each existing file a `TextDocumentEdit` at the snapshot's version, `None` for

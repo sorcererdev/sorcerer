@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use lsp_server::ResponseError;
@@ -243,10 +243,9 @@ impl NotConjured {
 }
 
 /// The open documents when a change was asked for: each one's path as the editor names it,
-/// its version and its text, and the moment they were read.
+/// its version and its text.
 pub(super) struct OpenDocuments {
     pub documents: Vec<(PathBuf, i32, String)>,
-    pub read_at: SystemTime,
 }
 
 /// What a Try harder takes over from the change it replaces.
@@ -285,8 +284,7 @@ impl Server {
         std::thread::spawn(move || server.conjure_and_land(&ask, None, open, &cancel));
     }
 
-    /// Every open document (the editor's path, the version and the text), and when they were
-    /// read.
+    /// Every open document: the editor's path, the version and the text.
     pub(super) fn open_documents(&self) -> OpenDocuments {
         let documents = self
             .client
@@ -297,10 +295,7 @@ impl Server {
                 Some((path, version, text))
             })
             .collect();
-        OpenDocuments {
-            documents,
-            read_at: SystemTime::now(),
-        }
+        OpenDocuments { documents }
     }
 
     /// The change is conjured and landed, or what stopped it is said (and a failed call
@@ -533,12 +528,10 @@ impl Server {
                 (Some(read), Some((version, _))) => version != read,
                 (Some(_), None) => true,
                 (None, Some((_, text))) => Some(text) != file.before,
-                // not open: on disk now, it was not there, or was written since the ask
+                // not open: the disk is not as the change read it (the editor's view keeps the
+                // text it first read, which is what the writer was shown)
                 (None, None) if file.new => path.exists(),
-                (None, None) => {
-                    std::fs::read_to_string(&path).ok() != file.before
-                        || written_since(&path, snapshot.read_at)
-                }
+                (None, None) => std::fs::read_to_string(&path).ok() != file.before,
             }
         })
     }
@@ -813,7 +806,6 @@ impl Server {
 
 /// The project's documents among the open ones, by path relative to the root.
 fn snapshot_of(project: &Project, open: OpenDocuments) -> Snapshot {
-    let read_at = open.read_at;
     let open = open
         .documents
         .into_iter()
@@ -830,15 +822,7 @@ fn snapshot_of(project: &Project, open: OpenDocuments) -> Snapshot {
     Snapshot {
         root: project.root.clone(),
         open,
-        read_at,
     }
-}
-
-/// Whether the file on disk was written after the moment given.
-fn written_since(path: &Path, moment: SystemTime) -> bool {
-    std::fs::metadata(path)
-        .and_then(|meta| meta.modified())
-        .is_ok_and(|modified| modified > moment)
 }
 
 /// Marks a file's mark as gone for good.

@@ -87,3 +87,23 @@ fn history_comes_from_the_disk() {
         [PathBuf::from("src/cart.py")]
     );
 }
+
+#[test]
+fn a_file_answers_as_first_read_while_the_view_lives() {
+    let dir = cart_on_disk();
+    let view = view_with(dir.path(), &[]);
+    assert_eq!(view.text(Path::new("src/cart.py")).unwrap(), ON_DISK);
+    assert!(!view.exists(Path::new("src/new.py")));
+    // the disk moves on: the view, a picture of one moment, does not
+    write(
+        dir.path(),
+        "src/cart.py",
+        "def total(cart):\n    return 1\n",
+    );
+    write(dir.path(), "src/new.py", "x = 1\n");
+    assert_eq!(view.text(Path::new("src/cart.py")).unwrap(), ON_DISK);
+    assert!(!view.exists(Path::new("src/new.py")));
+    let units = view.units(Path::new("src/cart.py")).unwrap();
+    let facts = view.facts(Path::new("src/cart.py"), &units[0]).unwrap();
+    assert!(!facts.body_empty);
+}
