@@ -17,6 +17,7 @@ use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::adapters::trust_list::TrustList;
+use sorcerer_core::domain::language::GrammarObtained;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::needs_trust;
 use sorcerer_core::domain::versioned::Snapshot;
@@ -208,25 +209,36 @@ fn ledger_row(ledger: &dyn Ledger) -> Result<String, String> {
     ))
 }
 
-/// Whether each of the project's languages loads (its grammar builds and
-/// its queries read): `python, rust load`, or each that fails and why.
+/// Whether each of the project's languages loads (its grammar is downloaded or built, and its
+/// queries read), and how each grammar got into the cache: `python, rust load (downloaded)`,
+/// or each that fails and why.
 fn languages_row(project: &Project, cache: &GrammarCache) -> Result<String, String> {
     let names = project_languages(project, cache)?;
     if names.is_empty() {
         return Ok("no file here is in a language sorcerer knows".into());
     }
-    let failed: Vec<String> = names
-        .iter()
-        .filter_map(|name| match project.languages.load(name, cache) {
-            Ok(_) => None,
-            Err(e) => Some(format!("{name}: {e}")),
+    let tried: Vec<(String, Result<GrammarObtained, String>)> = names
+        .into_iter()
+        .map(|name| {
+            let loaded = project.languages.load(&name, cache);
+            let how = loaded
+                .map(|l| l.obtained.clone())
+                .map_err(|e| e.to_string());
+            (name, how)
         })
         .collect();
-    if failed.is_empty() {
-        Ok(format!("{} load", names.join(", ")))
-    } else {
-        Err(failed.join("; "))
+    let failed: Vec<String> = tried
+        .iter()
+        .filter_map(|(name, how)| how.as_ref().err().map(|e| format!("{name}: {e}")))
+        .collect();
+    if !failed.is_empty() {
+        return Err(failed.join("; "));
     }
+    let loaded: Vec<(String, GrammarObtained)> = tried
+        .into_iter()
+        .filter_map(|(name, how)| how.ok().map(|how| (name, how)))
+        .collect();
+    Ok(loaded_text(&loaded))
 }
 
 /// The languages the project names in `[languages] names`, or, when it
@@ -245,6 +257,37 @@ fn project_languages(project: &Project, cache: &GrammarCache) -> Result<Vec<Stri
 }
 
 // The command's text.
+
+/// The languages that loaded, saying how once when every grammar came the same way,
+/// `python, rust load (downloaded)`, and for each otherwise,
+/// `python (cached), rust (built with cc) load`.
+fn loaded_text(loaded: &[(String, GrammarObtained)]) -> String {
+    let all_alike = loaded.windows(2).all(|pair| pair[0].1 == pair[1].1);
+    if all_alike {
+        let names: Vec<&str> = loaded.iter().map(|(name, _)| name.as_str()).collect();
+        format!(
+            "{} load ({})",
+            names.join(", "),
+            obtained_text(&loaded[0].1)
+        )
+    } else {
+        let each: Vec<String> = loaded
+            .iter()
+            .map(|(name, how)| format!("{name} ({})", obtained_text(how)))
+            .collect();
+        format!("{} load", each.join(", "))
+    }
+}
+
+/// How a grammar got into the cache, in the doctor's words: `cached`, `downloaded`,
+/// `built with cc`.
+fn obtained_text(how: &GrammarObtained) -> String {
+    match how {
+        GrammarObtained::Cached => "cached".into(),
+        GrammarObtained::Downloaded => "downloaded".into(),
+        GrammarObtained::Built { compiler } => format!("built with {compiler}"),
+    }
+}
 
 /// A row as printed: `provider   ok    claude (…)`, or `FAIL` and why.
 fn row_text(row: &DoctorRow) -> String {

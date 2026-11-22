@@ -457,7 +457,8 @@ fn doctor_rows_load_the_project_languages_and_name_a_bad_store() {
             .result
             .clone()
     };
-    assert_eq!(get("languages"), Ok("python load".to_string()));
+    let languages = get("languages").unwrap();
+    assert!(languages.starts_with("python load ("), "{languages}");
     let store = get("store").unwrap_err();
     assert!(store.contains("findings.json"), "{store}");
     assert!(get("ledger").is_ok());
@@ -1774,4 +1775,53 @@ fn doctor_has_the_trust_row() {
     );
     scry_with_env(dir.path(), &env, &["trust"]);
     assert_eq!(trust_row(dir.path()).result, Ok("trusted".to_string()));
+}
+
+#[test]
+fn the_languages_row_says_how_each_grammar_came() {
+    use sorcerer_core::adapters::env::SystemEnv;
+    use sorcerer_core::adapters::grammar::GrammarCache;
+    use sorcerer_core::adapters::platform::compiler::c_compiler;
+
+    let dir = git_project();
+    write(dir.path(), "a.py", "x = 1\n");
+    write(dir.path(), "b.rs", "fn main() {}\n");
+    commit(dir.path(), "two languages");
+    let env = MapEnv::default()
+        .on_path("claude")
+        .var_set("JEV_API_KEY", "k");
+    let languages_row = |cache: &GrammarCache| {
+        let (project, _) = support::project_with_vendored_grammars(dir.path());
+        doctor_rows(&project, &env, cache)
+            .into_iter()
+            .find(|row| row.name == "languages")
+            .unwrap()
+            .result
+    };
+    let compiler = c_compiler(&SystemEnv).unwrap().program;
+    let compiler = compiler.file_stem().unwrap().to_string_lossy();
+
+    // a fresh cache: both built here, said once
+    let both = TempDir::new().unwrap();
+    let cache = GrammarCache::at(both.path().into());
+    assert_eq!(
+        languages_row(&cache),
+        Ok(format!("python, rust load (built with {compiler})"))
+    );
+    assert_eq!(
+        languages_row(&cache),
+        Ok("python, rust load (cached)".into())
+    );
+
+    // one already there, one built: each says how
+    let one = TempDir::new().unwrap();
+    let cache = GrammarCache::at(one.path().into());
+    let (project, _) = support::project_with_vendored_grammars(dir.path());
+    project.languages.load("python", &cache).unwrap();
+    assert_eq!(
+        languages_row(&cache),
+        Ok(format!(
+            "python (cached), rust (built with {compiler}) load"
+        ))
+    );
 }

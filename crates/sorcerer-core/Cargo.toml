@@ -20,6 +20,8 @@ globset.workspace = true
 tree-sitter.workspace = true
 tree-sitter-language.workspace = true
 libloading.workspace = true
+reqwest.workspace = true
+sha2 = "0.11"
 ignore.workspace = true
 grep-regex.workspace = true
 grep-searcher.workspace = true
@@ -29,6 +31,7 @@ serde.workspace = true
 anyhow.workspace = true
 tempfile.workspace = true
 url.workspace = true
+mockito.workspace = true
 
 [lints]
 workspace = true

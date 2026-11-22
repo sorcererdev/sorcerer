@@ -1,8 +1,16 @@
 //! Grammars at run time. No grammar is compiled into sorcerer: a language file names where its
 //! grammar's C sources are, `{ git, rev }` or a local directory. The first time the grammar is
-//! needed, the sources are fetched into the user's cache, compiled with the first of `cc`, `gcc`
-//! or `clang` on PATH into a shared library, and the library is loaded into the running
-//! process.
+//! needed, its shared library is put in the user's cache and loaded into the running process.
+//! The library gets into the cache in one of two ways:
+//!
+//! 1. **Downloaded.** For a grammar a shipped language names (`{ git, rev }`, not the
+//!    project's own), the library prebuilt for this platform is downloaded from scry's GitHub
+//!    release for this version ([`RELEASES`]) and kept only when its SHA-256 matches the
+//!    release's `<file>.sha256`. The file name is the cache's own name for it, which already
+//!    says the revision, tree-sitter's ABI, the operating system and the processor.
+//! 2. **Built.** Otherwise, or when the download fails for any reason (offline, no release for
+//!    this version, a sum that does not match), the sources are fetched into the cache and
+//!    compiled with the first of `cc`, `gcc` or `clang` on PATH.
 //!
 //! Layout under the cache directory:
 //!
@@ -16,10 +24,14 @@
 //! harm: the second rename simply replaces the first, or is dropped.
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
+
+use sha2::{Digest, Sha256};
 
 use crate::adapters::env::SystemEnv;
 use crate::adapters::platform::compiler::{
@@ -28,15 +40,29 @@ use crate::adapters::platform::compiler::{
 use crate::adapters::platform::dirs::user_cache_dir;
 use crate::adapters::platform::paths::canonical;
 use crate::domain::fnv::fnv64_hex;
-use crate::domain::language::{GrammarSource, Languages, Layer, Loaded, parse_toml};
+use crate::domain::language::{
+    GrammarObtained, GrammarOrigin, GrammarSource, Languages, Layer, Loaded, parse_toml,
+};
 use crate::domain::query::compile;
 use crate::ports::env::Env;
 use crate::{Error, Result};
 
-/// Where grammars are fetched and built: one per user, shared by all their projects.
+/// Scry's GitHub release for this version, where the prebuilt grammar libraries are:
+/// `https://github.com/sorcererdev/sorcerer/releases/download/v0.1.0` for scry 0.1.0. A build
+/// whose version has no release gets a 404 there and compiles instead.
+pub const RELEASES: &str = concat!(
+    "https://github.com/sorcererdev/sorcerer/releases/download/v",
+    env!("CARGO_PKG_VERSION")
+);
+
+/// Where grammars are downloaded, fetched and built: one per user, shared by all their
+/// projects.
 #[derive(Debug, Clone)]
 pub struct GrammarCache {
     pub dir: PathBuf,
+    /// Where prebuilt libraries are downloaded from ([`RELEASES`] for the user's cache), or
+    /// `None` to always compile.
+    pub releases: Option<String>,
 }
 
 impl GrammarCache {
@@ -47,12 +73,25 @@ impl GrammarCache {
         let base = user_cache_dir(env).unwrap_or_else(|| PathBuf::from(".cache"));
         GrammarCache {
             dir: base.join("sorcerer").join("grammars"),
+            releases: Some(RELEASES.to_string()),
         }
     }
 
-    /// A cache in any directory, for tests.
+    /// A cache in any directory, for tests. It never downloads: every grammar is compiled.
     pub fn at(dir: PathBuf) -> GrammarCache {
-        GrammarCache { dir }
+        GrammarCache {
+            dir,
+            releases: None,
+        }
+    }
+
+    /// The same cache, downloading prebuilt libraries from `url` instead (a test's local
+    /// server, such as `http://127.0.0.1:4321`).
+    pub fn with_releases(self, url: &str) -> GrammarCache {
+        GrammarCache {
+            releases: Some(url.trim_end_matches('/').to_string()),
+            ..self
+        }
     }
 }
 
@@ -60,17 +99,21 @@ impl GrammarCache {
 /// text.
 type TriedLibraries = HashMap<PathBuf, std::result::Result<tree_sitter::Language, String>>;
 
-/// Loads a language's grammar, fetching and building it first when the cache has no library
-/// for it.
+/// Loads a language's grammar, putting its library in the cache first when it is not there,
+/// and says how the library got there.
 ///
-/// Each library is tried once per process, and a failure is remembered too, so a missing
-/// compiler is reported once rather than for every file. A failed fetch or a file error is not
-/// remembered: it may pass (offline when sorcerer first starts), so the next call tries again.
+/// A shipped grammar (`origin` is `Shipped`) is downloaded prebuilt from the cache's release
+/// when it can be; anything else, or a failed download, is fetched and compiled. Each library
+/// is tried once per process, and a failure is remembered too, so a missing compiler is
+/// reported once rather than for every file. A later call for a library this process already
+/// loaded says `Cached`. A failed fetch or a file error is not remembered: it may pass (offline
+/// when sorcerer first starts), so the next call tries again.
 pub fn load(
     cache: &GrammarCache,
     name: &str,
     source: &GrammarSource,
-) -> Result<tree_sitter::Language> {
+    origin: GrammarOrigin,
+) -> Result<(tree_sitter::Language, GrammarObtained)> {
     static TRIED: OnceLock<Mutex<TriedLibraries>> = OnceLock::new();
     let path = library_path(cache, name, source)?;
     let mut tried = TRIED
@@ -78,28 +121,174 @@ pub fn load(
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     if let Some(earlier) = tried.get(&path) {
-        return earlier.clone().map_err(|why| Error::GrammarLoad {
-            name: name.into(),
-            why,
-        });
+        return earlier
+            .clone()
+            .map(|grammar| (grammar, GrammarObtained::Cached))
+            .map_err(|why| Error::GrammarLoad {
+                name: name.into(),
+                why,
+            });
     }
-    let compiler = c_compiler(&SystemEnv);
-    let result = build_if_absent(cache, name, source, compiler.as_ref())
-        .and_then(|lib| open_library(name, &lib));
+    let result = put_in_cache(cache, name, source, origin)
+        .and_then(|(lib, obtained)| Ok((open_library(name, &lib)?, obtained)));
     if !may_pass(&result) {
         tried.insert(
             path,
             result
                 .as_ref()
-                .map(Clone::clone)
+                .map(|(grammar, _)| grammar.clone())
                 .map_err(ToString::to_string),
         );
     }
     result
 }
 
-fn may_pass(result: &Result<tree_sitter::Language>) -> bool {
+fn may_pass<T>(result: &Result<T>) -> bool {
     matches!(result, Err(Error::GrammarFetch { .. } | Error::Io { .. }))
+}
+
+/// Makes sure the cache holds the grammar's library and returns its path, with how it got
+/// there: it was there already, it was downloaded prebuilt (a shipped `{ git, rev }` grammar
+/// only), or it was compiled here.
+fn put_in_cache(
+    cache: &GrammarCache,
+    name: &str,
+    source: &GrammarSource,
+    origin: GrammarOrigin,
+) -> Result<(PathBuf, GrammarObtained)> {
+    let lib = library_path(cache, name, source)?;
+    if lib.exists() {
+        return Ok((lib, GrammarObtained::Cached));
+    }
+    if may_download(source, origin) && download_prebuilt(cache, &lib).is_ok() {
+        return Ok((lib, GrammarObtained::Downloaded));
+    }
+    let compiler = c_compiler(&SystemEnv);
+    let lib = build_if_absent(cache, name, source, compiler.as_ref())?;
+    Ok((
+        lib,
+        GrammarObtained::Built {
+            compiler: compiler_name(compiler.as_ref()),
+        },
+    ))
+}
+
+/// Only a grammar a shipped language names at a git revision is on the release: a project's
+/// own grammar, an override and a local directory are always compiled here.
+fn may_download(source: &GrammarSource, origin: GrammarOrigin) -> bool {
+    origin == GrammarOrigin::Shipped && matches!(source, GrammarSource::Git { .. })
+}
+
+/// The compiler's name without its directory or `.exe`: `cc`, `gcc`, `clang`.
+fn compiler_name(compiler: Option<&CCompiler>) -> String {
+    compiler
+        .and_then(|c| c.program.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// The largest library accepted from a release: 20 MB (the shipped grammars are under 3 MB).
+const LIBRARY_CAP: u64 = 20 * 1024 * 1024;
+
+/// The largest `.sha256` file accepted: one line of a 64-digit sum and a file name.
+const SUM_CAP: u64 = 4096;
+
+/// Downloading a prebuilt library did not work, so the caller compiles instead. Which step
+/// failed is not kept: every failure leads to the same next step.
+struct DownloadFailed;
+
+/// Downloads the library prebuilt for this platform from the cache's release and puts it at
+/// `lib`, but only when its SHA-256 matches the release's checksum file.
+///
+/// It makes two requests, each given 10 seconds to connect and 60 to finish: the library,
+/// refused past 20 MB, and its `.sha256`. For example, for scry 0.1.0 on an Apple Silicon Mac:
+///
+/// ```text
+/// …/releases/download/v0.1.0/python-1a2b3c4d5e6f7a8b.dylib
+/// …/releases/download/v0.1.0/python-1a2b3c4d5e6f7a8b.dylib.sha256   "<64 hex digits>  python-….dylib"
+/// ```
+///
+/// The bytes are checked before anything is written, then written beside `lib` and renamed
+/// into place, so the cache never holds a file whose sum did not match, nor half a file.
+fn download_prebuilt(cache: &GrammarCache, lib: &Path) -> std::result::Result<(), DownloadFailed> {
+    let releases = cache.releases.as_deref().ok_or(DownloadFailed)?;
+    let file = lib
+        .file_name()
+        .and_then(|f| f.to_str())
+        .ok_or(DownloadFailed)?;
+    let client = release_client(releases)?;
+    let library = get_at_most(&client, &format!("{releases}/{file}"), LIBRARY_CAP)?;
+    let sum_file = get_at_most(&client, &format!("{releases}/{file}.sha256"), SUM_CAP)?;
+    if !sum_matches(&library, &sum_file) {
+        return Err(DownloadFailed);
+    }
+    put_in_place(&library, lib)
+}
+
+/// An HTTP client with the download's time limits. A release reached over https may not
+/// redirect to plain http.
+fn release_client(
+    releases: &str,
+) -> std::result::Result<reqwest::blocking::Client, DownloadFailed> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
+        .https_only(releases.starts_with("https://"))
+        .build()
+        .map_err(|_| DownloadFailed)
+}
+
+/// The body of a successful GET, refused when the status is not a success or the body is
+/// longer than `cap` bytes.
+fn get_at_most(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    cap: u64,
+) -> std::result::Result<Vec<u8>, DownloadFailed> {
+    let response = client
+        .get(url)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map_err(|_| DownloadFailed)?;
+    let mut body = Vec::new();
+    response
+        .take(cap + 1)
+        .read_to_end(&mut body)
+        .map_err(|_| DownloadFailed)?;
+    if body.len() as u64 > cap {
+        return Err(DownloadFailed);
+    }
+    Ok(body)
+}
+
+/// Whether the bytes' SHA-256 is the sum a `.sha256` file starts with (`<hex>  <file name>`;
+/// upper or lower case).
+fn sum_matches(bytes: &[u8], sum_file: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(sum_file);
+    let expected = text.split_whitespace().next().unwrap_or_default();
+    expected.len() == 64 && expected.eq_ignore_ascii_case(&sha256_hex(bytes))
+}
+
+/// The SHA-256 of the bytes as 64 lower-case hex digits.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// Writes the checked bytes beside `lib` and renames them into place; a failure leaves no
+/// temporary file behind.
+fn put_in_place(bytes: &[u8], lib: &Path) -> std::result::Result<(), DownloadFailed> {
+    let dir = lib.parent().ok_or(DownloadFailed)?;
+    std::fs::create_dir_all(dir).map_err(|_| DownloadFailed)?;
+    let temporary = aside(lib);
+    let written = std::fs::write(&temporary, bytes).and_then(|()| std::fs::rename(&temporary, lib));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(DownloadFailed);
+    }
+    Ok(())
 }
 
 /// Where the compiled library for these sources is: `<cache>/<name>-<key>.<dylib|so|dll>`.
@@ -370,8 +559,8 @@ impl Languages {
         Languages::from_layers(layers, named_in_config)
     }
 
-    /// A language ready to parse: its grammar fetched, built and loaded through the cache, and
-    /// its query files compiled. Done once per language per `Languages`; later calls get the
+    /// A language ready to parse: its grammar put in the cache (downloaded or built) and
+    /// loaded, and its query files compiled. Done once per language per `Languages`; later calls get the
     /// same one.
     pub fn load(&self, name: &str, cache: &GrammarCache) -> Result<Arc<Loaded>> {
         let mut loaded = self.loaded.lock().unwrap_or_else(|e| e.into_inner());
@@ -385,11 +574,12 @@ impl Languages {
                 why: "no such language".into(),
             })?
             .clone();
-        let grammar = load(cache, name, &language.grammar)?;
+        let (grammar, obtained) = load(cache, name, &language.grammar, language.grammar_origin())?;
         let queries = compile_queries(&grammar, &language.queries)?;
         let ready = Arc::new(Loaded {
             language,
             grammar,
+            obtained,
             queries,
         });
         loaded.insert(name.to_string(), ready.clone());

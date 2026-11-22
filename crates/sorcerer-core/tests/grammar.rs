@@ -7,7 +7,10 @@ use sorcerer_core::Error;
 use sorcerer_core::adapters::env::SystemEnv;
 use sorcerer_core::adapters::grammar::{self, GrammarCache};
 use sorcerer_core::adapters::platform::compiler::{CCompiler, c_compiler};
-use sorcerer_core::domain::language::GrammarSource;
+use sorcerer_core::domain::language::{GrammarObtained, GrammarOrigin, GrammarSource};
+
+/// The origin the older tests load with: a grammar that is never downloaded.
+const PROJECT: GrammarOrigin = GrammarOrigin::Project;
 
 fn local(name: &str) -> GrammarSource {
     GrammarSource::Local(support::vendored(name))
@@ -40,7 +43,9 @@ fn a_cache_under_a_spaced_non_ascii_directory_builds_and_loads() {
     let sources = spaced.join("src").join("python");
     copy_dir(&support::vendored("python"), &sources);
     let cache = GrammarCache::at(spaced.join("cache"));
-    let lang = grammar::load(&cache, "python", &GrammarSource::Local(sources)).unwrap();
+    let lang = grammar::load(&cache, "python", &GrammarSource::Local(sources), PROJECT)
+        .unwrap()
+        .0;
     let mut p = tree_sitter::Parser::new();
     p.set_language(&lang).unwrap();
     let tree = p.parse("x = 1\n", None).unwrap();
@@ -55,8 +60,10 @@ fn builds_and_loads_the_vendored_python_grammar() {
         &GrammarCache::at(d.path().into()),
         "python",
         &local("python"),
+        PROJECT,
     )
-    .unwrap();
+    .unwrap()
+    .0;
     let abi = lang.abi_version();
     assert!(
         (tree_sitter::MIN_COMPATIBLE_LANGUAGE_VERSION..=tree_sitter::LANGUAGE_VERSION)
@@ -71,7 +78,9 @@ fn builds_and_loads_the_vendored_python_grammar() {
 
 #[test]
 fn the_rust_grammar_loads_too() {
-    let lang = grammar::load(&support::test_cache(), "rust", &local("rust")).unwrap();
+    let lang = grammar::load(&support::test_cache(), "rust", &local("rust"), PROJECT)
+        .unwrap()
+        .0;
     let mut p = tree_sitter::Parser::new();
     p.set_language(&lang).unwrap();
     assert_eq!(
@@ -151,7 +160,7 @@ fn eight_threads_building_at_once_leave_one_library() {
     // and loads from many threads at once all succeed
     std::thread::scope(|s| {
         for _ in 0..8 {
-            s.spawn(|| grammar::load(&cache, "python", &local("python")).unwrap());
+            s.spawn(|| grammar::load(&cache, "python", &local("python"), PROJECT).unwrap());
         }
     });
 }
@@ -187,7 +196,9 @@ fn a_git_grammar_is_fetched_at_its_rev() {
         url: support::file_url(repo.path()),
         rev,
     };
-    let lang = grammar::load(&GrammarCache::at(d.path().into()), "python", &src).unwrap();
+    let lang = grammar::load(&GrammarCache::at(d.path().into()), "python", &src, PROJECT)
+        .unwrap()
+        .0;
     assert!(lang.node_kind_count() > 0);
     assert!(d.path().join("src").read_dir().unwrap().count() == 1);
 }
@@ -200,7 +211,13 @@ fn a_url_outside_gits_transports_is_refused() {
         url: format!("ext::sh -c touch% {}", pwned.display()),
         rev: "a".repeat(40),
     };
-    let e = grammar::load(&GrammarCache::at(d.path().join("cache")), "x", &src).unwrap_err();
+    let e = grammar::load(
+        &GrammarCache::at(d.path().join("cache")),
+        "x",
+        &src,
+        PROJECT,
+    )
+    .unwrap_err();
     assert!(matches!(e, Error::GrammarFetch { .. }), "{e}");
     assert!(!pwned.exists());
 }
@@ -234,9 +251,252 @@ fn a_failed_fetch_is_tried_again_on_the_next_load() {
         rev,
     };
     assert!(matches!(
-        grammar::load(&cache, "python", &src),
+        grammar::load(&cache, "python", &src, PROJECT),
         Err(Error::GrammarFetch { .. })
     ));
     std::fs::rename(&away, repo.path()).unwrap();
-    assert!(grammar::load(&cache, "python", &src).is_ok());
+    assert!(grammar::load(&cache, "python", &src, PROJECT).is_ok());
+}
+
+// ---- a shipped grammar downloaded prebuilt from scry's release ----
+
+/// A local repository holding the vendored python grammar, standing in for GitHub, and the
+/// shipped-style source that names it at its one commit. Fetching from it needs no network.
+fn python_repo() -> (tempfile::TempDir, GrammarSource) {
+    let repo = support::git_project();
+    for f in [
+        "parser.c",
+        "scanner.c",
+        "tree_sitter/alloc.h",
+        "tree_sitter/array.h",
+        "tree_sitter/parser.h",
+    ] {
+        support::write(
+            repo.path(),
+            &format!("src/{f}"),
+            &std::fs::read_to_string(support::vendored("python").join(f)).unwrap(),
+        );
+    }
+    support::commit(repo.path(), "grammar");
+    let rev = support::git(repo.path(), &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let source = GrammarSource::Git {
+        url: support::file_url(repo.path()),
+        rev,
+    };
+    (repo, source)
+}
+
+/// The vendored python grammar compiled once for this machine: what a release would hold.
+fn prebuilt_python() -> Vec<u8> {
+    let d = tempfile::TempDir::new().unwrap();
+    let lib = grammar::build_if_absent(
+        &GrammarCache::at(d.path().into()),
+        "python",
+        &local("python"),
+        compiler().as_ref(),
+    )
+    .unwrap();
+    std::fs::read(lib).unwrap()
+}
+
+/// `<hex>  <file name>\n`, the way a release's `.sha256` file reads.
+fn sha256_line(bytes: &[u8], file: &str) -> String {
+    use sha2::Digest;
+    let hex: String = sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{hex}  {file}\n")
+}
+
+/// The file name the cache asks the release for.
+fn release_file(cache: &GrammarCache, source: &GrammarSource) -> String {
+    grammar::library_path(cache, "python", source)
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The names in the cache directory that are temporary files.
+fn temporary_files(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .filter(|name| name.contains(".tmp-"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_shipped_grammar_is_downloaded_and_loads() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    let bytes = prebuilt_python();
+    let library = server
+        .mock("GET", format!("/{file}").as_str())
+        .with_body(&bytes)
+        .expect(1)
+        .create();
+    let sum = server
+        .mock("GET", format!("/{file}.sha256").as_str())
+        .with_body(sha256_line(&bytes, &file))
+        .expect(1)
+        .create();
+
+    let (lang, obtained) =
+        grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    assert_eq!(obtained, GrammarObtained::Downloaded);
+    assert!(lang.node_kind_count() > 0);
+    assert_eq!(std::fs::read(d.path().join(&file)).unwrap(), bytes);
+    // nothing was fetched with git: the release's file was enough
+    assert!(!d.path().join("src").exists());
+    library.assert();
+    sum.assert();
+
+    let (_, again) = grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    assert_eq!(again, GrammarObtained::Cached);
+}
+
+#[test]
+fn a_404_falls_back_to_compiling() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    let missing = server
+        .mock("GET", format!("/{file}").as_str())
+        .with_status(404)
+        .with_body("Not Found")
+        .create();
+
+    let (_, obtained) = grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    assert!(
+        matches!(obtained, GrammarObtained::Built { .. }),
+        "{obtained:?}"
+    );
+    assert!(temporary_files(d.path()).is_empty());
+    missing.assert();
+}
+
+#[test]
+fn a_bad_sum_deletes_the_file_and_compiles() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    // an HTML page where the library should be, with the real library's sum
+    let page = b"<html><body>Sign in to continue</body></html>".to_vec();
+    server
+        .mock("GET", format!("/{file}").as_str())
+        .with_body(&page)
+        .create();
+    server
+        .mock("GET", format!("/{file}.sha256").as_str())
+        .with_body(sha256_line(&prebuilt_python(), &file))
+        .create();
+
+    let (lang, obtained) =
+        grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    assert!(
+        matches!(obtained, GrammarObtained::Built { .. }),
+        "{obtained:?}"
+    );
+    assert!(lang.node_kind_count() > 0);
+    assert!(
+        temporary_files(d.path()).is_empty(),
+        "{:?}",
+        temporary_files(d.path())
+    );
+    assert_ne!(std::fs::read(d.path().join(&file)).unwrap(), page);
+}
+
+#[test]
+fn a_body_past_the_size_cap_is_refused() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    // one byte past 20 MB, with its own correct sum: only the size refuses it
+    let huge = vec![0u8; 20 * 1024 * 1024 + 1];
+    server
+        .mock("GET", format!("/{file}").as_str())
+        .with_body(&huge)
+        .create();
+    server
+        .mock("GET", format!("/{file}.sha256").as_str())
+        .with_body(sha256_line(&huge, &file))
+        .create();
+
+    let (_, obtained) = grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    assert!(
+        matches!(obtained, GrammarObtained::Built { .. }),
+        "{obtained:?}"
+    );
+    assert!(temporary_files(d.path()).is_empty());
+    assert_ne!(
+        std::fs::metadata(d.path().join(&file)).unwrap().len(),
+        huge.len() as u64
+    );
+}
+
+#[test]
+fn a_project_grammar_never_asks() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let anything = server.mock("GET", mockito::Matcher::Any).expect(0).create();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+
+    let (_, obtained) = grammar::load(&cache, "python", &source, GrammarOrigin::Project).unwrap();
+    assert!(
+        matches!(obtained, GrammarObtained::Built { .. }),
+        "{obtained:?}"
+    );
+    // nor does a shipped language whose grammar is a local directory
+    let other = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(other.path().into()).with_releases(&server.url());
+    grammar::load(&cache, "python", &local("python"), GrammarOrigin::Shipped).unwrap();
+    anything.assert();
+}
+
+#[test]
+fn a_cache_at_a_directory_never_downloads() {
+    // no server at all: `GrammarCache::at` knows no release, so this builds as before
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(d.path().into());
+    let (_, obtained) = grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    match obtained {
+        GrammarObtained::Built { compiler } => {
+            let want = c_compiler(&SystemEnv).unwrap().program;
+            assert_eq!(
+                Some(compiler.as_str()),
+                want.file_stem().and_then(|s| s.to_str())
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn the_release_url_names_this_version() {
+    assert_eq!(
+        grammar::RELEASES,
+        format!(
+            "https://github.com/sorcererdev/sorcerer/releases/download/v{}",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
 }

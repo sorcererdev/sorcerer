@@ -41,6 +41,26 @@ pub enum GrammarSource {
     Local(PathBuf),
 }
 
+/// Who named a language's grammar: a language sorcerer ships, or the project (its own
+/// `.sorcerer/languages/<name>/language.toml`, or an override such as a test's vendored
+/// sources). Only a shipped grammar may be downloaded prebuilt; the project's own is always
+/// compiled on this machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrammarOrigin {
+    Shipped,
+    Project,
+}
+
+/// How a grammar's library got into the cache when this process loaded it: already there
+/// (`Cached`), fetched prebuilt from scry's release (`Downloaded`), or compiled here
+/// (`Built`, with the compiler's name, such as `cc`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GrammarObtained {
+    Cached,
+    Downloaded,
+    Built { compiler: String },
+}
+
 /// One language, its layers already laid together.
 #[derive(Debug, Clone)]
 pub struct Language {
@@ -79,8 +99,25 @@ pub struct Languages {
 pub struct Loaded {
     pub language: Language,
     pub grammar: tree_sitter::Language,
+    /// How the grammar's library came to be in the cache.
+    pub obtained: GrammarObtained,
     /// Each query file's name and compiled query, in name order.
     pub queries: Vec<(String, tree_sitter::Query)>,
+}
+
+impl Language {
+    /// Who named this language's grammar: `Shipped` when the grammar key still comes from the
+    /// language sorcerer ships, `Project` when the project's layer or an override set it.
+    ///
+    /// For example a project whose layer for a shipped language only adds to `files` keeps the
+    /// shipped grammar, so it is `Shipped`; one whose layer sets
+    /// `grammar = { path = "my-grammar" }` is `Project`.
+    pub fn grammar_origin(&self) -> GrammarOrigin {
+        match self.origins.get("grammar").map(String::as_str) {
+            Some("shipped") => GrammarOrigin::Shipped,
+            _ => GrammarOrigin::Project,
+        }
+    }
 }
 
 impl Loaded {
