@@ -40,6 +40,14 @@ function whatConjureKept(ws: string): string {
 // The fake-claude suite: run by the ubuntu and windows CI jobs and by hand (npm run test:e2e).
 describe('conjure (fake claude)', () => {
   it('Conjure here lands in the buffers, marks the changed line, and Undo puts it back, within 20 s', async () => {
+    // the messages the server says (busy, not trusted, …), for a failure message
+    const said: string[] = [];
+    for (const name of ['showInformationMessage', 'showWarningMessage', 'showErrorMessage'] as const) {
+      (vscode.window as unknown as Record<string, unknown>)[name] = (text: string) => {
+        said.push(text);
+        return Promise.resolve(undefined);
+      };
+    }
     await vscode.extensions.getExtension('sorcererdev.conjure')!.activate();
     const ws = process.env.CONJURE_E2E_WS!;
     const uri = vscode.Uri.file(join(ws, 'a.py'));
@@ -51,7 +59,7 @@ describe('conjure (fake claude)', () => {
     await run(conjure);
 
     await until('the new text in the buffer', () => (doc.getText().includes('return x + 1') ? true : undefined), 60_000)
-      .catch(err => { throw new Error(`${String(err)}\n${whatConjureKept(ws)}\nmarks: ${JSON.stringify(vscode.languages.getDiagnostics(uri).map(d => d.message))}`); });
+      .catch(err => { throw new Error(`${String(err)}\n${whatConjureKept(ws)}\nmarks: ${JSON.stringify(vscode.languages.getDiagnostics(uri).map(d => d.message))}\nsaid: ${JSON.stringify(said)}`); });
     assert.equal(readFileSync(join(ws, 'a.py'), 'utf8'), 'def f(x):\n    pass\n', 'nothing was saved: the disk still says pass');
     const testDoc = await until('the test file open',
       () => vscode.workspace.textDocuments.find(d => d.uri.fsPath === join(ws, 'a__test.py')));
