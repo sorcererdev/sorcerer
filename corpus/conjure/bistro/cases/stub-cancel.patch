@@ -1,0 +1,14 @@
+diff --git a/src/bistro/booking/commands/cancel_booking.py b/src/bistro/booking/commands/cancel_booking.py
+index d2059db..791665a 100644
+--- a/src/bistro/booking/commands/cancel_booking.py
++++ b/src/bistro/booking/commands/cancel_booking.py
+@@ -29,8 +29,4 @@ class CancelBooking:
+         self.bookings = bookings
+ 
+     def handle(self, input: CancelBookingInput) -> CancelBookingOutput:
+-        booking = self.bookings.get(input.id)
+-        if booking is None:
+-            return NotFound(f"there is no booking {input.id}")
+-        self.bookings.remove(input.id)
+-        return Ok(None)
++        raise NotImplementedError("CancelBooking.handle: write its first case in cancel_booking__test.py, then this")

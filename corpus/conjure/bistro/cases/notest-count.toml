@@ -1,0 +1,4 @@
+file = "src/bistro/booking/queries/count_day_bookings.py"
+line = 20
+kind = "no-test"
+expect = "Write count_day_bookings__test.py with a test that counts only the given day's bookings (an in-memory repository with bookings on two days); the body stays as it is."

@@ -7,3 +7,5 @@ corpus/scry/*/checks.json -text
 corpus/scry/*/jev/** -text
 corpus/scry/*/bare/** -text
 *.patch -text
+# The conjure eval's recorded replies are compared byte for byte: never converted.
+corpus/conjure/*/replies/** -text

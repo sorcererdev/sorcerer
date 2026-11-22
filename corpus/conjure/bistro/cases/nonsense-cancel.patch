@@ -1,0 +1,15 @@
+diff --git a/src/bistro/booking/commands/cancel_booking.py b/src/bistro/booking/commands/cancel_booking.py
+index d2059db..ea78ae4 100644
+--- a/src/bistro/booking/commands/cancel_booking.py
++++ b/src/bistro/booking/commands/cancel_booking.py
+@@ -29,8 +29,5 @@ class CancelBooking:
+         self.bookings = bookings
+ 
+     def handle(self, input: CancelBookingInput) -> CancelBookingOutput:
+-        booking = self.bookings.get(input.id)
+-        if booking is None:
+-            return NotFound(f"there is no booking {input.id}")
+-        self.bookings.remove(input.id)
+-        return Ok(None)
++        bookings get the id
++        if not there say so

@@ -1,0 +1,4 @@
+file = "src/bistro/booking/queries/get_day_schedule.py"
+line = 31
+kind = "nonsense"
+expect = "Return a GetDayScheduleResult for input.day: all tables and that day's bookings (sorted by start, then table); drop the stray `foo = 12`."

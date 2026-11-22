@@ -1,0 +1,4 @@
+file = "src/bistro/booking/queries/get_day_schedule.py"
+line = 31
+kind = "green"
+expect = "Nothing: the body is complete and the test passes. Leaving it, or at most a tiny tidy, is forward; a rewrite is churn."

@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/create_booking.py"
+line = 54
+kind = "bug"
+expect = "Fix PartyTooLarge's message to \"table t1 seats 4, not 6\" (the test's wording); change nothing else."

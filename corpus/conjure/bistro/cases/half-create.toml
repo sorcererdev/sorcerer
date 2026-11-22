@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/create_booking.py"
+line = 54
+kind = "half"
+expect = "Continue after the party check: refuse a taken slot (SlotTaken \"table t1 is booked at 19:00\"), then build the booking with ids.next_id(), save it and return Ok(booking)."

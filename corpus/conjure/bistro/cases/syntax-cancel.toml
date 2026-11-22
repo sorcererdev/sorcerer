@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 32
+kind = "syntax"
+expect = "Close the NotFound( call's parenthesis; change nothing else."

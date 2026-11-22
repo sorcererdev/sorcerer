@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 32
+kind = "no-test"
+expect = "Write cancel_booking__test.py: one test that cancels an existing booking (Ok(None), repository empty) and one that refuses a missing id (NotFound); the body stays as it is."
