@@ -1689,7 +1689,7 @@ fn the_binary_speaks_lsp_over_stdio() {
     };
     assert_eq!(diagnostics.as_array().unwrap().len(), 1, "{diagnostics}");
     let user_cache = GrammarCache::user(&MapEnv::default().with_user_dirs(home.path()));
-    let built = std::fs::read_dir(&user_cache.dir)
+    let built = std::fs::read_dir(user_cache.dir().unwrap())
         .map(|entries| entries.count())
         .unwrap_or(0);
     assert!(built > 0, "the server built no grammar");

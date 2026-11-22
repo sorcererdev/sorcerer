@@ -28,12 +28,18 @@ The files:
   10.12 on Intel) it runs `cargo run --release -p sorcerer-core --example build-grammars --
   grammars` and uploads the libraries and their `.sha256` files as `artifacts-grammars-*`,
   which the release attaches beside the binaries: ten files for two languages. The release is
-  not published unless every one built. This is where `GrammarCache::user` downloads from
+  not published unless every one built (`fail-fast: false`, so every runner still reports).
+  When one fails: re-run the failed job from the Actions page if it looks flaky; otherwise fix
+  it on main, delete the tag (`git push --delete origin v<version>`, `git tag -d
+  v<version>`), and tag the same version again on the fixed commit. Nothing was published, so
+  re-tagging is safe. This is where `GrammarCache::user` downloads from
   ([The core](core.md), Grammars).
 - **`.github/workflows/publish-crates.yml`**: dist's `post-announce-jobs`. After the release
   is announced, `cargo publish --workspace` with the `CARGO_REGISTRY_TOKEN` secret publishes
   `sorcerer-core`, `sorcerer-lsp`, `sorcerer-models` and `sorcerer-scry` in dependency order.
-  A missing token fails this job alone; the release stands. CI's
+  A missing token fails this job alone; the release stands. If it fails after some crates are
+  up, re-run it; should cargo refuse the ones already on crates.io, publish the rest with
+  `cargo publish -p <crate>` in the same order. CI's
   `cargo publish --workspace --dry-run` checks the packages build from what they include.
 - **`.github/workflows/smoke.yml`**: run by hand after a release (Actions, smoke, with the
   version). On a bare `ubuntu:24.04` container it installs with the README's shell line,

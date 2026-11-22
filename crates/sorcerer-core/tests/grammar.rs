@@ -529,3 +529,75 @@ fn a_downloaded_library_that_will_not_load_is_compiled_instead() {
     assert!(lang.node_kind_count() > 0);
     assert_ne!(std::fs::read(d.path().join(&file)).unwrap(), not_a_library);
 }
+
+#[test]
+fn a_failed_download_without_a_compiler_says_why() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    server
+        .mock("GET", format!("/{file}").as_str())
+        .with_status(404)
+        .create();
+
+    let e = grammar::load_with_compiler(&cache, "python", &source, GrammarOrigin::Shipped, None)
+        .unwrap_err();
+    let want = format!(
+        "couldn't download the python grammar (no release for {}); install a C compiler: ",
+        env!("CARGO_PKG_VERSION")
+    );
+    assert!(e.to_string().starts_with(&want), "{e}");
+    assert!(
+        e.to_string()
+            .ends_with(sorcerer_core::adapters::platform::compiler::compiler_hint()),
+        "{e}"
+    );
+    // nothing is fetched that could not be compiled
+    assert!(!d.path().join("src").exists());
+}
+
+#[test]
+fn a_sum_that_does_not_match_is_named_in_that_error() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    server
+        .mock("GET", format!("/{file}").as_str())
+        .with_body("<html>a proxy's page</html>")
+        .create();
+    server
+        .mock("GET", format!("/{file}.sha256").as_str())
+        .with_body(sha256_line(b"something else", &file))
+        .create();
+
+    let e = grammar::load_with_compiler(&cache, "python", &source, GrammarOrigin::Shipped, None)
+        .unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("(its SHA-256 did not match the release's)"),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_user_cache_with_no_place_refuses_and_names_what_to_set() {
+    use sorcerer_core::adapters::env::MapEnv;
+    use sorcerer_core::adapters::platform::dirs::NO_CACHE_DIR;
+    // no HOME, no XDG_CACHE_HOME (no LOCALAPPDATA on Windows): no cache in the current
+    // directory, where a repository could have put a library of its own
+    let cache = GrammarCache::user(&MapEnv::default());
+    let e = grammar::load(&cache, "python", &local("python"), PROJECT).unwrap_err();
+    assert!(matches!(e, Error::NoCacheDir { .. }), "{e}");
+    assert_eq!(
+        e.to_string(),
+        format!("there is no place for the grammar cache: {NO_CACHE_DIR}")
+    );
+
+    let home = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::user(&MapEnv::default().with_user_dirs(home.path()));
+    assert!(cache.dir().unwrap().starts_with(home.path()));
+}

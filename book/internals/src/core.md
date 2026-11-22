@@ -99,7 +99,9 @@ match a project-relative path.
    FNV-1a 64 (`domain/fnv.rs`) over the source's identity (the git rev, or a local directory's
    path with `parser.c`'s and `scanner.c`'s sizes and times), the tree-sitter runtime's
    ABI, the OS and the arch. A changed key is a new file. A file already there is `Cached`.
-2. **Downloaded** (`put_in_cache`, `may_download`, `download_prebuilt`). A `Shipped` grammar
+2. **Downloaded** (`Grammar::put_in_cache`, `release_to_download_from`, `download_prebuilt`).
+   `load` calls `load_with_compiler` with `c_compiler(&SystemEnv)`; a `Grammar` struct carries
+   the cache, the name, the source and that compiler through the steps. A `Shipped` grammar
    with a `{ git, rev }` source asks the cache's release for the file of that exact name: the
    name already says the platform. `GrammarCache::user` sets `releases` to `RELEASES`,
    `https://github.com/sorcererdev/sorcerer/releases/download/v<CARGO_PKG_VERSION>`;
@@ -111,12 +113,17 @@ match a project-relative path.
    `<file>.sha256`, refused past 4 KB. `sum_matches` compares the library's SHA-256
    (`sha256_hex`) with the first word of the sum file. Only then does `put_in_place` write the
    bytes beside the library (`aside`) and rename them in. Every failure (no release, a 404,
-   offline, a cut-off or oversized body, an HTML page, a bad sum) is one `DownloadFailed`, and
-   `put_in_cache` falls through to step 3. A project's own grammar, an override and a local
+   offline, a cut-off or oversized body, an HTML page, a bad sum) is a `DownloadFailed` with a
+   few words of why (`request_failed_text`: `no release for 0.1.0` for a 404, `the download
+   timed out`, `its SHA-256 did not match the release's`), and `put_in_cache` falls through
+   to step 3 with it. A project's own grammar, an override and a local
    directory never download. `put_in_cache_and_open` then opens the library; a `Downloaded`
    one that will not open (built for a newer system, or wrong in the release) is deleted and
    built here instead (`build_here`).
-3. **Built** (`build_here`, `build_if_absent`). It fetches a git source into
+3. **Built** (`build_here`, `build_if_absent`). A library another process put in place
+   meanwhile is `Cached`. With no compiler after a failed download it stops before fetching
+   anything, with `Error::NoGrammar`: `couldn't download the python grammar (no release for
+   0.1.0); install a C compiler: xcode-select --install`. Otherwise it fetches a git source into
    `<cache>/src/<name>-<rev7>/` (`fetch`: `check_fetchable` allows only `https`, `ssh`, `git`
    and `file` URLs, since git's `ext::` transport would run a command, then
    `fetch_commit_into` runs `git fetch --depth 1` of the pinned rev) and compiles `parser.c`
@@ -128,19 +135,29 @@ match a project-relative path.
    against the runtime's range, and leaks the library handle so the language outlives
    every parser.
 
-Only two kinds of file reach `libloading`: one this machine compiled, and one whose SHA-256
-matched the `.sha256` beside it on the release. The sum comes from the same server as the
-library, so it guards against a broken or cut-off download, not against the release itself;
-trust in the release is trust in GitHub's https.
+Three kinds of file reach `libloading`: one this machine compiled; one whose SHA-256 matched
+the `.sha256` beside it on the release; and one already in the user's cache under its name,
+which is trusted by name and not checked again (whatever can write the user's cache can put a
+library there). The sum comes from the same server as the library, so it guards against a
+broken or cut-off download, not against the release itself; trust in the release is trust in
+GitHub's https. On Windows a downloaded DLL that opens but fails the ABI check stays mapped and
+cannot be deleted, so its `GrammarAbi` error stands; the ABI is in the file's name, so only a
+mis-built release can cause that.
 
 The cache is the user's (`GrammarCache::user`: `sorcerer/grammars` under the adapter's
 `user_cache_dir`, `~/.cache/sorcerer/grammars` on Linux and macOS,
 `%LOCALAPPDATA%\sorcerer\grammars` on Windows), shared by
-every project. Every write goes to a temporary name and is renamed into place, so a
+every project. When the environment names no user cache directory, `GrammarCache::dir` is
+`Error::NoCacheDir`, `there is no place for the grammar cache: {NO_CACHE_DIR}` (`neither
+XDG_CACHE_HOME nor HOME is set`; on Windows `LOCALAPPDATA is not set`), and every load fails
+with it. There is no fallback under the current directory: `scry lsp` runs in the project, so
+a repository could carry a library there. Every write goes to a temporary name and is renamed into place, so a
 reader never sees half a library and two processes building at once race harmlessly.
 `load` remembers each library once per process, failures included, except a failed fetch
 or file error: being offline at first start must not cost units until a restart. A second
-`load` of a library this process already opened says `Cached`.
+`load` of a library this process already opened says `Cached`. The memo's lock is held while
+a library is put in the cache, so a first download (at most two requests of 60 s each) or a
+compile holds up every other grammar load in the process until it is done.
 
 A missing compiler (`build_if_absent` given `None`, and no library in the cache yet) is
 `Error::NoCompiler`, `no C compiler (cc, gcc or clang) found; install one: {hint}`, with the
