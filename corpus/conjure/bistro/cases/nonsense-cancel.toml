@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 32
+kind = "nonsense"
+expect = "Turn the two prose lines into code: get the booking by input.id, return NotFound(\"there is no booking <id>\") when missing, else remove it and return Ok(None)."

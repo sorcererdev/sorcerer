@@ -1,0 +1,13 @@
+diff --git a/src/bistro/booking/queries/get_day_schedule.py b/src/bistro/booking/queries/get_day_schedule.py
+index 9e8c7d2..e51a6a3 100644
+--- a/src/bistro/booking/queries/get_day_schedule.py
++++ b/src/bistro/booking/queries/get_day_schedule.py
+@@ -28,5 +28,6 @@ class GetDaySchedule:
+         self.bookings = bookings
+ 
+     def handle(self, input: GetDayScheduleInput) -> GetDayScheduleResult:
+-        bookings = [b for b in self.bookings.all() if b.day == input.day]
+-        return GetDayScheduleResult(day=input.day, tables=self.tables.all(), bookings=sorted(bookings, key=lambda b: (b.start, b.table_id)))
++        x = self.tables.all()
++        foo = 12
++        return x

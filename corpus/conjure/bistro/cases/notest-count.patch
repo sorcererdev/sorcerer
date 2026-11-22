@@ -1,0 +1,26 @@
+diff --git a/src/bistro/booking/queries/count_day_bookings.py b/src/bistro/booking/queries/count_day_bookings.py
+new file mode 100644
+index 0000000..49ac9d5
+--- /dev/null
++++ b/src/bistro/booking/queries/count_day_bookings.py
+@@ -0,0 +1,20 @@
++"""How many bookings a day has."""
++
++from dataclasses import dataclass
++from datetime import date
++
++from bistro.booking.ports.booking_repository.booking_repository import BookingRepository
++
++
++@dataclass(frozen=True)
++class CountDayBookingsInput:
++    day: date
++
++
++class CountDayBookings:
++    def __init__(self, bookings: BookingRepository) -> None:
++        """Takes the ports it uses; main.py passes their adapters."""
++        self.bookings = bookings
++
++    def handle(self, input: CountDayBookingsInput) -> int:
++        return sum(1 for b in self.bookings.all() if b.day == input.day)

@@ -1,0 +1,6 @@
+{
+ "model": "haiku",
+ "text": "<goal>fill total</goal>\n<file path=\"src/shop/cart.py\">\nclass Cart:\n    def total(self):\n        return 0\n\n    def empty(self):\n        return True\n</file>\n<file path=\"src/shop/cart__test.py\">\nfrom shop.cart import Cart\n\n\ndef test_total():\n    assert Cart().total() == 0\n</file>\n",
+ "cost_usd": 0.001,
+ "seconds": 2.5
+}

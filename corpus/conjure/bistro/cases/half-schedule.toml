@@ -1,0 +1,4 @@
+file = "src/bistro/booking/queries/get_day_schedule.py"
+line = 31
+kind = "half"
+expect = "Return GetDayScheduleResult(day=input.day, tables=self.tables.all(), bookings=the filtered list sorted by (start, table_id))."

@@ -1,0 +1,13 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..4e98063 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -68,7 +68,7 @@ impl CreateBooking {
+             party: input.party,
+             guest: input.guest,
+         };
+-        self.bookings.save(booking.clone());
++        self.bookings.save(booking.clone())
+         Ok(booking)
+     }
+ }

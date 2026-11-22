@@ -1,0 +1,5 @@
+file = "src/booking/commands/create_booking.rs"
+line = 51
+kind = "bug"
+expect = "Change `>=` back to `>` in the party check: a party equal to the table's seats fits; change nothing else."
+finding = "f-create"

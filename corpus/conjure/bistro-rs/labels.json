@@ -1,0 +1,15 @@
+{
+ "forward": [
+  "bug-create",
+  "bug-schedule",
+  "green-create",
+  "green-schedule",
+  "half-create",
+  "nonsense-create",
+  "nonsense-schedule",
+  "stub-create",
+  "stub-schedule",
+  "syntax-create",
+  "syntax-slot"
+ ]
+}

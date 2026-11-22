@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 32
+kind = "stub"
+expect = "Write the body the two tests describe: get by input.id, NotFound when missing, else remove and return Ok(None)."

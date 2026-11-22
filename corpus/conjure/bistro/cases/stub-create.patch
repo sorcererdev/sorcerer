@@ -1,0 +1,19 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index f136934..6243a92 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -51,13 +51,4 @@ class CreateBooking:
+         self.ids = ids
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
+-        table = self.tables.get(input.table_id)
+-        if table is None:
+-            return TableNotFound(f"there is no table {input.table_id}")
+-        if input.party > table.seats:
+-            return PartyTooLarge(f"table {table.id} seats {table.seats}, not {input.party}")
+-        if any(b.table_id == table.id and b.day == input.day and b.start == input.start for b in self.bookings.all()):
+-            return SlotTaken(f"table {table.id} is booked at {input.start:%H:%M}")
+-        booking = Booking(id=self.ids.next_id(), table_id=table.id, day=input.day, start=input.start, party=input.party, guest=input.guest)
+-        self.bookings.save(booking)
+-        return Ok(booking)
++        raise NotImplementedError("CreateBooking.handle: write its first case in create_booking__test.py, then this")

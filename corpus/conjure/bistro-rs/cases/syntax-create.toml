@@ -1,0 +1,4 @@
+file = "src/booking/commands/create_booking.rs"
+line = 71
+kind = "syntax"
+expect = "Add the missing `;` after `self.bookings.save(booking.clone())`; change nothing else."

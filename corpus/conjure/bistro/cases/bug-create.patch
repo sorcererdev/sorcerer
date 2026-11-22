@@ -1,0 +1,13 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index f136934..f4df030 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -55,7 +55,7 @@ class CreateBooking:
+         if table is None:
+             return TableNotFound(f"there is no table {input.table_id}")
+         if input.party > table.seats:
+-            return PartyTooLarge(f"table {table.id} seats {table.seats}, not {input.party}")
++            return PartyTooLarge(f"table {table.id} has {table.seats} seats")
+         if any(b.table_id == table.id and b.day == input.day and b.start == input.start for b in self.bookings.all()):
+             return SlotTaken(f"table {table.id} is booked at {input.start:%H:%M}")
+         booking = Booking(id=self.ids.next_id(), table_id=table.id, day=input.day, start=input.start, party=input.party, guest=input.guest)

@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 32
+kind = "green"
+expect = "Nothing: the body is complete and both tests pass. Leaving it, or at most a tiny tidy, is forward; a rewrite is churn."

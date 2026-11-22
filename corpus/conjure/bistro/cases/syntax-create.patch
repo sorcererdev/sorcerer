@@ -1,0 +1,13 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index f136934..ac366aa 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -52,7 +52,7 @@ class CreateBooking:
+ 
+     def handle(self, input: CreateBookingInput) -> CreateBookingOutput:
+         table = self.tables.get(input.table_id)
+-        if table is None:
++        if table is None
+             return TableNotFound(f"there is no table {input.table_id}")
+         if input.party > table.seats:
+             return PartyTooLarge(f"table {table.id} seats {table.seats}, not {input.party}")

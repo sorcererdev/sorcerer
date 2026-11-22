@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 32
+kind = "bug"
+expect = "Remove by the booking's id (input.id), not its table_id; change nothing else."

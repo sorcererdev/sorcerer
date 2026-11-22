@@ -1,0 +1,6 @@
+{
+  "model": "haiku",
+  "text": "<goal>Close the missing parenthesis on the `NotFound(...)` call in `CancelBooking.handle` so the file parses again.</goal>\n<file path=\"src/bistro/booking/commands/cancel_booking.py\">\n\"\"\"Cancel a booking.\"\"\"\n\nfrom dataclasses import dataclass\n\nfrom bistro.shared.result import Ok\nfrom bistro.booking.ports.booking_repository.booking_repository import BookingRepository\n\n\n@dataclass(frozen=True)\nclass CancelBookingInput:\n    id: str\n\n\n@dataclass(frozen=True)\nclass NotFound:\n    reason: str\n\n\ntype CancelBookingFailure = (\n    NotFound\n)\n\ntype CancelBookingOutput = Ok[None] | CancelBookingFailure\n\n\nclass CancelBooking:\n    def __init__(self, bookings: BookingRepository) -> None:\n        \"\"\"Takes the ports it uses; main.py passes their adapters.\"\"\"\n        self.bookings = bookings\n\n    def handle(self, input: CancelBookingInput) -> CancelBookingOutput:\n        booking = self.bookings.get(input.id)\n        if booking is None:\n            return NotFound(f\"there is no booking {input.id}\")\n        self.bookings.remove(input.id)\n        return Ok(None)\n</file>",
+  "cost_usd": 0.0007104,
+  "seconds": 1.857
+}

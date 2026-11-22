@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/create_booking.py"
+line = 54
+kind = "stub"
+expect = "Start the body the four tests describe: look up the table (TableNotFound), then party size (PartyTooLarge), taken slot (SlotTaken), save a new booking with ids.next_id() and return Ok(booking); any first slice of that, in that order, is forward."

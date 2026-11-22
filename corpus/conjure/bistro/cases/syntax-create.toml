@@ -1,0 +1,4 @@
+file = "src/bistro/booking/commands/create_booking.py"
+line = 54
+kind = "syntax"
+expect = "Add the missing colon after `if table is None`; change nothing else."

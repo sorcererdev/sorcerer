@@ -165,7 +165,7 @@ clean code passes, and that the same forms pass only in sorcerer-core's own `pla
 directory. CI runs both, and tests the workspace on ubuntu, macOS and Windows.
 
 `.gitattributes` checks every text file out with LF on every platform, and leaves the eval's
-recordings (`corpus/scry/*/{reviews,jev,bare}/`, `checks.json`) and `*.patch` files
+recordings (`corpus/scry/*/{reviews,jev,bare}/`, `checks.json`, `corpus/conjure/*/replies/`) and `*.patch` files
 byte for byte, so a recording key made on macOS matches on Windows.
 
 ## The rule, checked
