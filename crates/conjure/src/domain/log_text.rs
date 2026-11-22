@@ -25,6 +25,7 @@ pub fn choice_word(choice: Choice) -> &'static str {
         Choice::NoChange => "no-change",
         Choice::Failed => "failed",
         Choice::Unanswered => "unanswered",
+        Choice::LandedInPart => "landed-in-part",
     }
 }
 

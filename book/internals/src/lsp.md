@@ -23,7 +23,9 @@ through the `url` crate). There is no async runtime.
 - **The handshake** (`serve::handshake`). It reads the editor's abilities (`serve::abilities_of`:
   `window.workDoneProgress`, `textDocument.publishDiagnostics.relatedInformation`,
   `workspace.applyEdit`, `workspace.workspaceEdit.documentChanges` and whether
-  `workspace.workspaceEdit.resourceOperations` holds `create` and `delete`) and the workspace
+  `workspace.workspaceEdit.resourceOperations` holds `create` and `delete`; an editor that
+  announces any resource operation is taken to accept `documentChanges`, since resource
+  operations exist only there and Neovim 0.12 announces them and not `documentChanges`) and the workspace
   root (the first workspace folder, else `rootUri`), and announces the product's capabilities
   with the text sync replaced by its own (`serve::open_close_and_save`): open and close, save
   without the text, and no `change`, so nothing reaches a product while the person types. A
@@ -60,6 +62,7 @@ thread.
   `window/workDoneProgress/create` and holds the begin (and anything after it) until the
   editor answers, as the protocol asks; a refused create drops them. When the editor did not
   announce `window.workDoneProgress`, every call does nothing.
+- `say(kind, text)`: `window/showMessage`, every time (an answer to what the person just did).
 - `say_once(key, kind, text)`: `window/showMessage`, at most once per key for the life of the
   server; answers whether it was sent.
 - `log(text)`: `window/logMessage`, the editor's log for the server, never shown unasked.
@@ -112,6 +115,15 @@ Two methods have defaults a product may leave alone: `tracks_text()` (false; rea
 handshake, like `capabilities`) and `changed(path, version, text)` (nothing; called after each
 change of an open document, only when `tracks_text` is true). A product that lands edits asks
 `can_apply_edits`, `can_create_files` and `can_delete_files` before it offers to.
+
+Conjure (`crates/conjure/src/adapters/lsp/`, [Conjure](conjure.md#the-server)) is the product that
+tracks text and edits: it reads `text_of` for every open document when a change is asked for,
+sends one `apply_edit` per change (and per undo) with each open file's version, checks
+`text_of` (and the disk) again before it sends, and after the editor answers `applied` checks that
+each file reads as sent. Scry tracks no text and never edits. Two things the editors do
+that a product must allow for: Neovim answers `workspace/applyEdit` before it sends the
+`didChange` for it (its changes are debounced), and checks the version of only the first
+document in an edit.
 
 The tests (`tests/serve.rs`, `tests/jobs.rs`) drive the host over `Connection::memory()` with
 a product that records what reaches it.

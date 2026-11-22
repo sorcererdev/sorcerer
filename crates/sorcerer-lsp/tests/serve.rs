@@ -433,6 +433,23 @@ fn say_once_says_a_key_once() {
 }
 
 #[test]
+fn say_says_every_time() {
+    let editor = Editor::plain();
+    let client = editor.client();
+    client.say(MessageType::INFO, "busy");
+    client.say(MessageType::INFO, "busy");
+    let shown = notifications(&editor, "window/showMessage");
+    assert_eq!(
+        shown,
+        vec![
+            json!({ "type": 3, "message": "busy" }),
+            json!({ "type": 3, "message": "busy" })
+        ]
+    );
+    editor.stop();
+}
+
+#[test]
 fn publish_and_log_reach_the_editor() {
     let editor = Editor::plain();
     let client = editor.client();
@@ -614,6 +631,28 @@ fn apply_edit_delivers_not_applied_on_an_error_reply() {
         })
     );
     editor.stop();
+}
+
+#[test]
+fn an_editor_announcing_resource_operations_takes_document_changes() {
+    // Neovim 0.12 applies documentChanges and announces resource operations, which exist only
+    // inside documentChanges, but does not announce documentChanges itself
+    let neovim = Editor::start(json!({ "workspace": {
+        "applyEdit": true,
+        "workspaceEdit": { "resourceOperations": ["rename", "create", "delete"] }
+    } }));
+    let client = neovim.client();
+    assert!(client.can_apply_edits());
+    assert!(client.can_create_files());
+    assert!(client.can_delete_files());
+    neovim.stop();
+
+    let empty = Editor::start(json!({ "workspace": {
+        "applyEdit": true,
+        "workspaceEdit": { "resourceOperations": [] }
+    } }));
+    assert!(!empty.client().can_apply_edits());
+    empty.stop();
 }
 
 #[test]

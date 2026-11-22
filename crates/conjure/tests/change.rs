@@ -1142,3 +1142,51 @@ fn a_file_without_a_final_newline_keeps_it_when_the_last_line_is_untouched() {
     assert_eq!(change.files[0].edits.len(), 1);
     assert_eq!(change.files[0].edits[0].to_end_of_file, None);
 }
+
+struct SilentWriter;
+
+impl conjure::ports::writer::Writer for SilentWriter {
+    fn write(
+        &self,
+        _: &str,
+        _: &sorcerer_core::Cancel,
+    ) -> sorcerer_models::Result<conjure::ports::writer::Written> {
+        Err(sorcerer_models::Error::Timeout {
+            provider: "claude".into(),
+            seconds: 120,
+        })
+    }
+
+    fn model(&self) -> &str {
+        "haiku"
+    }
+}
+
+#[test]
+fn a_writer_that_does_not_answer_is_told_apart_with_the_unit() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let deps = conjure::usecases::conjure_change::ChangeDeps {
+        writer: &SilentWriter,
+        ..rig.deps()
+    };
+    let refused = conjure_change(&ask("src/shop/cart.py", 3), &deps).unwrap_err();
+    let ChangeRefused::NotAnswered { why, unit, facts } = &refused else {
+        panic!("{refused:?}")
+    };
+    assert_eq!(why, "claude: timed out after 120 s");
+    assert_eq!(unit, "Cart.total");
+    assert!(facts.body_empty);
+    assert_eq!(
+        refused.text(),
+        "conjure: the model did not answer: claude: timed out after 120 s"
+    );
+}
+
+#[test]
+fn a_change_carries_its_units_lines() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert_eq!(change.unit_lines, Span { start: 2, end: 3 });
+}

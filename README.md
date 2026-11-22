@@ -4,9 +4,10 @@ A suite of small tools that read your code alongside you: **scry** (a reviewer i
 margin), **conjure** (one small change where you ask), **spellbook** (conventions). They
 share one core and compose through files in `.sorcerer/`.
 
-**Status: scry is here; conjure's engine and command line are here.** `conjure FILE:LINE`
-conjures one change and prints it, landing nothing; landing it in your editor comes next.
-Spellbook and plans come later.
+**Status: scry is here; conjure is here, through its command line and its language server
+(`conjure lsp`).** In an editor that starts `conjure lsp`, *Conjure here* lands one change in
+your buffers and marks it; `conjure FILE:LINE` prints one and lands nothing. The editor
+extensions for conjure come next; spellbook and plans come later.
 
 ## Try scry
 

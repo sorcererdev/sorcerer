@@ -37,6 +37,8 @@ pub(crate) struct Abilities {
     /// `workspace.applyEdit`: it applies an edit the server sends.
     pub apply_edit: bool,
     /// `workspace.workspaceEdit.documentChanges`: it takes edits tied to a document's version.
+    /// Also true when it announces any `resourceOperations`, which exist only inside
+    /// `documentChanges`.
     pub document_changes: bool,
     /// `workspace.workspaceEdit.resourceOperations` holds `create`: an edit may create a file.
     pub create_files: bool,
@@ -145,12 +147,9 @@ impl Client {
         work_done
     }
 
-    /// Shows a message, at most once per key for the life of the server. Answers whether it
-    /// was shown now.
-    pub fn say_once(&self, key: &str, kind: MessageType, text: &str) -> bool {
-        if !lock(&self.shared.state).said.insert(key.to_string()) {
-            return false;
-        }
+    /// Shows a message, every time it is called: for what the person just asked for, such as
+    /// a command refused because another is running.
+    pub fn say(&self, kind: MessageType, text: &str) {
         self.notify(
             "window/showMessage",
             ShowMessageParams {
@@ -158,6 +157,15 @@ impl Client {
                 message: text.to_string(),
             },
         );
+    }
+
+    /// Shows a message, at most once per key for the life of the server. Answers whether it
+    /// was shown now.
+    pub fn say_once(&self, key: &str, kind: MessageType, text: &str) -> bool {
+        if !lock(&self.shared.state).said.insert(key.to_string()) {
+            return false;
+        }
+        self.say(kind, text);
         true
     }
 

@@ -33,6 +33,11 @@ impl FilesView {
     pub fn project(&self) -> &Project {
         &self.project
     }
+
+    /// The grammar cache this view parses with.
+    pub fn cache(&self) -> &GrammarCache {
+        &self.cache
+    }
 }
 
 impl CodebaseView for FilesView {

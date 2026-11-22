@@ -75,7 +75,9 @@ run log, the settings, the reviewer over a researcher, the wiring). Its module m
 
 `crates/conjure/src/` is in the same five layers: `usecases/conjure_change/` writes one change
 from a place in the code (the unit, what is around it, one writer call, the check) and lands
-nothing; `cli/` prints it, and `doctor`, `cost`, `log` and `trust` look at what conjure keeps.
+nothing; `adapters/lsp/` is the language server that lands it in the editor through one
+`workspace/applyEdit`, marks it and undoes it; `cli/` prints a change, serves `conjure lsp`, and
+`doctor`, `cost`, `log` and `trust` look at what conjure keeps.
 Its module map is in [Conjure](conjure.md).
 
 Two demos show the core working on a real repository: `examples/units.rs` in core and
