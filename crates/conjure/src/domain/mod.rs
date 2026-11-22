@@ -5,6 +5,7 @@ pub mod change_prompt;
 pub mod config;
 pub mod edits;
 pub mod language_tables;
+pub mod log_text;
 pub mod record;
 pub mod reply;
 pub mod rules;

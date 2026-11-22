@@ -6,18 +6,29 @@
 //! Each command reads its arguments, calls one use case and prints what comes back. The exit
 //! code is 0 when a change was conjured (or none was needed), and 2 when conjure could not run.
 
+mod cost;
+mod doctor;
+mod format;
+mod log;
 mod run;
+mod trust;
 
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
-use clap::{Args, Parser};
+use chrono::{FixedOffset, Local};
+use clap::{Args, Parser, Subcommand};
+use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
+use crate::adapters::jsonl_change_store::JsonlChangeStore;
 use crate::adapters::wiring::{Wire, live};
+pub use doctor::{DoctorRow, doctor_rows};
+
 use crate::domain::config::conjure_config;
 use crate::domain::record::Attempt;
 
@@ -29,8 +40,35 @@ use crate::domain::record::Attempt;
     args_conflicts_with_subcommands = true
 )]
 struct Cli {
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
     #[command(flatten)]
     run: RunArgs,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Whether conjure can run here: git, provider, settings, languages, scry's findings, records
+    Doctor,
+    /// What conjure spent, a local day a row
+    Cost {
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        since: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// The last changes the editor recorded, newest first
+    Log {
+        /// How many (10 by default)
+        #[arg(value_parser = clap::value_parser!(u32).range(1..))]
+        n: Option<u32>,
+    },
+    /// Let the editor conjure in this project although its config runs code or moves your key
+    Trust {
+        /// Take the project off the trust list instead
+        #[arg(long)]
+        revoke: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -66,13 +104,13 @@ pub fn main(args: Vec<OsString>, env: &dyn Env, out: &mut dyn Write, err: &mut d
 pub fn main_with(
     args: Vec<OsString>,
     cwd: &Path,
-    _env: &dyn Env,
+    env: &dyn Env,
     wire: Wire,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
     let code = match Cli::try_parse_from(args) {
-        Ok(cli) => match run_command(cli, cwd, wire, out, err) {
+        Ok(cli) => match run_command(cli, cwd, env, wire, out, err) {
             Ok(code) => code,
             Err(e) => {
                 let _ = writeln!(err, "conjure: {e:#}");
@@ -102,16 +140,53 @@ fn print_usage_or_error(e: &clap::Error, out: &mut dyn Write, err: &mut dyn Writ
 fn run_command(
     cli: Cli,
     cwd: &Path,
+    env: &dyn Env,
     wire: Wire,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<i32> {
     let project = Project::open(cwd)?;
+    match cli.cmd {
+        None => conjure_in_project(&cli.run, cwd, project, wire, out, err),
+        Some(Cmd::Doctor) => doctor::doctor(&project, env, &GrammarCache::user(env), out),
+        Some(Cmd::Trust { revoke }) => trust::trust(&project, env, revoke, out),
+        Some(Cmd::Cost { since, json }) => {
+            let offset = local_offset(&project, wire)?;
+            let ledger = JsonlLedger::for_project(&project)?;
+            cost::cost(&ledger, since.as_deref(), offset, json, out)
+        }
+        Some(Cmd::Log { n }) => {
+            let offset = local_offset(&project, wire)?;
+            let store = JsonlChangeStore::for_project(&project)?;
+            let n = n.map_or(log::DEFAULT_COUNT, |n| n as usize);
+            log::show_log(&store, n, offset, out, err)
+        }
+    }
+}
+
+fn conjure_in_project(
+    args: &RunArgs,
+    cwd: &Path,
+    project: Project,
+    wire: Wire,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<i32> {
     let config = conjure_config(&project)?;
-    let attempt = if cli.run.try_harder {
+    let attempt = if args.try_harder {
         Attempt::TryHarder
     } else {
         Attempt::First
     };
-    run::conjure_here(&cli.run, cwd, project, &config, attempt, wire, out, err)
+    run::conjure_here(args, cwd, project, &config, attempt, wire, out, err)
+}
+
+/// The user's time zone: the wiring's clock when it opens (the tests' doubles), else the
+/// system's. These commands need no model, so a wiring that does not open is not an error.
+fn local_offset(project: &Project, wire: Wire) -> Result<FixedOffset> {
+    let config = conjure_config(project)?;
+    Ok(match wire(project.clone(), &config, Attempt::First) {
+        Ok(wired) => wired.clock.offset(),
+        Err(_) => *Local::now().offset(),
+    })
 }
