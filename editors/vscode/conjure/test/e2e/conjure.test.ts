@@ -61,8 +61,10 @@ describe('conjure (fake claude)', () => {
     await until('the new text in the buffer', () => (doc.getText().includes('return x + 1') ? true : undefined), 60_000)
       .catch(err => { throw new Error(`${String(err)}\n${whatConjureKept(ws)}\nmarks: ${JSON.stringify(vscode.languages.getDiagnostics(uri).map(d => d.message))}\nsaid: ${JSON.stringify(said)}`); });
     assert.equal(readFileSync(join(ws, 'a.py'), 'utf8'), 'def f(x):\n    pass\n', 'nothing was saved: the disk still says pass');
+    // compared as URIs: VS Code writes a Windows drive letter in lower case
+    const testUri = vscode.Uri.file(join(ws, 'a__test.py')).toString();
     const testDoc = await until('the test file open',
-      () => vscode.workspace.textDocuments.find(d => d.uri.fsPath === join(ws, 'a__test.py')));
+      () => vscode.workspace.textDocuments.find(d => d.uri.toString() === testUri));
     assert.match(testDoc.getText(), /def test_f\(\):/);
     const marks = await until('the mark',
       () => {
