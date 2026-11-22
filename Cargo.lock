@@ -1434,27 +1434,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scry"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "globset",
- "lsp-server",
- "lsp-types",
- "serde",
- "serde_json",
- "sorcerer-core",
- "sorcerer-lsp",
- "sorcerer-models",
- "tempfile",
- "terminal_size",
- "thiserror",
- "toml",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1623,6 +1602,27 @@ dependencies = [
  "sorcerer-core",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "sorcerer-scry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "globset",
+ "lsp-server",
+ "lsp-types",
+ "serde",
+ "serde_json",
+ "sorcerer-core",
+ "sorcerer-lsp",
+ "sorcerer-models",
+ "tempfile",
+ "terminal_size",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]

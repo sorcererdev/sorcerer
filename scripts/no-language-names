@@ -4,6 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if grep -rnE -i '"(python|rust)"|\.py"|\.rs"' crates/*/src; then
-  echo "a language is named in crates/*/src; languages are data under library/languages/"
+  echo "a language is named in crates/*/src; languages are data under crates/sorcerer-core/library/languages/"
   exit 1
 fi

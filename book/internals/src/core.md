@@ -67,7 +67,7 @@ asks: typing a command in a project is the consent.
 
 `domain/language.rs`. A language is layers of TOML merged in order, then query files:
 
-1. **shipped**: `library/languages/<name>/{language.toml, queries/*.scm}`, embedded in the
+1. **shipped**: `crates/sorcerer-core/library/languages/<name>/{language.toml, queries/*.scm}`, embedded in the
    binary with `include_dir!` (`SHIPPED`);
 2. **project**: `.sorcerer/languages/<name>/`, either file optional.
 

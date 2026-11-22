@@ -1,20 +1,24 @@
 [package]
-name = "scry"
+name = "sorcerer-scry"
 description = "Scry: a code reviewer that finds what a change gets wrong"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
+keywords = ["code-review", "review", "lsp", "tree-sitter", "llm"]
+categories = ["development-tools", "command-line-utilities"]
 
 [lib]
 name = "scry"
 
 [[bin]]
 name = "scry"
+path = "src/main.rs"
 
 [dependencies]
 sorcerer-core.workspace = true
-sorcerer-models = { path = "../sorcerer-models" }
+sorcerer-models.workspace = true
 clap = { version = "4", features = ["derive"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -24,7 +28,7 @@ thiserror.workspace = true
 anyhow.workspace = true
 globset.workspace = true
 terminal_size = "0.4"
-sorcerer-lsp = { path = "../sorcerer-lsp" }
+sorcerer-lsp.workspace = true
 lsp-server.workspace = true
 lsp-types.workspace = true
 

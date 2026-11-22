@@ -1,5 +1,5 @@
 //! Languages as data. Sorcerer's code never names a language: each one is a `language.toml`
-//! and some tree-sitter query files under `library/languages/<name>/`.
+//! and some tree-sitter query files under `crates/sorcerer-core/library/languages/<name>/`.
 //!
 //! A project can change a shipped language, or add one, with the same files under
 //! `.sorcerer/languages/<name>/`. The two are laid one over the other, the project's on top: a
@@ -19,7 +19,7 @@ use include_dir::{Dir, include_dir};
 use crate::{Error, Result};
 
 /// The shipped languages, embedded in the binary.
-static SHIPPED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../library/languages");
+static SHIPPED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/library/languages");
 
 /// The keys core reads; every other key stays in [`Language::rest`].
 const CORE_KEYS: &[&str] = &[

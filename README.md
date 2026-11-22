@@ -19,7 +19,7 @@ In an editor, `scry lsp` is a language server: save a file and each finding appe
 a clean save shows nothing. Neovim (`sorcerer.nvim`) and VS Code (`editors/vscode/scry`) start it
 for you; the user book's "Scry in your editor" chapter says how.
 
-Scry's quality is measured by the eval (`cargo test -p scry --test eval`), which replays recorded
+Scry's quality is measured by the eval (`cargo test -p sorcerer-scry --test eval`), which replays recorded
 reviews of labelled cases in Python and Rust (`corpus/scry/`) and holds them to passing scores.
 
 ## Try the core

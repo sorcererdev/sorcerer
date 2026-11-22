@@ -9,7 +9,9 @@ license = "Apache-2.0"
 repository = "https://github.com/sorcererdev/sorcerer"
 
 [workspace.dependencies]
-sorcerer-core = { path = "crates/sorcerer-core" }
+sorcerer-core = { path = "crates/sorcerer-core", version = "0.1.0" }
+sorcerer-models = { path = "crates/sorcerer-models", version = "0.1.0" }
+sorcerer-lsp = { path = "crates/sorcerer-lsp", version = "0.1.0" }
 tree-sitter = "0.25"
 tree-sitter-language = "0.1"
 libloading = "0.8"

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Refuses a branch that changes crates/ or library/ without touching book/,
+# Refuses a branch that changes crates/ (the shipped languages too) without touching book/,
 # unless one of its commits carries a "Book: <reason>" trailer.
 # Usage: book-check BASE   (exit 0 fine, 1 refused)
 set -euo pipefail
 base=${1:?usage: book-check BASE}
 changed=$(git diff --name-only "$base"...HEAD)
-if ! grep -qE '^(crates|library)/' <<<"$changed"; then exit 0; fi
+if ! grep -qE '^crates/' <<<"$changed"; then exit 0; fi
 if grep -qE '^book/' <<<"$changed"; then exit 0; fi
 if git log --format=%B "$base"..HEAD | grep -qE '^Book: .+'; then exit 0; fi
-echo 'crates/ or library/ changed with no book/ change; add one or a "Book: <reason>" trailer'
+echo 'crates/ changed with no book/ change; add one or a "Book: <reason>" trailer'
 exit 1
