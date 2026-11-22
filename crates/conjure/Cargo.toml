@@ -1,0 +1,43 @@
+[package]
+name = "sorcerer-conjure"
+description = "Conjure: writes one small change where you ask, in your editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["code-generation", "lsp", "tree-sitter", "llm", "editor"]
+categories = ["development-tools", "command-line-utilities"]
+
+[lib]
+name = "conjure"
+
+[[bin]]
+name = "conjure"
+path = "src/main.rs"
+
+[dependencies]
+sorcerer-core.workspace = true
+sorcerer-models.workspace = true
+clap = { version = "4", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+globset.workspace = true
+tree-sitter.workspace = true
+similar = "3"
+sorcerer-lsp.workspace = true
+lsp-server.workspace = true
+lsp-types.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.dist]
+include = ["../../NOTICE"]
