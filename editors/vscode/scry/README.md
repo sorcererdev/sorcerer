@@ -22,6 +22,10 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcer
 
 With Rust: `cargo install sorcerer-scry`.
 
+The installers put `scry` in `~/.local/bin`. Until the extension looks there too, set
+`scry.path` to it, or start VS Code from a shell that has `~/.local/bin` on its PATH (on
+macOS, VS Code started from the Dock may not).
+
 The extension finds `scry` from the `scry.path` setting, then `PATH`, then `~/.cargo/bin`. If it
 finds none it says so once and does nothing else.
 

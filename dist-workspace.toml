@@ -2,8 +2,8 @@
 members = ["cargo:."]
 
 # Releases are built by `dist` (cargo-dist): `.github/workflows/release.yml` is generated from
-# this file by `dist generate` and checked by `dist generate --check` in CI; do not edit it by
-# hand. Only sorcerer-scry is released as a program; the library crates set
+# this file by scripts/release-workflow (dist generate plus one patch, below) and checked by
+# `scripts/release-workflow --check` in CI; do not edit it by hand. Only sorcerer-scry is released as a program; the library crates set
 # `[package.metadata.dist] dist = false`.
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)

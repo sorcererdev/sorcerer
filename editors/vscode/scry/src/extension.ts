@@ -8,7 +8,7 @@ const INSTALL_LINE =
     ? 'powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"'
     : "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh";
 
-export const NOT_FOUND = `scry was not found. Install it with: ${INSTALL_LINE} (or cargo install sorcerer-scry, or set scry.path).`;
+export const NOT_FOUND = `scry was not found. Install it with: ${INSTALL_LINE} (or cargo install sorcerer-scry). Installed already? The installers put it in ~/.local/bin: set scry.path to it, or start VS Code from a shell with ~/.local/bin on PATH.`;
 
 // one `scry lsp` per workspace folder, keyed by the folder's uri
 const clients = new Map<string, LanguageClient>();

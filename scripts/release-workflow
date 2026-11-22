@@ -11,15 +11,17 @@ workflow=.github/workflows/release.yml
 work=$(mktemp -d)
 cp "$config" "$work/config"
 cp "$workflow" "$work/committed"
-trap 'cp "$work/config" "$config"; rm -rf "$work"' EXIT
+check=${1:-}
+# on any exit, even an interrupted one: the config as it was, and with --check the committed
+# release.yml
+trap 'cp "$work/config" "$config"; if [ "$check" = "--check" ]; then cp "$work/committed" "$workflow"; fi; rm -rf "$work"' EXIT
 
 # without allow-dirty, dist generate rewrites the file
 grep -v '^allow-dirty' "$work/config" > "$config"
 dist generate --mode=ci > /dev/null 2>&1
 sed 's|uses: \$/\.github/|uses: ./.github/|' "$workflow" > "$work/generated"
 
-if [ "${1:-}" = "--check" ]; then
-  cp "$work/committed" "$workflow"
+if [ "$check" = "--check" ]; then
   if ! diff -u "$work/committed" "$work/generated"; then
     echo "release.yml is not what scripts/release-workflow generates; run it and commit the file"
     exit 1

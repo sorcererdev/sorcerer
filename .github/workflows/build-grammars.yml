@@ -16,7 +16,8 @@ jobs:
         # the runners dist builds scry on (dist plan), so a grammar loads wherever scry runs:
         # the same glibc floor on Linux
         runner: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel, windows-2022]
-      fail-fast: true
+      # every runner reports; any failure still keeps the release from publishing
+      fail-fast: false
     runs-on: ${{ matrix.runner }}
     env:
       # the oldest macOS scry itself runs on, so the library loads there too
