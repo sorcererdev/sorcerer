@@ -18,3 +18,11 @@ name = [
   '^[[:space:]]*impl(<.*>)?[[:space:]]+([[:alnum:]_]+)',
   '^[[:space:]]*(pub[^[:space:]]*[[:space:]]+)?((async|const|unsafe|extern)[[:space:]]+)*(fn|struct|enum|trait|mod)[[:space:]]+([[:alnum:]_]+)',
 ]
+
+# Rust tests live in the file itself; `use crate::a::b` names `src/a/b.rs` (conjure reads these).
+[test]
+tests_for = "{= dir =}/{= stem =}.rs"
+
+[imports]
+resolve = ["src/{= path =}.rs", "src/{= path =}/mod.rs"]
+drop_first = ["crate"]

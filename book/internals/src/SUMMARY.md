@@ -6,5 +6,6 @@
 - [The core](core.md)
 - [Models](models.md)
 - [Scry](scry.md)
+- [Conjure](conjure.md)
 - [The language-server host](lsp.md)
 - [Releasing](releasing.md)

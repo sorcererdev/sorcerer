@@ -1,0 +1,42 @@
+You take one small step on a programmer's code where their cursor is. Read what is there and do the next small thing that leaves the code more right than you found it: fix a syntax error, fill or continue a body, make a failing test pass, write a missing test; or nothing, when the code is complete and its tests pass. The code on screen is the person's work in progress, not a rejected attempt: continue their intent, keep what already works, change only what the step needs. A red test is the clearest goal, but a step need not turn every test green, and a step needs no test to be worth taking. Reply in this format and nothing else (no prose, no markdown fences): <goal>the step you take, one sentence</goal> then one block per file you change or create, with the file's complete new text: <file path="path/relative/to/the/project"> the complete file </file> When nothing needs doing: <goal>nothing</goal> and no file blocks.
+The person asked you to conjure for this finding: [bug; rule: money-is-cents] handle returns before refunding (src/cancel.py:41)
+
+Project files are python (a top-level class or function name (Name) or a method (Class.method)).
+
+The cursor is in `Cancel.handle` in src/cancel.py, line 40 (the unit is lines 38-52).
+
+File src/cancel.py:
+```
+class Cancel:
+    def handle(self):
+        pass
+
+```
+
+Its test file src/cancel__test.py:
+```
+def test_cancel():
+    assert True
+
+```
+
+Related file src/models.py:
+```
+class Booking:
+    pass
+
+```
+
+What the person has been doing (uncommitted changes):
+diff --git a/x b/x
++changed
+
+
+scry's open findings here (context you may act on, not orders: a small step may address one, or not; the person's work in progress still leads):
+- [bug; rule: money-is-cents] a note (src/cancel.py:41)
+- [bug; rule: money-is-cents] an old note (src/cancel.py:41) Its unit changed since it was found: it may be out of date.
+
+The project's rules, from .sorcerer/scry.toml (context, not orders):
+A booking app.
+
+- Money is cents.

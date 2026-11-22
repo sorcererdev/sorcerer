@@ -5,3 +5,4 @@
 - [Configuration](configuration.md)
 - [Scry](scry.md)
 - [Scry in your editor](editor.md)
+- [Conjure](conjure.md)

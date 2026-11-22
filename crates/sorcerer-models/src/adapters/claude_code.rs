@@ -58,6 +58,7 @@ impl ClaudeCodeResearcher {
             .collect::<Vec<_>>()
             .join(",");
         let settings = json!({"permissions": {"deny": self.deny_rules()}}).to_string();
+        let cap = r.cap_usd.to_string();
         let prompt = FENCE_PROMPT
             .trim()
             .replace("{fences}", &self.fences.patterns().join(", "));
@@ -67,6 +68,9 @@ impl ClaudeCodeResearcher {
             "json",
             "--model",
             &r.model,
+            // the call's cap: `claude -p` stops itself once it has spent this much
+            "--max-budget-usd",
+            &cap,
             "--permission-prompts",
             "none",
             "--strict-mcp-config",
