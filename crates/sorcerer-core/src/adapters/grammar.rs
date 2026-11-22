@@ -129,8 +129,7 @@ pub fn load(
                 why,
             });
     }
-    let result = put_in_cache(cache, name, source, origin)
-        .and_then(|(lib, obtained)| Ok((open_library(name, &lib)?, obtained)));
+    let result = put_in_cache_and_open(cache, name, source, origin);
     if !may_pass(&result) {
         tried.insert(
             path,
@@ -145,6 +144,26 @@ pub fn load(
 
 fn may_pass<T>(result: &Result<T>) -> bool {
     matches!(result, Err(Error::GrammarFetch { .. } | Error::Io { .. }))
+}
+
+/// Puts the grammar's library in the cache and opens it. A downloaded library that will not
+/// open (built for a newer system than this one, or simply wrong) is deleted and the grammar
+/// compiled here instead.
+fn put_in_cache_and_open(
+    cache: &GrammarCache,
+    name: &str,
+    source: &GrammarSource,
+    origin: GrammarOrigin,
+) -> Result<(tree_sitter::Language, GrammarObtained)> {
+    let (lib, obtained) = put_in_cache(cache, name, source, origin)?;
+    match open_library(name, &lib) {
+        Err(_) if obtained == GrammarObtained::Downloaded => {
+            let _ = std::fs::remove_file(&lib);
+            let (lib, built) = build_here(cache, name, source)?;
+            Ok((open_library(name, &lib)?, built))
+        }
+        opened => Ok((opened?, obtained)),
+    }
 }
 
 /// Makes sure the cache holds the grammar's library and returns its path, with how it got
@@ -163,6 +182,16 @@ fn put_in_cache(
     if may_download(source, origin) && download_prebuilt(cache, &lib).is_ok() {
         return Ok((lib, GrammarObtained::Downloaded));
     }
+    build_here(cache, name, source)
+}
+
+/// Fetches and compiles the grammar with this machine's C compiler: the library's path, and
+/// `Built` with the compiler's name.
+fn build_here(
+    cache: &GrammarCache,
+    name: &str,
+    source: &GrammarSource,
+) -> Result<(PathBuf, GrammarObtained)> {
     let compiler = c_compiler(&SystemEnv);
     let lib = build_if_absent(cache, name, source, compiler.as_ref())?;
     Ok((

@@ -500,3 +500,32 @@ fn the_release_url_names_this_version() {
         )
     );
 }
+
+#[test]
+fn a_downloaded_library_that_will_not_load_is_compiled_instead() {
+    // the sum matches, but the file is no library for this machine (a release built wrong,
+    // or for an older system than this one): it is deleted and the grammar compiled here
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    let not_a_library = b"\x7fELF but not really".to_vec();
+    server
+        .mock("GET", format!("/{file}").as_str())
+        .with_body(&not_a_library)
+        .create();
+    server
+        .mock("GET", format!("/{file}.sha256").as_str())
+        .with_body(sha256_line(&not_a_library, &file))
+        .create();
+
+    let (lang, obtained) =
+        grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    assert!(
+        matches!(obtained, GrammarObtained::Built { .. }),
+        "{obtained:?}"
+    );
+    assert!(lang.node_kind_count() > 0);
+    assert_ne!(std::fs::read(d.path().join(&file)).unwrap(), not_a_library);
+}
