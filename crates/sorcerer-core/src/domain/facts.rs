@@ -45,6 +45,25 @@ pub fn facts_of(lang: &Loaded, text: &str, unit: &Unit) -> Result<Facts> {
     })
 }
 
+/// The lines (counted from 1) where the parser found an error or a missing token anywhere in a
+/// file, each line once, in order. When the parser gives up, the list is empty.
+///
+/// Example: for `def f(x):\n    return x +\n\ndef g():\n    return 1\n`, the list is `[2]`;
+/// a file that parses gives `[]`.
+pub fn parse_errors_of(lang: &Loaded, text: &str) -> Result<Vec<u32>> {
+    let Some(tree) = lang.parse(text)? else {
+        return Ok(Vec::new());
+    };
+    let whole_file = Span {
+        start: 1,
+        end: u32::MAX,
+    };
+    let mut lines = parse_error_lines(&nodes_sharing_lines_with(&tree, whole_file), whole_file);
+    lines.sort_unstable();
+    lines.dedup();
+    Ok(lines)
+}
+
 /// A syntax node with the name of the field it fills in its parent (`body`, `name`, …), if any.
 type NodeInField<'t> = (Node<'t>, Option<&'static str>);
 

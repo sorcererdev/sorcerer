@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response, ResponseError};
 use lsp_types::{
-    SaveOptions, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncOptions,
-    TextDocumentSyncSaveOptions,
+    SaveOptions, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
 };
 use serde_json::{Value, json};
 
@@ -21,8 +21,20 @@ pub trait Product {
     fn capabilities() -> ServerCapabilities
     where
         Self: Sized;
+    /// Whether the product wants the open documents' text. When it does, the editor is asked to
+    /// send the whole text on every change, the host keeps each open document's version and
+    /// text ([`Client::text_of`]), and [`Product::changed`] is called. Most products do not.
+    fn tracks_text() -> bool
+    where
+        Self: Sized,
+    {
+        false
+    }
     /// The editor opened a file.
     fn opened(&mut self, path: &Path);
+    /// The person changed an open file: its new version and whole text. Called only for a
+    /// product that tracks text, after the host has kept the text.
+    fn changed(&mut self, _path: &Path, _version: i32, _text: &str) {}
     /// The editor closed a file.
     fn closed(&mut self, path: &Path);
     /// The editor saved a file.
@@ -45,11 +57,12 @@ pub fn unknown_method(method: &str) -> ResponseError {
 /// Serves a product over a connection until the editor says `exit` or hangs up.
 ///
 /// 1. The handshake: the editor's abilities and its workspace root are read, and the
-///    product's capabilities are announced with text sync forced to open, close and save.
+///    product's capabilities are announced with text sync forced to open, close and save,
+///    plus the whole text on each change for a product that tracks text.
 /// 2. `make` builds the product with the client and the root (the first workspace folder,
 ///    else `rootUri`; `None` when the editor sent neither).
 /// 3. The loop: opens, closes and saves of `file:` documents go to the product (other URIs are
-///    dropped), requests are answered by it, replies go to whatever waits for them, and
+///    dropped), and changes too when it tracks text, requests are answered by it, replies go to whatever waits for them, and
 ///    `shutdown` is passed on and answered.
 /// 4. The end: when the editor hung up without `exit`, the product is shut down too, and
 ///    every question still waiting for a reply is dropped.
@@ -57,7 +70,12 @@ pub fn serve<P: Product>(
     connection: Connection,
     make: impl FnOnce(Client, Option<PathBuf>) -> P,
 ) -> anyhow::Result<()> {
-    let (client, root) = handshake(&connection, &P::capabilities())?;
+    let tracks_text = if P::tracks_text() {
+        TracksText::Yes
+    } else {
+        TracksText::No
+    };
+    let (client, root) = handshake(&connection, &P::capabilities(), tracks_text)?;
     let mut product = make(client.clone(), root);
     let mut said_exit = false;
     for message in &connection.receiver {
@@ -81,26 +99,43 @@ pub fn serve<P: Product>(
     Ok(())
 }
 
+/// Whether the product keeps the open documents' text ([`Product::tracks_text`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TracksText {
+    Yes,
+    No,
+}
+
 /// Answers `initialize` and waits for `initialized`.
 fn handshake(
     connection: &Connection,
     capabilities: &ServerCapabilities,
+    tracks_text: TracksText,
 ) -> anyhow::Result<(Client, Option<PathBuf>)> {
     let (id, params) = connection.initialize_start()?;
     let announced = ServerCapabilities {
-        text_document_sync: Some(open_close_and_save()),
+        text_document_sync: Some(open_close_and_save(tracks_text)),
         ..capabilities.clone()
     };
     connection.initialize_finish(id, json!({ "capabilities": announced }))?;
-    let client = Client::new(connection.sender.clone(), abilities_of(&params));
+    let client = Client::new(
+        connection.sender.clone(),
+        abilities_of(&params),
+        tracks_text,
+    );
     Ok((client, workspace_root(&params)))
 }
 
-/// Opens, closes and saves (without the text), and no change while the person types.
-fn open_close_and_save() -> TextDocumentSyncCapability {
+/// Opens, closes and saves (without the text). While the person types, nothing for a product
+/// that does not track text; the whole text on each change for one that does.
+fn open_close_and_save(tracks_text: TracksText) -> TextDocumentSyncCapability {
+    let change = match tracks_text {
+        TracksText::Yes => Some(TextDocumentSyncKind::FULL),
+        TracksText::No => None,
+    };
     TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
         open_close: Some(true),
-        change: None,
+        change,
         will_save: None,
         will_save_wait_until: None,
         save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
@@ -109,13 +144,24 @@ fn open_close_and_save() -> TextDocumentSyncCapability {
     })
 }
 
+/// What the editor said it can do, from the `initialize` request's capabilities.
 fn abilities_of(params: &Value) -> Abilities {
     let says = |pointer: &str| params.pointer(pointer).and_then(Value::as_bool) == Some(true);
+    let resource_operation = |operation: &str| {
+        params
+            .pointer("/capabilities/workspace/workspaceEdit/resourceOperations")
+            .and_then(Value::as_array)
+            .is_some_and(|operations| operations.iter().any(|named| named == operation))
+    };
     Abilities {
         work_done_progress: says("/capabilities/window/workDoneProgress"),
         related_information: says(
             "/capabilities/textDocument/publishDiagnostics/relatedInformation",
         ),
+        apply_edit: says("/capabilities/workspace/applyEdit"),
+        document_changes: says("/capabilities/workspace/workspaceEdit/documentChanges"),
+        create_files: resource_operation("create"),
+        delete_files: resource_operation("delete"),
     }
 }
 
@@ -143,16 +189,23 @@ fn answer(connection: &Connection, product: &mut impl Product, request: Request)
     let _ = connection.sender.send(Message::Response(response));
 }
 
-/// An open, a close or a save of a file, passed to the product; the host keeps the open set
-/// first, so the product sees it already changed.
+/// An open, a change, a close or a save of a file, passed to the product; the host keeps the
+/// open set and the text first, so the product sees them already changed. A change reaches only
+/// a product that tracks text.
 fn pass_on(client: &Client, product: &mut impl Product, note: &Notification) {
     let Some(path) = document_path(note) else {
         return;
     };
     match note.method.as_str() {
         "textDocument/didOpen" => {
-            client.opened(&path);
+            client.opened(&path, opened_document(note));
             product.opened(&path);
+        }
+        "textDocument/didChange" if client.tracks_text() => {
+            if let Some((version, text)) = changed_document(note) {
+                client.changed(&path, version, &text);
+                product.changed(&path, version, &text);
+            }
         }
         "textDocument/didClose" => {
             client.closed(&path);
@@ -161,6 +214,22 @@ fn pass_on(client: &Client, product: &mut impl Product, note: &Notification) {
         "textDocument/didSave" => product.saved(&path),
         _ => {}
     }
+}
+
+/// The version and text an open notification carries; `None` when either is missing.
+fn opened_document(note: &Notification) -> Option<(i32, String)> {
+    let version = note.params.pointer("/textDocument/version")?.as_i64()?;
+    let text = note.params.pointer("/textDocument/text")?.as_str()?;
+    Some((i32::try_from(version).ok()?, text.to_string()))
+}
+
+/// The new version and whole text a change notification carries: under full sync the last
+/// content change is the whole document. `None` when either is missing.
+fn changed_document(note: &Notification) -> Option<(i32, String)> {
+    let version = note.params.pointer("/textDocument/version")?.as_i64()?;
+    let changes = note.params.pointer("/contentChanges")?.as_array()?;
+    let text = changes.last()?.get("text")?.as_str()?;
+    Some((i32::try_from(version).ok()?, text.to_string()))
 }
 
 /// The file a document notification is about; `None` for any other notification or a URI

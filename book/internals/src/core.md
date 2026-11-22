@@ -239,6 +239,10 @@ placeholders in `EMPTY_BODY_KINDS` (`pass_statement`, `ellipsis`), and a `macro_
 of `todo` or `unimplemented`. No language is named. Scry v1 does not use facts; conjure
 does.
 
+`parse_errors_of(loaded, text)` is the same parse-error reading over the whole file: the lines
+(from 1) of every error or missing node, each once, in order, and an empty list when the parser
+gives up. Conjure checks a changed file with it ("parses", or "does not parse (line N)").
+
 ## The codebase view
 
 `ports/view.rs`. Products and the researcher's tools never touch the file system directly: they

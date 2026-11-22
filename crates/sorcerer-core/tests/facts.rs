@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_lines)]
 mod support;
 
-use sorcerer_core::domain::facts::{Facts, facts_of};
+use sorcerer_core::domain::facts::{Facts, facts_of, parse_errors_of};
 use sorcerer_core::domain::unit::units_of;
 
 fn facts(lang: &str, text: &str, unit: &str) -> Facts {
@@ -58,4 +58,16 @@ fn a_body_of_only_pass_or_ellipsis_or_todo_macro_is_empty() {
 fn a_body_with_a_statement_is_not() {
     assert!(!facts("python", "def f():\n    return 1\n", "f").body_empty);
     assert!(!facts("rust", "fn f() {\n    println!(\"x\")\n}\n", "f").body_empty);
+}
+
+#[test]
+fn parse_errors_of_lists_every_error_line_in_the_file() {
+    let l = support::languages_with_vendored_grammars()
+        .load("python", &support::test_cache())
+        .unwrap();
+    let broken =
+        "def f(x):\n    return x +\n\ndef g():\n    return 1\n\ndef h(y):\n    return y *\n";
+    assert_eq!(parse_errors_of(&l, broken).unwrap(), vec![2, 8]);
+    let clean = "def f(x):\n    return x + 1\n";
+    assert_eq!(parse_errors_of(&l, clean).unwrap(), Vec::<u32>::new());
 }

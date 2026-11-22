@@ -16,10 +16,8 @@ use sorcerer_core::domain::language::Languages;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::view::CodebaseView;
-use sorcerer_models::adapters::claude_code::ClaudeCodeResearcher;
 use sorcerer_models::adapters::jev::Jev;
-use sorcerer_models::adapters::providers::default_provider_for;
-use sorcerer_models::adapters::tool_loop::LoopResearcher;
+use sorcerer_models::adapters::researchers::researcher_for;
 use sorcerer_models::domain::claim::Claim;
 use sorcerer_models::ports::decider::Decider;
 use sorcerer_models::ports::researcher::Researcher;
@@ -126,37 +124,6 @@ impl Wiring for LiveWiring {
             review_cancel: &self.review_cancel,
         }
     }
-}
-
-/// The researcher on the project's default model provider. A provider of
-/// kind `claude` runs Claude Code; any other runs sorcerer's tool loop over
-/// the provider, reading the project's files through `view`, within its
-/// fences, and recording each call in its ledger.
-pub fn researcher_for(
-    project: &Project,
-    env: &dyn Env,
-    view: Arc<dyn CodebaseView>,
-) -> Result<Arc<dyn Researcher>> {
-    let (provider, choice) = default_provider_for(project, env)?;
-    let settings = project
-        .config
-        .model
-        .providers
-        .get(&choice.name)
-        .cloned()
-        .unwrap_or_default();
-    // a provider is of the kind its name says unless `kind` says otherwise
-    let kind = settings.kind.clone().unwrap_or_else(|| choice.name.clone());
-    Ok(if kind == "claude" {
-        Arc::new(ClaudeCodeResearcher::new(project, &settings)?)
-    } else {
-        Arc::new(LoopResearcher::new(
-            provider,
-            view,
-            Fences::for_project(project)?,
-            Arc::new(JsonlLedger::for_project(project)?),
-        ))
-    })
 }
 
 /// Jev, set up from `[decide]`, recording each question in the project's

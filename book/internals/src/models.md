@@ -11,7 +11,8 @@
   `decider.rs` (`Decider`).
 - `usecases/check_claim.rs`: the claim check (`CheckClaimDeps`, `check_claim`).
 - `adapters/`: `anthropic.rs`, `claude.rs`, `openai.rs`, `http.rs` (`post_json`),
-  `providers.rs`, `claude_code.rs`, `tool_loop.rs`, `tools.rs`, `jev.rs`, and the doubles
+  `providers.rs`, `claude_code.rs`, `tool_loop.rs`, `tools.rs`, `researchers.rs`
+  (`researcher_for`), `jev.rs`, and the doubles
   `scripted_provider.rs`, `recorded_researcher.rs`, `recorded_decider.rs`.
 
 ## Providers
@@ -105,6 +106,13 @@ There are two ways to get one:
   also denies the project's own files, so that last case is guarded by the prompt alone.
 - **`LoopResearcher`** (`adapters/tool_loop.rs`): core's own tool loop over any provider
   that supports tools.
+
+A product does not choose between them itself: `researcher_for(project, env, view)`
+(`adapters/researchers.rs`) takes the project's default provider (`default_provider_for`) and
+builds `ClaudeCodeResearcher` when its kind is `claude` (a provider is of the kind its name says
+unless `kind` says otherwise), otherwise `LoopResearcher` over the provider, `view`, the
+project's fences and its ledger. Scry's live wiring and its eval's record mode call it; it lives
+here, not in scry, because products never import each other and conjure needs it too.
 
 `RecordedResearcher` (`adapters/recorded_researcher.rs`) answers from `<dir>/<key>.json`, where the
 key is FNV-1a 64 of the model and the prompt. A missing recording is an error, unless a live
