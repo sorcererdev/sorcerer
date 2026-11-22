@@ -118,7 +118,7 @@ impl Pass<'_, '_> {
             .filter(|f| no_longer_hold.contains(&f.id.0) && is_open_or_unverified(f))
             .map(|f| f.id.clone())
             .collect();
-        self.set_status_of(&ids, Status::Resolved);
+        self.close_for_changed_code(&ids, Status::Resolved);
         ids
     }
 
@@ -142,7 +142,7 @@ impl Pass<'_, '_> {
             .filter(|f| self.was_fixed(f, &sent_at, &stored_before, review))
             .map(|f| f.id.clone())
             .collect();
-        self.set_status_of(&ids, Status::Resolved);
+        self.close_for_changed_code(&ids, Status::Resolved);
         ids
     }
 
@@ -245,7 +245,7 @@ impl Pass<'_, '_> {
             })
             .map(|f| f.id.clone())
             .collect();
-        self.set_status_of(&ids, Status::Gone);
+        self.close_for_changed_code(&ids, Status::Gone);
         ids
     }
 
@@ -277,7 +277,7 @@ impl Pass<'_, '_> {
             .filter(|f| is_open_or_unverified(f) && put_back(f))
             .map(|f| f.id.clone())
             .collect();
-        self.set_status_of(&ids, Status::Resolved);
+        self.close_for_changed_code(&ids, Status::Resolved);
         ids
     }
 
@@ -299,6 +299,42 @@ impl Pass<'_, '_> {
                 .map(|u| (u.file.clone(), u.unit.clone()))
                 .collect(),
         )
+    }
+
+    /// Closes each finding in `ids` (resolved or gone, dated now) because
+    /// its code changed, and forgets that the code it was made on was
+    /// reviewed: if the unit comes back to that code, it is sent again
+    /// rather than counted as reviewed with nothing to say.
+    ///
+    /// Example: a finding on `cancel` at fingerprint 0e41bd1 is resolved
+    /// because you put `cancel` back as the base has it. You then redo the
+    /// change: `cancel` is at 0e41bd1 again, and the next pass sends it, so
+    /// the bug shows again. A unit the reviewer answered for in this pass is
+    /// marked reviewed afterwards (`mark_reviewed`), so a finding the
+    /// reviewer itself said no longer holds is not sent again for nothing.
+    fn close_for_changed_code(&mut self, ids: &[FindingId], status: Status) {
+        self.forget_code_reviewed_for(ids);
+        self.set_status_of(ids, status);
+    }
+
+    /// Takes the fingerprint each finding in `ids` was made on out of its
+    /// file's reviewed ones.
+    fn forget_code_reviewed_for(&mut self, ids: &[FindingId]) {
+        let made_on: Vec<(PathBuf, String)> = self
+            .working_copy
+            .findings
+            .iter()
+            .filter(|f| ids.contains(&f.id))
+            .filter_map(|f| Some((f.place.file.clone(), f.place.fingerprint?.to_string())))
+            .collect();
+        for (file, print) in made_on {
+            if let Some(prints) = self.working_copy.reviewed.get_mut(&file) {
+                prints.remove(&print);
+            }
+        }
+        self.working_copy
+            .reviewed
+            .retain(|_, prints| !prints.is_empty());
     }
 
     /// Sets the status of each finding in `ids`, dated now.

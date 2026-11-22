@@ -957,6 +957,75 @@ fn a_save_that_leaves_a_sent_unit_alone_does_not_cancel() {
 }
 
 #[test]
+fn a_save_during_the_checks_is_reviewed_after_the_pass() {
+    use sorcerer_models::domain::claim::{Checked, Claim, Escalation, Verdict};
+    let dir = changed_project();
+    let in_check = Gate::default();
+    let check_may_end = Gate::default();
+    let setup = Setup {
+        checker: Some({
+            let (in_check, may_end) = (in_check.clone(), check_may_end.clone());
+            Box::new(move |_: &Claim| {
+                in_check.open();
+                may_end.wait();
+                Ok(Checked {
+                    verdict: Verdict::Right,
+                    why: "it does".into(),
+                    citations: Vec::new(),
+                    cited: Vec::new(),
+                    escalation: Escalation::No,
+                    errands: Vec::new(),
+                })
+            })
+        }),
+        ..with_progress()
+    };
+    let s = served_with(dir.path(), bug_reviewer(), setup);
+    s.save(&orders(&dir));
+    assert!(in_check.wait());
+    change_cancel(dir.path(), "order.cancel(later=True)");
+    s.save(&orders(&dir));
+    // the save's overtaking check has had time to run before the checks end
+    std::thread::sleep(QUIET);
+    check_may_end.open();
+    s.wait_for_asks(2);
+    let asks = s.doubles.reviewer.asks();
+    assert!(
+        asks[1].units[0].text.contains("later=True"),
+        "{:?}",
+        asks[1].units
+    );
+    s.stop();
+}
+
+#[test]
+fn code_put_back_and_saved_again_shows_its_finding_again() {
+    let dir = changed_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    let shown = s.diagnostics_until(&orders(&dir), WAIT, |d| !d.is_empty());
+    assert!(shown.is_some(), "no finding on the first save");
+    // put back as the base has it: the finding is about code no longer there
+    change_cancel(dir.path(), "order.cancel()");
+    s.save(&orders(&dir));
+    let cleared = s.diagnostics_until(&orders(&dir), WAIT, <[Diagnostic]>::is_empty);
+    assert!(cleared.is_some(), "the finding stayed after the put-back");
+    // the same change again, the code the finding was made on
+    change_cancel(dir.path(), "order.cancel(now=True)");
+    s.save(&orders(&dir));
+    let again = s.diagnostics_until(&orders(&dir), WAIT, |d| !d.is_empty());
+    assert_eq!(
+        s.asks(),
+        2,
+        "the code saved again was not sent to the reviewer"
+    );
+    let again = again.expect("the change saved again shows its finding again");
+    assert_eq!(again[0].message, "cancel ignores now");
+    s.stop();
+}
+
+#[test]
 fn a_failed_review_ends_the_line_with_the_log_hint() {
     let dir = changed_project();
     let s = served_with(
