@@ -1,0 +1,4 @@
+file = "src/booking/commands/create_booking.rs"
+line = 46
+kind = "half"
+expect = "Continue after the table lookup: refuse a party larger than the table (PartyTooLarge, \"table t1 seats 4, not 6\"), refuse a taken slot (SlotTaken), then build the Booking with ids.next_id(), save it and return Ok(booking)."

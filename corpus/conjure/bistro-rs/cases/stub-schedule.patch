@@ -1,0 +1,17 @@
+diff --git a/src/booking/queries/get_day_schedule.rs b/src/booking/queries/get_day_schedule.rs
+index c301ca6..4755ead 100644
+--- a/src/booking/queries/get_day_schedule.rs
++++ b/src/booking/queries/get_day_schedule.rs
+@@ -24,11 +24,7 @@ impl GetDaySchedule {
+     }
+ 
+     pub fn handle(&self, day: Day) -> DaySchedule {
+-        DaySchedule {
+-            day,
+-            tables: self.bookings.tables(),
+-            bookings: self.bookings.bookings_on(day),
+-        }
++        todo!()
+     }
+ }
+ 

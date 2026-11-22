@@ -1,0 +1,5 @@
+file = "src/booking/ports/booking_repository/in_memory.rs"
+line = 42
+kind = "bug"
+expect = "Put the day filter back in bookings_on: `.filter(|b| b.slot.day == day)` between iter() and cloned(); change nothing else."
+finding = "f-schedule"

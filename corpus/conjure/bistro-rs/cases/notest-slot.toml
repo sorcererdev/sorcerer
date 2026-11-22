@@ -1,0 +1,4 @@
+file = "src/booking/models/slot.rs"
+line = 55
+kind = "no-test"
+expect = "Add a `#[cfg(test)] mod tests` to slot.rs with tests for Day::weekday, the days-since-epoch round trip and the Day and Time parsers; the code above stays as it is."

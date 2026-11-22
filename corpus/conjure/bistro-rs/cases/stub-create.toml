@@ -1,0 +1,4 @@
+file = "src/booking/commands/create_booking.rs"
+line = 46
+kind = "stub"
+expect = "Start the body the four tests describe: look up the table (TableNotFound), then the party size (PartyTooLarge), the taken slot (SlotTaken), save a new booking with ids.next_id() and return Ok(booking); any first slice of that, in that order, is forward."

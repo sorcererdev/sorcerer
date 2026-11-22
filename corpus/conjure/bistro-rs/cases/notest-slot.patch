@@ -1,0 +1,37 @@
+diff --git a/src/booking/models/slot.rs b/src/booking/models/slot.rs
+index 1b066f2..9f6f9bd 100644
+--- a/src/booking/models/slot.rs
++++ b/src/booking/models/slot.rs
+@@ -125,32 +125,4 @@ pub struct Slot {
+     pub day: Day,
+     pub start: Time,
+ }
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    #[test]
+-    fn a_day_knows_its_weekday() {
+-        assert_eq!(Day::new(2026, 10, 9).weekday(), Weekday::Friday);
+-        assert_eq!(Day::new(1970, 1, 1).weekday(), Weekday::Thursday);
+-    }
+-
+-    #[test]
+-    fn days_since_epoch_round_trips() {
+-        for days in [-1, 0, 20_000, 20_735] {
+-            assert_eq!(Day::from_days_since_epoch(days).days_since_epoch(), days);
+-        }
+-        assert_eq!(Day::from_days_since_epoch(0), Day::new(1970, 1, 1));
+-    }
+-
+-    #[test]
+-    fn days_and_times_parse_and_print() {
+-        let day: Day = "2026-10-09".parse().unwrap();
+-        assert_eq!(day.to_string(), "2026-10-09");
+-        let time: Time = "19:30".parse().unwrap();
+-        assert_eq!(time.to_string(), "19:30");
+-        assert!("2026-13-01".parse::<Day>().is_err());
+-        assert!("25:00".parse::<Time>().is_err());
+-    }
+ }

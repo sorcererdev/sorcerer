@@ -1,0 +1,4 @@
+file = "src/booking/queries/get_day_schedule.rs"
+line = 27
+kind = "green"
+expect = "Nothing: the body is complete and its test passes. Leaving it, or at most a tiny tidy, is forward; a rewrite is churn."

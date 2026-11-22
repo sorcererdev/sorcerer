@@ -1,0 +1,4 @@
+file = "src/booking/queries/get_day_schedule.rs"
+line = 27
+kind = "nonsense"
+expect = "Return a DaySchedule for the day: self.bookings.tables() and self.bookings.bookings_on(day); drop the stray `let x = 12;`."

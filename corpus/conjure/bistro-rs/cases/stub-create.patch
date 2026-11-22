@@ -1,0 +1,39 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..fcec846 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -43,33 +43,7 @@ impl CreateBooking {
+     }
+ 
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
+-        let Some(table) = self.bookings.table(&input.table_id) else {
+-            return Err(CreateBookingFailure::TableNotFound {
+-                reason: format!("there is no table {}", input.table_id),
+-            });
+-        };
+-        if input.party > table.seats {
+-            return Err(CreateBookingFailure::PartyTooLarge {
+-                reason: format!(
+-                    "table {} seats {}, not {}",
+-                    table.id, table.seats, input.party
+-                ),
+-            });
+-        }
+-        if self.bookings.booking_at(&table.id, &input.slot).is_some() {
+-            return Err(CreateBookingFailure::SlotTaken {
+-                reason: format!("table {} is booked at {}", table.id, input.slot.start),
+-            });
+-        }
+-        let booking = Booking {
+-            id: self.ids.next_id(),
+-            table_id: table.id,
+-            slot: input.slot,
+-            party: input.party,
+-            guest: input.guest,
+-        };
+-        self.bookings.save(booking.clone());
+-        Ok(booking)
++        todo!()
+     }
+ }
+ 

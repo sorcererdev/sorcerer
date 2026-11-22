@@ -1,0 +1,28 @@
+{
+ "version": 2,
+ "data": {
+  "findings": [
+   {
+    "id": "f-create",
+    "issue_type": "bug",
+    "rule": null,
+    "statement": "The party check uses >= where the table seats exactly fit a party of that size: a party of 4 at a table of 4 is refused as too large.",
+    "place": {
+     "file": "src/booking/commands/create_booking.rs",
+     "unit": null,
+     "lines": {
+      "start": 51,
+      "end": 51
+     },
+     "unit_start": 51,
+     "fingerprint": null
+    },
+    "evidence": [],
+    "scores": {},
+    "status": "open"
+   }
+  ],
+  "reviewed": {},
+  "capped": {}
+ }
+}

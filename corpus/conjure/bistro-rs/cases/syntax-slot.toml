@@ -1,0 +1,4 @@
+file = "src/booking/models/slot.rs"
+line = 83
+kind = "syntax"
+expect = "Close the `if` block in Day::from_str: put the missing `}` back after `return Err(bad());`; change nothing else."

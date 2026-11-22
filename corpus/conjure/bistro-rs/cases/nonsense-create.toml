@@ -1,0 +1,4 @@
+file = "src/booking/commands/create_booking.rs"
+line = 46
+kind = "nonsense"
+expect = "Turn the two prose lines into code: look the table up (TableNotFound when missing), refuse a party larger than its seats (PartyTooLarge), refuse a taken slot (SlotTaken), then save a new booking with ids.next_id() and return it."

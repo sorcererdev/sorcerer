@@ -1,0 +1,13 @@
+# bistro-rs: conjure's Rust corpus, on a copy of scry's bistro-rs base. The eval
+# (crates/conjure/tests/eval.rs) reads this file.
+name = "bistro-rs"
+language = "rust"
+writer = "haiku"
+
+# Stated 2026-11-22 in the design, before any recording; they move only by a ruling recorded here.
+# `forward_min` is absent on purpose: Rust was never measured, so it is set from the first
+# recording by the corpus rule (hits minus one), with the date.
+[passing_scores]
+parses_min = 12
+in_scope_min = 12
+no_change_on_green_min = 2

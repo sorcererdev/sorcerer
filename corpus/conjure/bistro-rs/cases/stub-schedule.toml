@@ -1,0 +1,4 @@
+file = "src/booking/queries/get_day_schedule.rs"
+line = 27
+kind = "stub"
+expect = "Build the DaySchedule the test describes: the day, self.bookings.tables(), self.bookings.bookings_on(day)."

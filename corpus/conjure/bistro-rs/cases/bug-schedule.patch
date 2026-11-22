@@ -1,0 +1,12 @@
+diff --git a/src/booking/ports/booking_repository/in_memory.rs b/src/booking/ports/booking_repository/in_memory.rs
+index 27ca418..d913c81 100644
+--- a/src/booking/ports/booking_repository/in_memory.rs
++++ b/src/booking/ports/booking_repository/in_memory.rs
+@@ -42,7 +42,6 @@ impl BookingRepository for InMemoryBookingRepository {
+         self.bookings
+             .borrow()
+             .iter()
+-            .filter(|b| b.slot.day == day)
+             .cloned()
+             .collect()
+     }

@@ -1,0 +1,28 @@
+{
+ "version": 2,
+ "data": {
+  "findings": [
+   {
+    "id": "f-schedule",
+    "issue_type": "bug",
+    "rule": null,
+    "statement": "bookings_on returns every booking, not only the given day's: the day argument is never used.",
+    "place": {
+     "file": "src/booking/ports/booking_repository/in_memory.rs",
+     "unit": null,
+     "lines": {
+      "start": 42,
+      "end": 47
+     },
+     "unit_start": 42,
+     "fingerprint": null
+    },
+    "evidence": [],
+    "scores": {},
+    "status": "open"
+   }
+  ],
+  "reviewed": {},
+  "capped": {}
+ }
+}

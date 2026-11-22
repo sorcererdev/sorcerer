@@ -1,0 +1,12 @@
+diff --git a/src/booking/models/slot.rs b/src/booking/models/slot.rs
+index 1b066f2..794ea0b 100644
+--- a/src/booking/models/slot.rs
++++ b/src/booking/models/slot.rs
+@@ -82,7 +82,6 @@ impl FromStr for Day {
+         let day: u32 = parts.next().and_then(|p| p.parse().ok()).ok_or_else(bad)?;
+         if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+             return Err(bad());
+-        }
+         Ok(Day { year, month, day })
+     }
+ }
