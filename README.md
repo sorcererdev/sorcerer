@@ -6,8 +6,9 @@ share one core and compose through files in `.sorcerer/`.
 
 **Status: scry is here; conjure is here, through its command line and its language server
 (`conjure lsp`).** In an editor that starts `conjure lsp`, *Conjure here* lands one change in
-your buffers and marks it; `conjure FILE:LINE` prints one and lands nothing. The editor
-extensions for conjure come next; spellbook and plans come later.
+your buffers and marks it; `conjure FILE:LINE` prints one and lands nothing. Neovim
+(`sorcerer.nvim`, opt-in) and VS Code (`editors/vscode/conjure`) start it for you; spellbook
+and plans come later.
 
 ## Try scry
 

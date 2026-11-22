@@ -4,7 +4,7 @@ import { chmod, lstat, mkdir, mkdtemp, readdir, rename, rm, stat, writeFile } fr
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-// The download of scry's own release: which archive fits this machine, fetching it and its
+// The download of a product's (scry's, conjure's) own release: which archive fits this machine, fetching it and its
 // sum, and unpacking the checked binary into the extension's storage. Nothing here asks the
 // user; extension.ts does that.
 
@@ -26,24 +26,28 @@ export function targetFor(platform: NodeJS.Platform, arch: string): string | und
   return targets[`${platform} ${arch}`];
 }
 
-// assetFor is the release file holding scry for a target: a .zip for Windows, a .tar.gz for
-// the others. Its sum is the same name with .sha256 added.
-export function assetFor(target: string): string {
-  return `sorcerer-scry-${target}${target.endsWith('-windows-msvc') ? '.zip' : '.tar.gz'}`;
+// assetFor is the release file holding a product for a target: a .zip for Windows, a .tar.gz
+// for the others. Its sum is the same name with .sha256 added.
+//
+// Example: assetFor('conjure', 'aarch64-apple-darwin') is
+// 'sorcerer-conjure-aarch64-apple-darwin.tar.gz'.
+export function assetFor(product: string, target: string): string {
+  return `sorcerer-${product}-${target}${target.endsWith('-windows-msvc') ? '.zip' : '.tar.gz'}`;
 }
 
-// releaseBase is where the releases are downloaded from: GitHub, or SCRY_RELEASES_URL when it
-// is set (the end-to-end test serves a local release there).
-export function releaseBase(env: NodeJS.ProcessEnv): string {
-  return (env.SCRY_RELEASES_URL ?? RELEASES).replace(/\/+$/, '');
+// releaseBase is where the releases are downloaded from: GitHub, or the product's variable
+// (SCRY_RELEASES_URL, CONJURE_RELEASES_URL) when it is set (the end-to-end test serves a local
+// release there).
+export function releaseBase(product: string, env: NodeJS.ProcessEnv): string {
+  return (env[`${product.toUpperCase()}_RELEASES_URL`] ?? RELEASES).replace(/\/+$/, '');
 }
 
 // assetUrl is the address of a version's archive for a target.
 //
-// Example: assetUrl(base, '0.1.0', 'aarch64-apple-darwin') is
+// Example: assetUrl(base, 'scry', '0.1.0', 'aarch64-apple-darwin') is
 // `${base}/v0.1.0/sorcerer-scry-aarch64-apple-darwin.tar.gz`.
-export function assetUrl(base: string, version: string, target: string): string {
-  return `${base}/v${version}/${assetFor(target)}`;
+export function assetUrl(base: string, product: string, version: string, target: string): string {
+  return `${base}/v${version}/${assetFor(product, target)}`;
 }
 
 // binDir is the directory a version's downloaded binary lives in, inside the extension's
@@ -64,7 +68,7 @@ export function tarProgram(): string {
   return process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
 }
 
-// The largest archive accepted: scry's is about 12 MB.
+// The largest archive accepted: a product's is about 12 MB.
 const MAX_ARCHIVE_BYTES = 200_000_000;
 // How long a scratch directory may sit before it is taken for one a killed VS Code left.
 const STALE_SCRATCH_MS = 3_600_000;
@@ -78,8 +82,8 @@ const STALE_SCRATCH_MS = 3_600_000;
 //    binary into place, make it executable, and clear the scratch directory whatever happened;
 // 4. remove other versions' binaries, which this extension version never runs, and scratch
 //    directories a killed VS Code left.
-export async function install(base: string, version: string, target: string, storage: string): Promise<string> {
-  const url = assetUrl(base, version, target);
+export async function install(base: string, product: string, version: string, target: string, storage: string): Promise<string> {
+  const url = assetUrl(base, product, version, target);
   const [archive, sumText] = await Promise.all([fetched(url, MAX_ARCHIVE_BYTES), fetched(`${url}.sha256`, 4096)]);
   if (sumOf(sumText.toString('utf8')) !== createHash('sha256').update(archive).digest('hex')) {
     throw new Error("the download's checksum did not match; nothing was installed");
@@ -87,7 +91,7 @@ export async function install(base: string, version: string, target: string, sto
   await mkdir(join(storage, 'bin'), { recursive: true });
   const scratch = await mkdtemp(join(storage, 'bin', '.download-'));
   try {
-    const binary = await unpacked(archive, assetFor(target), scratch, binDir(storage, version));
+    const binary = await unpacked(archive, assetFor(product, target), scratch, binDir(storage, version), exeName(product));
     await removeLeftovers(storage, version);
     return binary;
   } finally {
@@ -131,26 +135,29 @@ async function fetched(url: string, max: number): Promise<Buffer> {
 
 // unpacked writes a checked archive into scratch, unpacks it there, and moves the binary to
 // dest.
-async function unpacked(archive: Buffer, asset: string, scratch: string, dest: string): Promise<string> {
+async function unpacked(archive: Buffer, asset: string, scratch: string, dest: string, exe: string): Promise<string> {
   const file = join(scratch, asset);
   const into = join(scratch, 'unpacked');
   await writeFile(file, archive);
   await mkdir(into);
   await promisify(execFile)(tarProgram(), ['-xf', file, '-C', into]);
   await refuseLinks(into, asset);
-  return movedInto(await binaryIn(into, asset), dest);
+  return movedInto(await binaryIn(into, asset, exe), dest, exe);
 }
 
-const EXE = process.platform === 'win32' ? 'scry.exe' : 'scry';
+// exeName is the program's file name on this machine.
+function exeName(product: string): string {
+  return process.platform === 'win32' ? `${product}.exe` : product;
+}
 
 // binaryIn is the unpacked binary: cargo-dist puts it at the top of a .zip and in one
 // directory named for the archive in a .tar.gz (both looked for). It must be a plain file.
-async function binaryIn(into: string, asset: string): Promise<string> {
+async function binaryIn(into: string, asset: string, exe: string): Promise<string> {
   const stem = asset.replace(/\.(zip|tar\.gz)$/, '');
-  for (const path of [join(into, EXE), join(into, stem, EXE)]) {
+  for (const path of [join(into, exe), join(into, stem, exe)]) {
     if ((await lstat(path).catch(() => undefined))?.isFile()) return path;
   }
-  throw new Error(`${asset} holds no ${EXE}; nothing was installed`);
+  throw new Error(`${asset} holds no ${exe}; nothing was installed`);
 }
 
 // refuseLinks fails when the unpacked tree holds a symbolic link anywhere: a link could make
@@ -165,8 +172,8 @@ async function refuseLinks(dir: string, asset: string): Promise<void> {
 // movedInto makes the binary executable and moves it into dest. When the move fails because
 // another window has just installed the same version and runs it (Windows will not replace a
 // running file), that binary is used.
-async function movedInto(found: string, dest: string): Promise<string> {
-  const target = join(dest, EXE);
+async function movedInto(found: string, dest: string, exe: string): Promise<string> {
+  const target = join(dest, exe);
   if (process.platform !== 'win32') await chmod(found, 0o755);
   await mkdir(dest, { recursive: true });
   try {

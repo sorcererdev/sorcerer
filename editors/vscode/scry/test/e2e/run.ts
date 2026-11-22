@@ -112,7 +112,7 @@ function packRelease(dir: string, version: string): string {
   if (!existsSync(binary)) throw new Error(`no scry at ${binary}: run cargo build -p sorcerer-scry, or set SCRY_E2E_BINARY`);
   const target = targetFor(process.platform, process.arch);
   if (!target) throw new Error(`the release has no target for ${process.platform} ${process.arch}`);
-  const asset = assetFor(target);
+  const asset = assetFor('scry', target);
   const stem = asset.replace(/\.(zip|tar\.gz)$/, '');
   const stage = join(dir, 'stage');
   const top = asset.endsWith('.zip') ? stage : join(stage, stem);

@@ -78,6 +78,12 @@ pub fn lexical_relative(root: &Path, written: &str) -> Option<PathBuf> {
     (!kept.is_empty()).then(|| kept.into_iter().collect())
 }
 
+/// Whether two texts are the same but for their line endings: an editor may keep a file with
+/// CRLF lines (VS Code on Windows starts a new file so) where the change was made with LF.
+pub fn same_text(a: &str, b: &str) -> bool {
+    a == b || a.replace("\r\n", "\n") == b.replace("\r\n", "\n")
+}
+
 /// The new text with the base text's line endings: a base of CRLF lines keeps CRLF, one of LF
 /// lines keeps LF. A base with no line ending (or none at all) leaves the text as it is.
 pub fn in_base_line_endings(base: &str, new: &str) -> String {

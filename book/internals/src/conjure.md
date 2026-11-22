@@ -206,6 +206,36 @@ it instead of showing it twice. The session block reads the disk; the editor's u
 reaches the writer through the file, its test file and the related files, which the view
 supplies.
 
+## The editors
+
+Both clients are thin: the server does everything, and each client starts `conjure lsp` per
+project and makes the two things the server cannot make for itself true.
+
+**VS Code** (`editors/vscode/conjure/`). `src/extension.ts` starts one `conjure lsp` per workspace
+folder with VS Code's own language client, whose `documentSelector` is every file under the folder,
+so a file a change opens is seen by the server. Finding the binary and downloading it are
+`src/binary.ts`, `src/download.ts` and `src/offer.ts`, byte-identical copies of scry's
+extension's, which take the product name as their first parameter (`candidates('conjure', …)`,
+`assetFor('conjure', target)`, `install(base, 'conjure', …)`); CI's `vscode` job `diff`s the
+copies, so a change goes into both. `conjure.path` is `"scope": "machine"` and restricted in an
+untrusted workspace, as `scry.path` is. `test/e2e/run.ts` builds a project with the built `fake-claude`
+copied as `claude` first on PATH (conjure picks its `claude` provider when one is on PATH) and
+named as the provider's `runner` in the project's config (VS Code on macOS may put the login
+shell's PATH, with the real `claude`, before the test's), trusts the project with the built `conjure trust` (config and cache
+directories of the run's own: `XDG_*`, or `APPDATA` and `LOCALAPPDATA`), and launches VS Code;
+`test/e2e/conjure.test.ts` runs *Conjure here*, sees the unsaved change in the buffer with the disk
+unchanged, the new test file open and the mark, then *conjure: Undo*. Ubuntu and Windows run it.
+
+**Neovim** (`sorcerer.nvim`, `lua/sorcerer/conjure.lua`; off by default, `conjure = { enabled =
+true }`). `M.attach(buf)` starts `vim.lsp.start({ name = "conjure", cmd, root_dir, flags = {
+debounce_text_changes = 0 } }, { bufnr = buf })` for every file buffer under a project root, on
+`BufReadPost`, `BufNewFile`, `BufWritePost` and `BufEnter` and for the buffers already loaded.
+The flag makes Neovim send each `didChange` at once: Neovim otherwise sends it up to 150 ms late
+and `moved_on` could not see typing in that window. The attach to every buffer matters because
+Neovim checks only the first file's version in a `WorkspaceEdit`, loads an unopened file for an
+edit without conjure attached to it, and the server would then read that file as "did not land as
+sent" (`confirm_landed`). `status()` of the plugin joins scry's and conjure's progress lines.
+
 ## Tests
 
 `tests/change.rs` (the prompt against `tests/golden/change-prompt.txt`, the situation, the

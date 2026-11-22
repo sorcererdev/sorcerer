@@ -41,7 +41,7 @@ use crate::adapters::jsonl_change_store::JsonlChangeStore;
 use crate::adapters::project_context::FilesContext;
 use crate::adapters::why_text::why_text;
 use crate::domain::config::conjure_config;
-use crate::domain::edits::NameCase;
+use crate::domain::edits::{NameCase, same_text};
 use crate::domain::record::{
     Attempt, ChangeRecord, Choice, RECORD_VERSION, RecordedFacts, RecordedFile, Trigger, change_id,
 };
@@ -492,8 +492,8 @@ impl Server {
                 .files
                 .iter()
                 .filter(|file| {
-                    self.client.text_of(&file.editor_path).map(|(_, text)| text)
-                        != Some(file.after.clone())
+                    let now = self.client.text_of(&file.editor_path).map(|(_, text)| text);
+                    !now.is_some_and(|text| same_text(&text, &file.after))
                 })
                 .map(LandedFile::name)
                 .collect()
@@ -659,7 +659,7 @@ impl Server {
             match (&file.before, now) {
                 (None, None) => true,
                 (None, Some(text)) => text.is_empty(),
-                (Some(before), Some(text)) => *before == text,
+                (Some(before), Some(text)) => same_text(before, &text),
                 (Some(_), None) => false,
             }
         })
