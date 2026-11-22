@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use scry::adapters::research_reviewer::ResearchReviewer;
-use scry::adapters::wiring::{claim_checker, jev_for, researcher_for};
+use scry::adapters::wiring::{claim_checker, jev_for};
 use scry::domain::budget::Caps;
 use scry::domain::config::{ScryConfig, scry_config};
 use scry::domain::findings::Findings;
@@ -46,6 +46,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_models::adapters::jev::question_key;
 use sorcerer_models::adapters::recorded_decider::RecordedDecider;
+use sorcerer_models::adapters::researchers::researcher_for;
 use sorcerer_models::domain::claim::{Checked, CitationCheck, Cited, Claim, Escalation, Verdict};
 use sorcerer_models::domain::claim_prompt::RawCitation;
 use sorcerer_models::domain::decide::{Question, Weighed};

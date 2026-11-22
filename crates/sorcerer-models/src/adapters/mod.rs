@@ -9,6 +9,7 @@ pub mod openai;
 pub mod providers;
 pub mod recorded_decider;
 pub mod recorded_researcher;
+pub mod researchers;
 pub mod scripted_provider;
 pub mod tool_loop;
 pub mod tools;
