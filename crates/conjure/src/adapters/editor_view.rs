@@ -20,8 +20,8 @@ use sorcerer_core::ports::view::{CodebaseView, GrepHit};
 /// follow the disk and git, which know nothing of unsaved text: the writer sees the person's
 /// unsaved work through the file it is asked in, its test file and the files it imports.
 ///
-/// Example: with `src/cart.py` open and a function added but not saved, `units("src/cart.py")`
-/// lists the new function, while `diff("src/cart.py", "HEAD")` is still empty.
+/// Example: with a file open and a function added to it but not saved, `units` of the file lists
+/// the new function, while `diff` of the file against `HEAD` is still empty.
 pub struct EditorView {
     files: FilesView,
     /// The open documents' text, by path relative to the root written with `/`.
