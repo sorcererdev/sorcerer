@@ -218,9 +218,10 @@ so a file a change opens is seen by the server. Finding the binary and downloadi
 extension's, which take the product name as their first parameter (`candidates('conjure', …)`,
 `assetFor('conjure', target)`, `install(base, 'conjure', …)`); CI's `vscode` job `diff`s the
 copies, so a change goes into both. `conjure.path` is `"scope": "machine"` and restricted in an
-untrusted workspace, as `scry.path` is. `test/e2e/run.ts` builds a project with a project config
-whose provider `runner` is the built `fake-claude` (VS Code may put another PATH before the
-test's, so a PATH trick is not used), trusts it with the built `conjure trust` (config and cache
+untrusted workspace, as `scry.path` is. `test/e2e/run.ts` builds a project with the built `fake-claude`
+copied as `claude` first on PATH (conjure picks its `claude` provider when one is on PATH) and
+named as the provider's `runner` in the project's config (VS Code on macOS may put the login
+shell's PATH, with the real `claude`, before the test's), trusts the project with the built `conjure trust` (config and cache
 directories of the run's own: `XDG_*`, or `APPDATA` and `LOCALAPPDATA`), and launches VS Code;
 `test/e2e/conjure.test.ts` runs *Conjure here*, sees the unsaved change in the buffer with the disk
 unchanged, the new test file open and the mark, then *conjure: Undo*. Ubuntu and Windows run it.

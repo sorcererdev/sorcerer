@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { runTests } from '@vscode/test-electron';
 
 const ROOT = resolve(__dirname, '../../..');
@@ -9,7 +9,7 @@ const TARGET = resolve(ROOT, '../../../target/debug');
 const EXE = process.platform === 'win32' ? '.exe' : '';
 
 // The end-to-end run: VS Code on a small project, with the real `conjure lsp` and a fake
-// `claude` (the project's runner) that answers every call with one canned change (see conjure.test.ts).
+// `claude` that answers every call with one canned change (see conjure.test.ts).
 // CONJURE_E2E_BINARY and CONJURE_E2E_FAKE_CLAUDE name the programs when they are not the
 // workspace's target/debug builds.
 async function main(): Promise<void> {
@@ -51,8 +51,13 @@ async function run(base: string, conjure: string, fake: string): Promise<void> {
   git('init', '-q');
   git('add', '.');
   git('commit', '-q', '-m', 'start');
-  // the project's own config runs the fake instead of `claude` (VS Code may put another PATH
-  // before ours), which is why the project must be trusted: `conjure trust`, below
+  // conjure picks the `claude` provider when a `claude` is on PATH: the fake, copied there. The
+  // project's own config also runs the fake as the provider's runner, because VS Code on macOS
+  // may put another PATH (the login shell's, with the real `claude`) before ours; a runner is why
+  // the project must be trusted: `conjure trust`, below
+  const bin = join(base, 'bin');
+  mkdirSync(bin);
+  copyFileSync(fake, join(bin, `claude${EXE}`));
   write(join(ws, '.sorcerer/config.toml'), `[model.providers.claude]\nrunner = '${fake}'\n`);
   // conjure.path is read from user settings only
   write(join(base, 'ud', 'User', 'settings.json'), JSON.stringify({ 'conjure.path': conjure }));
@@ -73,6 +78,7 @@ async function run(base: string, conjure: string, fake: string): Promise<void> {
     extensionTestsEnv: {
       CONJURE_E2E_WS: ws,
       FAKE_CLAUDE_REPLY: reply(),
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
       ...dirs,
     },
   });
