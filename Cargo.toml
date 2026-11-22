@@ -40,3 +40,8 @@ crossbeam-channel = "0.5"
 
 [workspace.lints.clippy]
 too_many_lines = "warn"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

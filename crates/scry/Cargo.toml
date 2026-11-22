@@ -37,3 +37,5 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
+[package.metadata.dist]
+include = ["../../NOTICE"]
