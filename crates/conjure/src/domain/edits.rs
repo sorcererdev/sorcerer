@@ -5,6 +5,15 @@ use std::path::{Component, Path, PathBuf};
 
 use similar::{DiffTag, TextDiff};
 
+/// Whether the file system the project is on treats `Foo.py` and `foo.py` as one name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameCase {
+    /// The names are one (macOS and Windows by default).
+    Ignored,
+    /// The names are two (Linux by default).
+    Matters,
+}
+
 /// Whether a path the writer named lands, and if not, why not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Landing {

@@ -81,6 +81,7 @@ fn run_with_env(dir: &Path, env: &MapEnv, rest: &[&str], reply: &str) -> (i32, S
                 ledger: ledger.clone(),
             }),
             ledger,
+            name_case: conjure::domain::edits::NameCase::Matters,
             clock: Arc::new(FixedClock::at("2026-11-22T12:00:00Z".parse().unwrap())),
             project: (*project).clone(),
         })

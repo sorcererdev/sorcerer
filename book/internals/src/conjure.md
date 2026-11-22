@@ -99,8 +99,10 @@ fenced one), the test file, each related file (`related_files` takes an `allowed
 drops a template candidate that is absolute or climbs out with `..`), and each session path
 (`session_of`). A fenced one is left out and named in `Situation::left_out`, which
 `situation_text` prints as one line. Written paths are fenced again on the way out (`landing_of`),
-`exclude` is matched case-insensitively on both the written and the resolved path, and
-`one_block_per_file` makes two spellings of a path one change.
+`exclude` is matched on both the written and the resolved path, and `one_block_per_file` makes two
+spellings of a path one change; both fold case only when `ChangeDeps::name_case` is
+`NameCase::Ignored`, which the wiring asks of `platform::paths::names_ignore_case` (a read-only probe
+of the project root).
 
 ## Related files, the test file and the session
 

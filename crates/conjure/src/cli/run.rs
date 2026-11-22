@@ -52,6 +52,7 @@ pub(super) fn conjure_here(
         ledger: &*wired.ledger,
         clock: &*wired.clock,
         cancel: &cancel,
+        name_case: wired.name_case,
     };
     let request = ChangeRequest {
         file,

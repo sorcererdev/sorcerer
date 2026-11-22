@@ -73,11 +73,11 @@ is refused. Conjure continues your work in progress and keeps what already works
 
 The writer answers with whole files. A file lands as a change only when its path is inside the
 project, not under `.git/` or `.sorcerer/`, not a `.env` file, not outside the project through a
-symbolic link, not in your `[model] not_evidence` and not matched by `[conjure] exclude` (globs ignore case and
-are matched on the path with links resolved, so `Gen/x` and a link into `gen/` are excluded too). The
+symbolic link, not in your `[model] not_evidence` and not matched by `[conjure] exclude` (globs ignore case where your file system does, and
+are matched on the path with links resolved, so a link into `gen/` is excluded too). The
 paths that fail these are dropped and named in `not written:`. A file the writer answers twice
-keeps its last version, whatever the spelling (`src/a.py`, `./src/a.py`, `SRC/a.py` are one
-file), and a file equal to what is there is no change. A file with CRLF line
+keeps its last version, whatever the spelling (`src/a.py` and `./src//a.py` are one file; `SRC/a.py` is too where your
+file system ignores case, as macOS and Windows do by default, and another file where it does not), and a file equal to what is there is no change. A file with CRLF line
 endings stays CRLF, and only the lines the writer changed are edited.
 
 Conjure itself writes nothing to your project, and only its own memory under

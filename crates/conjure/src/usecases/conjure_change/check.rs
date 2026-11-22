@@ -8,8 +8,8 @@ use sorcerer_core::domain::paths::forward_slashes;
 
 use super::{ChangeDeps, ChangeRefused, ChangedFile};
 use crate::domain::edits::{
-    DropReason, Landing, first_changed_line, in_base_line_endings, keep_unterminated_last_line,
-    lexical_relative, line_edits, lines_changed,
+    DropReason, Landing, NameCase, first_changed_line, in_base_line_endings,
+    keep_unterminated_last_line, lexical_relative, line_edits, lines_changed,
 };
 use crate::domain::reply::ChangeReply;
 
@@ -41,13 +41,12 @@ pub(super) fn checked_files(
     Ok((files, dropped))
 }
 
-/// A file named twice under different spellings (`src/a.txt`, `./src//a.txt`, `SRC/A.txt`) is
-/// one file: the last block wins, at its place. Case is ignored in the comparison, since on a
-/// case-insensitive file system the spellings are one file, and a reply that names two files
-/// differing only in case means one of them wrongly anyway.
+/// A file named twice under different spellings (`src/a.txt`, `./src//a.txt`) is one file: the
+/// last block wins, at its place. `SRC/A.txt` is the same file only where the file system
+/// ignores case; where case matters it is another file and stays another change.
 fn one_block_per_file(blocks: &[(String, String)], deps: &ChangeDeps) -> Vec<(String, String)> {
     let key = |written: &str| match lexical_relative(&deps.project.root, written) {
-        Some(relative) => forward_slashes(&relative).to_lowercase(),
+        Some(relative) => same_name(&forward_slashes(&relative), deps.name_case),
         None => written.to_string(),
     };
     let mut kept: Vec<(String, String)> = Vec::new();
@@ -58,11 +57,19 @@ fn one_block_per_file(blocks: &[(String, String)], deps: &ChangeDeps) -> Vec<(St
     kept
 }
 
+/// A path as the file system compares it: lowercased where case is ignored.
+fn same_name(path: &str, case: NameCase) -> String {
+    match case {
+        NameCase::Ignored => path.to_lowercase(),
+        NameCase::Matters => path.to_string(),
+    }
+}
+
 fn exclude_globs(deps: &ChangeDeps) -> Result<GlobSet, ChangeRefused> {
     let mut builder = GlobSetBuilder::new();
     for pattern in &deps.config.exclude {
         let glob = GlobBuilder::new(pattern)
-            .case_insensitive(true)
+            .case_insensitive(deps.name_case == NameCase::Ignored)
             .build()
             .map_err(|e| ChangeRefused::Failed(e.to_string()))?;
         builder.add(glob);

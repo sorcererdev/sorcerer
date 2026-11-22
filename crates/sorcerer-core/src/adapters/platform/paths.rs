@@ -13,6 +13,36 @@ pub fn canonical(path: &Path) -> std::io::Result<PathBuf> {
     dunce::canonicalize(path)
 }
 
+/// Whether the file system holding `dir` treats `Foo.py` and `foo.py` as one name (the default
+/// on macOS and Windows, not on Linux). It looks, without writing: the first entry of `dir`
+/// with a letter in its name is asked for again with the case of its letters flipped, and the
+/// file system answers. A directory with no such entry is taken as case-sensitive.
+///
+/// Example: in a project root holding `.git`, asking for `.GIT` finds it on macOS and not on
+/// Linux.
+pub fn names_ignore_case(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .find(|name| name.chars().any(char::is_alphabetic))
+        .is_some_and(|name| {
+            let flipped: String = name
+                .chars()
+                .map(|c| {
+                    if c.is_lowercase() {
+                        c.to_uppercase().collect::<String>()
+                    } else {
+                        c.to_lowercase().collect::<String>()
+                    }
+                })
+                .collect();
+            dir.join(flipped).symlink_metadata().is_ok()
+        })
+}
+
 /// Makes `link` a symbolic link to `target`, for tests. On Windows a link to a directory and a
 /// link to a file are different kinds, so `target` must exist when this is called there.
 #[doc(hidden)]
@@ -48,6 +78,18 @@ mod tests {
             "{}",
             path.display()
         );
+    }
+
+    #[test]
+    fn names_ignore_case_agrees_with_the_file_system() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(
+            !names_ignore_case(dir.path()),
+            "an empty directory has no answer: false"
+        );
+        std::fs::write(dir.path().join("Probe.txt"), "x").unwrap();
+        let flipped_exists = dir.path().join("pROBE.TXT").exists();
+        assert_eq!(names_ignore_case(dir.path()), flipped_exists);
     }
 
     #[test]

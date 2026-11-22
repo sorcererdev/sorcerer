@@ -534,7 +534,7 @@ fn a_cursor_trigger_is_the_word_cursor_and_ids_are_six_hex_digits() {
 // Task 10: the use case.
 
 use conjure::domain::budget::day_allows;
-use conjure::domain::edits::DropReason;
+use conjure::domain::edits::{DropReason, NameCase};
 use conjure::domain::record::Attempt as AttemptKind;
 use conjure::usecases::conjure_change::{ChangeRefused, ChangeRequest, conjure_change};
 
@@ -958,7 +958,8 @@ fn exclude_ignores_case_and_follows_links() {
         "[conjure]\nexclude = [\"gen/**\"]\n",
     );
     let reply = "<goal>g</goal>\n<file path=\"Gen/x.py\">\nx = 1\n</file>\n<file path=\"g/y.py\">\ny = 1\n</file>\n<file path=\"GEN/z.py\">\nz = 1\n</file>\n";
-    let rig = Rig::new(d.path(), reply);
+    let mut rig = Rig::new(d.path(), reply);
+    rig.name_case = NameCase::Ignored;
     let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
     assert!(change.files.is_empty(), "{:?}", change.files);
     let reasons: Vec<_> = change.dropped.iter().map(|(_, why)| *why).collect();
@@ -969,10 +970,52 @@ fn exclude_ignores_case_and_follows_links() {
 fn two_spellings_of_one_file_are_one_change_and_the_last_wins() {
     let d = cart_project();
     let reply = "<goal>g</goal>\n<file path=\"src/shop/a.py\">\none = 1\n</file>\n<file path=\"./src/shop//a.py\">\ntwo = 2\n</file>\n<file path=\"SRC/shop/A.py\">\nthree = 3\n</file>\n<file path=\"src/x/../shop/a.py\">\nfour = 4\n</file>\n";
-    let rig = Rig::new(d.path(), reply);
+    let mut rig = Rig::new(d.path(), reply);
+    rig.name_case = NameCase::Ignored;
     let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
     assert_eq!(change.files.len(), 1, "{:?}", change.files);
     assert_eq!(change.files[0].after, "four = 4\n");
+}
+
+#[test]
+fn where_case_matters_two_spellings_that_differ_in_case_are_two_files() {
+    let d = cart_project();
+    let reply = "<goal>g</goal>\n<file path=\"src/shop/Foo.py\">\none = 1\n</file>\n<file path=\"./src/shop/foo.py\">\ntwo = 2\n</file>\n<file path=\"src/shop//foo.py\">\nthree = 3\n</file>\n";
+    let mut rig = Rig::new(d.path(), reply);
+    rig.name_case = NameCase::Matters;
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    let after: Vec<_> = change
+        .files
+        .iter()
+        .map(|f| (f.path.to_string_lossy().replace('\\', "/"), f.after.clone()))
+        .collect();
+    assert_eq!(
+        after,
+        [
+            ("src/shop/Foo.py".to_string(), "one = 1\n".to_string()),
+            ("src/shop/foo.py".to_string(), "three = 3\n".to_string())
+        ]
+    );
+}
+
+#[test]
+fn where_case_matters_exclude_matches_case_exactly() {
+    let d = cart_project();
+    write(
+        d.path(),
+        ".sorcerer/config.toml",
+        "[conjure]\nexclude = [\"gen/**\"]\n",
+    );
+    let reply = "<goal>g</goal>\n<file path=\"Gen/x.py\">\nx = 1\n</file>\n<file path=\"gen/y.py\">\ny = 1\n</file>\n";
+    let mut rig = Rig::new(d.path(), reply);
+    rig.name_case = NameCase::Matters;
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert_eq!(change.files.len(), 1);
+    assert_eq!(change.files[0].path, std::path::Path::new("Gen/x.py"));
+    assert_eq!(
+        change.dropped,
+        [("gen/y.py".to_string(), DropReason::Excluded)]
+    );
 }
 
 #[test]

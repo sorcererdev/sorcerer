@@ -132,6 +132,7 @@ pub fn errand(verb: &str, model: &str, cost: f64) -> Errand {
 
 use conjure::adapters::project_context::FilesContext;
 use conjure::domain::config::{ConjureConfig, conjure_config};
+use conjure::domain::edits::NameCase;
 use conjure::ports::writer::{Writer, Written};
 use conjure::usecases::conjure_change::ChangeDeps;
 use sorcerer_core::Cancel;
@@ -183,6 +184,7 @@ pub struct Rig {
     pub ledger: JsonlLedger,
     pub clock: FixedClock,
     pub cancel: Cancel,
+    pub name_case: NameCase,
 }
 
 impl Rig {
@@ -204,6 +206,11 @@ impl Rig {
             writer: StubWriter::replying(reply),
             clock: FixedClock::at("2026-11-22T12:00:00Z".parse().unwrap()),
             cancel: Cancel::default(),
+            name_case: if sorcerer_core::adapters::platform::paths::names_ignore_case(dir) {
+                NameCase::Ignored
+            } else {
+                NameCase::Matters
+            },
         }
     }
 
@@ -218,6 +225,7 @@ impl Rig {
             ledger: &self.ledger,
             clock: &self.clock,
             cancel: &self.cancel,
+            name_case: self.name_case,
         }
     }
 }

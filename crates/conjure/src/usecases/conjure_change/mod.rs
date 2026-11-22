@@ -22,7 +22,7 @@ use sorcerer_core::ports::view::CodebaseView;
 
 use crate::domain::budget::day_allows;
 use crate::domain::config::{ConjureConfig, PRODUCT};
-use crate::domain::edits::{DropReason, LineEdit};
+use crate::domain::edits::{DropReason, LineEdit, NameCase};
 use crate::domain::record::{Attempt, change_id};
 use crate::domain::reply::read_reply;
 use crate::ports::clock::Clock;
@@ -56,6 +56,9 @@ pub struct ChangeDeps<'a> {
     pub ledger: &'a dyn Ledger,
     pub clock: &'a dyn Clock,
     pub cancel: &'a Cancel,
+    /// Whether the project's file system ignores case: it decides which written paths are one
+    /// file and how `exclude` matches.
+    pub name_case: NameCase,
 }
 
 /// One file of a change.

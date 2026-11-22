@@ -8,6 +8,7 @@ use anyhow::{Result, bail};
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
+use sorcerer_core::adapters::platform::paths::names_ignore_case;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
@@ -21,6 +22,7 @@ use crate::adapters::provider_writer::ProviderWriter;
 use crate::adapters::research_writer::ResearchWriter;
 use crate::adapters::system_clock::SystemClock;
 use crate::domain::config::ConjureConfig;
+use crate::domain::edits::NameCase;
 use crate::domain::record::Attempt;
 use crate::ports::clock::Clock;
 use crate::ports::project_context::ProjectContext;
@@ -35,6 +37,8 @@ pub struct Wired {
     pub writer: Box<dyn Writer>,
     pub ledger: Arc<dyn Ledger>,
     pub clock: Arc<dyn Clock>,
+    /// Whether the project's file system ignores case.
+    pub name_case: NameCase,
 }
 
 /// How the command line builds what it needs for the project and the attempt; the tests pass
@@ -49,6 +53,11 @@ pub fn live(
     config: &ConjureConfig,
     attempt: Attempt,
 ) -> Result<Wired> {
+    let name_case = if names_ignore_case(&project.root) {
+        NameCase::Ignored
+    } else {
+        NameCase::Matters
+    };
     let cache = GrammarCache::user(env);
     let view: Arc<dyn CodebaseView> =
         Arc::new(FilesView::new(Arc::new(project.clone()), cache.clone()));
@@ -67,6 +76,7 @@ pub fn live(
         writer,
         ledger,
         clock: Arc::new(SystemClock),
+        name_case,
     })
 }
 
