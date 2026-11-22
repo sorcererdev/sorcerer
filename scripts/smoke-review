@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# The smoke test's one live review, run by .github/workflows/smoke.yml after a release: the
+# bistro demo (corpus/scry/bistro/base) with case b01's planted bug applied, no steering (what
+# a stranger gets), reviewed by the installed `scry` through the Anthropic API. Needs
+# ANTHROPIC_API_KEY and JEV_API_KEY; spends at most $0.20.
+#
+# It fails unless doctor is green and its languages row says the grammar was downloaded, and
+# unless scry exits 1 (a finding shown). It prints doctor's rows, the review and `scry cost`.
+# Usage: scripts/smoke-review   (scry on PATH)
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d)
+cp -R "$here/corpus/scry/bistro/base/." "$work/"
+mkdir -p "$work/.sorcerer"
+cat > "$work/.sorcerer/config.toml" <<'TOML'
+[model]
+provider = "anthropic"
+
+[scry]
+budget_per_pass = 0.20
+budget_per_day = 0.20
+TOML
+cd "$work"
+git init -q -b main
+git add -A
+git -c user.name=smoke -c user.email=smoke@example.com commit -q -m base
+git apply "$here/corpus/scry/bistro/cases/b01.patch"
+
+echo "== scry doctor"
+doctor=$(scry doctor) || { echo "$doctor"; echo "doctor is not green"; exit 1; }
+echo "$doctor"
+if ! grep -E '^languages +ok .*downloaded' <<<"$doctor" > /dev/null; then
+  echo "the languages row does not say downloaded"
+  exit 1
+fi
+
+echo "== scry"
+set +e
+scry --budget 0.20
+reviewed=$?
+set -e
+
+echo "== scry cost"
+scry cost
+if [ "$reviewed" != 1 ]; then
+  echo "scry exited $reviewed, not 1: no finding shown for the planted bug"
+  exit 1
+fi

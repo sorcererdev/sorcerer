@@ -1,0 +1,73 @@
+# After a release: install it the way the README says, on machines with nothing else, and see
+# it work. Run by hand (Actions → smoke → Run workflow, with the version just released).
+#
+# linux: a bare ubuntu:24.04 container (no Rust, no C compiler); the README's shell line; one
+#   live review of the bistro demo with a planted bug (scripts/smoke-review, at most $0.20).
+# windows: the README's PowerShell line; `scry doctor` on the bistro demo; no live review.
+# Both check that the grammar was downloaded, not compiled.
+name: smoke
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "the version just released, such as 0.1.0"
+        required: true
+        type: string
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends curl ca-certificates git
+      - uses: actions/checkout@v4
+      - name: install with the README's line
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: nothing to build with
+        shell: bash
+        run: |
+          for tool in cc gcc clang cargo; do
+            if command -v "$tool"; then echo "$tool is on PATH"; exit 1; fi
+          done
+      - name: the version asked for
+        shell: bash
+        run: test "$(scry --version)" = "scry ${{ inputs.version }}"
+      - name: one live review
+        shell: bash
+        run: scripts/smoke-review
+  windows:
+    runs-on: windows-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: install with the README's line
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"
+          "$HOME\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: the version asked for
+        shell: pwsh
+        run: |
+          $version = scry --version
+          if ($version -ne "scry ${{ inputs.version }}") { throw "scry --version says $version" }
+      - name: doctor on the bistro demo
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP bistro
+          Copy-Item -Recurse corpus/scry/bistro/base $work
+          Set-Location $work
+          git init -q -b main
+          git add -A
+          git -c user.name=smoke -c user.email=smoke@example.com commit -q -m base
+          $doctor = scry doctor
+          $code = $LASTEXITCODE
+          $doctor
+          if ($code -ne 0) { throw "doctor exited $code" }
+          if (-not ($doctor | Select-String -Pattern '^languages +ok .*downloaded')) { throw "the languages row does not say downloaded" }
