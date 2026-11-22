@@ -720,17 +720,17 @@ none.
   program (`/bin/sh`, with an `lsp` script beside it) and the extension would run it on
   startup. `test/unit/binary.test.ts` checks both entries; the download e2e sets a workspace
   `scry.path` and expects it ignored.
-- **`src/binary.ts`**: `candidates(setting, env, home, platform, storage)` lists where `scry`
-  may be, best first: the `scry.path` setting, `scry` (`scry.exe` on `win32`) in each PATH
+- **`src/binary.ts`**: `candidates(product, setting, env, home, platform, storage)` lists where the product
+  (`scry`, or `conjure` for its extension) may be, best first: the `scry.path` setting, `scry` (`scry.exe` on `win32`) in each PATH
   directory, `~/.cargo/bin`, `~/.local/bin`, then `storage`, the extension's
   `bin/<version>/` directory. `find` takes the first that `isExecutable`.
 - **`src/download.ts`**: the release's side, with no VS Code in it. `targetFor(platform,
   arch)` is the target triple (five, as `dist-workspace.toml` builds; anything else is
-  `undefined`); `assetFor(target)` is `sorcerer-scry-<target>.zip` on Windows, else `.tar.gz`;
-  `releaseBase(env)` is GitHub's `releases/download`, or `SCRY_RELEASES_URL` (the e2e test's
-  local release; not documented for users); `releaseSize(url)` asks with a `HEAD` for the
+  `undefined`); `assetFor(product, target)` is `sorcerer-<product>-<target>.zip` on Windows, else `.tar.gz`;
+  `releaseBase(product, env)` is GitHub's `releases/download`, or `<PRODUCT>_RELEASES_URL` (`SCRY_RELEASES_URL` (the e2e test's
+  local release; not documented for users)); `releaseSize(url)` asks with a `HEAD` for the
   offer's size (`undefined` only on 404 or 410: no such release; any other status throws);
-  `install(base, version, target, storage)` fetches the archive (at most 200 MB, `bodyUpTo`)
+  `install(base, product, version, target, storage)` fetches the archive (at most 200 MB, `bodyUpTo`)
   and its `.sha256`, compares the sum (`sumOf` reads cargo-dist's `<hex> *<name>`) before
   anything is written, unpacks with `tar -xf` in a scratch directory under `bin/` (Windows'
   own `System32\tar.exe`, which reads `.zip`; `tarProgram`), refuses a tree holding any
@@ -760,6 +760,12 @@ user settings of that directory), and `download.test.ts`, which packs the real
 accepts the offer through a stubbed `showInformationMessage`, and waits for the real server's
 `scry is not reviewing: …` (the runner has no model provider). CI's `vscode` job runs both on
 ubuntu under `xvfb-run` and the download suite on windows (a flat `.zip`, as the release's).
+
+These three files, `src/binary.ts`, `src/download.ts` and `src/offer.ts`, are shared with the
+Conjure extension (`editors/vscode/conjure/`) by product name: the product is the first
+parameter, and the other extension holds byte-identical copies, which CI's `vscode` job
+`diff`s (change one, copy it to the other). The conjure extension is described in the conjure
+chapter.
 
 ## Test support
 

@@ -55,33 +55,47 @@ jobs:
       - if: matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
         run: scripts/book-check origin/${{ github.base_ref }}
   vscode:
-    # the end-to-end tests: ubuntu runs both suites (the fake server's is Python, which VS
-    # Code's client cannot start on Windows); windows runs the download suite, against the
-    # real scry built here and served as a local release
+    # the end-to-end tests of both extensions. scry: ubuntu runs both suites (the fake
+    # server's is Python, which VS Code's client cannot start on Windows), windows runs the
+    # download suite against the real scry built here and served as a local release. conjure:
+    # ubuntu and windows run its one suite, the real conjure with a fake claude.
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
+        extension: [scry, conjure]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: editors/vscode/scry
+        working-directory: editors/vscode/${{ matrix.extension }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: editors/vscode/scry/package-lock.json
+          cache-dependency-path: editors/vscode/${{ matrix.extension }}/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+      # the download, lookup and offer code is shared by product name, as copies; they must not drift
+      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'conjure'
+        working-directory: .
+        run: |
+          for f in binary download offer; do
+            diff editors/vscode/scry/src/$f.ts editors/vscode/conjure/src/$f.ts
+          done
       - run: npm ci
       - run: npm run lint
       - run: npm run test:unit
       - run: npm run build
-      - run: cargo build -p sorcerer-scry
+      - if: matrix.extension == 'scry'
+        run: cargo build -p sorcerer-scry
+      - if: matrix.extension == 'conjure'
+        run: cargo build -p sorcerer-conjure -p sorcerer-models --bin fake-claude
       - if: matrix.os == 'ubuntu-latest'
         run: xvfb-run -a npm run test:e2e
-      - if: matrix.os == 'windows-latest'
+      - if: matrix.os == 'windows-latest' && matrix.extension == 'scry'
         run: npm run test:e2e
         env:
           SCRY_E2E_SUITES: download
+      - if: matrix.os == 'windows-latest' && matrix.extension == 'conjure'
+        run: npm run test:e2e

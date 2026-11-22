@@ -1,0 +1,69 @@
+{
+  "name": "conjure",
+  "displayName": "Conjure",
+  "description": "Conjure in VS Code: a code action writes one small change through the editor, marks every file it changed, and offers Undo, Try harder and Show why",
+  "publisher": "sorcererdev",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sorcererdev/sorcerer",
+    "directory": "editors/vscode/conjure"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "conjure.path"
+      ],
+      "description": "In Restricted Mode the `conjure.path` setting is not read; conjure is looked up on PATH and in the usual places."
+    }
+  },
+  "contributes": {
+    "configuration": {
+      "title": "Conjure",
+      "properties": {
+        "conjure.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "The `conjure` binary: an absolute path, read from your user settings only (a workspace's settings cannot choose the program the extension runs). Empty: `conjure` (`conjure.exe` on Windows) is looked up on `PATH`, then in `~/.cargo/bin`, `~/.local/bin` and the binary this extension downloaded."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node22 --sourcemap",
+    "compile": "tsc -p .",
+    "lint": "tsc -p . --noEmit && eslint .",
+    "test:unit": "tsc -p . && node --test \"out/test/unit/**/*.test.js\"",
+    "test:e2e": "npm run build && tsc -p . && node out/test/e2e/run.js",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.91.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.14.0",
+    "mocha": "^11.8.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}

@@ -78,7 +78,8 @@ from a place in the code (the unit, what is around it, one writer call, the chec
 nothing; `adapters/lsp/` is the language server that lands it in the editor through one
 `workspace/applyEdit`, marks it and undoes it; `cli/` prints a change, serves `conjure lsp`, and
 `doctor`, `cost`, `log` and `trust` look at what conjure keeps.
-Its module map is in [Conjure](conjure.md).
+Its module map is in [Conjure](conjure.md), which also describes the two editor clients
+(`editors/vscode/conjure/`, and sorcerer.nvim's `conjure.lua`).
 
 Two demos show the core working on a real repository: `examples/units.rs` in core and
 `examples/ask.rs` in models (see the README).

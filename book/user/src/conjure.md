@@ -12,9 +12,36 @@ and Show why. On the command line, `conjure FILE:LINE` prints the change it woul
 
 ## In your editor
 
-Start `conjure lsp` as a language server for your project (the editor extensions come next; any
-editor that starts a language server can start it today; in Neovim:
-`vim.lsp.start({ name = "conjure", cmd = { "conjure", "lsp" }, root_dir = vim.fs.root(0, ".git") })`).
+Install `conjure` (the user book's install chapter has the lines; the release installers are
+`sorcerer-conjure-installer.sh` and `.ps1`, or `cargo install sorcerer-conjure`). It needs
+`claude` on your PATH, signed in, and a project you have trusted (`conjure trust` in it, when
+the project's own config asks for anything that runs code); `conjure doctor` checks both.
+
+**Neovim.** Install [sorcerer.nvim](https://github.com/sorcererdev/sorcerer.nvim) and turn
+conjure on, which it keeps off until you ask:
+
+```lua
+require("sorcerer").setup({ conjure = { enabled = true } })
+vim.keymap.set({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action)
+```
+
+The plugin starts `conjure lsp` on the files you open, one server per project root, and does two
+things the server relies on: it reports every edit at once (`debounce_text_changes = 0`, so a
+change never lands over what you typed a moment ago), and it attaches conjure to every buffer
+under the project root, including the files a change opens (a file the server cannot see counts
+as not landed). Marks show in `vim.diagnostic` (the sign column, `vim.diagnostic.setloclist()`).
+`require("sorcerer").status()` says `conjure: conjuring a change` while one runs (joined to
+scry's line when both work), and `:checkhealth sorcerer` checks that `conjure` is found. If you
+do not use the plugin, `vim.lsp.start({ name = "conjure", cmd = { "conjure", "lsp" }, root_dir =
+vim.fs.root(0, ".git"), flags = { debounce_text_changes = 0 } })` for every buffer under the
+root does the same.
+
+**VS Code.** The `Conjure` extension (`editors/vscode/conjure`) starts `conjure lsp` for each
+workspace folder. It finds the binary from the `conjure.path` setting (user settings only; a
+workspace's settings cannot choose the program it runs), then `PATH`, `~/.cargo/bin` and
+`~/.local/bin`; with none, it offers to download its own version's binary, checked against its
+checksum, as the Scry extension does. The actions are in the quick-fix menu (`Ctrl+.`), the
+marks in the Problems panel.
 
 **Asking.** Put the cursor in a function, or select lines in one, and open the code-action menu
 (`vim.lsp.buf.code_action()` in Neovim, `Ctrl+.` in VS Code). *Conjure here* asks for one change
