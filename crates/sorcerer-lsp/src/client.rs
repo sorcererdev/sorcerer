@@ -44,6 +44,9 @@ pub(crate) struct Abilities {
     pub create_files: bool,
     /// `workspace.workspaceEdit.resourceOperations` holds `delete`: an edit may delete a file.
     pub delete_files: bool,
+    /// `initializationOptions.drawsWorking`: it draws the units being worked on, from
+    /// `sorcerer/working`. Only Sorcerer's own editor extensions say so.
+    pub draws_working: bool,
 }
 
 struct Shared {
@@ -60,6 +63,8 @@ struct State {
     /// Each open document's version and text, for a product that tracks text.
     texts: HashMap<PathBuf, (i32, String)>,
     said: HashSet<String>,
+    /// Whether the editor was last told some units are being worked on.
+    working_shown: bool,
     waiting_for_reply: HashMap<RequestId, OnReply>,
     requests_sent: i32,
 }
@@ -145,6 +150,40 @@ impl Client {
             ..WorkDoneProgressBegin::default()
         }));
         work_done
+    }
+
+    /// Tells the editor which units are being worked on, so it can write `text` after the
+    /// first line of each (`⟳ scry: reviewing…`). Replaces what was shown before. Each place is
+    /// a file and the unit's first line, from 1. Sent as the notification `sorcerer/working`,
+    /// and only to an editor that said at initialize it draws it (`drawsWorking` in the
+    /// initialization options); to any other this does nothing.
+    ///
+    /// Example: `show_working("⟳ scry: reviewing…", &[(orders_py, 12)])`, and when the work is
+    /// over, `clear_working()`.
+    pub fn show_working(&self, text: &str, places: &[(PathBuf, u32)]) {
+        if !self.shared.abilities.draws_working {
+            return;
+        }
+        let units: Vec<Value> = places
+            .iter()
+            .map(|(path, line)| {
+                serde_json::json!({
+                    "uri": uri_of(path),
+                    "line": line.saturating_sub(1),
+                    "text": text,
+                })
+            })
+            .collect();
+        lock(&self.shared.state).working_shown = !units.is_empty();
+        self.notify("sorcerer/working", serde_json::json!({ "units": units }));
+    }
+
+    /// Ends what [`Client::show_working`] showed. Says nothing when nothing is shown.
+    pub fn clear_working(&self) {
+        let was_shown = std::mem::take(&mut lock(&self.shared.state).working_shown);
+        if was_shown {
+            self.show_working("", &[]);
+        }
     }
 
     /// Shows a message, every time it is called: for what the person just asked for, such as

@@ -1,9 +1,11 @@
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
-import { LanguageClient, type LanguageClientOptions, type ServerOptions } from 'vscode-languageclient/node';
+import { LanguageClient, type LanguageClientOptions, type ServerOptions, State } from 'vscode-languageclient/node';
 import { candidates, find, isExecutable } from './binary';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
+import { Working } from './inline';
 import { type OfferEnding, remembered } from './offer';
+import { parseWorking, type WorkingUnit } from './working';
 
 const INSTALL_LINE =
   process.platform === 'win32'
@@ -18,6 +20,8 @@ const MYSELF = "I'll install it myself";
 
 // one `conjure lsp` per workspace folder, keyed by the folder's uri
 const clients = new Map<string, LanguageClient>();
+// what each server is working on, drawn after the units' first lines
+const workings = new Map<string, Working>();
 
 function startFor(binary: string, folder: vscode.WorkspaceFolder): void {
   const key = folder.uri.toString();
@@ -26,11 +30,20 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder): void {
   const options: LanguageClientOptions = {
     documentSelector: [{ scheme: 'file', pattern: `${folder.uri.fsPath}/**` }],
     workspaceFolder: folder,
+    // tells the server this editor draws `sorcerer/working` (see Working)
+    initializationOptions: { drawsWorking: true },
   };
   const lc = new LanguageClient('conjure', 'Conjure', server, options);
   clients.set(key, lc);
+  const working = new Working();
+  workings.set(key, working);
+  lc.onNotification('sorcerer/working', params => working.show(parseWorking(params)));
+  // a server that ends mid-work says no more: what it was working on is taken away
+  lc.onDidChangeState(e => e.newState === State.Stopped && working.clear());
   lc.start().catch(err => {
     clients.delete(key);
+    workings.get(key)?.dispose();
+    workings.delete(key);
     void vscode.window.showErrorMessage(`conjure did not start in ${folder.name}: ${String(err)}`);
   });
 }
@@ -40,18 +53,25 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
   const lc = clients.get(key);
   clients.delete(key);
   if (lc) await lc.stop().catch(() => undefined);
+  workings.get(key)?.dispose();
+  workings.delete(key);
 }
 
 // activate starts `conjure lsp` for each workspace folder with the binary it finds (see
 // candidates); with none, it offers to download this extension's version of conjure and starts
 // once that is in place. The offer is not awaited: VS Code need not wait for the user.
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(context: vscode.ExtensionContext): { drawn(): WorkingUnit[]; everDrawn(): WorkingUnit[] } {
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;
   const setting = vscode.workspace.getConfiguration('conjure').get<string>('path', '');
   const binary = find(candidates('conjure', setting, process.env, homedir(), process.platform, binDir(storage, version)), isExecutable);
   if (binary) serve(context, binary);
   else void offerDownload(context, version, storage).then(downloaded => downloaded && serve(context, downloaded));
+  // for the end-to-end tests: what is drawn now
+  return {
+    drawn: () => [...workings.values()].flatMap(working => working.drawn()),
+    everDrawn: () => [...workings.values()].flatMap(working => working.everDrawn()),
+  };
 }
 
 // serve starts a server for every open folder and for each folder added later.
@@ -150,4 +170,6 @@ export async function deactivate(): Promise<void> {
   const all = [...clients.values()];
   clients.clear();
   await Promise.all(all.map(lc => lc.stop().catch(() => undefined)));
+  for (const working of workings.values()) working.dispose();
+  workings.clear();
 }

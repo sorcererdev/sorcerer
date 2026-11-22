@@ -133,6 +133,10 @@ person must hear goes through `Client::say`, and an error answers only a malform
    reads `open_documents` (an `OpenDocuments`) on the main loop, so the edit is made at the
    versions the person saw when they asked. A thread runs `conjure_and_land` under `work_done("conjure", "conjuring a
    change")`.
+   `conjured` also calls `show_writing` once the view is built: the unit holding the cursor
+   (`unit_at`) gets `⟳ conjure: writing…` through `Client::show_working` (`sorcerer/working`).
+   `ended`, and the error branch of `conjure_and_land`, call `clear_working` with the progress
+   line, so it stays until the edit is answered.
 2. **Conjured.** `conjured` opens the project, checks trust (`needs_trust`, the user's
    `TrustList`), maps the open documents into a `landing::Snapshot` (`snapshot_of`), builds an
    `EditorView` over them, the writer (`cfg.wire`), the ledger, the fences and a `FilesContext`
@@ -234,7 +238,15 @@ The flag makes Neovim send each `didChange` at once: Neovim otherwise sends it u
 and `moved_on` could not see typing in that window. The attach to every buffer matters because
 Neovim checks only the first file's version in a `WorkspaceEdit`, loads an unopened file for an
 edit without conjure attached to it, and the server would then read that file as "did not land as
-sent" (`confirm_landed`). `status()` of the plugin joins scry's and conjure's progress lines.
+sent" (`confirm_landed`). `status()` of the plugin joins scry's and conjure's progress lines. `lua/sorcerer/working.lua`
+draws `sorcerer/working` for both servers: `client_config()` adds `init_options = { drawsWorking =
+true }`, the `sorcerer/working` handler and an `on_exit` that clears, to each `vim.lsp.start`;
+`show` puts one `eol` extmark per unit in the `sorcerer_working` namespace (highlight
+`SorcererWorking`, linked to `Comment`), so it follows edits, and skips a file with no loaded
+buffer. VS Code: `editors/vscode/{scry,conjure}/src/working.ts` (`parseWorking`) and `inline.ts`
+(`Working`, a `TextEditorDecorationType` with `after` text) are copies, as `binary.ts` is; the
+extension sets `initializationOptions: { drawsWorking: true }`, clears on the client's `Stopped`
+state, and `activate` returns `drawn()` and `everDrawn()` for the end-to-end tests.
 
 ## Tests
 
