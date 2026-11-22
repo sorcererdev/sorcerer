@@ -10,12 +10,8 @@ use sorcerer_core::{Error, Result};
 use tree_sitter::{QueryCursor, StreamingIterator};
 
 use crate::domain::language_tables::{ImportsTable, imports_table};
+use crate::domain::situation::{RELATED_FILES, RELATED_LINES};
 use crate::domain::templates::fill;
-
-/// At most 8 related files go into a situation.
-pub const RELATED_FILES: usize = 8;
-/// Each related file is cut to its first 120 lines.
-pub const RELATED_LINES: usize = 120;
 
 /// The project files `file` imports, with the first 120 lines of each, at most 8, in the order
 /// the imports are written. A language with no `imports.scm` has none.
