@@ -64,7 +64,8 @@ describe('conjure (fake claude)', () => {
     // compared as URIs: VS Code writes a Windows drive letter in lower case
     const testUri = vscode.Uri.file(join(ws, 'a__test.py')).toString();
     const testDoc = await until('the test file open',
-      () => vscode.workspace.textDocuments.find(d => d.uri.toString() === testUri));
+      () => vscode.workspace.textDocuments.find(d => d.uri.toString() === testUri))
+      .catch(err => { throw new Error(`${String(err)}\nexpected ${testUri}\nopen: ${vscode.workspace.textDocuments.map(d => d.uri.toString()).join(' ')}`); });
     assert.match(testDoc.getText(), /def test_f\(\):/);
     const marks = await until('the mark',
       () => {
