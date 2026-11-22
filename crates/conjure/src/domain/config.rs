@@ -65,8 +65,12 @@ impl ConjureConfig {
 
     fn budget_problem(&self) -> Option<String> {
         let dollars = self.budget_per_day;
-        (!dollars.is_finite() || dollars < 0.0)
-            .then(|| format!("budget_per_day = {dollars} must not be negative"))
+        if !dollars.is_finite() {
+            return Some(format!(
+                "budget_per_day = {dollars} must be a finite number"
+            ));
+        }
+        (dollars < 0.0).then(|| format!("budget_per_day = {dollars} must not be negative"))
     }
 
     fn writer_problem(&self) -> Option<String> {
@@ -144,6 +148,18 @@ mod tests {
             let (_d, p) = project(Some(&format!("[conjure]\n{toml}\n")));
             let e = conjure_config(&p).unwrap_err().to_string();
             assert!(e.contains(key), "{toml}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_budget_that_is_not_a_finite_number_is_refused() {
+        for value in ["inf", "nan", "-inf"] {
+            let (_d, p) = project(Some(&format!("[conjure]\nbudget_per_day = {value}\n")));
+            let e = conjure_config(&p).unwrap_err().to_string();
+            assert!(
+                e.contains("budget_per_day") && e.contains("finite"),
+                "{value}: {e}"
+            );
         }
     }
 

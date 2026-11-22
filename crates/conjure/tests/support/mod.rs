@@ -93,6 +93,14 @@ impl FixedClock {
     }
 }
 
+impl FixedClock {
+    /// The same clock in ZONE (the user's local offset).
+    pub fn in_zone(mut self, zone: FixedOffset) -> FixedClock {
+        self.zone = zone;
+        self
+    }
+}
+
 impl Clock for FixedClock {
     fn now(&self) -> DateTime<Utc> {
         *self.at.lock().unwrap()

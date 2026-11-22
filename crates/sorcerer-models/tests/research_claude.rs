@@ -63,6 +63,8 @@ fn claude_code_researcher_passes_fences_as_deny_rules() {
     assert_eq!(at("--tools"), "Read,Grep,Glob");
     assert_eq!(at("--allowedTools"), "Read,Grep,Glob");
     assert_eq!(at("--model"), "sonnet");
+    // the research's cap reaches `claude -p`, which stops itself at that spend
+    assert_eq!(at("--max-budget-usd"), "0.25");
     assert!(args.contains(&"--strict-mcp-config".to_string()));
     let settings: serde_json::Value = serde_json::from_str(&at("--settings")).unwrap();
     let deny: Vec<String> =

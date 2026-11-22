@@ -14,8 +14,9 @@ fn related(dir: &Path, lang: &str, file: &str) -> Vec<(String, String)> {
     let (project, view) = project_with_vendored_grammars(dir);
     let loaded = project.languages.load(lang, &test_cache()).unwrap();
     let text = view.text(Path::new(file)).unwrap();
-    related_files(&view, &loaded, Path::new(file), &text)
+    related_files(&view, &loaded, Path::new(file), &text, &|_| true)
         .unwrap()
+        .files
         .into_iter()
         .map(|(p, t)| (p.to_string_lossy().replace('\\', "/"), t))
         .collect()

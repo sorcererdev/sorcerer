@@ -22,7 +22,10 @@ pub(super) fn situation_for(
 ) -> Result<String, ChangeRefused> {
     let failed = |e: sorcerer_core::Error| ChangeRefused::Failed(e.to_string());
     let language = &site.language;
-    let test_file = tests_path(language, &site.file).map_err(failed)?;
+    let mut left_out: Vec<PathBuf> = Vec::new();
+    let test_file = tests_path(language, &site.file)
+        .map_err(failed)?
+        .filter(|path| allowed_or_left_out(deps, path, &mut left_out));
     let test_text = test_file
         .as_deref()
         .and_then(|path| text_if_there(deps, path));
@@ -30,6 +33,7 @@ pub(super) fn situation_for(
         .context
         .related_files(&site.file, &site.text)
         .map_err(failed)?;
+    left_out.extend(related.left_out);
     let findings = scry_findings(deps);
     let notes = notes_near(
         &findings,
@@ -49,12 +53,32 @@ pub(super) fn situation_for(
         module: site.text.clone(),
         test_file,
         test_text,
-        related,
-        session: session_of(deps, language),
+        related: related.files,
+        session: session_of(deps, language, &mut left_out),
         finding_asked,
         notes,
         rules: deps.context.rules(),
+        left_out: without_repeats(left_out),
     }))
+}
+
+/// Whether a model may be shown the file; when not, it is named in `left_out`.
+fn allowed_or_left_out(deps: &ChangeDeps, path: &Path, left_out: &mut Vec<PathBuf>) -> bool {
+    let allowed = deps.fences.allows(path);
+    if !allowed {
+        left_out.push(path.to_path_buf());
+    }
+    allowed
+}
+
+fn without_repeats(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        if !seen.contains(&path) {
+            seen.push(path);
+        }
+    }
+    seen
 }
 
 fn text_if_there(deps: &ChangeDeps, path: &Path) -> Option<String> {
@@ -101,13 +125,17 @@ fn fingerprint_now(deps: &ChangeDeps, file: &Path, lines: Span) -> Option<String
 
 /// The uncommitted work: each changed file's diff, the one touched last first, and the new
 /// files. Outside a git repository there is none.
-fn session_of(deps: &ChangeDeps, language: &Language) -> String {
+fn session_of(deps: &ChangeDeps, language: &Language, left_out: &mut Vec<PathBuf>) -> String {
     let Ok(changed) = deps.view.changed_since("HEAD") else {
         return String::new();
     };
+    let globs = globs_of(language);
     let mut diffs: Vec<(PathBuf, String)> = Vec::new();
     let mut new_files: Vec<PathBuf> = Vec::new();
     for path in changed {
+        if globs.is_match(&path) && !allowed_or_left_out(deps, &path, left_out) {
+            continue;
+        }
         let diff = deps.view.diff(&path, "HEAD").unwrap_or_default();
         if !diff.is_empty() {
             diffs.push((path, diff));
@@ -116,7 +144,7 @@ fn session_of(deps: &ChangeDeps, language: &Language) -> String {
         }
     }
     diffs.sort_by_key(|(path, _)| Reverse(touched_at(deps, path)));
-    session_text(&diffs, &new_files, &globs_of(language))
+    session_text(&diffs, &new_files, &globs)
 }
 
 fn is_new_to_git(deps: &ChangeDeps, path: &Path) -> bool {

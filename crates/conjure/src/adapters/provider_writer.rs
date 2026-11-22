@@ -19,6 +19,28 @@ const MAX_TOKENS: u32 = 8192;
 /// The first call is given 120 seconds.
 const TIMEOUT: Duration = Duration::from_secs(120);
 
+/// What a call that failed after it was sent is counted as in the day's spending: a timed-out
+/// call is usually billed, and the runner says nothing of its cost. A tenth of the day's
+/// default budget, so a run of timeouts cannot go unnoticed.
+pub const FAILED_CALL_ESTIMATE_USD: f64 = 0.02;
+
+/// Whether the call reached the model: a missing key or an unknown alias never did.
+fn was_sent(error: &sorcerer_models::Error) -> bool {
+    use sorcerer_models::Error;
+    !matches!(
+        error,
+        Error::NoKey { .. } | Error::UnknownAlias { .. } | Error::Setup { .. }
+    )
+}
+
+fn failure_note(error: &sorcerer_models::Error) -> String {
+    if was_sent(error) {
+        format!("{error} (counted as ${FAILED_CALL_ESTIMATE_USD:.2}, an estimate)")
+    } else {
+        error.to_string()
+    }
+}
+
 pub struct ProviderWriter {
     pub provider: Arc<dyn Provider>,
     /// The model alias, such as `haiku`.
@@ -63,6 +85,7 @@ impl ProviderWriter {
     fn errand_of(&self, asked: &sorcerer_models::Result<Reply>, seconds: f64) -> Errand {
         let (cost_usd, usage) = match asked {
             Ok(reply) => (reply.cost_usd, reply.usage),
+            Err(e) if was_sent(e) => (Some(FAILED_CALL_ESTIMATE_USD), Default::default()),
             Err(_) => (None, Default::default()),
         };
         Errand {
@@ -82,7 +105,7 @@ impl ProviderWriter {
                 }
             }),
             ok: asked.is_ok(),
-            note: asked.as_ref().err().map(ToString::to_string),
+            note: asked.as_ref().err().map(failure_note),
         }
     }
 }

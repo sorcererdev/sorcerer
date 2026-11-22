@@ -60,6 +60,12 @@ For the function at the line, in this order, each part cut as shown:
   rules), cut at 3000 characters;
 - with `--finding`, that finding leads.
 
+Nothing a model may not read is sent: a file under `[model] not_evidence`, a `.env` file, anything
+under `.sorcerer/` or `.git/`, and anything outside the project (an import that resolves through a
+symbolic link out of it, a language template that names an absolute path) is left out, from the
+file you ask in (conjure refuses it), the test file, the related files and the uncommitted work.
+The situation says so in one line: `Left out, because models may not read them: <paths>.`
+
 A function whose body is a stub, a body half written, a failing test, a missing test file: none
 is refused. Conjure continues your work in progress and keeps what already works.
 
@@ -67,9 +73,11 @@ is refused. Conjure continues your work in progress and keeps what already works
 
 The writer answers with whole files. A file lands as a change only when its path is inside the
 project, not under `.git/` or `.sorcerer/`, not a `.env` file, not outside the project through a
-symbolic link, not in your `[model] not_evidence` and not matched by `[conjure] exclude`. The
+symbolic link, not in your `[model] not_evidence` and not matched by `[conjure] exclude` (globs ignore case and
+are matched on the path with links resolved, so `Gen/x` and a link into `gen/` are excluded too). The
 paths that fail these are dropped and named in `not written:`. A file the writer answers twice
-keeps its last version, and a file equal to what is there is no change. A file with CRLF line
+keeps its last version, whatever the spelling (`src/a.py`, `./src/a.py`, `SRC/a.py` are one
+file), and a file equal to what is there is no change. A file with CRLF line
 endings stays CRLF, and only the lines the writer changed are edited.
 
 Conjure itself writes nothing to your project, and only its own memory under
@@ -94,9 +102,12 @@ each alias means on it.
 
 A change on haiku is about $0.001 and 4 seconds. Try harder asks the stronger model, which may
 read, grep and glob the project before it writes, and costs at most $0.25 (a few cents in
-practice). The day's budget is $3.00: a first call is refused once the day has spent it, and
-Try harder is refused when the day could not pay its $0.25. The day is your local day. The
-message names the setting:
+practice). On `claude` the cap is enforced by Claude Code itself (`--max-budget-usd`); on a
+provider run through sorcerer's own tool loop it is checked between the model's turns, so the last
+turn may pass it. The day's budget is $3.00: a first call is refused once the day has spent it, and
+Try harder is refused when the day could not pay its $0.25. The day is your local day. A call that failed after it was sent (a timeout, say) counts $0.02 toward
+the day, since it was probably billed. The day's cap is soft, as scry's is: the call that crosses
+it, or two runs started together, may go past it. The message names the setting:
 
 ```
 conjure: today's budget ($3.00) is spent. Conjuring resumes tomorrow; "conjure cost" shows the days, and [conjure] budget_per_day sets the budget.

@@ -14,6 +14,7 @@ use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::facts::Facts;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::language::Language;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::{Span, Unit, unit_at};
 use sorcerer_core::ports::ledger::Ledger;
@@ -162,6 +163,12 @@ struct Site {
 /// language, or a line in no unit, is `OutsideAUnit`.
 fn find_site(request: &ChangeRequest, deps: &ChangeDeps) -> Result<Site, ChangeRefused> {
     let failed = |e: sorcerer_core::Error| ChangeRefused::Failed(e.to_string());
+    if !deps.fences.allows(&request.file) {
+        return Err(ChangeRefused::Failed(format!(
+            "{} is fenced: a model is never shown it",
+            forward_slashes(&request.file)
+        )));
+    }
     let language = deps
         .project
         .languages

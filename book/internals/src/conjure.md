@@ -53,8 +53,8 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   `day_allows`. `log_text.rs`: `record_line`, `usd`, `count`.
 
 **Ports** (`src/ports/`): `writer.rs` (`Writer`, `Written`), `change_store.rs` (`ChangeStore`),
-`clock.rs` (`Clock`), `project_context.rs` (`ProjectContext`: related files, parse errors,
-scry's findings, the rules; the four things that need grammars or scry's files, so a use case
+`clock.rs` (`Clock`), `project_context.rs` (`ProjectContext`: related files (`RelatedFiles`: the files and those left
+out by a fence), parse errors, scry's findings, the rules; the four things that need grammars or scry's files, so a use case
 asks a port and never touches an adapter).
 
 **Adapters** (`src/adapters/`): `provider_writer.rs` (`ProviderWriter`: one `Provider::complete`
@@ -91,6 +91,16 @@ the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.
 The command line prints the change and stops. The editor's server will land `ChangedFile::edits`
 through `workspace/applyEdit` and record `ChangeRecord`s; neither the use case nor the command
 line writes to the project.
+
+## What a model may be shown
+
+Every file that enters the situation passes `Fences::allows`: the target (`find_site` refuses a
+fenced one), the test file, each related file (`related_files` takes an `allowed` predicate, and
+drops a template candidate that is absolute or climbs out with `..`), and each session path
+(`session_of`). A fenced one is left out and named in `Situation::left_out`, which
+`situation_text` prints as one line. Written paths are fenced again on the way out (`landing_of`),
+`exclude` is matched case-insensitively on both the written and the resolved path, and
+`one_block_per_file` makes two spellings of a path one change.
 
 ## Related files, the test file and the session
 

@@ -1,7 +1,7 @@
 //! The project's own files as conjure's context: imports by the language's query, parse errors
 //! by its grammar, scry's findings file and steering file.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use sorcerer_core::Result;
@@ -16,7 +16,7 @@ use crate::adapters::imports::related_files;
 use crate::adapters::scry_files::read_findings;
 use crate::adapters::steering_files::project_rules;
 use crate::domain::scry_notes::FindingsRead;
-use crate::ports::project_context::ProjectContext;
+use crate::ports::project_context::{ProjectContext, RelatedFiles};
 
 pub struct FilesContext {
     pub project: Arc<Project>,
@@ -38,10 +38,12 @@ impl FilesContext {
 }
 
 impl ProjectContext for FilesContext {
-    fn related_files(&self, file: &Path, text: &str) -> Result<Vec<(PathBuf, String)>> {
+    fn related_files(&self, file: &Path, text: &str) -> Result<RelatedFiles> {
         match self.loaded_for(file) {
-            Some(loaded) => related_files(&*self.view, &loaded, file, text),
-            None => Ok(Vec::new()),
+            Some(loaded) => related_files(&*self.view, &loaded, file, text, &|path| {
+                self.fences.allows(path)
+            }),
+            None => Ok(RelatedFiles::default()),
         }
     }
 

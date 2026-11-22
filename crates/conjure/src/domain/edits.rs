@@ -53,6 +53,11 @@ pub fn lexical_relative(root: &Path, written: &str) -> Option<PathBuf> {
     let mut kept: Vec<&std::ffi::OsStr> = Vec::new();
     for part in relative.components() {
         match part {
+            // a drive (`C:x`), a stream (`a.txt:s`) or a backslash is not one name on every
+            // platform, so it is no name that lands
+            Component::Normal(name) if name.to_string_lossy().contains(['\\', ':']) => {
+                return None;
+            }
             Component::Normal(name) => kept.push(name),
             Component::CurDir => {}
             Component::ParentDir => {
@@ -78,6 +83,27 @@ pub fn in_base_line_endings(base: &str, new: &str) -> String {
     } else {
         as_lf
     }
+}
+
+/// Keeps a base's missing final newline: the base `a\nb` and the new `A\nb\n` is `A\nb`, so the
+/// last line is not edited when the writer did not change it.
+pub fn keep_unterminated_last_line(base: &str, new: &str) -> String {
+    if base.is_empty() || base.ends_with('\n') {
+        return new.to_string();
+    }
+    let ending = if base.contains("\r\n") { "\r\n" } else { "\n" };
+    let Some(without_final_newline) = new.strip_suffix(ending) else {
+        return new.to_string();
+    };
+    if last_line(without_final_newline) == last_line(base) {
+        without_final_newline.to_string()
+    } else {
+        new.to_string()
+    }
+}
+
+fn last_line(text: &str) -> &str {
+    text.rsplit('\n').next().unwrap_or(text)
 }
 
 /// What changes in a file, as the fewest whole-line edits: each run of changed lines is one
@@ -183,6 +209,27 @@ mod tests {
             lexical_relative(root, &inside.to_string_lossy()),
             Some(PathBuf::from("src").join("a.txt"))
         );
+    }
+
+    #[test]
+    fn a_name_with_a_drive_or_a_stream_is_not_a_path_that_lands() {
+        let root = &std::env::temp_dir().join("proj");
+        for written in ["C:\\Windows\\x", "a.txt:stream", "src\\x.txt", "C:x"] {
+            assert_eq!(lexical_relative(root, written), None, "{written}");
+        }
+    }
+
+    #[test]
+    fn an_unterminated_last_line_stays_unterminated_when_only_an_earlier_line_changed() {
+        assert_eq!(keep_unterminated_last_line("a\nb", "A\nb\n"), "A\nb");
+        assert_eq!(
+            keep_unterminated_last_line("a\r\nb", "A\r\nb\r\n"),
+            "A\r\nb"
+        );
+        // the writer changed the last line, or the base ended in a newline: nothing to keep
+        assert_eq!(keep_unterminated_last_line("a\nb", "a\nB\n"), "a\nB\n");
+        assert_eq!(keep_unterminated_last_line("a\nb\n", "A\nb\n"), "A\nb\n");
+        assert_eq!(keep_unterminated_last_line("", "a\n"), "a\n");
     }
 
     #[test]

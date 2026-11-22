@@ -47,6 +47,7 @@ fn fixed_situation() -> Situation {
         finding_asked: Some(note("handle returns before refunding", false)),
         notes: vec![note("a note", false), note("an old note", true)],
         rules: "A booking app.\n\n- Money is cents.".into(),
+        left_out: vec![],
     }
 }
 
@@ -808,4 +809,293 @@ fn the_session_and_related_files_reach_the_situation() {
         shown.contains("New files, not yet in git: src/shop/new_thing.py"),
         "{shown}"
     );
+}
+
+// Review fixes.
+
+fn conjure_cart(
+    rig: &Rig,
+) -> Result<conjure::usecases::conjure_change::ConjuredChange, ChangeRefused> {
+    conjure_change(&ask("src/shop/cart.py", 5), &rig.deps())
+}
+
+const NOT_EVIDENCE: &str =
+    "[model]\nnot_evidence = [\"src/secrets\", \"src/shop/cart__test.py\"]\n";
+
+fn cart_importing(module: &str) -> String {
+    format!("from {module} import X\n\n\nclass Cart:\n    def total(self):\n        pass\n")
+}
+
+#[test]
+fn a_not_evidence_import_is_left_out_of_the_situation() {
+    let d = git_project();
+    write(d.path(), ".sorcerer/config.toml", NOT_EVIDENCE);
+    write(d.path(), "src/secrets/keys.py", "X = 'SECRET_TOKEN'\n");
+    write(
+        d.path(),
+        "src/shop/cart.py",
+        &cart_importing("secrets.keys"),
+    );
+    commit(d.path(), "base");
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    conjure_cart(&rig).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(!shown.contains("SECRET_TOKEN"), "{shown}");
+    assert!(
+        shown.contains("Left out, because models may not read them: "),
+        "{shown}"
+    );
+    assert!(shown.contains("src/secrets/keys.py"), "{shown}");
+}
+
+#[test]
+fn a_symlinked_import_is_left_out_of_the_situation() {
+    let d = git_project();
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path(), "lib.py", "X = 'OUTSIDE_MARK'\n");
+    sorcerer_core::adapters::platform::paths::link_to(outside.path(), &d.path().join("src_vendor"))
+        .unwrap();
+    std::fs::create_dir_all(d.path().join("src")).unwrap();
+    sorcerer_core::adapters::platform::paths::link_to(outside.path(), &d.path().join("src/vendor"))
+        .unwrap();
+    write(d.path(), "src/shop/cart.py", &cart_importing("vendor.lib"));
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    conjure_cart(&rig).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(!shown.contains("OUTSIDE_MARK"), "{shown}");
+    assert!(shown.contains("Left out"), "{shown}");
+}
+
+#[test]
+fn a_not_evidence_session_diff_is_left_out_of_the_situation() {
+    let d = git_project();
+    write(d.path(), ".sorcerer/config.toml", NOT_EVIDENCE);
+    write(d.path(), "src/secrets/conf.py", "A = 1\n");
+    write(d.path(), "src/shop/cart.py", &cart_importing("os"));
+    commit(d.path(), "base");
+    write(d.path(), "src/secrets/conf.py", "A = 'DIFF_MARK'\n");
+    write(d.path(), "src/secrets/new.py", "B = 1\n");
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    conjure_cart(&rig).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(
+        !shown.contains("DIFF_MARK") && !shown.contains("New files, not yet in git"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("src/secrets/new.py"),
+        "named as left out: {shown}"
+    );
+    assert!(
+        shown.contains("src/secrets/conf.py"),
+        "named as left out: {shown}"
+    );
+}
+
+#[test]
+fn a_fenced_test_file_is_left_out_of_the_situation() {
+    let d = git_project();
+    write(d.path(), ".sorcerer/config.toml", NOT_EVIDENCE);
+    write(d.path(), "src/shop/cart.py", &cart_importing("os"));
+    write(
+        d.path(),
+        "src/shop/cart__test.py",
+        "def test(): assert 'TEST_MARK'\n",
+    );
+    commit(d.path(), "base");
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    conjure_cart(&rig).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(!shown.contains("TEST_MARK"), "{shown}");
+    assert!(shown.contains("src/shop/cart__test.py"), "{shown}");
+}
+
+#[test]
+fn a_fenced_target_is_refused_before_any_call() {
+    let d = git_project();
+    write(d.path(), ".sorcerer/config.toml", NOT_EVIDENCE);
+    write(
+        d.path(),
+        "src/secrets/keys.py",
+        "def f():\n    return 'SECRET_TOKEN'\n",
+    );
+    commit(d.path(), "base");
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    let refused = conjure_change(&ask("src/secrets/keys.py", 2), &rig.deps()).unwrap_err();
+    assert!(refused.text().contains("fenced"), "{}", refused.text());
+    assert!(rig.writer.situations().is_empty());
+}
+
+#[test]
+fn an_import_template_that_leaves_the_project_is_not_followed() {
+    let d = git_project();
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path(), "abs.py", "X = 'ABS_MARK'\n");
+    let absolute = outside.path().join("abs.py");
+    write(
+        d.path(),
+        ".sorcerer/languages/python/language.toml",
+        &format!(
+            "[imports]\nresolve = [{:?}, \"../{{= path =}}.py\"]\n",
+            absolute.to_string_lossy()
+        ),
+    );
+    write(d.path(), "src/shop/cart.py", &cart_importing("anything"));
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    conjure_cart(&rig).unwrap();
+    assert!(!rig.writer.situations()[0].contains("ABS_MARK"));
+}
+
+#[test]
+fn exclude_ignores_case_and_follows_links() {
+    let d = cart_project();
+    std::fs::create_dir_all(d.path().join("gen")).unwrap();
+    sorcerer_core::adapters::platform::paths::link_to(&d.path().join("gen"), &d.path().join("g"))
+        .unwrap();
+    write(
+        d.path(),
+        ".sorcerer/config.toml",
+        "[conjure]\nexclude = [\"gen/**\"]\n",
+    );
+    let reply = "<goal>g</goal>\n<file path=\"Gen/x.py\">\nx = 1\n</file>\n<file path=\"g/y.py\">\ny = 1\n</file>\n<file path=\"GEN/z.py\">\nz = 1\n</file>\n";
+    let rig = Rig::new(d.path(), reply);
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert!(change.files.is_empty(), "{:?}", change.files);
+    let reasons: Vec<_> = change.dropped.iter().map(|(_, why)| *why).collect();
+    assert_eq!(reasons, [DropReason::Excluded; 3]);
+}
+
+#[test]
+fn two_spellings_of_one_file_are_one_change_and_the_last_wins() {
+    let d = cart_project();
+    let reply = "<goal>g</goal>\n<file path=\"src/shop/a.py\">\none = 1\n</file>\n<file path=\"./src/shop//a.py\">\ntwo = 2\n</file>\n<file path=\"SRC/shop/A.py\">\nthree = 3\n</file>\n<file path=\"src/x/../shop/a.py\">\nfour = 4\n</file>\n";
+    let rig = Rig::new(d.path(), reply);
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    assert_eq!(change.files.len(), 1, "{:?}", change.files);
+    assert_eq!(change.files[0].after, "four = 4\n");
+}
+
+#[test]
+fn a_binary_file_and_a_directory_named_by_the_reply_are_not_text() {
+    let d = cart_project();
+    std::fs::create_dir_all(d.path().join("assets")).unwrap();
+    std::fs::write(d.path().join("assets/logo.png"), [0xff, 0xfe, 0x00, 0x80]).unwrap();
+    let reply = "<goal>g</goal>\n<file path=\"assets/logo.png\">\ntext\n</file>\n<file path=\"src/shop\">\ntext\n</file>\n<file path=\"docs/notes.md\">\nhello\n</file>\n";
+    let rig = Rig::new(d.path(), reply);
+    let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
+    let reasons: std::collections::BTreeMap<_, _> = change.dropped.iter().cloned().collect();
+    assert_eq!(reasons["assets/logo.png"], DropReason::NotText);
+    assert_eq!(reasons["src/shop"], DropReason::NotText);
+    // a file of no known language is kept, and reported unparsed
+    assert_eq!(change.files.len(), 1);
+    assert!(
+        change.files[0].new && !change.files[0].parsed && change.files[0].parse_errors.is_empty()
+    );
+    assert_eq!(
+        std::fs::read(d.path().join("assets/logo.png")).unwrap(),
+        [0xff, 0xfe, 0x00, 0x80]
+    );
+}
+
+#[test]
+fn the_day_is_the_users_local_day() {
+    let d = cart_project();
+    let (project, _) = project_with_vendored_grammars(d.path());
+    let _ = project;
+    let mut rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    // 02:00 UTC on the 23rd is 21:00 on the 22nd in UTC-5
+    rig.clock = FixedClock::at("2026-11-23T02:00:00Z".parse().unwrap())
+        .in_zone(chrono::FixedOffset::west_opt(5 * 3600).unwrap());
+    let mut spent = errand("conjure", "haiku", 3.00);
+    spent.at = "2026-11-22T10:00:00Z".parse().unwrap();
+    rig.ledger.append(&spent).unwrap();
+    assert_eq!(
+        conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap_err(),
+        ChangeRefused::DaySpent { budget: 3.0 }
+    );
+}
+
+struct TimingOut;
+
+impl sorcerer_models::ports::provider::Provider for TimingOut {
+    fn name(&self) -> &str {
+        "slow"
+    }
+    fn resolve(
+        &self,
+        alias: &str,
+    ) -> sorcerer_models::Result<sorcerer_models::domain::model::ModelId> {
+        Ok(sorcerer_models::domain::model::ModelId(alias.into()))
+    }
+    fn complete(
+        &self,
+        _: sorcerer_models::domain::model::Completion,
+        _: &Cancel,
+    ) -> sorcerer_models::Result<Reply> {
+        Err(sorcerer_models::Error::Timeout {
+            provider: "slow".into(),
+            seconds: 120,
+        })
+    }
+    fn supports_tools(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_timed_out_call_counts_toward_the_day() {
+    let d = cart_project();
+    write(
+        d.path(),
+        ".sorcerer/config.toml",
+        "[conjure]\nbudget_per_day = 0.05\n",
+    );
+    let ledger = Arc::new(JsonlLedger::at(d.path().join("ledger.jsonl")));
+    let writer = ProviderWriter {
+        provider: Arc::new(TimingOut),
+        model: "haiku".into(),
+        ledger: ledger.clone(),
+        clock: clock(),
+    };
+    for _ in 0..3 {
+        assert!(writer.write("s", &Cancel::default()).is_err());
+    }
+    let rows = ledger.read().unwrap().errands;
+    assert!(rows.iter().all(|e| !e.ok && e.cost_usd.unwrap() > 0.0));
+    assert!(
+        rows[0].note.as_deref().unwrap().contains("estimate"),
+        "{:?}",
+        rows[0].note
+    );
+    // the day (budget $0.05) is spent by three timeouts: the use case refuses before a fourth
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    for e in &rows {
+        rig.ledger.append(e).unwrap();
+    }
+    assert!(matches!(
+        conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()),
+        Err(ChangeRefused::DaySpent { .. })
+    ));
+}
+
+#[test]
+fn a_file_without_a_final_newline_keeps_it_when_the_last_line_is_untouched() {
+    let d = git_project();
+    write(
+        d.path(),
+        "src/a.py",
+        "def f():\n    pass\n\ndef g():\n    return 1",
+    );
+    commit(d.path(), "a");
+    let rig = Rig::new(
+        d.path(),
+        "<goal>g</goal>\n<file path=\"src/a.py\">\ndef f():\n    return 0\n\ndef g():\n    return 1\n</file>\n",
+    );
+    let change = conjure_change(&ask("src/a.py", 2), &rig.deps()).unwrap();
+    assert_eq!(
+        change.files[0].after,
+        "def f():\n    return 0\n\ndef g():\n    return 1"
+    );
+    assert_eq!(change.files[0].edits.len(), 1);
+    assert_eq!(change.files[0].edits[0].to_end_of_file, None);
 }

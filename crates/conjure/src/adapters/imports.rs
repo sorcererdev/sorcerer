@@ -2,8 +2,9 @@
 //! captures `@import.path`, nothing else) and its `[imports]` table. Both are data; no language
 //! is named here.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
+use crate::ports::project_context::RelatedFiles;
 use sorcerer_core::domain::language::Loaded;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Error, Result};
@@ -24,26 +25,34 @@ pub fn related_files(
     lang: &Loaded,
     file: &Path,
     text: &str,
-) -> Result<Vec<(PathBuf, String)>> {
+    allowed: &dyn Fn(&Path) -> bool,
+) -> Result<RelatedFiles> {
     let table = imports_table(&lang.language)?;
     let mut related: Vec<PathBuf> = Vec::new();
+    let mut left_out: Vec<PathBuf> = Vec::new();
     for import in imported_paths(lang, text)? {
         let Some(found) = project_file_for(view, &table, &import, &lang.language.unit_separator)
         else {
             continue;
         };
-        if found != file && !related.contains(&found) {
+        if found == file || related.contains(&found) || left_out.contains(&found) {
+            continue;
+        }
+        if allowed(&found) {
             related.push(found);
+        } else {
+            left_out.push(found);
         }
         if related.len() == RELATED_FILES {
             break;
         }
     }
-    related
+    let files = related
         .into_iter()
         .map(|path| Ok((first_lines(&view.text(&path)?), path)))
         .map(|read: Result<(String, PathBuf)>| read.map(|(text, path)| (path, text)))
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    Ok(RelatedFiles { files, left_out })
 }
 
 /// What the file's `imports.scm` captured as `@import.path`, in file order.
@@ -114,7 +123,16 @@ fn first_template_that_exists(
         .iter()
         .filter_map(|template| fill(template, &[("path", path)]).ok())
         .map(PathBuf::from)
+        .filter(|candidate| stays_inside(candidate))
         .find(|candidate| view.exists(candidate))
+}
+
+/// A template is data a project can write: a candidate that is absolute, or climbs out with
+/// `..`, is not a project file and is never looked at.
+fn stays_inside(candidate: &Path) -> bool {
+    candidate
+        .components()
+        .all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
 }
 
 fn first_lines(text: &str) -> String {

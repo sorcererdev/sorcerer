@@ -3,13 +3,13 @@
 
 use std::path::{Path, PathBuf};
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use sorcerer_core::domain::paths::forward_slashes;
 
 use super::{ChangeDeps, ChangeRefused, ChangedFile};
 use crate::domain::edits::{
-    DropReason, Landing, first_changed_line, in_base_line_endings, lexical_relative, line_edits,
-    lines_changed,
+    DropReason, Landing, first_changed_line, in_base_line_endings, keep_unterminated_last_line,
+    lexical_relative, line_edits, lines_changed,
 };
 use crate::domain::reply::ChangeReply;
 
@@ -28,7 +28,7 @@ pub(super) fn checked_files(
     let excluded = exclude_globs(deps)?;
     let mut files = Vec::new();
     let mut dropped = Vec::new();
-    for (written, text) in &reply.files {
+    for (written, text) in &one_block_per_file(&reply.files, deps) {
         match landing_of(written, &excluded, deps) {
             Landing::Dropped { path, why } => dropped.push((path, why)),
             Landing::Lands(path) => match changed_file(path, text, deps) {
@@ -41,10 +41,30 @@ pub(super) fn checked_files(
     Ok((files, dropped))
 }
 
+/// A file named twice under different spellings (`src/a.txt`, `./src//a.txt`, `SRC/A.txt`) is
+/// one file: the last block wins, at its place. Case is ignored in the comparison, since on a
+/// case-insensitive file system the spellings are one file, and a reply that names two files
+/// differing only in case means one of them wrongly anyway.
+fn one_block_per_file(blocks: &[(String, String)], deps: &ChangeDeps) -> Vec<(String, String)> {
+    let key = |written: &str| match lexical_relative(&deps.project.root, written) {
+        Some(relative) => forward_slashes(&relative).to_lowercase(),
+        None => written.to_string(),
+    };
+    let mut kept: Vec<(String, String)> = Vec::new();
+    for (written, text) in blocks {
+        kept.retain(|(earlier, _)| key(earlier) != key(written));
+        kept.push((written.clone(), text.clone()));
+    }
+    kept
+}
+
 fn exclude_globs(deps: &ChangeDeps) -> Result<GlobSet, ChangeRefused> {
     let mut builder = GlobSetBuilder::new();
     for pattern in &deps.config.exclude {
-        let glob = Glob::new(pattern).map_err(|e| ChangeRefused::Failed(e.to_string()))?;
+        let glob = GlobBuilder::new(pattern)
+            .case_insensitive(true)
+            .build()
+            .map_err(|e| ChangeRefused::Failed(e.to_string()))?;
         builder.add(glob);
     }
     builder
@@ -65,7 +85,14 @@ fn landing_of(written: &str, excluded: &GlobSet, deps: &ChangeDeps) -> Landing {
     if !deps.fences.allows(&relative) {
         return dropped(DropReason::Fenced);
     }
-    if excluded.is_match(forward_slashes(&relative)) {
+    // on the path as it resolves, so a link into an excluded folder does not dodge the glob
+    let resolved = deps
+        .fences
+        .relative(&relative)
+        .unwrap_or_else(|| relative.clone());
+    if excluded.is_match(forward_slashes(&relative))
+        || excluded.is_match(forward_slashes(&resolved))
+    {
         return dropped(DropReason::Excluded);
     }
     Landing::Lands(relative)
@@ -84,7 +111,7 @@ fn changed_file(
         None
     };
     let base = before.as_deref().unwrap_or("");
-    let after = in_base_line_endings(base, written);
+    let after = keep_unterminated_last_line(base, &in_base_line_endings(base, written));
     let edits = line_edits(base, &after);
     let Some(first) = first_changed_line(base, &after) else {
         return Ok(None);

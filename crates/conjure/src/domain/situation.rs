@@ -39,6 +39,9 @@ pub struct Situation {
     pub finding_asked: Option<ScryNote>,
     pub notes: Vec<ScryNote>,
     pub rules: String,
+    /// Files that belong in the situation but that models may not read (fenced); the text
+    /// names them in one line.
+    pub left_out: Vec<PathBuf>,
 }
 
 /// The situation as the writer reads it, one line after another: the finding asked for (when
@@ -58,6 +61,7 @@ pub fn situation_text(s: &Situation) -> String {
         session_lines(s),
         notes_lines(&s.notes),
         rules_lines(&s.rules),
+        left_out_lines(&s.left_out),
     ]
     .concat();
     lines.iter().map(|line| format!("{line}\n")).collect()
@@ -185,6 +189,20 @@ fn note_line_body(note: &ScryNote) -> String {
         forward_slashes(&note.file),
         note.line
     )
+}
+
+fn left_out_lines(left_out: &[PathBuf]) -> Vec<String> {
+    if left_out.is_empty() {
+        return vec![];
+    }
+    let names: Vec<String> = left_out.iter().map(|path| forward_slashes(path)).collect();
+    vec![
+        String::new(),
+        format!(
+            "Left out, because models may not read them: {}.",
+            names.join(", ")
+        ),
+    ]
 }
 
 fn rules_lines(rules: &str) -> Vec<String> {
