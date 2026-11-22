@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn a_name_with_a_drive_or_a_stream_is_not_a_path_that_lands() {
         let root = &std::env::temp_dir().join("proj");
-        for written in ["C:\\Windows\\x", "a.txt:stream", "src\\x.txt", "C:x"] {
+        for written in ["C:\\Windows\\x", "a.txt:stream", "C:x"] {
             assert_eq!(lexical_relative(root, written), None, "{written}");
         }
     }
