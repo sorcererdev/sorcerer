@@ -1,9 +1,9 @@
 # Conjure
 
 `crates/conjure`: writes one small change where the person asks. Package `sorcerer-conjure`,
-library `conjure`, binary `conjure`. This chapter is the engine and the command line; the editor
-side (landing a change through `workspace/applyEdit`, the marks and their actions) is the
-language server that the next part adds under `adapters/lsp/`.
+library `conjure`, binary `conjure`. This chapter is the engine, the command line and the
+language server (`adapters/lsp/`), which lands a change through `workspace/applyEdit` and marks
+it ([The server](#the-server)).
 
 ## Where conjure came from
 
@@ -21,7 +21,9 @@ Conjure is in five layers (see [Architecture](architecture.md)).
 **Use cases** (`src/usecases/`):
 
 - `conjure_change/mod.rs`: `conjure_change(request, deps)`, `ChangeRequest`, `ChangeDeps`,
-  `ConjuredChange`, `ChangedFile`, `ChangeRefused` (with the pinned sentences in its `text`).
+  `ConjuredChange` (with `unit_lines`, where a change of no files is marked), `ChangedFile`,
+  `ChangeRefused` (with the pinned sentences in its `text`; `NotAnswered` carries the unit and
+  its facts so the server can record a call that failed).
   Its story: `find_site` (the unit at the cursor, through `CodebaseView::units` and `facts`),
   `refuse_a_spent_day`, the situation, one write, the check.
 - `conjure_change/situation.rs`: `situation_for` gathers the test file (`tests_path`), the
@@ -62,10 +64,12 @@ and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `R
 `imports.rs` (`related_files`, from `imports.scm` and `[imports]`), `scry_files.rs`
 (`read_findings`), `steering_files.rs` (`project_rules`), `project_context.rs` (`FilesContext`,
 the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.rs` (`Wired`,
-`live`, `writer_for`).
+`live`, `writer_for`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`),
+`why_text.rs` (`why_text`, Show why's file), and `lsp/` (the server, below).
 
 **Command line** (`src/cli/`): `mod.rs` (the clap types, `main`, `main_with`), `run.rs`
-(`conjure FILE:LINE`), `doctor.rs`, `cost.rs`, `log.rs`, `trust.rs`, `format.rs`.
+(`conjure FILE:LINE`), `doctor.rs`, `cost.rs`, `log.rs`, `trust.rs`, `lsp.rs` (`conjure lsp`:
+`serve` over stdio with `ServerConfig::live`), `format.rs`.
 
 ## One change, end to end
 
@@ -88,9 +92,77 @@ the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.
    writer's text in the base's line endings, `line_edits` against the base, `parse_errors`
    from the `ProjectContext`. A file equal to its base is left out; no files is "no change".
 
-The command line prints the change and stops. The editor's server will land `ChangedFile::edits`
-through `workspace/applyEdit` and record `ChangeRecord`s; neither the use case nor the command
-line writes to the project.
+The command line prints the change and stops. The editor's server lands `ChangedFile::edits`
+through `workspace/applyEdit` and records `ChangeRecord`s; neither the use case, the command line
+nor the server writes to the person's files (the editor applies the edit; the server writes only
+under `.sorcerer/state/`).
+
+## The server
+
+`adapters/lsp/mod.rs`: `serve(connection, ServerConfig)` plugs `ConjureServer` into the host
+(`sorcerer_lsp::serve`) as a product that tracks text (`tracks_text() -> true`, so the host keeps
+each open document's version and text). `ServerConfig { open, cache, trust, clock, wire }`;
+`wire: WireWriter` builds an attempt's writer over the editor's view (`writer_for` live, a
+scripted writer in the tests). The shared `Server` holds the `Client`, the root, `published` (the
+`Mark`s published per editor path, for the actions on a line), `shown` (the one change marked
+now, a `Shown { change: LandedChange, undoing }`) and `running` (the `Cancel` of the change being
+conjured; one at a time). `project_relative` and `project_file` map an editor path to the
+project's `/`-separated path on the canonical path, as scry's server does.
+
+`commands.rs`: `capabilities` (code actions; the commands `conjure.conjure`, `conjure.undo`,
+`conjure.tryHarder`, `conjure.why`, `conjure.show`). `code_actions` offers nothing when
+`Client::can_apply_edits` is false (`opened` says so once, `say_once`); otherwise the marked
+change's actions (`on_the_line`: by the change id in the editor's `conjure` diagnostics, else by
+line; `actions_for` in the pinned order), *Conjure here* when the line is in a unit (`in_a_unit`
+parses the editor's text through an `EditorView`), and *Conjure for this finding* per open or
+waiting scry finding there (`findings_on`, scry's findings file read afresh). `lines_of` turns
+the request's range into the line and last line, from 1. `execute` runs a command; what the
+person must hear goes through `Client::say`, and an error answers only a malformed command.
+
+`changes.rs`, a change's life:
+
+1. **Asked.** `conjure` calls `start`, which takes `running` (`begin_running`; busy is said) and
+   reads `open_documents` on the main loop, so the edit is made at the versions the person saw
+   when they asked. A thread runs `conjure_and_land` under `work_done("conjure", "conjuring a
+   change")`.
+2. **Conjured.** `conjured` opens the project, checks trust (`needs_trust`, the user's
+   `TrustList`), maps the open documents into a `landing::Snapshot` (`snapshot_of`), builds an
+   `EditorView` over them, the writer (`cfg.wire`), the ledger, the fences and a `FilesContext`
+   over the same view, and runs `conjure_change`. A refusal is its sentence; `NotAnswered` is
+   also recorded `failed` (`failed_record`).
+3. **Landed.** `land`: no files is shown at once as no change and recorded `no-change`. Otherwise
+   `moved_on` refuses to send when a file the change edits moved on since it was read (an open
+   file at another version, or a file opened since with other text), since an editor may not
+   check (Neovim checks only the first file's version); then `landing::workspace_edit` builds one
+   `WorkspaceEdit` (each existing file a `TextDocumentEdit` at the snapshot's version, `None` for
+   a file that was not open; each new file a `CreateFile` with `ignoreIfExists` and an insert;
+   new files left out under `NewFiles::LeftOut`), and `Client::apply_edit` sends it. On
+   `applied`, `show` makes it the shown change (the one before is recorded `kept` by `end_with`)
+   and `publish_marks` replaces every mark; on a refusal the person is told and it is recorded
+   `dropped`. The progress line ends and `running` is let go in the reply's callback.
+4. **Marked.** `marks.rs`: `marks_of` (the main mark on the asked file, else the first changed
+   file; an `Other` mark per other file; a `NoChange` mark on the unit's first line) and
+   `mark_diagnostic` (source `conjure`, Information, code `change` or `no-change`, `data` the
+   change id, the whole line; the words in `main_text`, `other_text`, `no_change_text`).
+5. **Ended**, once, by `record` with the choice: `saved` of a changed file is `kept`; `changed`
+   sees the editor's own undo (`all_back`: every file at its text before, a new file empty or
+   gone) and records `undone`, and clears a no-change mark at any edit; `shutdown` records
+   `unanswered` and cancels a running call. `closed` only hides the file's marks; `republish`
+   shows them again when it opens.
+
+Undo (`undo` → `take_back`) plans per file with `undo_of` from its text now (`versioned_text_now`:
+the editor's, else the disk's): a file at its after-text goes back with `line_edits(after,
+before)` at its current version; a new file is deleted (`DeleteFile`, when
+`Client::can_delete_files`) or emptied; a file not open whose disk is still as before needs
+nothing (the edit never reached it); any other text is the person's, so the whole undo is refused
+with the file named. While the undo is in flight `Shown::undoing` holds its choice, so the edits it
+causes are not taken for the person's; `taken_back` records it when the editor applied it. Try
+harder (`try_harder`) is the same undo recorded `replaced`, then `start` with an `Again` (the
+situation the first writer read, the id it replaces, and each file's text before): its thread
+waits up to 3 s (`documents_after_undo`) for the editor to report the undo, because some editors
+(Neovim) answer `applyEdit` before they send the `didChange`. `show_why` writes `why_text` to
+`.sorcerer/state/conjure/why-<id>.md` and shows it; `show_file` shows a file with its changed
+lines selected (`changed_lines`, in the new text).
 
 ## What a model may be shown
 
@@ -119,6 +191,10 @@ supplies.
 
 `tests/change.rs` (the prompt against `tests/golden/change-prompt.txt`, the situation, the
 use case over a `StubWriter` and a `Rig` of doubles, the writers over `ScriptedProvider`),
+`tests/editor_view.rs`, `tests/lsp.rs` (the server over `Connection::memory()`, driven by a
+small editor that keeps buffers and applies the edits it is sent, checking versions, and can
+answer before it reports its changes as Neovim does; a `Script` of replies, a gate to hold a
+call, a clock that ticks a second per read), `tests/lsp_process.rs` (`conjure lsp` as a process),
 `tests/related.rs` (the vendored grammars), `tests/cli.rs` (`main_with` with a `Wired` of
 doubles), `tests/eval.rs` (the corpora, below). `UPDATE_GOLDEN=1` rewrites the golden prompt. No test calls a model or the network (the eval replays recordings).
 

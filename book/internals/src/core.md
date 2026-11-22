@@ -262,7 +262,8 @@ review a branch against where it left its base. An unknown REV is an `Error::Git
 
 `FilesView` (`adapters/files_view.rs`) is the one implementation today: the working tree (walked with the `ignore`
 crate, so `.gitignore` holds), git subprocesses for `text_at` and `changed_since`, and
-tree-sitter through `Languages::load` for units and facts.
+tree-sitter through `Languages::load` for units and facts. `FilesView::cache` gives its grammar
+cache to a view laid over it (conjure's `EditorView` parses the editor's unsaved text with it).
 
 To see units on a real file, run the demo from inside a project:
 
