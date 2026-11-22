@@ -306,7 +306,7 @@ fn download_prebuilt(releases: &str, lib: &Path) -> std::result::Result<(), Down
         .file_name()
         .and_then(|f| f.to_str())
         .ok_or_else(|| DownloadFailed("the cache's file name is not text".into()))?;
-    let client = release_client(releases)?;
+    let client = release_client()?;
     let library = get_at_most(&client, &format!("{releases}/{file}"), LIBRARY_CAP)?;
     let sum_file = get_at_most(&client, &format!("{releases}/{file}.sha256"), SUM_CAP)?;
     if !sum_matches(&library, &sum_file) {
@@ -319,9 +319,7 @@ fn download_prebuilt(releases: &str, lib: &Path) -> std::result::Result<(), Down
 
 /// An HTTP client with the download's time limits. It follows at most 10 redirects, and a
 /// release reached over https may not redirect to plain http ([`follows_redirect`]).
-fn release_client(
-    releases: &str,
-) -> std::result::Result<reqwest::blocking::Client, DownloadFailed> {
+fn release_client() -> std::result::Result<reqwest::blocking::Client, DownloadFailed> {
     reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(60))
