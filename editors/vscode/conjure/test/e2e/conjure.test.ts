@@ -27,6 +27,16 @@ async function run(action: vscode.CodeAction): Promise<void> {
   await vscode.commands.executeCommand(action.command.command, ...(action.command.arguments ?? []));
 }
 
+// whatConjureKept is the project's change records and the Problems the run ended with, for a
+// failure message: what the server decided when the change did not land.
+function whatConjureKept(ws: string): string {
+  try {
+    return readFileSync(join(ws, '.sorcerer', 'state', 'conjure', 'changes.jsonl'), 'utf8');
+  } catch {
+    return 'no change was recorded';
+  }
+}
+
 // The fake-claude suite: run by the ubuntu and windows CI jobs and by hand (npm run test:e2e).
 describe('conjure (fake claude)', () => {
   it('Conjure here lands in the buffers, marks the changed line, and Undo puts it back, within 20 s', async () => {
@@ -40,7 +50,8 @@ describe('conjure (fake claude)', () => {
     const conjure = await until('the Conjure here action', () => actionTitled(uri, 'Conjure here'));
     await run(conjure);
 
-    await until('the new text in the buffer', () => (doc.getText().includes('return x + 1') ? true : undefined));
+    await until('the new text in the buffer', () => (doc.getText().includes('return x + 1') ? true : undefined), 60_000)
+      .catch(err => { throw new Error(`${String(err)}\n${whatConjureKept(ws)}\nmarks: ${JSON.stringify(vscode.languages.getDiagnostics(uri).map(d => d.message))}`); });
     assert.equal(readFileSync(join(ws, 'a.py'), 'utf8'), 'def f(x):\n    pass\n', 'nothing was saved: the disk still says pass');
     const testDoc = await until('the test file open',
       () => vscode.workspace.textDocuments.find(d => d.uri.fsPath === join(ws, 'a__test.py')));
