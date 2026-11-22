@@ -20,7 +20,7 @@ use super::changes::{
 use super::commands::Ask;
 use super::landing::{Undoing, undo_edit};
 use super::{Server, lock};
-use crate::domain::edits::{LineEdit, line_edits};
+use crate::domain::edits::{LineEdit, in_base_line_endings, line_edits, same_text};
 use crate::domain::record::Choice;
 
 /// What runs after an undo the editor applied, holding the running place it was given: Try
@@ -325,7 +325,7 @@ fn undo_of(
     };
     let path = file.editor_path.clone();
     let before = file.before.as_deref().unwrap_or("");
-    if text != file.after {
+    if !same_text(&text, &file.after) {
         return match (file.new, version, deletion) {
             (true, None, FileDeletion::Allowed) if text.is_empty() => {
                 FileUndo::Undo(Undo::Delete { path })
@@ -338,13 +338,14 @@ fn undo_of(
         (Some(before), _) => FileUndo::Undo(Undo::Edit {
             path,
             version,
-            edits: line_edits(&file.after, before),
+            // in the file's own line endings: an undo does not rewrite them
+            edits: line_edits(&text, &in_base_line_endings(&text, before)),
         }),
         (None, FileDeletion::Allowed) => FileUndo::Undo(Undo::Delete { path }),
         (None, FileDeletion::NotAllowed) => FileUndo::Undo(Undo::Empty {
             path,
             version,
-            edits: line_edits(&file.after, ""),
+            edits: line_edits(&text, ""),
         }),
     }
 }

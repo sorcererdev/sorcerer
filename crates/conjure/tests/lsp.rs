@@ -482,6 +482,37 @@ impl Served {
         params
     }
 
+    /// The editor applies the next edit and keeps every file with CRLF lines, as VS Code on
+    /// Windows does for a new file.
+    fn apply_next_edit_with_crlf_lines(&self) -> Value {
+        let (id, params) = self.edit_sent();
+        let applied = self.apply_quietly(&params["edit"]);
+        let to_crlf = |text: &str| text.replace("\r\n", "\n").replace('\n', "\r\n");
+        let mut notes = applied.clone().unwrap_or_default();
+        for (_, note) in &mut notes {
+            let uri = note["textDocument"]["uri"].clone();
+            let Some(text) = note["contentChanges"][0]["text"]
+                .as_str()
+                .or_else(|| note["textDocument"]["text"].as_str())
+                .map(to_crlf)
+            else {
+                continue;
+            };
+            let path = path_of(&uri);
+            if let Some(buffer) = self.buffers.borrow_mut().get_mut(&path) {
+                buffer.1 = text.clone();
+            }
+            if note["contentChanges"][0]["text"].is_string() {
+                note["contentChanges"][0]["text"] = json!(text);
+            } else {
+                note["textDocument"]["text"] = json!(text);
+            }
+        }
+        self.reply(id, json!({ "applied": applied.is_some() }));
+        self.report(Some(notes));
+        params
+    }
+
     /// The editor refuses the next edit.
     fn refuse_next_edit(&self) -> Value {
         let (id, params) = self.edit_sent();
@@ -1415,6 +1446,31 @@ fn undo_reverts_every_file_in_one_edit_and_records_undone() {
     assert_eq!(records[0].choice, Choice::Undone);
     assert!(s.marks("src/a.py").is_empty());
     assert!(s.marks("src/b.py").is_empty());
+    s.stop();
+}
+
+#[test]
+fn a_change_the_editor_keeps_with_crlf_lines_landed_and_undoes_without_changing_the_endings() {
+    let dir = project();
+    let s = served(dir.path(), Script::replying(&[&three_files()]));
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.apply_next_edit_with_crlf_lines();
+    let crlf = |text: &str| text.replace('\n', "\r\n");
+    assert_eq!(s.text("src/a.py").unwrap(), crlf(NEW_A));
+    let main = s.marks("src/a.py");
+    assert!(
+        main.iter()
+            .all(|mark| !mark.message.contains("did not land")),
+        "{main:?}"
+    );
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    s.apply_next_edit();
+    assert_eq!(s.text("src/a.py").unwrap(), crlf(A));
+    assert_eq!(s.text("src/b.py").unwrap(), crlf(B));
+    assert!(s.text("src/a__test.py").is_none());
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Undone);
     s.stop();
 }
 

@@ -195,7 +195,7 @@ are matched on the path with links resolved, so a link into `gen/` is excluded t
 paths that fail these are dropped and named in `not written:`. A file the writer answers twice
 keeps its last version, whatever the spelling (`src/a.py` and `./src//a.py` are one file; `SRC/a.py` is too where your
 file system ignores case, as macOS and Windows do by default, and another file where it does not), and a file equal to what is there is no change. A file with CRLF line
-endings stays CRLF, and only the lines the writer changed are edited.
+endings stays CRLF, and only the lines the writer changed are edited. An editor that keeps a new file with CRLF lines (VS Code on Windows) still counts as having landed the change, and Undo restores it without changing its line endings.
 
 Conjure itself writes nothing to your project, and only its own memory under
 `.sorcerer/state/conjure/`.
