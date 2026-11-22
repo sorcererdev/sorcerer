@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -65,16 +64,23 @@ export function tarProgram(): string {
   return process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
 }
 
+// The largest archive accepted: scry's is about 12 MB.
+const MAX_ARCHIVE_BYTES = 200_000_000;
+// How long a scratch directory may sit before it is taken for one a killed VS Code left.
+const STALE_SCRATCH_MS = 3_600_000;
+
 // install downloads a version's archive for a target, checks it against its `.sha256`, and
 // unpacks the binary into binDir(storage, version), returning the binary's path:
-// 1. fetch the archive and its sum; a file that is not there is an error naming it;
+// 1. fetch the archive (at most 200 MB) and its sum; a file that is not there is an error
+//    naming it;
 // 2. compare the sums before anything is written: a mismatch installs nothing;
-// 3. unpack in a scratch directory under storage, move the binary into place, make it
-//    executable, and clear the scratch directory whatever happened;
-// 4. remove other versions' binaries, which this extension version never runs.
+// 3. unpack in a scratch directory under storage, refuse a tree holding any link, move the
+//    binary into place, make it executable, and clear the scratch directory whatever happened;
+// 4. remove other versions' binaries, which this extension version never runs, and scratch
+//    directories a killed VS Code left.
 export async function install(base: string, version: string, target: string, storage: string): Promise<string> {
   const url = assetUrl(base, version, target);
-  const [archive, sumText] = await Promise.all([fetched(url), fetched(`${url}.sha256`)]);
+  const [archive, sumText] = await Promise.all([fetched(url, MAX_ARCHIVE_BYTES), fetched(`${url}.sha256`, 4096)]);
   if (sumOf(sumText.toString('utf8')) !== createHash('sha256').update(archive).digest('hex')) {
     throw new Error("the download's checksum did not match; nothing was installed");
   }
@@ -82,7 +88,7 @@ export async function install(base: string, version: string, target: string, sto
   const scratch = await mkdtemp(join(storage, 'bin', '.download-'));
   try {
     const binary = await unpacked(archive, assetFor(target), scratch, binDir(storage, version));
-    await removeOtherVersions(storage, version);
+    await removeLeftovers(storage, version);
     return binary;
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -90,45 +96,98 @@ export async function install(base: string, version: string, target: string, sto
 }
 
 // releaseSize asks for a version's archive without downloading it: its size in bytes (0 when
-// the server does not say), or undefined when the release has no such file (no release for
-// this version, say). A network failure is an error.
+// the server does not say), or undefined when the release has no such file (HTTP 404 or 410:
+// no release for this version, say). Any other answer, and a network failure, is an error.
 export async function releaseSize(url: string): Promise<number | undefined> {
   const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(30_000) });
-  if (!response.ok) return undefined;
+  if (response.status === 404 || response.status === 410) return undefined;
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}`);
   return Number(response.headers.get('content-length') ?? 0);
 }
 
-// fetched is the body of a URL, or an error naming the URL and the HTTP status.
-async function fetched(url: string): Promise<Buffer> {
+// bodyUpTo reads a response's body, refusing one longer than max bytes as it arrives, so a
+// misbehaving server cannot fill the memory.
+//
+// Example: bodyUpTo(response, 5, 'the archive') of a 10-byte body fails with "the archive is
+// larger than 5 bytes".
+export async function bodyUpTo(response: Response, max: number, what: string): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let length = 0;
+  for await (const chunk of response.body ?? []) {
+    length += chunk.length;
+    if (length > max) throw new Error(`${what} is larger than ${max} bytes`);
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+// fetched is the body of a URL (at most max bytes), or an error naming the URL and the HTTP
+// status.
+async function fetched(url: string, max: number): Promise<Buffer> {
   const response = await fetch(url, { signal: AbortSignal.timeout(300_000) });
   if (!response.ok) throw new Error(`could not download ${url}: HTTP ${response.status}`);
-  return Buffer.from(await response.arrayBuffer());
+  return bodyUpTo(response, max, url);
 }
 
 // unpacked writes a checked archive into scratch, unpacks it there, and moves the binary to
-// dest; the archive holds it at its top or in one directory named for the archive.
+// dest.
 async function unpacked(archive: Buffer, asset: string, scratch: string, dest: string): Promise<string> {
-  const name = process.platform === 'win32' ? 'scry.exe' : 'scry';
   const file = join(scratch, asset);
   const into = join(scratch, 'unpacked');
   await writeFile(file, archive);
   await mkdir(into);
   await promisify(execFile)(tarProgram(), ['-xf', file, '-C', into]);
-  const root = asset.replace(/\.(zip|tar\.gz)$/, '');
-  const found = [join(into, name), join(into, root, name)].find(p => existsSync(p));
-  if (!found) throw new Error(`${asset} holds no ${name}; nothing was installed`);
-  if (process.platform !== 'win32') await chmod(found, 0o755);
-  await mkdir(dest, { recursive: true });
-  await rename(found, join(dest, name));
-  return join(dest, name);
+  await refuseLinks(into, asset);
+  return movedInto(await binaryIn(into, asset), dest);
 }
 
-// removeOtherVersions deletes the binaries other extension versions downloaded; one that is
-// in use (another window still runs it) stays until next time.
-async function removeOtherVersions(storage: string, version: string): Promise<void> {
-  for (const entry of await readdir(join(storage, 'bin'))) {
-    if (entry !== version && !entry.startsWith('.')) {
-      await rm(join(storage, 'bin', entry), { recursive: true, force: true }).catch(() => undefined);
+const EXE = process.platform === 'win32' ? 'scry.exe' : 'scry';
+
+// binaryIn is the unpacked binary: cargo-dist puts it at the top of a .zip and in one
+// directory named for the archive in a .tar.gz (both looked for). It must be a plain file.
+async function binaryIn(into: string, asset: string): Promise<string> {
+  const stem = asset.replace(/\.(zip|tar\.gz)$/, '');
+  for (const path of [join(into, EXE), join(into, stem, EXE)]) {
+    if ((await lstat(path).catch(() => undefined))?.isFile()) return path;
+  }
+  throw new Error(`${asset} holds no ${EXE}; nothing was installed`);
+}
+
+// refuseLinks fails when the unpacked tree holds a symbolic link anywhere: a link could make
+// chmod or the move reach a file outside it. The release never has one.
+async function refuseLinks(dir: string, asset: string): Promise<void> {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) throw new Error(`${asset} holds a link; nothing was installed`);
+    if (entry.isDirectory()) await refuseLinks(join(dir, entry.name), asset);
+  }
+}
+
+// movedInto makes the binary executable and moves it into dest. When the move fails because
+// another window has just installed the same version and runs it (Windows will not replace a
+// running file), that binary is used.
+async function movedInto(found: string, dest: string): Promise<string> {
+  const target = join(dest, EXE);
+  if (process.platform !== 'win32') await chmod(found, 0o755);
+  await mkdir(dest, { recursive: true });
+  try {
+    await rename(found, target);
+  } catch (err) {
+    if (!(await lstat(target).catch(() => undefined))?.isFile()) throw err;
+  }
+  return target;
+}
+
+// removeLeftovers deletes the binaries other extension versions downloaded and scratch
+// directories over an hour old. A binary in use stays until next time on Windows; on Unix an
+// older version's window keeps running its server, and only a folder it adds later fails to
+// start until that window is reloaded.
+async function removeLeftovers(storage: string, version: string): Promise<void> {
+  const bin = join(storage, 'bin');
+  for (const entry of await readdir(bin)) {
+    const path = join(bin, entry);
+    const stale = entry.startsWith('.download-') && Date.now() - ((await stat(path).catch(() => undefined))?.mtimeMs ?? Date.now()) > STALE_SCRATCH_MS;
+    if ((entry !== version && !entry.startsWith('.')) || stale) {
+      await rm(path, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 }

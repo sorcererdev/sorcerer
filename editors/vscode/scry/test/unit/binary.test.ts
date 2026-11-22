@@ -1,4 +1,6 @@
 import * as assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { candidates, find } from '../../src/binary';
 
@@ -32,4 +34,13 @@ test('find returns the first that exists, or undefined', () => {
   assert.equal(find(c, p => p !== '/a/scry'), '/b/scry');
   assert.equal(find(c, () => false), undefined);
   assert.equal(find([], () => true), undefined);
+});
+
+// A workspace's .vscode/settings.json must not choose the program the extension runs: VS Code
+// reads a machine-scoped setting from user settings only, and Restricted Mode withholds it.
+test('scry_path_is_never_read_from_a_workspace', () => {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '../../../package.json'), 'utf8'));
+  assert.equal(pkg.contributes.configuration.properties['scry.path'].scope, 'machine');
+  assert.deepEqual(pkg.capabilities.untrustedWorkspaces,
+    { supported: 'limited', restrictedConfigurations: ['scry.path'], description: pkg.capabilities.untrustedWorkspaces.description });
 });

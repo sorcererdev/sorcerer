@@ -1,13 +1,13 @@
 import * as assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { constants, accessSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, accessSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { assetFor, assetUrl, binDir, install, releaseBase, releaseSize, sumOf, tarProgram, targetFor } from '../../src/download';
+import { assetFor, assetUrl, binDir, bodyUpTo, install, releaseBase, releaseSize, sumOf, tarProgram, targetFor } from '../../src/download';
 
 const EXE = process.platform === 'win32' ? 'scry.exe' : 'scry';
 const TARGET = 'x86_64-unknown-linux-gnu';
@@ -67,14 +67,24 @@ function scratch(): string {
   return mkdtempSync(join(tmpdir(), 'scry-download-'));
 }
 
-// The archive cargo-dist makes: one directory named for the archive, the binary inside it.
-function archiveWith(text: string): Buffer {
+// An archive laid out as cargo-dist lays out the release's (checked against v0.1.0-rc.1): a
+// .tar.gz holds one directory named for the archive with the files in it; a .zip holds the
+// files at its top. `extra` adds files beside the binary; `link` makes the binary a symbolic
+// link to a file beside it instead.
+function archiveWith(text: string, asset = ASSET, extra: Record<string, string> = {}, link = false): Buffer {
   const dir = scratch();
-  const inner = join(dir, `sorcerer-scry-${TARGET}`);
-  mkdirSync(inner);
-  writeFileSync(join(inner, EXE), text);
-  execFileSync(tarProgram(), ['-czf', join(dir, ASSET), '-C', dir, `sorcerer-scry-${TARGET}`]);
-  const out = readFileSync(join(dir, ASSET));
+  const stem = asset.replace(/\.(zip|tar\.gz)$/, '');
+  const top = asset.endsWith('.zip') ? join(dir, 'files') : join(dir, 'files', stem);
+  mkdirSync(top, { recursive: true });
+  for (const [name, body] of Object.entries({ 'README.md': 'read me', ...extra })) writeFileSync(join(top, name), body);
+  if (link) {
+    writeFileSync(join(top, 'real'), text);
+    symlinkSync('real', join(top, EXE));
+  } else {
+    writeFileSync(join(top, EXE), text);
+  }
+  execFileSync(tarProgram(), ['-a', '-cf', join(dir, asset), '-C', join(dir, 'files'), ...readdirSync(join(dir, 'files'))]);
+  const out = readFileSync(join(dir, asset));
   rmSync(dir, { recursive: true, force: true });
   return out;
 }
@@ -105,8 +115,11 @@ test('a missing release says which file was not found', async () => {
 test('a_matching_download_unpacks_and_is_executable', async () => {
   const archive = archiveWith('#!/bin/sh\necho hi\n');
   const storage = scratch();
-  // an older version's binary is cleared once the new one is in place
+  // an older version's binary, and a download a killed VS Code left an hour ago, are cleared
   mkdirSync(binDir(storage, '0.0.9'), { recursive: true });
+  mkdirSync(join(storage, 'bin', '.download-old'));
+  const twoHoursAgo = new Date(Date.now() - 2 * 3600_000);
+  utimesSync(join(storage, 'bin', '.download-old'), twoHoursAgo, twoHoursAgo);
   const base = await serve({ [`/v0.1.0/${ASSET}`]: archive, [`/v0.1.0/${ASSET}.sha256`]: `${sha256(archive)}  ${ASSET}\n` });
   const binary = await install(base, '0.1.0', TARGET, storage);
   assert.equal(binary, join(binDir(storage, '0.1.0'), EXE));
@@ -120,4 +133,55 @@ test('the size is asked for without a download; a missing release has none', asy
   const base = await serve({ [`/v0.1.0/${ASSET}`]: Buffer.alloc(12_345_678) });
   assert.equal(await releaseSize(assetUrl(base, '0.1.0', TARGET)), 12_345_678);
   assert.equal(await releaseSize(assetUrl(base, '9.9.9', TARGET)), undefined);
+});
+
+test('the size check fails, not "no release", on a server error', async () => {
+  const server = createServer((_req, res) => res.writeHead(503).end());
+  servers.push(server);
+  await new Promise<void>(res => server.listen(0, '127.0.0.1', res));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  await assert.rejects(releaseSize(assetUrl(base, '0.1.0', TARGET)), /HTTP 503/);
+});
+
+async function installed(asset: string, target: string, archive: Buffer): Promise<{ storage: string; result: Promise<string> }> {
+  const storage = scratch();
+  const base = await serve({ [`/v0.1.0/${asset}`]: archive, [`/v0.1.0/${asset}.sha256`]: `${sha256(archive)} *${asset}\n` });
+  return { storage, result: install(base, '0.1.0', target, storage) };
+}
+
+// GNU tar (Linux) writes no .zip; the Windows CI job unpacks a real one end to end
+const writesZip = process.platform !== 'linux';
+
+test('a_zip_with_its_files_at_the_top_unpacks', { skip: !writesZip }, async () => {
+  const target = 'x86_64-pc-windows-msvc';
+  const { storage, result } = await installed(assetFor(target), target, archiveWith('zip body', assetFor(target)));
+  assert.equal(readFileSync(await result, 'utf8'), 'zip body');
+  rmSync(storage, { recursive: true, force: true });
+});
+
+test('a_binary_that_is_a_link_is_refused_and_nothing_is_left', { skip: process.platform === 'win32' }, async () => {
+  const { storage, result } = await installed(ASSET, TARGET, archiveWith('linked', ASSET, {}, true));
+  await assert.rejects(result, /holds a link; nothing was installed/);
+  assert.deepEqual(readdirSync(join(storage, 'bin')), []);
+  rmSync(storage, { recursive: true, force: true });
+});
+
+test('an_archive_with_any_link_is_refused', { skip: process.platform === 'win32' }, async () => {
+  const dir = scratch();
+  const stem = `sorcerer-scry-${TARGET}`;
+  mkdirSync(join(dir, stem));
+  writeFileSync(join(dir, stem, EXE), 'body');
+  symlinkSync('/etc', join(dir, stem, 'etc'));
+  execFileSync(tarProgram(), ['-czf', join(dir, ASSET), '-C', dir, stem]);
+  const { storage, result } = await installed(ASSET, TARGET, readFileSync(join(dir, ASSET)));
+  await assert.rejects(result, /holds a link; nothing was installed/);
+  assert.ok(!lstatSync(join(storage, 'bin')).isSymbolicLink());
+  assert.deepEqual(readdirSync(join(storage, 'bin')), []);
+  rmSync(storage, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('a body past the cap is refused', async () => {
+  await assert.rejects(bodyUpTo(new Response('x'.repeat(10)), 5, 'the archive'), /the archive is larger than 5 bytes/);
+  assert.equal((await bodyUpTo(new Response('x'.repeat(5)), 5, 'the archive')).length, 5);
 });

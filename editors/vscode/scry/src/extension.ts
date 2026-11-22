@@ -65,8 +65,9 @@ function serve(context: vscode.ExtensionContext, binary: string): void {
 // offerDownload asks, once per version, whether to download scry of this extension's version,
 // and returns the installed binary, or undefined when nothing was installed:
 // 1. quiet when this version was asked about already;
-// 2. a machine the release has no binary for, or a version with no release, is told the
-//    install line once instead;
+// 2. a machine the release has no binary for, or a version with no release (a 404), is told
+//    the install line once instead; a size check that fails otherwise is said and asked
+//    again next time;
 // 3. otherwise the offer, with the archive's size; Download installs it, checked against its
 //    sum; "I'll install it myself" shows the install line.
 async function offerDownload(context: vscode.ExtensionContext, version: string, storage: string): Promise<string | undefined> {
@@ -83,7 +84,7 @@ async function offerDownload(context: vscode.ExtensionContext, version: string, 
   try {
     size = await releaseSize(url);
   } catch (err) {
-    // offline: say so, and ask again next time
+    // offline, or a server error (any answer but 404): say so, and ask again next time
     void vscode.window.showWarningMessage(unreachableText(version, err));
     return undefined;
   }

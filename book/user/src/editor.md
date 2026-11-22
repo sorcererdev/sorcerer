@@ -89,9 +89,11 @@ your PATH and its version.
 
 ### VS Code
 
-The Scry extension (`sorcererdev.scry`). It looks for `scry` in the setting `scry.path`, then
-your PATH, then `~/.cargo/bin`, then `~/.local/bin` (where the installers put it), then the
-binary it downloaded itself (`scry.exe` on Windows). It starts one `scry lsp` per workspace
+The Scry extension (`sorcererdev.scry`). It looks for `scry` (`scry.exe` on Windows) in the
+setting `scry.path`, then your PATH, then `~/.cargo/bin`, then `~/.local/bin` (where the
+installers put it), then the binary it downloaded itself. `scry.path` is read from your user
+settings only: a workspace's `.vscode/settings.json` cannot choose the program the extension
+runs, and in Restricted Mode the setting is not read at all. It starts one `scry lsp` per workspace
 folder. The diagnostics, the lightbulb and the progress in the status bar are VS Code's own.
 
 With no `scry` in any of those places, it offers, once per version:
@@ -105,7 +107,10 @@ sum, and unpacks `scry` into the extension's own storage (VS Code's `globalStora
 for `sorcererdev.scry`, under `bin/<version>/`); then it starts the server. A sum that does not
 match installs nothing and says so. The next extension version offers its own `scry` the same
 way and removes the old one. **I'll install it myself** shows the install line for your
-platform and stays quiet until the next version. On a machine the release has no binary for
+platform and stays quiet until the next version. If the release cannot be reached (offline, or
+GitHub answers with an error), it says so and asks again the next time VS Code starts; a
+download that fails once is not offered again until the next version. A version with no
+release at all (a build of your own from main, say) is told the install line once. On a machine the release has no binary for
 (Linux on 32-bit ARM, Windows on ARM), it says once to use `cargo install sorcerer-scry`.
 
 ## The four actions

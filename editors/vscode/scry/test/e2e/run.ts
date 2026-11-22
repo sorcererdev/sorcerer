@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
@@ -59,10 +59,11 @@ async function fakeServerSuite(base: string): Promise<void> {
     { line: 1, code: 'bug', statement: 'f adds two, not one. The caller expects one.', rule: 'r1', id: 'f1' },
   ]));
   write(join(ws, '.vscode/settings.json'), JSON.stringify({
-    'scry.path': join(ROOT, 'test/fake-lsp/fake-lsp'),
     'security.workspace.trust.enabled': false,
     'workbench.localHistory.enabled': false,
   }, null, 2));
+  // scry.path is read from user settings only
+  write(join(base, 'ud', 'User', 'settings.json'), JSON.stringify({ 'scry.path': join(ROOT, 'test/fake-lsp/fake-lsp') }));
   await launch('scry', base, ws, { FAKE_LSP_LOG: join(base, 'fake.log'), FAKE_LSP_REPLIES: replies });
 }
 
@@ -84,7 +85,10 @@ async function downloadSuite(base: string): Promise<void> {
   git('init', '-q');
   git('add', '.');
   git('commit', '-q', '-m', 'start');
+  // a workspace's scry.path is ignored: were it read, the extension would run node and never
+  // offer the download
   write(join(ws, '.vscode/settings.json'), JSON.stringify({
+    'scry.path': process.execPath,
     'security.workspace.trust.enabled': false,
     'workbench.localHistory.enabled': false,
   }, null, 2));
@@ -100,8 +104,9 @@ async function downloadSuite(base: string): Promise<void> {
   }
 }
 
-// packRelease lays out <dir>/v<version>/<asset> and <asset>.sha256 as a GitHub release has
-// them: the binary in one directory named for the archive, and `<sum>  <asset>`.
+// packRelease lays out <dir>/v<version>/<asset> and <asset>.sha256 as cargo-dist does
+// (checked against v0.1.0-rc.1): a .zip holds the files at its top, a .tar.gz holds one
+// directory named for the archive; the sum is `<sum> *<asset>`.
 function packRelease(dir: string, version: string): string {
   const binary = process.env.SCRY_E2E_BINARY ?? resolve(ROOT, '../../../target/debug', EXE);
   if (!existsSync(binary)) throw new Error(`no scry at ${binary}: run cargo build -p sorcerer-scry, or set SCRY_E2E_BINARY`);
@@ -110,14 +115,16 @@ function packRelease(dir: string, version: string): string {
   const asset = assetFor(target);
   const stem = asset.replace(/\.(zip|tar\.gz)$/, '');
   const stage = join(dir, 'stage');
-  mkdirSync(join(stage, stem), { recursive: true });
-  writeFileSync(join(stage, stem, EXE), readFileSync(binary), { mode: 0o755 });
+  const top = asset.endsWith('.zip') ? stage : join(stage, stem);
+  mkdirSync(top, { recursive: true });
+  writeFileSync(join(top, EXE), readFileSync(binary), { mode: 0o755 });
+  writeFileSync(join(top, 'README.md'), 'scry\n');
   const out = join(dir, `v${version}`);
   mkdirSync(out, { recursive: true });
   // -a picks the format from the name: .zip or .tar.gz
-  execFileSync(tarProgram(), ['-a', '-cf', join(out, asset), '-C', stage, stem]);
+  execFileSync(tarProgram(), ['-a', '-cf', join(out, asset), '-C', stage, ...readdirSync(stage)]);
   const sum = createHash('sha256').update(readFileSync(join(out, asset))).digest('hex');
-  writeFileSync(join(out, `${asset}.sha256`), `${sum}  ${asset}\n`);
+  writeFileSync(join(out, `${asset}.sha256`), `${sum} *${asset}\n`);
   return dir;
 }
 
