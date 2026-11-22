@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use lsp_server::ResponseError;
@@ -194,7 +195,13 @@ pub(super) struct Again {
     pub situation: String,
     /// The id of the change it replaces.
     pub of: String,
+    /// The text each file of that change has once its undo reached the server (the editor's
+    /// path; `None` for a new file, which is gone or empty).
+    pub undone: Vec<(PathBuf, Option<String>)>,
 }
+
+/// How long Try harder waits for the editor to report the undo before it reads the text.
+const UNDO_REPORTED: Duration = Duration::from_secs(3);
 
 impl Server {
     /// Conjures a change where the person asked, unless one is being conjured already.
@@ -209,12 +216,38 @@ impl Server {
             return;
         };
         // the text is read now, on the main loop: the edit is made at these versions, so typing
-        // that comes after makes the editor refuse it rather than overwrite it
-        let open = self.open_documents();
+        // that comes after makes the editor refuse it rather than overwrite it. Try harder reads
+        // it once the editor has reported its undo: some editors (Neovim) answer the edit
+        // before they report the change.
+        let open = again.is_none().then(|| self.open_documents());
         let server = Arc::clone(self);
         std::thread::spawn(move || {
+            let open = open.unwrap_or_else(|| server.documents_after_undo(again.as_ref()));
             server.conjure_and_land(&ask, again.as_ref(), open, &cancel);
         });
+    }
+
+    /// The open documents once each file of the undone change reads as before (or after a
+    /// short wait, when the editor never reports it: the edit is then checked before it is
+    /// sent).
+    fn documents_after_undo(&self, again: Option<&Again>) -> Vec<(PathBuf, i32, String)> {
+        let undone = again
+            .map(|again| again.undone.as_slice())
+            .unwrap_or_default();
+        let reported = || {
+            undone.iter().all(|(path, before)| {
+                let now = self.client.text_of(path).map(|(_, text)| text);
+                match before {
+                    Some(before) => now.is_none_or(|text| text == *before),
+                    None => now.is_none_or(|text| text.is_empty()),
+                }
+            })
+        };
+        let deadline = Instant::now() + UNDO_REPORTED;
+        while !reported() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        self.open_documents()
     }
 
     /// Every open document: the editor's path, the version and the text.
@@ -449,7 +482,13 @@ impl Server {
             Some(shown) => marks_of(&shown.change)
                 .into_iter()
                 .map(|mark| {
-                    let text = self.text_now(&mark.path);
+                    // a changed file's text is known; the editor may not have reported it yet
+                    let text = shown
+                        .change
+                        .files
+                        .iter()
+                        .find(|file| file.editor_path == mark.path)
+                        .map_or_else(|| self.text_now(&mark.path), |file| file.after.clone());
                     let diagnostic = mark_diagnostic(&mark, &shown.change, &text);
                     (mark, diagnostic)
                 })
@@ -590,6 +629,12 @@ impl Server {
                 let again = Again {
                     situation: shown.change.situation.clone(),
                     of: id.to_string(),
+                    undone: shown
+                        .change
+                        .files
+                        .iter()
+                        .map(|file| (file.editor_path.clone(), file.before.clone()))
+                        .collect(),
                 };
                 (shown.change.ask.clone(), again, shown.change.is_no_change())
             });

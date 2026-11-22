@@ -634,6 +634,28 @@ fn apply_edit_delivers_not_applied_on_an_error_reply() {
 }
 
 #[test]
+fn an_editor_announcing_resource_operations_takes_document_changes() {
+    // Neovim 0.12 applies documentChanges and announces resource operations, which exist only
+    // inside documentChanges, but does not announce documentChanges itself
+    let neovim = Editor::start(json!({ "workspace": {
+        "applyEdit": true,
+        "workspaceEdit": { "resourceOperations": ["rename", "create", "delete"] }
+    } }));
+    let client = neovim.client();
+    assert!(client.can_apply_edits());
+    assert!(client.can_create_files());
+    assert!(client.can_delete_files());
+    neovim.stop();
+
+    let empty = Editor::start(json!({ "workspace": {
+        "applyEdit": true,
+        "workspaceEdit": { "resourceOperations": [] }
+    } }));
+    assert!(!empty.client().can_apply_edits());
+    empty.stop();
+}
+
+#[test]
 fn edit_abilities_are_read_at_initialize() {
     let none = Editor::plain();
     let client = none.client();

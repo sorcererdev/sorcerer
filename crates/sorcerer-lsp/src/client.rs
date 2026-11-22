@@ -37,6 +37,8 @@ pub(crate) struct Abilities {
     /// `workspace.applyEdit`: it applies an edit the server sends.
     pub apply_edit: bool,
     /// `workspace.workspaceEdit.documentChanges`: it takes edits tied to a document's version.
+    /// Also true when it announces any `resourceOperations`, which exist only inside
+    /// `documentChanges`.
     pub document_changes: bool,
     /// `workspace.workspaceEdit.resourceOperations` holds `create`: an edit may create a file.
     pub create_files: bool,

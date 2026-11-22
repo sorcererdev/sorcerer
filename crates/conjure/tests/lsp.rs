@@ -485,6 +485,32 @@ impl Served {
     }
 
     fn apply(&self, edit: &Value) -> bool {
+        let applied = self.apply_quietly(edit);
+        self.report(applied.clone());
+        applied.is_some()
+    }
+
+    /// The editor answers first and reports its changes a moment later, as Neovim does (it
+    /// debounces didChange).
+    fn apply_next_edit_answering_first(&self) -> Value {
+        let (id, params) = self.edit_sent();
+        let applied = self.apply_quietly(&params["edit"]);
+        self.reply(id, json!({ "applied": applied.is_some() }));
+        std::thread::sleep(Duration::from_millis(150));
+        self.report(applied);
+        params
+    }
+
+    /// The notifications of an applied edit, sent.
+    fn report(&self, applied: Option<Vec<(String, Value)>>) {
+        for (method, params) in applied.unwrap_or_default() {
+            self.notify(&method, params);
+        }
+    }
+
+    /// Applies an edit to the buffers and the disk (creates, deletes) without telling the
+    /// server: the notifications to send, or `None` when a version did not match.
+    fn apply_quietly(&self, edit: &Value) -> Option<Vec<(String, Value)>> {
         let changes = edit["documentChanges"].as_array().unwrap();
         // every version checked before anything changes, as an editor applies it whole
         for change in changes {
@@ -492,40 +518,60 @@ impl Served {
                 let path = path_of(&change["textDocument"]["uri"]);
                 let have = self.buffers.borrow().get(&path).map(|(v, _)| i64::from(*v));
                 if have != Some(version) {
-                    return false;
+                    return None;
                 }
             }
         }
+        let mut notes = Vec::new();
+        let opened = |path: &Path, version: i32, text: &str| {
+            self.buffers
+                .borrow_mut()
+                .insert(path.to_path_buf(), (version, text.to_string()));
+            (
+                "textDocument/didOpen".to_string(),
+                json!({ "textDocument": {
+                    "uri": uri_of(path).as_str(), "languageId": "", "version": version, "text": text
+                }}),
+            )
+        };
         for change in changes {
             match change["kind"].as_str() {
                 Some("create") => {
                     let path = path_of(&change["uri"]);
                     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
                     std::fs::write(&path, "").unwrap();
-                    self.opened_with(&path, 1, "");
+                    notes.push(opened(&path, 1, ""));
                 }
                 Some("delete") => {
                     let path = path_of(&change["uri"]);
                     let _ = std::fs::remove_file(&path);
                     self.buffers.borrow_mut().remove(&path);
-                    self.notify(
-                        "textDocument/didClose",
+                    notes.push((
+                        "textDocument/didClose".to_string(),
                         json!({ "textDocument": { "uri": uri_of(&path).as_str() } }),
-                    );
+                    ));
                 }
                 _ => {
                     let path = path_of(&change["textDocument"]["uri"]);
                     if !self.buffers.borrow().contains_key(&path) {
                         let text = std::fs::read_to_string(&path).unwrap();
-                        self.opened_with(&path, 1, &text);
+                        notes.push(opened(&path, 1, &text));
                     }
                     let (version, text) = self.buffers.borrow()[&path].clone();
                     let edits = change["edits"].as_array().unwrap();
-                    self.changed_to(&path, version + 1, &applied_edits(&text, edits));
+                    let new_text = applied_edits(&text, edits);
+                    self.buffers
+                        .borrow_mut()
+                        .insert(path.clone(), (version + 1, new_text.clone()));
+                    notes.push((
+                        "textDocument/didChange".to_string(),
+                        json!({ "textDocument": { "uri": uri_of(&path).as_str(), "version": version + 1 },
+                                "contentChanges": [{ "text": new_text }] }),
+                    ));
                 }
             }
         }
-        true
+        Some(notes)
     }
 
     /// The records written so far.
@@ -1617,5 +1663,25 @@ fn marks_follow_the_open_set() {
     assert_eq!(s.marks("src/b.py").len(), 1);
     // closing records nothing
     assert!(s.records().is_empty());
+    s.stop();
+}
+
+#[test]
+fn try_harder_waits_for_the_editor_to_report_the_undo() {
+    let harder = format!(
+        "<goal>fill total properly</goal>\n<file path=\"src/a.py\">\n{}</file>\n",
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    let (_dir, s) = landed(&[&three_files(), &harder]);
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Try harder"));
+    s.apply_next_edit_answering_first();
+    s.apply_next_edit();
+    assert_eq!(
+        s.text("src/a.py").unwrap(),
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Replaced);
     s.stop();
 }
