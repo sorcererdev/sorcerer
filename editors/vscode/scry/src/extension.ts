@@ -49,7 +49,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;
   const setting = vscode.workspace.getConfiguration('scry').get<string>('path', '');
-  const binary = find(candidates(setting, process.env, homedir(), process.platform, binDir(storage, version)), isExecutable);
+  const binary = find(candidates('scry', setting, process.env, homedir(), process.platform, binDir(storage, version)), isExecutable);
   if (binary) serve(context, binary);
   else void offerDownload(context, version, storage).then(downloaded => downloaded && serve(context, downloaded));
 }
@@ -86,7 +86,7 @@ async function offered(version: string, storage: string): Promise<{ ending: Offe
   }
   let size: number | undefined;
   try {
-    size = await releaseSize(assetUrl(releaseBase(process.env), version, target));
+    size = await releaseSize(assetUrl(releaseBase('scry', process.env), 'scry', version, target));
   } catch (err) {
     void vscode.window.showWarningMessage(unreachableText(version, err));
     return { ending: 'unreachable' };
@@ -112,7 +112,7 @@ async function downloaded(version: string, target: string, storage: string): Pro
   try {
     return await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Downloading scry ${version}` },
-      () => install(releaseBase(process.env), version, target, storage),
+      () => install(releaseBase('scry', process.env), 'scry', version, target, storage),
     );
   } catch (err) {
     void vscode.window.showErrorMessage(`scry was not installed: ${errorText(err)}. ${installText()}`);

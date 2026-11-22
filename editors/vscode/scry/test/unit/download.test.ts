@@ -28,13 +28,26 @@ test('no_target_for_an_unsupported_platform', () => {
 });
 
 test('assets_are_zip_on_windows_and_tar_gz_elsewhere', () => {
-  assert.equal(assetFor('x86_64-pc-windows-msvc'), 'sorcerer-scry-x86_64-pc-windows-msvc.zip');
-  assert.equal(assetFor('aarch64-apple-darwin'), 'sorcerer-scry-aarch64-apple-darwin.tar.gz');
+  assert.equal(assetFor('scry', 'x86_64-pc-windows-msvc'), 'sorcerer-scry-x86_64-pc-windows-msvc.zip');
+  assert.equal(assetFor('scry', 'aarch64-apple-darwin'), 'sorcerer-scry-aarch64-apple-darwin.tar.gz');
+});
+
+test('assets_are_named_for_their_product', () => {
+  assert.equal(assetFor('conjure', 'x86_64-pc-windows-msvc'), 'sorcerer-conjure-x86_64-pc-windows-msvc.zip');
+  assert.equal(assetFor('conjure', 'aarch64-apple-darwin'), 'sorcerer-conjure-aarch64-apple-darwin.tar.gz');
+  assert.equal(assetUrl('http://h', 'conjure', '0.1.0', 'aarch64-apple-darwin'),
+    'http://h/v0.1.0/sorcerer-conjure-aarch64-apple-darwin.tar.gz');
+});
+
+test('each product has its own release override', () => {
+  assert.equal(releaseBase('conjure', { CONJURE_RELEASES_URL: 'http://127.0.0.1:9/c/' }), 'http://127.0.0.1:9/c');
+  assert.equal(releaseBase('conjure', { SCRY_RELEASES_URL: 'http://127.0.0.1:9/r/' }),
+    'https://github.com/sorcererdev/sorcerer/releases/download');
 });
 
 test('the release base is github unless SCRY_RELEASES_URL says otherwise', () => {
-  assert.equal(releaseBase({}), 'https://github.com/sorcererdev/sorcerer/releases/download');
-  assert.equal(releaseBase({ SCRY_RELEASES_URL: 'http://127.0.0.1:9/r/' }), 'http://127.0.0.1:9/r');
+  assert.equal(releaseBase('scry', {}), 'https://github.com/sorcererdev/sorcerer/releases/download');
+  assert.equal(releaseBase('scry', { SCRY_RELEASES_URL: 'http://127.0.0.1:9/r/' }), 'http://127.0.0.1:9/r');
 });
 
 test('sum_reads_cargo_dists_format', () => {
@@ -71,7 +84,7 @@ function scratch(): string {
 // .tar.gz holds one directory named for the archive with the files in it; a .zip holds the
 // files at its top. `extra` adds files beside the binary; `link` makes the binary a symbolic
 // link to a file beside it instead.
-function archiveWith(text: string, asset = ASSET, extra: Record<string, string> = {}, link = false): Buffer {
+function archiveWith(text: string, asset = ASSET, extra: Record<string, string> = {}, link = false, exe = EXE): Buffer {
   const dir = scratch();
   const stem = asset.replace(/\.(zip|tar\.gz)$/, '');
   const top = asset.endsWith('.zip') ? join(dir, 'files') : join(dir, 'files', stem);
@@ -79,9 +92,9 @@ function archiveWith(text: string, asset = ASSET, extra: Record<string, string> 
   for (const [name, body] of Object.entries({ 'README.md': 'read me', ...extra })) writeFileSync(join(top, name), body);
   if (link) {
     writeFileSync(join(top, 'real'), text);
-    symlinkSync('real', join(top, EXE));
+    symlinkSync('real', join(top, exe));
   } else {
-    writeFileSync(join(top, EXE), text);
+    writeFileSync(join(top, exe), text);
   }
   execFileSync(tarProgram(), ['-a', '-cf', join(dir, asset), '-C', join(dir, 'files'), ...readdirSync(join(dir, 'files'))]);
   const out = readFileSync(join(dir, asset));
@@ -97,7 +110,7 @@ test('a_mismatched_sum_deletes_and_says_so', async () => {
   const archive = archiveWith('#!/bin/sh\necho hi\n');
   const base = await serve({ [`/v0.1.0/${ASSET}`]: archive, [`/v0.1.0/${ASSET}.sha256`]: `${'0'.repeat(64)}  ${ASSET}\n` });
   const storage = scratch();
-  await assert.rejects(install(base, '0.1.0', TARGET, storage),
+  await assert.rejects(install(base, 'scry', '0.1.0', TARGET, storage),
     { message: "the download's checksum did not match; nothing was installed" });
   assert.ok(!existsSync(join(binDir(storage, '0.1.0'), EXE)), 'no binary');
   const left = existsSync(join(storage, 'bin')) ? readdirSync(join(storage, 'bin')) : [];
@@ -105,10 +118,22 @@ test('a_mismatched_sum_deletes_and_says_so', async () => {
   rmSync(storage, { recursive: true, force: true });
 });
 
+test('conjure_is_downloaded_and_unpacked_under_its_own_name', async () => {
+  const asset = `sorcerer-conjure-${TARGET}.tar.gz`;
+  const conjure = process.platform === 'win32' ? 'conjure.exe' : 'conjure';
+  const archive = archiveWith('conjure body', asset, {}, false, conjure);
+  const base = await serve({ [`/v0.1.0/${asset}`]: archive, [`/v0.1.0/${asset}.sha256`]: `${sha256(archive)}  ${asset}\n` });
+  const storage = scratch();
+  const binary = await install(base, 'conjure', '0.1.0', TARGET, storage);
+  assert.equal(binary, join(binDir(storage, '0.1.0'), conjure));
+  assert.equal(readFileSync(binary, 'utf8'), 'conjure body');
+  rmSync(storage, { recursive: true, force: true });
+});
+
 test('a missing release says which file was not found', async () => {
   const base = await serve({});
   const storage = scratch();
-  await assert.rejects(install(base, '9.9.9', TARGET, storage), /HTTP 404/);
+  await assert.rejects(install(base, 'scry', '9.9.9', TARGET, storage), /HTTP 404/);
   rmSync(storage, { recursive: true, force: true });
 });
 
@@ -121,7 +146,7 @@ test('a_matching_download_unpacks_and_is_executable', async () => {
   const twoHoursAgo = new Date(Date.now() - 2 * 3600_000);
   utimesSync(join(storage, 'bin', '.download-old'), twoHoursAgo, twoHoursAgo);
   const base = await serve({ [`/v0.1.0/${ASSET}`]: archive, [`/v0.1.0/${ASSET}.sha256`]: `${sha256(archive)}  ${ASSET}\n` });
-  const binary = await install(base, '0.1.0', TARGET, storage);
+  const binary = await install(base, 'scry', '0.1.0', TARGET, storage);
   assert.equal(binary, join(binDir(storage, '0.1.0'), EXE));
   assert.equal(readFileSync(binary, 'utf8'), '#!/bin/sh\necho hi\n');
   if (process.platform !== 'win32') accessSync(binary, constants.X_OK);
@@ -131,8 +156,8 @@ test('a_matching_download_unpacks_and_is_executable', async () => {
 
 test('the size is asked for without a download; a missing release has none', async () => {
   const base = await serve({ [`/v0.1.0/${ASSET}`]: Buffer.alloc(12_345_678) });
-  assert.equal(await releaseSize(assetUrl(base, '0.1.0', TARGET)), 12_345_678);
-  assert.equal(await releaseSize(assetUrl(base, '9.9.9', TARGET)), undefined);
+  assert.equal(await releaseSize(assetUrl(base, 'scry', '0.1.0', TARGET)), 12_345_678);
+  assert.equal(await releaseSize(assetUrl(base, 'scry', '9.9.9', TARGET)), undefined);
 });
 
 test('the size check fails, not "no release", on a server error', async () => {
@@ -140,13 +165,13 @@ test('the size check fails, not "no release", on a server error', async () => {
   servers.push(server);
   await new Promise<void>(res => server.listen(0, '127.0.0.1', res));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  await assert.rejects(releaseSize(assetUrl(base, '0.1.0', TARGET)), /HTTP 503/);
+  await assert.rejects(releaseSize(assetUrl(base, 'scry', '0.1.0', TARGET)), /HTTP 503/);
 });
 
 async function installed(asset: string, target: string, archive: Buffer): Promise<{ storage: string; result: Promise<string> }> {
   const storage = scratch();
   const base = await serve({ [`/v0.1.0/${asset}`]: archive, [`/v0.1.0/${asset}.sha256`]: `${sha256(archive)} *${asset}\n` });
-  return { storage, result: install(base, '0.1.0', target, storage) };
+  return { storage, result: install(base, 'scry', '0.1.0', target, storage) };
 }
 
 // GNU tar (Linux) writes no .zip; the Windows CI job unpacks a real one end to end
@@ -154,7 +179,7 @@ const writesZip = process.platform !== 'linux';
 
 test('a_zip_with_its_files_at_the_top_unpacks', { skip: !writesZip }, async () => {
   const target = 'x86_64-pc-windows-msvc';
-  const { storage, result } = await installed(assetFor(target), target, archiveWith('zip body', assetFor(target)));
+  const { storage, result } = await installed(assetFor('scry', target), target, archiveWith('zip body', assetFor('scry', target)));
   assert.equal(readFileSync(await result, 'utf8'), 'zip body');
   rmSync(storage, { recursive: true, force: true });
 });

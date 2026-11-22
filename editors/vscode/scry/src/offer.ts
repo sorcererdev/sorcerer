@@ -1,5 +1,5 @@
-// How an offer to download scry ended. extension.ts makes the offer; this says which endings
-// it remembers for the extension's version, so that the offer is not made again until the
+// How an offer to download a product's binary (scry's, conjure's) ended. extension.ts makes
+// the offer; this says which endings it remembers for the extension's version, so that the offer is not made again until the
 // next version.
 export type OfferEnding =
   | 'no target' // the release has no binary for this machine
