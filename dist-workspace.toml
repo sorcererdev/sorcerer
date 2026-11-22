@@ -25,9 +25,10 @@ checksum = "sha256"
 install-updater = false
 # The prebuilt grammars, built on each platform's runner and attached to the same release
 global-artifacts-jobs = ["./build-grammars"]
-# The four crates go to crates.io once the release is announced; a failure there cannot
+# The five crates go to crates.io and the two extensions to the Marketplace and Open VSX once
+# the release is announced; a failure there cannot
 # block the release
-post-announce-jobs = ["./publish-crates"]
+post-announce-jobs = ["./publish-crates", "./publish-vscode"]
 # dist 0.34.0 writes a custom job as `uses: $/.github/workflows/<job>.yml`, which GitHub refuses;
 # scripts/release-workflow regenerates release.yml and makes that `./`, and CI checks the file
 # with `scripts/release-workflow --check`. dist itself must not refuse the patched file.

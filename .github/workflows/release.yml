@@ -313,3 +313,12 @@ jobs:
     with:
       plan: ${{ needs.plan.outputs.val }}
     secrets: inherit
+
+  custom-publish-vscode:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/publish-vscode.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit
