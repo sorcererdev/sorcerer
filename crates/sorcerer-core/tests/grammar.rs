@@ -367,6 +367,36 @@ fn a_shipped_grammar_is_downloaded_and_loads() {
 }
 
 #[test]
+fn a_download_follows_a_redirect_between_http_servers() {
+    let (_repo, source) = python_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let mut elsewhere = mockito::Server::new();
+    let mut server = mockito::Server::new();
+    let cache = GrammarCache::at(d.path().into()).with_releases(&server.url());
+    let file = release_file(&cache, &source);
+    let bytes = prebuilt_python();
+    let moved = server
+        .mock("GET", format!("/{file}").as_str())
+        .with_status(302)
+        .with_header("location", &format!("{}/moved/{file}", elsewhere.url()))
+        .create();
+    let library = elsewhere
+        .mock("GET", format!("/moved/{file}").as_str())
+        .with_body(&bytes)
+        .create();
+    let sum = server
+        .mock("GET", format!("/{file}.sha256").as_str())
+        .with_body(sha256_line(&bytes, &file))
+        .create();
+
+    let (_, obtained) = grammar::load(&cache, "python", &source, GrammarOrigin::Shipped).unwrap();
+    assert_eq!(obtained, GrammarObtained::Downloaded);
+    moved.assert();
+    library.assert();
+    sum.assert();
+}
+
+#[test]
 fn a_404_falls_back_to_compiling() {
     let (_repo, source) = python_repo();
     let d = tempfile::TempDir::new().unwrap();
