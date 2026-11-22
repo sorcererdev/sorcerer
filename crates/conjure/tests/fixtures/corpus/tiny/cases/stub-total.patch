@@ -1,0 +1,12 @@
+diff --git a/src/shop/cart.py b/src/shop/cart.py
+index 1013f48..82e9879 100644
+--- a/src/shop/cart.py
++++ b/src/shop/cart.py
+@@ -1,6 +1,6 @@
+ class Cart:
+     def total(self):
+-        return 0
++        pass
+ 
+     def empty(self):
+         return True

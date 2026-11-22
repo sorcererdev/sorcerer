@@ -1,0 +1,10 @@
+# A two-case corpus for the eval's own tests.
+name = "tiny"
+language = "python"
+writer = "haiku"
+
+[passing_scores]
+forward_min = 1
+parses_min = 2
+in_scope_min = 2
+no_change_on_green_min = 1

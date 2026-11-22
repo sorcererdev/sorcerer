@@ -1,0 +1,4 @@
+file = "src/shop/cart.py"
+line = 6
+kind = "green"
+expect = "Nothing: the body is complete."

@@ -1,0 +1,4 @@
+file = "src/shop/cart.py"
+line = 3
+kind = "stub"
+expect = "Fill Cart.total and write its test."
