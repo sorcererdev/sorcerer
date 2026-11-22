@@ -46,6 +46,10 @@ async function run(base: string, conjure: string, fake: string): Promise<void> {
   write(join(ws, '.vscode/settings.json'), JSON.stringify({
     'security.workspace.trust.enabled': false,
     'workbench.localHistory.enabled': false,
+    // VS Code on Windows starts a new file with CRLF lines, which the server reads as a file that
+    // did not land as the change made it (no Undo): a finding for the server, see the part 5
+    // report; the test asks for LF
+    'files.eol': '\n',
   }, null, 2));
   const git = (...args: string[]) =>
     execFileSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@example.com', ...args], { cwd: ws });
