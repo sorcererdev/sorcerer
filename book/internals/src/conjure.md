@@ -120,4 +120,47 @@ supplies.
 `tests/change.rs` (the prompt against `tests/golden/change-prompt.txt`, the situation, the
 use case over a `StubWriter` and a `Rig` of doubles, the writers over `ScriptedProvider`),
 `tests/related.rs` (the vendored grammars), `tests/cli.rs` (`main_with` with a `Wired` of
-doubles). `UPDATE_GOLDEN=1` rewrites the golden prompt. No test calls a model or the network.
+doubles), `tests/eval.rs` (the corpora, below). `UPDATE_GOLDEN=1` rewrites the golden prompt. No test calls a model or the network (the eval replays recordings).
+
+## The eval
+
+`crates/conjure/tests/eval.rs` runs each corpus under `corpus/conjure/<name>/` through
+`conjure_change` with the writer's reply replayed, and asserts the corpus's passing scores. One
+`#[test]` a corpus (`bistro_reaches_its_passing_scores`, `bistro_rs_reaches_its_passing_scores`); it
+costs nothing and runs in `cargo test --workspace` on all three systems. `corpus/conjure/README.md` is
+the index; each corpus has its own README and a `cases.md`.
+
+**A corpus** is `corpus.toml` (`name`, `language`, `writer`, `[passing_scores]`, `[baseline]`), `base/`
+(the project, plain files), `cases/<id>.toml` (`file`, `line`, optional `end_line`, `kind`, `expect`,
+optional `finding` and `also_in_scope`), `cases/<id>.patch` (the person's uncommitted edit, applied
+with `git apply` over the committed base; absent for a green case), optional
+`cases/<id>.findings.json` (a scry version 2 findings file, copied to
+`.sorcerer/state/scry/findings.json`, which `.git/info/exclude` hides from the session diff),
+`replies/<id>.json` (`{model, text, cost_usd, seconds}`) and `labels.json` (`{"forward": [ids]}`).
+`run_case` builds the project in a temporary directory (`project_of_case`), then calls `conjure_change`
+over the vendored grammars with a `CorpusWriter` that replays the reply.
+
+**The four scores**, printed as a table with `--nocapture` and asserted by `Scores::assert_reaches`:
+`forward` (the id is in `labels.json`, which a person writes after reading the recorded change against
+`expect`), `parses` (no changed file has a parse error), `in_scope` (every changed path is the unit's
+file, its test file by `tests_path`, or in `also_in_scope`) and `no_change_on_green` (a green case
+answered "no change", or changed only its test file). A corpus with no `forward_min` fails after its
+table.
+
+**Recording.** `CONJURE_RECORD=all` (refused when `CI` is set: `record_mode_from`) asks the live
+`ProviderWriter` for each case that has no `replies/<id>.json`, through the project's default provider
+(`claude -p` on the subscription), and writes it. It prints a running total and stops once the total
+reaches `CONJURE_RECORD_CEILING` dollars (default 0.50), keeping what it wrote; delete a reply to
+record that case again. `CONJURE_EVAL_CASES=a,b` runs only those cases and asserts nothing.
+
+**Adding a case.** Write `cases/<id>.toml` and its patch (a scratch copy of `base/`, the edit,
+`git diff --cached`), record it with `CONJURE_RECORD=all cargo test -p sorcerer-conjure --test eval
+<corpus> -- --nocapture`, read the reply against `expect`, add the id to `labels.json` when it is
+forward and a line to `cases.md`. A real record from `changes.jsonl` becomes a case the same way:
+its file, line and trigger become the toml, the person's diff at that time the patch.
+
+**Passing scores** are stated before a corpus is first recorded and move only by a ruling written in
+its `corpus.toml` with the date and the numbers; bistro-rs's `forward_min` was set from its first
+recording (hits minus one). Replies are never converted (`.gitattributes`: `corpus/conjure/*/replies/**
+-text`), so what was recorded is what CI replays.
+
