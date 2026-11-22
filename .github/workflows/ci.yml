@@ -90,7 +90,9 @@ jobs:
       - if: matrix.extension == 'scry'
         run: cargo build -p sorcerer-scry
       - if: matrix.extension == 'conjure'
-        run: cargo build -p sorcerer-conjure -p sorcerer-models --bin fake-claude
+        run: |
+          cargo build -p sorcerer-conjure
+          cargo build -p sorcerer-models --bin fake-claude
       - if: matrix.os == 'ubuntu-latest'
         run: xvfb-run -a npm run test:e2e
       - if: matrix.os == 'windows-latest' && matrix.extension == 'scry'

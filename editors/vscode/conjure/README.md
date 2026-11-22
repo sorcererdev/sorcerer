@@ -39,7 +39,7 @@ against its checksum.
 
 `npm ci`, then `npm run lint`, `npm run test:unit`, `npm run build`. `npm run test:e2e` downloads
 a VS Code and runs *Conjure here* and *Undo* against the real `conjure lsp` with a fake
-`claude` (build them first: `cargo build -p sorcerer-conjure -p sorcerer-models --bin
-fake-claude`). `src/binary.ts`, `src/download.ts` and `src/offer.ts` are copies of scry's
+`claude` (build them first: `cargo build -p sorcerer-conjure`, then `cargo build -p sorcerer-models
+--bin fake-claude`). `src/binary.ts`, `src/download.ts` and `src/offer.ts` are copies of scry's
 extension's, by product name; CI fails when they drift. Press F5 to run the extension.
 `npm run package` makes the `.vsix`.

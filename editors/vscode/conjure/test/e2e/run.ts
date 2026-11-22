@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   const conjure = process.env.CONJURE_E2E_BINARY ?? join(TARGET, `conjure${EXE}`);
   const fake = process.env.CONJURE_E2E_FAKE_CLAUDE ?? join(TARGET, `fake-claude${EXE}`);
   for (const [name, path] of [['conjure', conjure], ['fake-claude', fake]]) {
-    if (!existsSync(path)) throw new Error(`no ${name} at ${path}: run cargo build -p sorcerer-conjure -p sorcerer-models --bin fake-claude, or set CONJURE_E2E_*`);
+    if (!existsSync(path)) throw new Error(`no ${name} at ${path}: run cargo build -p sorcerer-conjure and cargo build -p sorcerer-models --bin fake-claude, or set CONJURE_E2E_*`);
   }
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'cj-e2e-')));
   try {
