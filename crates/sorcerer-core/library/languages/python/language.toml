@@ -11,3 +11,10 @@ grammar = { git = "https://github.com/tree-sitter/tree-sitter-python", rev = "29
 [unit]
 # A unit's display name on its def line, when the queries don't say: the last group.
 name = ['^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+([^[:space:](:[]+)']
+
+# Where a file's tests live, and where an import's file may be (conjure reads these).
+[test]
+tests_for = "{= dir =}/{= stem =}__test.py"
+
+[imports]
+resolve = ["{= path =}.py", "{= path =}/__init__.py", "src/{= path =}.py", "src/{= path =}/__init__.py"]

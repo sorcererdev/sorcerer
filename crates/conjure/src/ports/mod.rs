@@ -1,1 +1,3 @@
-//! (filled in by the tasks that follow)
+//! The traits a use case talks through.
+
+pub mod clock;
