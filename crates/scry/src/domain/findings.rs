@@ -21,7 +21,8 @@ use crate::domain::scope::Scope;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Findings {
     pub findings: Vec<Finding>,
-    /// For each file, the names of the units a pass has reviewed.
+    /// For each file, the fingerprints of the unit versions a pass has
+    /// reviewed: a unit at one of them is not sent again.
     pub reviewed: BTreeMap<PathBuf, BTreeSet<String>>,
     /// For each file, the names of the units a cost cap kept from review.
     pub capped: BTreeMap<PathBuf, BTreeSet<String>>,
@@ -174,7 +175,9 @@ fn most_confident_first(mut findings: Vec<&Finding>) -> Vec<&Finding> {
 /// 3. The pass's new findings are added. If one's id was taken meanwhile by
 ///    a finding added from elsewhere, it is given a free id, and
 ///    `renamed_ids` records the change so the pass's later writes use it.
-/// 4. The reviewed units of each file are those of both.
+/// 4. The reviewed fingerprints are the store's, with those the pass added
+///    and less those the pass forgot (a finding on that code was resolved
+///    or gone, so the code is reviewed again if it comes back).
 /// 5. The capped units are the pass's if it changed them, else the store's.
 ///
 /// `renamed_ids` is applied to the working copy first; `last_written` is
@@ -199,7 +202,7 @@ pub fn merge_into(
     let added = pass.new_findings_under_free_ids(current, renamed_ids);
     Findings {
         findings: kept.into_iter().chain(added).collect(),
-        reviewed: reviewed_by_either(current, &working_copy),
+        reviewed: pass.reviewed_after(current),
         capped: pass.capped_units(current),
     }
 }
@@ -271,6 +274,31 @@ impl<'a> PassEdits<'a> {
         .collect()
     }
 
+    /// The store's reviewed fingerprints with the pass's edits laid over
+    /// them: what it marked reviewed since it last wrote is added, what it
+    /// forgot is taken out, and what another writer marked meanwhile stays.
+    fn reviewed_after(&self, current: &Findings) -> BTreeMap<PathBuf, BTreeSet<String>> {
+        let added = fingerprints_only_in(&self.working_copy.reviewed, &self.last_written.reviewed);
+        let forgotten =
+            fingerprints_only_in(&self.last_written.reviewed, &self.working_copy.reviewed);
+        let files = current.reviewed.keys().chain(added.keys());
+        files
+            .map(|file| {
+                let kept_or_added: BTreeSet<String> = current
+                    .reviewed
+                    .get(file)
+                    .into_iter()
+                    .chain(added.get(file))
+                    .flatten()
+                    .filter(|print| !forgotten.get(file).is_some_and(|f| f.contains(*print)))
+                    .cloned()
+                    .collect();
+                (file.clone(), kept_or_added)
+            })
+            .filter(|(_, prints)| !prints.is_empty())
+            .collect()
+    }
+
     fn capped_units(&self, current: &Findings) -> BTreeMap<PathBuf, BTreeSet<String>> {
         if self.working_copy.capped == self.last_written.capped {
             current.capped.clone()
@@ -280,18 +308,22 @@ impl<'a> PassEdits<'a> {
     }
 }
 
-fn reviewed_by_either(
-    current: &Findings,
-    working_copy: &Findings,
+/// For each file, the fingerprints in `these` that `those` does not have.
+fn fingerprints_only_in(
+    these: &BTreeMap<PathBuf, BTreeSet<String>>,
+    those: &BTreeMap<PathBuf, BTreeSet<String>>,
 ) -> BTreeMap<PathBuf, BTreeSet<String>> {
-    let mut reviewed = current.reviewed.clone();
-    for (file, units) in &working_copy.reviewed {
-        reviewed
-            .entry(file.clone())
-            .or_default()
-            .extend(units.iter().cloned());
-    }
-    reviewed
+    these
+        .iter()
+        .map(|(file, prints)| {
+            let only_here = match those.get(file) {
+                Some(theirs) => prints.difference(theirs).cloned().collect(),
+                None => prints.clone(),
+            };
+            (file.clone(), only_here)
+        })
+        .filter(|(_, prints): &(PathBuf, BTreeSet<String>)| !prints.is_empty())
+        .collect()
 }
 
 /// The store with each finding id that `renamed_ids` lists replaced by the

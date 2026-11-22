@@ -338,7 +338,13 @@ by saving it and making the report (`Pass::report`). The steps, in
    is in that file's `ScopedFile::same` (the units equal to the base's, filled by
    `Scoping::compared_with_base` where `compare_units` runs; empty with `--all` or no base) at a
    fingerprint other than the finding's is `resolved` with no call: the user undid the change
-   it was about, so no pass would review that unit again. A finding whose fingerprint is the
+   it was about, so no pass would review that unit again. Every way a finding is closed for its
+   code (gone, put back, no longer holds, not found again) goes through
+   `Pass::close_for_changed_code`, which also takes the finding's fingerprint out of
+   `reviewed[file]` (`forget_code_reviewed_for`): when the unit comes back to that code (you redo
+   the change you undid), it is sent again rather than counted as reviewed with nothing to say.
+   A unit the reviewer answered for in the same pass is marked reviewed again at step 7. A
+   finding whose fingerprint is the
    base's (the change was committed, bug and all) stays open; one stored with no fingerprint
    is left alone. The store is written even when nothing is sent.
 3. **Review** (`ask.rs`). `batch_units` batches them; each batch is a `ReviewAsk` with its files' diffs
@@ -394,7 +400,8 @@ by saving it and making the report (`Pass::report`). The steps, in
    `merge_into(last_written, working_copy, current)`, `last_written` being what the pass last wrote: each finding
    in the store as it is now takes the pass's version only when its status there is still the
    one the pass last saw (so a dismissal made during the pass stands); the pass's new findings
-   are appended; `reviewed` sets are joined; `capped` is the pass's when it changed it. A new
+   are appended; `reviewed` takes the store's fingerprints, adds those the pass marked and
+   takes out those it forgot since it last wrote (`PassEdits::reviewed_after`); `capped` is the pass's when it changed it. A new
    finding whose id another writer took meanwhile gets a fresh one (`free_id`); `merge_into`
    records it in `Pass::renamed_ids`, applies the map to `working_copy` on every later write (`last_written` is
    kept in written ids through `renamed`). The last write ends `Pass::run`; `Pass::report` then fills `touched`

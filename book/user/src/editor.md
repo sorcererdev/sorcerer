@@ -20,7 +20,7 @@ You edit `cancel.rs` and save.
   the next review ends, says `(the code changed since this review)` on its last line (its
   code becomes `bug-stale`). The review then raises it again or resolves it. Undo your change
   so the unit is again what you committed, and the finding is resolved at the next save, with
-  no model call.
+  no model call. Redo the change and the next save reviews it again, so the finding returns.
 
 A finding shows only after it passed the nitpick screen and, where it makes a claim that can
 be checked, the claim check; a finding still waiting for its check is not shown. At most three

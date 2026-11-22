@@ -677,6 +677,25 @@ fn a_new_finding_whose_id_was_taken_meanwhile_is_re_ided() {
     assert_eq!(again.findings[1].status, Status::Open);
 }
 
+/// The reviewed fingerprints a pass forgot stay forgotten when it writes;
+/// those it added are added, and those another writer added meanwhile stay.
+#[test]
+fn a_forgotten_fingerprint_is_taken_out_and_others_are_kept() {
+    let reviewed = |prints: &[&str]| {
+        let set = prints.iter().map(|p| (*p).to_string()).collect();
+        Findings {
+            reviewed: [(std::path::PathBuf::from("orders.py"), set)].into(),
+            ..Findings::default()
+        }
+    };
+    let last_written = reviewed(&["aaaaaaa"]);
+    let working_copy = reviewed(&["bbbbbbb"]);
+    let current = reviewed(&["aaaaaaa", "ccccccc"]);
+    let mut renames = std::collections::HashMap::new();
+    let written = merge_into(&last_written, &working_copy, &current, &mut renames);
+    assert_eq!(written.reviewed, reviewed(&["bbbbbbb", "ccccccc"]).reviewed);
+}
+
 // ---- the trace ----
 
 /// A pass with the doubles, a claim check that could not confirm one of
