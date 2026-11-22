@@ -28,8 +28,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::time::{Duration, SystemTime};
 
 use sha2::{Digest, Sha256};
 
@@ -140,6 +140,7 @@ pub fn load_with_compiler(
 ) -> Result<(tree_sitter::Language, GrammarObtained)> {
     static TRIED: OnceLock<Mutex<TriedLibraries>> = OnceLock::new();
     let path = library_path(cache, name, source)?;
+    sweep_once_per_process(cache);
     let mut tried = TRIED
         .get_or_init(Default::default)
         .lock()
@@ -305,7 +306,7 @@ fn download_prebuilt(releases: &str, lib: &Path) -> std::result::Result<(), Down
         .file_name()
         .and_then(|f| f.to_str())
         .ok_or_else(|| DownloadFailed("the cache's file name is not text".into()))?;
-    let client = release_client(releases)?;
+    let client = release_client()?;
     let library = get_at_most(&client, &format!("{releases}/{file}"), LIBRARY_CAP)?;
     let sum_file = get_at_most(&client, &format!("{releases}/{file}.sha256"), SUM_CAP)?;
     if !sum_matches(&library, &sum_file) {
@@ -316,17 +317,38 @@ fn download_prebuilt(releases: &str, lib: &Path) -> std::result::Result<(), Down
     put_in_place(&library, lib)
 }
 
-/// An HTTP client with the download's time limits. A release reached over https may not
-/// redirect to plain http.
-fn release_client(
-    releases: &str,
-) -> std::result::Result<reqwest::blocking::Client, DownloadFailed> {
+/// An HTTP client with the download's time limits. It follows at most 10 redirects, and a
+/// release reached over https may not redirect to plain http ([`follows_redirect`]).
+fn release_client() -> std::result::Result<reqwest::blocking::Client, DownloadFailed> {
     reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(60))
-        .https_only(releases.starts_with("https://"))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let from = attempt.previous().last();
+            if attempt.previous().len() >= MOST_REDIRECTS {
+                attempt.error("too many redirects")
+            } else if from.is_none_or(|from| follows_redirect(from, attempt.url())) {
+                attempt.follow()
+            } else {
+                attempt.error("a redirect from https to plain http is refused")
+            }
+        }))
         .build()
         .map_err(|e| DownloadFailed(format!("could not start the download: {e}")))
+}
+
+/// How many redirects a download follows before giving up.
+const MOST_REDIRECTS: usize = 10;
+
+/// Whether a download may follow a redirect from one address to another. A page fetched over
+/// https is never sent on to a plain http address, since that would drop the encryption; every
+/// other hop is allowed.
+///
+/// For example `https://github.com/…` to `https://objects.example/…` is followed, and
+/// `https://github.com/…` to `http://objects.example/…` is not. A release served over plain
+/// http (a test's local server) may redirect anywhere.
+fn follows_redirect(from: &reqwest::Url, to: &reqwest::Url) -> bool {
+    from.scheme() != "https" || to.scheme() == "https"
 }
 
 /// The body of a successful GET, refused when the status is not a success or the body is
@@ -388,7 +410,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 /// Writes the checked bytes beside `lib` and renames them into place. An error leaves no
 /// temporary file behind (a process killed between the two steps can leave one; it is never
-/// loaded, since it does not have the library's name).
+/// loaded, since it does not have the library's name, and the next process to use the cache
+/// sweeps it once it is a day old).
 fn put_in_place(bytes: &[u8], lib: &Path) -> std::result::Result<(), DownloadFailed> {
     let unwritable =
         |e: std::io::Error| DownloadFailed(format!("could not write it to the cache: {e}"));
@@ -520,6 +543,42 @@ fn local_src(dir: &Path) -> PathBuf {
         dir.to_path_buf()
     } else {
         dir.join("src")
+    }
+}
+
+/// How old a leftover temporary file must be before the sweep removes it. A younger one may be
+/// another process's download in progress.
+const STALE_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The first time this process uses a cache, removes the temporary files that killed processes
+/// left in it ([`remove_stale_temporary_files`]). Later calls do nothing.
+fn sweep_once_per_process(cache: &GrammarCache) {
+    static SWEPT: Once = Once::new();
+    if let Ok(dir) = cache.dir() {
+        SWEPT.call_once(|| remove_stale_temporary_files(dir, SystemTime::now()));
+    }
+}
+
+/// Removes the files in `dir` whose names hold `.tmp-` (the names [`aside`] makes) and that were
+/// last changed more than a day before `now`. A file without `.tmp-` in its name is never
+/// touched, and neither is a younger one. Any error is ignored: a sweep must never fail a load.
+///
+/// For example `python-1a2b.dylib.tmp-4242-0`, left two days ago, goes;
+/// `python-1a2b.dylib` stays.
+fn remove_stale_temporary_files(dir: &Path, now: SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let is_temporary = entry.file_name().to_string_lossy().contains(".tmp-");
+        let age = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok());
+        if is_temporary && age.is_some_and(|age| age > STALE_AFTER) {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -776,4 +835,65 @@ fn project_queries(dir: &Path) -> Result<BTreeMap<String, String>> {
             Ok((entry.file_name().to_string_lossy().into_owned(), text))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(text: &str) -> reqwest::Url {
+        reqwest::Url::parse(text).unwrap()
+    }
+
+    #[test]
+    fn https_may_redirect_to_https() {
+        assert!(follows_redirect(
+            &url("https://a.example/x"),
+            &url("https://b.example/y")
+        ));
+    }
+
+    #[test]
+    fn https_may_not_redirect_to_http() {
+        assert!(!follows_redirect(
+            &url("https://a.example/x"),
+            &url("http://b.example/y")
+        ));
+    }
+
+    #[test]
+    fn http_may_redirect_to_http() {
+        assert!(follows_redirect(
+            &url("http://a.example/x"),
+            &url("http://b.example/y")
+        ));
+    }
+
+    fn make_file(dir: &Path, name: &str, age: Duration) -> PathBuf {
+        let path = dir.join(name);
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_modified(SystemTime::now() - age).unwrap();
+        path
+    }
+
+    #[test]
+    fn the_sweep_removes_only_temporary_files_older_than_a_day() {
+        let d = tempfile::TempDir::new().unwrap();
+        let two_days = Duration::from_secs(2 * 24 * 60 * 60);
+        let stale = make_file(d.path(), "py-1.so.tmp-4242-0", two_days);
+        let fresh = make_file(d.path(), "py-1.so.tmp-4243-0", Duration::from_secs(60));
+        let library = make_file(d.path(), "py-1.so", two_days);
+
+        remove_stale_temporary_files(d.path(), SystemTime::now());
+
+        assert!(!stale.exists());
+        assert!(fresh.exists());
+        assert!(library.exists());
+    }
+
+    #[test]
+    fn the_sweep_of_a_missing_directory_is_quiet() {
+        let d = tempfile::TempDir::new().unwrap();
+        remove_stale_temporary_files(&d.path().join("absent"), SystemTime::now());
+    }
 }

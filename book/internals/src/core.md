@@ -107,12 +107,19 @@ match a project-relative path.
    `https://github.com/sorcererdev/sorcerer/releases/download/v<CARGO_PKG_VERSION>`;
    `GrammarCache::at` sets none, so tests never download unless they call `with_releases`
    with a local `mockito` server. `download_prebuilt` makes two GETs on one `reqwest` blocking
-   client (`release_client`: 10 s to connect, 60 s in all, `https_only` when the release URL
-   is https, so a redirect cannot drop to http): `<releases>/<file>`, refused past 20 MB
+   client (`release_client`: 10 s to connect, 60 s in all, at most 10 redirects, and a
+   redirect policy that asks `follows_redirect(from, to)`: a hop from https to anything but
+   https is refused, so a redirect cannot drop to http; the function is pure and unit-tested,
+   because the mockito tests run on plain http): `<releases>/<file>`, refused past 20 MB
    (`LIBRARY_CAP`, read through `take`, so a lying `Content-Length` cannot grow it), and
    `<file>.sha256`, refused past 4 KB. `sum_matches` compares the library's SHA-256
    (`sha256_hex`) with the first word of the sum file. Only then does `put_in_place` write the
-   bytes beside the library (`aside`) and rename them in. Every failure (no release, a 404,
+   bytes beside the library (`aside`) and rename them in. A process killed
+   between the two leaves a `*.tmp-*` file; `load_with_compiler` calls
+   `sweep_once_per_process`, which the first time a process uses a cache runs
+   `remove_stale_temporary_files` over its directory: files with `.tmp-` in the name and older
+   than a day (`STALE_AFTER`; a younger one may be another process's download) are removed,
+   errors ignored. Every failure (no release, a 404,
    offline, a cut-off or oversized body, an HTML page, a bad sum) is a `DownloadFailed` with a
    few words of why (`request_failed_text`: `no release for 0.1.0` for a 404, `the download
    timed out`, `its SHA-256 did not match the release's`), and `put_in_cache` falls through
