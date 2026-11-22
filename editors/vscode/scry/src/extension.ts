@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from 'vscode-languageclient/node';
 import { candidates, find, isExecutable } from './binary';
@@ -38,7 +39,9 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 
 export function activate(context: vscode.ExtensionContext): void {
   const setting = vscode.workspace.getConfiguration('scry').get<string>('path', '');
-  const binary = find(candidates(setting, process.env, homedir()), isExecutable);
+  const version = String(context.extension.packageJSON.version);
+  const storage = join(context.globalStorageUri.fsPath, 'bin', version);
+  const binary = find(candidates(setting, process.env, homedir(), process.platform, storage), isExecutable);
   if (!binary) {
     void vscode.window.showErrorMessage(NOT_FOUND);
     return;

@@ -32,7 +32,7 @@
         "scry.path": {
           "type": "string",
           "default": "",
-          "markdownDescription": "The `scry` binary: an absolute path. Empty: `scry` is looked up on `PATH`, then in `~/.cargo/bin`."
+          "markdownDescription": "The `scry` binary: an absolute path. Empty: `scry` (`scry.exe` on Windows) is looked up on `PATH`, then in `~/.cargo/bin`, `~/.local/bin` and the binary this extension downloaded."
         }
       }
     }
