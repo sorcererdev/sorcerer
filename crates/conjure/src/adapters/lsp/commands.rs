@@ -55,7 +55,7 @@ pub(super) fn capabilities() -> ServerCapabilities {
 
 /// A change asked for: where, and for which scry finding.
 #[derive(Debug, Clone)]
-pub(super) struct Ask {
+pub(crate) struct Ask {
     /// The file as the editor names it.
     pub path: PathBuf,
     /// The cursor's line, from 1.

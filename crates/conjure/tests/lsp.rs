@@ -308,10 +308,6 @@ impl Served {
             .map(|(_, text)| text.clone())
     }
 
-    fn version(&self, relative: &str) -> i32 {
-        self.buffers.borrow()[&self.path(relative)].0
-    }
-
     /// The editor saves a buffer to the disk.
     fn save(&self, relative: &str) {
         let path = self.path(relative);
@@ -540,6 +536,14 @@ impl Served {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
+    }
+
+    /// Lets the server run for a moment, keeping what it sends.
+    fn settle(&self) {
+        let deadline = Instant::now() + QUIET;
+        while let Some(message) = self.pull(deadline) {
+            self.inbox.borrow_mut().push_back(message);
+        }
     }
 
     /// Waits until the records hold N lines.
@@ -976,30 +980,68 @@ fn a_refused_edit_says_your_text_stands_and_marks_nothing() {
     s.stop();
 }
 
+/// Whether the server sent an edit within a moment.
+fn sent_an_edit(s: &Served) -> bool {
+    s.all_within(QUIET)
+        .iter()
+        .any(|m| matches!(m, Message::Request(r) if r.method == "workspace/applyEdit"))
+}
+
 #[test]
-fn a_typed_change_while_conjuring_is_refused_by_the_editor() {
+fn typing_while_conjuring_keeps_the_edit_from_being_sent() {
     let dir = project();
     let script = Script::replying(&[&three_files()]);
     let open = script.gated();
     let s = served(dir.path(), script);
     s.open("src/a.py");
     s.conjure_here("src/a.py", 5);
-    // the person types while the writer writes: the edit was made at version 1
+    // the person types while the writer writes: the change was made from version 1
     s.type_text("src/a.py", &A.replace("X = 1", "X = 3"));
     open.send(()).unwrap();
-    let (id, params) = s.edit_sent();
-    assert_eq!(
-        params["edit"]["documentChanges"][0]["textDocument"]["version"],
-        1
-    );
-    let applied = s.apply(&params["edit"]);
-    assert!(!applied);
-    s.reply(id, json!({ "applied": false }));
     assert_eq!(
         s.shown_message(),
         "conjure: the file changed while the change was conjured; your text stands"
     );
+    assert!(!sent_an_edit(&s));
     assert_eq!(s.text("src/a.py").unwrap(), A.replace("X = 1", "X = 3"));
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Dropped);
+    s.stop();
+}
+
+#[test]
+fn a_file_opened_and_typed_in_while_conjuring_is_not_overwritten() {
+    let dir = project();
+    let script = Script::replying(&[&three_files()]);
+    let open = script.gated();
+    let s = served(dir.path(), script);
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    // b.py was not open when the change was asked for; now it is, with the person's typing
+    s.open("src/b.py");
+    s.type_text("src/b.py", "def helper():\n    return 9\n");
+    open.send(()).unwrap();
+    assert_eq!(
+        s.shown_message(),
+        "conjure: the file changed while the change was conjured; your text stands"
+    );
+    assert!(!sent_an_edit(&s));
+    assert_eq!(s.text("src/b.py").unwrap(), "def helper():\n    return 9\n");
+    s.stop();
+}
+
+#[test]
+fn a_file_opened_unchanged_while_conjuring_still_lands() {
+    let dir = project();
+    let script = Script::replying(&[&three_files()]);
+    let open = script.gated();
+    let s = served(dir.path(), script);
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.open("src/b.py");
+    open.send(()).unwrap();
+    s.apply_next_edit();
+    assert_eq!(s.text("src/b.py").unwrap(), NEW_B);
     s.stop();
 }
 
@@ -1247,5 +1289,333 @@ fn a_changed_unterminated_last_line_ends_in_utf16_units() {
         s.text("src/d.py").unwrap(),
         "def g():\n    pass\n\n\nZ = 'éé'\n"
     );
+    s.stop();
+}
+
+// ---- Task 21: the mark's actions and the choices ----
+
+/// The action titled TITLE on the main mark's line of `a.py`, with the marks the editor shows.
+fn mark_action(s: &Served, relative: &str, marks: &[Diagnostic], title: &str) -> Value {
+    let line = marks[0].range.start.line;
+    let actions = s.actions(relative, line, line, marks);
+    actions
+        .into_iter()
+        .find(|a| a["title"] == title)
+        .unwrap_or_else(|| panic!("no {title}"))
+}
+
+#[test]
+fn the_actions_come_in_order() {
+    let (_dir, s) = landed(&[&three_files()]);
+    let main = s.marks("src/a.py");
+    assert_eq!(
+        s.titles("src/a.py", 4, &main),
+        [
+            "conjure: Undo",
+            "conjure: Try harder",
+            "conjure: Show why",
+            "conjure: Show b.py",
+            "conjure: Show a__test.py",
+            "Conjure here"
+        ]
+    );
+    let other = s.marks("src/b.py");
+    assert_eq!(
+        s.titles("src/b.py", 1, &other),
+        [
+            "conjure: Undo",
+            "conjure: Try harder",
+            "conjure: Show why",
+            "conjure: Show a.py",
+            "conjure: Show a__test.py",
+            "Conjure here"
+        ]
+    );
+    // the editor moved the mark with the text: its id still finds the change
+    let mut moved = main.clone();
+    moved[0].range.start.line = 0;
+    moved[0].range.end.line = 0;
+    assert_eq!(s.titles("src/a.py", 0, &moved)[0], "conjure: Undo");
+    s.stop();
+}
+
+#[test]
+fn undo_reverts_every_file_in_one_edit_and_records_undone() {
+    let (_dir, s) = landed(&[&three_files()]);
+    let main = s.marks("src/a.py");
+    assert_eq!(s.marks("src/b.py").len(), 1);
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    let params = s.apply_next_edit();
+    assert_eq!(
+        kinds_and_uris(&params["edit"]),
+        [
+            ("edit".to_string(), s.uri("src/a.py"), json!(2)),
+            ("edit".to_string(), s.uri("src/b.py"), json!(2)),
+            ("delete".to_string(), s.uri("src/a__test.py"), Value::Null),
+        ]
+    );
+    assert_eq!(s.text("src/a.py").unwrap(), A);
+    assert_eq!(s.text("src/b.py").unwrap(), B);
+    let records = s.records_reach(1);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].choice, Choice::Undone);
+    assert!(s.marks("src/a.py").is_empty());
+    assert!(s.marks("src/b.py").is_empty());
+    s.stop();
+}
+
+#[test]
+fn undo_deletes_a_created_file() {
+    let (_dir, s) = landed(&[&three_files()]);
+    assert!(s.path("src/a__test.py").exists());
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    s.apply_next_edit();
+    assert!(!s.path("src/a__test.py").exists());
+    assert!(s.text("src/a__test.py").is_none());
+    s.stop();
+}
+
+#[test]
+fn undo_empties_a_created_file_when_the_editor_cannot_delete() {
+    let dir = project();
+    let setup = Setup {
+        capabilities: json!({ "workspace": { "applyEdit": true,
+            "workspaceEdit": { "documentChanges": true, "resourceOperations": ["create"] } } }),
+    };
+    let s = served_with(dir.path(), Script::replying(&[&three_files()]), setup);
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.apply_next_edit();
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    let params = s.apply_next_edit();
+    let kinds: Vec<String> = kinds_and_uris(&params["edit"])
+        .into_iter()
+        .map(|(kind, _, _)| kind)
+        .collect();
+    assert_eq!(kinds, ["edit", "edit", "edit"]);
+    assert_eq!(s.text("src/a__test.py").unwrap(), "");
+    assert_eq!(
+        s.shown_message(),
+        "conjure: this editor cannot delete files; emptied: src/a__test.py"
+    );
+    s.stop();
+}
+
+#[test]
+fn undo_after_typing_in_a_changed_file_is_refused_and_undoes_nothing() {
+    let (_dir, s) = landed(&[&three_files()]);
+    let main = s.marks("src/a.py");
+    let typed = NEW_B.replace("return 2", "return 3");
+    s.type_text("src/b.py", &typed);
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    assert_eq!(
+        s.shown_message(),
+        "conjure: b.py was edited after the change landed; undo it with the editor's own undo"
+    );
+    let messages = s.all_within(QUIET);
+    let sent = messages
+        .iter()
+        .any(|m| matches!(m, Message::Request(r) if r.method == "workspace/applyEdit"));
+    assert!(!sent, "{messages:?}");
+    assert_eq!(s.text("src/b.py").unwrap(), typed);
+    assert_eq!(s.text("src/a.py").unwrap(), NEW_A);
+    assert!(s.records().is_empty());
+    s.stop();
+}
+
+#[test]
+fn try_harder_undoes_then_lands_the_stronger_change_with_the_same_situation() {
+    let harder = format!(
+        "<goal>fill total properly</goal>\n<file path=\"src/a.py\">\n{}</file>\n",
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    let (_dir, s) = landed(&[&three_files(), &harder]);
+    let main = s.marks("src/a.py");
+    let first_id = main[0].data.clone().unwrap();
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Try harder"));
+    // the undo first, then the stronger change
+    s.apply_next_edit();
+    s.apply_next_edit();
+    assert_eq!(
+        s.text("src/a.py").unwrap(),
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    assert_eq!(s.text("src/b.py").unwrap(), B);
+    let seen = s.script.seen();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[1].0, Attempt::TryHarder);
+    assert_eq!(seen[1].1, seen[0].1);
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Replaced);
+    let marks = s.marks("src/a.py");
+    let marks = if marks.is_empty() {
+        s.marks("src/a.py")
+    } else {
+        marks
+    };
+    assert!(
+        marks[0]
+            .message
+            .starts_with("fill total properly · sonnet · "),
+        "{}",
+        marks[0].message
+    );
+    s.save("src/a.py");
+    let records = s.records_reach(2);
+    assert_eq!(records[1].choice, Choice::Kept);
+    assert_eq!(records[1].attempt, Attempt::TryHarder);
+    assert_eq!(records[1].try_harder_of.as_deref(), first_id.as_str());
+    s.stop();
+}
+
+#[test]
+fn try_harder_from_no_change_asks_again_without_undoing() {
+    let dir = project();
+    let s = served(
+        dir.path(),
+        Script::replying(&["<goal>nothing to do</goal>\n", &three_files()]),
+    );
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    let marks = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &marks, "conjure: Try harder"));
+    s.apply_next_edit();
+    assert_eq!(s.text("src/a.py").unwrap(), NEW_A);
+    assert_eq!(s.script.seen()[1].0, Attempt::TryHarder);
+    s.stop();
+}
+
+#[test]
+fn try_harder_is_not_offered_when_switched_off() {
+    let dir = project();
+    write(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[conjure]\ntry_harder = \"\"\n",
+    );
+    let s = served(dir.path(), Script::replying(&[&three_files()]));
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.apply_next_edit();
+    let main = s.marks("src/a.py");
+    assert_eq!(
+        s.titles("src/a.py", 4, &main),
+        [
+            "conjure: Undo",
+            "conjure: Show why",
+            "conjure: Show b.py",
+            "conjure: Show a__test.py",
+            "Conjure here"
+        ]
+    );
+    s.stop();
+}
+
+/// The next `window/showDocument` request's parameters.
+fn shown_document(s: &Served) -> Value {
+    let message = s
+        .wait_for(
+            WAIT,
+            |m| matches!(m, Message::Request(r) if r.method == "window/showDocument"),
+        )
+        .expect("a document shown");
+    let Message::Request(request) = message else {
+        unreachable!()
+    };
+    request.params
+}
+
+#[test]
+fn show_why_writes_the_file_and_opens_it() {
+    let (_dir, s) = landed(&[&three_files()]);
+    let main = s.marks("src/a.py");
+    let id = main[0].data.clone().unwrap();
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Show why"));
+    let why = s.path(&format!(
+        ".sorcerer/state/conjure/why-{}.md",
+        id.as_str().unwrap()
+    ));
+    assert_eq!(shown_document(&s)["uri"], uri_of(&why).as_str());
+    let text = std::fs::read_to_string(&why).unwrap();
+    for part in [
+        "# fill total",
+        "haiku · $0.001 · 0 s",
+        "src/a.py",
+        "src/a__test.py (new)",
+        "## The situation",
+        "## The reply",
+        "## The facts",
+        "<goal>fill total</goal>",
+    ] {
+        assert!(text.contains(part), "{part} in {text}");
+    }
+    assert!(text.contains(&s.script.seen()[0].1), "{text}");
+    s.stop();
+}
+
+#[test]
+fn show_file_opens_the_change_selected() {
+    let (_dir, s) = landed(&[&three_files()]);
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Show b.py"));
+    let shown = shown_document(&s);
+    assert_eq!(shown["uri"], s.uri("src/b.py"));
+    assert_eq!(
+        shown["selection"],
+        json!({ "start": { "line": 1, "character": 0 }, "end": { "line": 2, "character": 0 } })
+    );
+    s.stop();
+}
+
+#[test]
+fn a_save_records_kept() {
+    let (_dir, s) = landed(&[&three_files()]);
+    assert_eq!(s.marks("src/a.py").len(), 1);
+    s.save("src/b.py");
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Kept);
+    assert!(s.marks("src/a.py").is_empty());
+    s.stop();
+}
+
+#[test]
+fn the_editors_own_undo_records_undone() {
+    let (_dir, s) = landed(&[&three_files()]);
+    assert_eq!(s.marks("src/a.py").len(), 1);
+    s.type_text("src/a.py", A);
+    s.type_text("src/b.py", B);
+    // one file back is not the change undone
+    s.settle();
+    assert!(s.records().is_empty());
+    s.type_text("src/a__test.py", "");
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Undone);
+    assert!(s.marks("src/a.py").is_empty());
+    s.stop();
+}
+
+#[test]
+fn shutdown_records_unanswered() {
+    let (dir, s) = landed(&[&three_files()]);
+    s.marks("src/a.py");
+    s.stop();
+    let text =
+        std::fs::read_to_string(dir.path().join(".sorcerer/state/conjure/changes.jsonl")).unwrap();
+    let record: ChangeRecord = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(record.choice, Choice::Unanswered);
+}
+
+#[test]
+fn marks_follow_the_open_set() {
+    let (_dir, s) = landed(&[&three_files()]);
+    assert_eq!(s.marks("src/b.py").len(), 1);
+    s.close("src/b.py");
+    assert!(s.marks("src/b.py").is_empty());
+    s.open("src/b.py");
+    assert_eq!(s.marks("src/b.py").len(), 1);
+    // closing records nothing
+    assert!(s.records().is_empty());
     s.stop();
 }

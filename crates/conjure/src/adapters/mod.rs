@@ -10,4 +10,5 @@ pub mod research_writer;
 pub mod scry_files;
 pub mod steering_files;
 pub mod system_clock;
+pub mod why_text;
 pub mod wiring;

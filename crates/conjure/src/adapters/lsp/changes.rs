@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use lsp_server::ResponseError;
-use lsp_types::MessageType;
+use lsp_types::{MessageType, Position, Range};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
@@ -30,15 +30,16 @@ use sorcerer_core::domain::unit::Span;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::WorkDone;
 
-use super::commands::Ask;
-use super::landing::{NewFiles, OpenDocument, Snapshot, workspace_edit};
+use super::commands::{Ask, failed, invalid};
+use super::landing::{NewFiles, OpenDocument, Snapshot, Undoing, undo_edit, workspace_edit};
 use super::marks::{mark_diagnostic, marks_of};
 use super::{NOT_TRUSTED, Server, lock, project_relative};
 use crate::adapters::editor_view::EditorView;
 use crate::adapters::jsonl_change_store::JsonlChangeStore;
 use crate::adapters::project_context::FilesContext;
+use crate::adapters::why_text::why_text;
 use crate::domain::config::conjure_config;
-use crate::domain::edits::NameCase;
+use crate::domain::edits::{LineEdit, NameCase, line_edits};
 use crate::domain::record::{
     Attempt, ChangeRecord, Choice, RECORD_VERSION, RecordedFacts, RecordedFile, Trigger, change_id,
 };
@@ -57,7 +58,7 @@ pub(super) struct Shown {
 
 /// A change that landed in the editor (or a change of no files, shown as such), with what its
 /// actions and its record need.
-pub(super) struct LandedChange {
+pub(crate) struct LandedChange {
     pub id: String,
     pub goal: Option<String>,
     /// The model alias that wrote it.
@@ -84,7 +85,7 @@ pub(super) struct LandedChange {
 }
 
 /// One file of a landed change.
-pub(super) struct LandedFile {
+pub(crate) struct LandedFile {
     /// Relative to the project's root.
     pub path: PathBuf,
     /// As the editor names it.
@@ -169,7 +170,7 @@ struct Conjured {
 struct NotConjured {
     text: String,
     kind: MessageType,
-    failed: Option<(Project, ChangeRecord)>,
+    failed: Option<Box<(Project, ChangeRecord)>>,
 }
 
 impl NotConjured {
@@ -242,7 +243,8 @@ impl Server {
             Ok(conjured) => self.land(conjured, progress),
             Err(not) => {
                 self.client.say(not.kind, &not.text);
-                if let Some((project, record)) = not.failed {
+                if let Some(failed) = not.failed {
+                    let (project, record) = *failed;
                     self.record(&project, &record, Choice::Failed);
                 }
                 progress.end(None);
@@ -337,7 +339,7 @@ impl Server {
                 Err(NotConjured {
                     text: refused.text(),
                     kind: MessageType::ERROR,
-                    failed: Some((project, record)),
+                    failed: Some(Box::new((project, record))),
                 })
             }
             Err(refused @ ChangeRefused::OutsideAUnit) => {
@@ -353,6 +355,14 @@ impl Server {
             let landed = landed_change(conjured, &[]);
             self.record(&landed.project, &landed.record, Choice::NoChange);
             self.show(landed);
+            progress.end(None);
+            self.end_running();
+            return;
+        }
+        if self.moved_on(&conjured) {
+            self.client.say(MessageType::WARNING, REFUSED);
+            let landed = landed_change(conjured, &[]);
+            self.record(&landed.project, &landed.record, Choice::Dropped);
             progress.end(None);
             self.end_running();
             return;
@@ -386,6 +396,28 @@ impl Server {
             progress.end(None);
             server.end_running();
         });
+    }
+
+    /// Whether a file the change edits moved on since its text was read: an open file at
+    /// another version, or a file that was not open and is open now with other text. The
+    /// editor would refuse the first (most do; Neovim checks only the first file of an edit) and
+    /// would apply the second over the person's typing, so neither is sent.
+    fn moved_on(&self, conjured: &Conjured) -> bool {
+        let snapshot = &conjured.snapshot;
+        conjured
+            .change
+            .files
+            .iter()
+            .filter(|file| !file.new)
+            .any(|file| {
+                let now = self.client.text_of(&snapshot.editor_path(&file.path));
+                match (snapshot.version_of(&file.path), now) {
+                    (Some(read), Some((version, _))) => version != read,
+                    (Some(_), None) => true,
+                    (None, Some((_, text))) => Some(text) != file.before,
+                    (None, None) => false,
+                }
+            })
     }
 
     /// Makes a change the one shown: the one shown before it is recorded `kept` (unless it was
@@ -476,14 +508,39 @@ impl Server {
         }
     }
 
-    /// The person changed a file: a mark of no change goes.
-    pub(super) fn changed(&self, _path: &Path) {
-        let no_change = lock(&self.shown)
-            .as_ref()
-            .is_some_and(|shown| shown.change.is_no_change());
-        if no_change {
-            self.clear_shown();
+    /// The person changed a file: a mark of no change goes, and a change whose every file is
+    /// back at its text before (the editor's own undo) is recorded `undone`.
+    pub(super) fn changed(&self, path: &Path) {
+        let ended = {
+            let mut shown = lock(&self.shown);
+            let ends = shown.as_ref().is_some_and(|shown| {
+                shown.change.is_no_change()
+                    || (shown.undoing.is_none()
+                        && shown.change.touches(path)
+                        && self.all_back(&shown.change))
+            });
+            if ends { shown.take() } else { None }
+        };
+        if let Some(ended) = ended {
+            self.end_with(&ended, Choice::Undone);
+            self.publish_marks();
         }
+    }
+
+    /// Whether every file of the change is at its text before again (a new file: empty, or
+    /// gone).
+    fn all_back(&self, change: &LandedChange) -> bool {
+        change.files.iter().all(|file| {
+            let now = self
+                .versioned_text_now(&file.editor_path)
+                .map(|(_, text)| text);
+            match (&file.before, now) {
+                (None, None) => true,
+                (None, Some(text)) => text.is_empty(),
+                (Some(before), Some(text)) => *before == text,
+                (Some(_), None) => false,
+            }
+        })
     }
 
     /// The person saved a file: a change that touched it is kept; a mark of no change goes.
@@ -513,16 +570,190 @@ impl Server {
         }
     }
 
-    pub(super) fn undo(self: &Arc<Self>, _id: &str) {}
+    /// Undoes the shown change: every file back to its text before, in one edit, recorded
+    /// `undone`. Refused, and said, when a file was edited after the change landed.
+    pub(super) fn undo(self: &Arc<Self>, id: &str) {
+        self.take_back(id, Choice::Undone, None);
+    }
 
-    pub(super) fn try_harder(self: &Arc<Self>, _id: &str) {}
+    /// Undoes the shown change, recorded `replaced`, and conjures it again on the stronger
+    /// model with the situation the first writer read. A change of no files needs no undo.
+    pub(super) fn try_harder(self: &Arc<Self>, id: &str) {
+        if lock(&self.running).is_some() {
+            self.client.say(MessageType::WARNING, BUSY);
+            return;
+        }
+        let asked = lock(&self.shown)
+            .as_ref()
+            .filter(|shown| shown.change.id == id && shown.undoing.is_none())
+            .map(|shown| {
+                let again = Again {
+                    situation: shown.change.situation.clone(),
+                    of: id.to_string(),
+                };
+                (shown.change.ask.clone(), again, shown.change.is_no_change())
+            });
+        let Some((ask, again, no_change)) = asked else {
+            return;
+        };
+        if no_change {
+            self.clear_shown();
+            self.start(ask, Some(again));
+        } else {
+            let then: Then = Box::new(move |server| server.start(ask, Some(again)));
+            self.take_back(id, Choice::Replaced, Some(then));
+        }
+    }
 
-    pub(super) fn show_why(&self, _id: &str) -> Result<(), ResponseError> {
+    /// Sends the undo of the shown change, if it is the one named and every file is still at
+    /// its text after the change; when the editor applied it, records the choice, clears the
+    /// marks and runs what comes next.
+    fn take_back(self: &Arc<Self>, id: &str, choice: Choice, then: Option<Then>) {
+        let planned = {
+            let mut shown = lock(&self.shown);
+            let Some(shown) = shown
+                .as_mut()
+                .filter(|shown| shown.change.id == id && shown.undoing.is_none())
+            else {
+                return;
+            };
+            let planned = self.undo_plan(&shown.change);
+            if planned.is_ok() {
+                shown.undoing = Some(choice);
+            }
+            planned
+        };
+        let plan = match planned {
+            Ok(plan) => plan,
+            Err(edited) => {
+                self.client
+                    .say(MessageType::WARNING, &edited_after_text(&edited));
+                return;
+            }
+        };
+        if plan.undoings.is_empty() {
+            self.taken_back(id, choice, &plan.emptied, then);
+            return;
+        }
+        let edit = undo_edit(plan.undoings.iter().map(Undo::undoing).collect());
+        let server = Arc::clone(self);
+        let id = id.to_string();
+        self.client
+            .apply_edit("conjure: undo", edit, move |answer| {
+                if answer.applied {
+                    server.taken_back(&id, choice, &plan.emptied, then);
+                } else {
+                    server.undo_refused(&id, &plan.edited_name);
+                }
+            });
+    }
+
+    /// What undoing the change takes, file by file; the name of the first file that was edited
+    /// after the change landed, when one was.
+    fn undo_plan(&self, change: &LandedChange) -> Result<UndoPlan, String> {
+        let deletes = self.client.can_delete_files();
+        let mut plan = UndoPlan {
+            undoings: Vec::new(),
+            emptied: Vec::new(),
+            edited_name: change.main_file().map(LandedFile::name).unwrap_or_default(),
+        };
+        for file in &change.files {
+            let now = self.versioned_text_now(&file.editor_path);
+            match undo_of(file, now, deletes) {
+                FileUndo::Nothing => {}
+                FileUndo::Edited => return Err(file.name()),
+                FileUndo::Undo(undo) => {
+                    if matches!(undo, Undo::Empty { .. }) {
+                        plan.emptied.push(file.relative_text());
+                    }
+                    plan.undoings.push(undo);
+                }
+            }
+        }
+        Ok(plan)
+    }
+
+    /// The editor applied the undo: the choice recorded, the marks cleared, then what comes
+    /// next.
+    fn taken_back(
+        self: &Arc<Self>,
+        id: &str,
+        choice: Choice,
+        emptied: &[String],
+        then: Option<Then>,
+    ) {
+        let taken = {
+            let mut shown = lock(&self.shown);
+            match shown.as_ref() {
+                Some(s) if s.change.id == id => shown.take(),
+                _ => None,
+            }
+        };
+        if let Some(taken) = taken {
+            self.record(&taken.change.project, &taken.change.record, choice);
+            self.publish_marks();
+        }
+        if !emptied.is_empty() {
+            self.client
+                .say(MessageType::WARNING, &emptied_text(emptied));
+        }
+        if let Some(then) = then {
+            then(Arc::clone(self));
+        }
+    }
+
+    /// The editor refused the undo (a file moved on before it arrived): the change stays shown.
+    fn undo_refused(&self, id: &str, name: &str) {
+        if let Some(shown) = lock(&self.shown).as_mut().filter(|s| s.change.id == id) {
+            shown.undoing = None;
+        }
+        self.client
+            .say(MessageType::WARNING, &edited_after_text(name));
+    }
+
+    /// Writes what the writer read and answered beside the records, and opens it.
+    pub(super) fn show_why(&self, id: &str) -> Result<(), ResponseError> {
+        let (project, text) = {
+            let shown = lock(&self.shown);
+            let change = &shown_named(&shown, id)?.change;
+            (change.project.clone(), why_text(change))
+        };
+        let state = project.state_dir().map_err(failed)?;
+        let folder = state.join("conjure");
+        std::fs::create_dir_all(&folder).map_err(failed)?;
+        let file = folder.join(format!("why-{id}.md"));
+        std::fs::write(&file, text).map_err(failed)?;
+        self.client.show_document(&file, None);
         Ok(())
     }
 
-    pub(super) fn show_file(&self, _id: &str, _path: &str) -> Result<(), ResponseError> {
+    /// Opens one of the change's files with its changed lines selected.
+    pub(super) fn show_file(&self, id: &str, path: &str) -> Result<(), ResponseError> {
+        let (editor_path, selection) = {
+            let shown = lock(&self.shown);
+            let change = &shown_named(&shown, id)?.change;
+            let file = change
+                .files
+                .iter()
+                .find(|file| file.relative_text() == path)
+                .ok_or_else(|| invalid(format!("change {id} did not change {path}")))?;
+            let selection = Range {
+                start: Position::new(file.first_changed_line.saturating_sub(1), 0),
+                end: Position::new(file.last_changed_line, 0),
+            };
+            (file.editor_path.clone(), selection)
+        };
+        self.client.show_document(&editor_path, Some(selection));
         Ok(())
+    }
+
+    /// The file's version and text as the editor has it (the version), else as the disk has it
+    /// (no version); `None` when it is in neither.
+    fn versioned_text_now(&self, path: &Path) -> Option<(Option<i32>, String)> {
+        match self.client.text_of(path) {
+            Some((version, text)) => Some((Some(version), text)),
+            None => std::fs::read_to_string(path).ok().map(|text| (None, text)),
+        }
     }
 
     /// Appends the record at its choice; a record that cannot be written is logged.
@@ -573,6 +804,113 @@ fn snapshot_of(project: &Project, open: Vec<(PathBuf, i32, String)>) -> Snapshot
         root: project.root.clone(),
         open,
     }
+}
+
+/// What comes after an undo the editor applied: Try harder's next change.
+type Then = Box<dyn FnOnce(Arc<Server>) + Send>;
+
+/// The undo of a change, file by file, and what the person is told.
+struct UndoPlan {
+    undoings: Vec<Undo>,
+    /// New files emptied because the editor cannot delete files.
+    emptied: Vec<String>,
+    /// The file named if the editor refuses the undo.
+    edited_name: String,
+}
+
+/// One file's undo.
+enum Undo {
+    /// Edits back to the text before, at the version the file has now.
+    Edit {
+        path: PathBuf,
+        version: Option<i32>,
+        edits: Vec<LineEdit>,
+    },
+    /// A new file emptied (the editor cannot delete files).
+    Empty {
+        path: PathBuf,
+        version: Option<i32>,
+        edits: Vec<LineEdit>,
+    },
+    Delete {
+        path: PathBuf,
+    },
+}
+
+impl Undo {
+    fn undoing(&self) -> Undoing<'_> {
+        match self {
+            Undo::Edit {
+                path,
+                version,
+                edits,
+            }
+            | Undo::Empty {
+                path,
+                version,
+                edits,
+            } => Undoing::Edit {
+                path,
+                version: *version,
+                edits: edits.clone(),
+            },
+            Undo::Delete { path } => Undoing::Delete { path },
+        }
+    }
+}
+
+/// What undoing one file takes, from its text now.
+enum FileUndo {
+    Undo(Undo),
+    /// The file is already as it was (the edit never reached it, or the person put it back).
+    Nothing,
+    /// The person edited it after the change landed.
+    Edited,
+}
+
+/// One file's undo: a file still at its text after the change goes back to its text before
+/// (a new file is deleted, or emptied when the editor cannot delete); a file already back
+/// needs nothing; any other text is the person's, and is never overwritten.
+fn undo_of(file: &LandedFile, now: Option<(Option<i32>, String)>, deletes: bool) -> FileUndo {
+    let Some((version, text)) = now else {
+        // a file that is in neither the editor nor the disk: only a new one may be gone
+        return if file.new {
+            FileUndo::Nothing
+        } else {
+            FileUndo::Edited
+        };
+    };
+    let path = file.editor_path.clone();
+    match &file.before {
+        _ if text != file.after => {
+            let back = file.before.as_deref().unwrap_or("");
+            // not open, and the disk as it was: the edit never reached this file
+            if version.is_none() && text == back {
+                FileUndo::Nothing
+            } else {
+                FileUndo::Edited
+            }
+        }
+        Some(before) => FileUndo::Undo(Undo::Edit {
+            path,
+            version,
+            edits: line_edits(&file.after, before),
+        }),
+        None if deletes => FileUndo::Undo(Undo::Delete { path }),
+        None => FileUndo::Undo(Undo::Empty {
+            path,
+            version,
+            edits: line_edits(&file.after, ""),
+        }),
+    }
+}
+
+/// The shown change, when it is the one named.
+fn shown_named<'a>(shown: &'a Option<Shown>, id: &str) -> Result<&'a Shown, ResponseError> {
+    shown
+        .as_ref()
+        .filter(|shown| shown.change.id == id)
+        .ok_or_else(|| invalid(format!("no change {id} is marked")))
 }
 
 /// The change as landed: its files without the new files left out, each with the editor's path.
@@ -733,6 +1071,19 @@ fn trigger_of(request: &ChangeRequest) -> Trigger {
 
 const BUSY: &str = "conjure: a change is already being conjured; this one was not started";
 const REFUSED: &str = "conjure: the file changed while the change was conjured; your text stands";
+
+fn edited_after_text(name: &str) -> String {
+    format!(
+        "conjure: {name} was edited after the change landed; undo it with the editor's own undo"
+    )
+}
+
+fn emptied_text(paths: &[String]) -> String {
+    format!(
+        "conjure: this editor cannot delete files; emptied: {}",
+        paths.join(", ")
+    )
+}
 
 fn not_created_text(paths: &[PathBuf]) -> String {
     let paths: Vec<String> = paths.iter().map(|path| forward_slashes(path)).collect();

@@ -14,8 +14,8 @@
 //!
 //! One change is marked at a time (`shown`), and one is conjured at a time (`running`).
 
-mod changes;
-mod commands;
+pub(crate) mod changes;
+pub(crate) mod commands;
 mod landing;
 mod marks;
 
