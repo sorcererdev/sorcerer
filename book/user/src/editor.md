@@ -39,8 +39,22 @@ The editor reviews within `[scry] budget_per_pass` and `budget_per_day`
 
 ## Setting it up
 
-You need `scry` on your PATH (`cargo install --git https://github.com/sorcererdev/sorcerer
-scry`), and what `scry` itself needs: `JEV_API_KEY`, and Claude Code on PATH or
+You need `scry` on your PATH:
+
+```sh
+# macOS and Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"
+```
+
+With Rust: `cargo install sorcerer-scry`. The installers put `scry` in `~/.local/bin` and need
+neither Rust nor a C compiler: the grammars come prebuilt with the release.
+
+And what `scry` itself needs: `JEV_API_KEY`, and Claude Code on PATH or
 `ANTHROPIC_API_KEY` ([What sorcerer is](what-sorcerer-is.md)). Your editor starts `scry lsp`,
 a language server, in the folder you open; you never run it yourself.
 

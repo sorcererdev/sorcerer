@@ -11,8 +11,16 @@ own config asks for something that runs code, scry asks whether to trust the pro
 ## Install the binary
 
 ```sh
-cargo install --git https://github.com/sorcererdev/sorcerer scry
+# macOS and Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh
 ```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"
+```
+
+With Rust: `cargo install sorcerer-scry`.
 
 The extension finds `scry` from the `scry.path` setting, then `PATH`, then `~/.cargo/bin`. If it
 finds none it says so once and does nothing else.
