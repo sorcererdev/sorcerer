@@ -1,0 +1,34 @@
+[workspace]
+members = ["cargo:."]
+
+# Releases are built by `dist` (cargo-dist): `.github/workflows/release.yml` is generated from
+# this file by scripts/release-workflow (dist generate plus one patch, below) and checked by
+# `scripts/release-workflow --check` in CI; do not edit it by hand. Only sorcerer-scry is released as a program; the library crates set
+# `[package.metadata.dist] dist = false`.
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.34.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Where the installers put `scry`
+install-path = "~/.local/bin"
+# Archive formats: tar.gz everywhere but Windows, so any system `tar` unpacks them
+unix-archive = ".tar.gz"
+windows-archive = ".zip"
+# A `<archive>.sha256` beside every archive
+checksum = "sha256"
+# No self-updater: install the next release with the same line
+install-updater = false
+# The prebuilt grammars, built on each platform's runner and attached to the same release
+global-artifacts-jobs = ["./build-grammars"]
+# The four crates go to crates.io once the release is announced; a failure there cannot
+# block the release
+post-announce-jobs = ["./publish-crates"]
+# dist 0.34.0 writes a custom job as `uses: $/.github/workflows/<job>.yml`, which GitHub refuses;
+# scripts/release-workflow regenerates release.yml and makes that `./`, and CI checks the file
+# with `scripts/release-workflow --check`. dist itself must not refuse the patched file.
+allow-dirty = ["ci"]

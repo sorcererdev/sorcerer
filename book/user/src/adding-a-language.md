@@ -18,8 +18,16 @@ Then copy the grammar's own `queries/tags.scm` into `.sorcerer/languages/go/quer
 That is enough: tools find the *units* of a Go file (its functions, methods and types),
 which is what scry reads and reports on.
 
-A grammar of your project's own is compiled on your machine, so you need a C compiler on
-PATH: `cc`, `gcc` or `clang`, whichever is found first. Without one, `scry doctor` and the
+The grammars of the languages sorcerer ships come prebuilt: the first time scry needs one, it
+downloads the file for your platform from the release of your scry's version on GitHub,
+checks its SHA-256 against the release's checksum, and keeps it in your cache. If that cannot
+work (offline, behind a proxy, or a scry built from source whose version has no release), it
+compiles the grammar instead, as below. With no C compiler either, scry says why the download
+failed and what to install:
+`couldn't download the python grammar (no release for 0.1.0); install a C compiler: xcode-select --install`.
+
+A grammar of your project's own is always compiled on your machine, so you need a C compiler
+on PATH: `cc`, `gcc` or `clang`, whichever is found first. Without one, `scry doctor` and the
 first review say so and how to get one:
 
 | platform | install |
@@ -28,9 +36,11 @@ first review say so and how to get one:
 | Linux | `apt install gcc` (or your distribution's `gcc`) |
 | Windows | install MinGW-w64 (gcc) |
 
-The compiled grammar is kept in your cache: `~/.cache/sorcerer/grammars` on Linux and macOS
+The downloaded or compiled grammar is kept in your cache: `~/.cache/sorcerer/grammars` on Linux and macOS
 (`$XDG_CACHE_HOME/sorcerer/grammars` when that is set), `%LOCALAPPDATA%\sorcerer\grammars` on
-Windows.
+Windows. With none of those variables set, scry has nowhere to keep grammars and says which
+to set (`there is no place for the grammar cache: neither XDG_CACHE_HOME nor HOME is set`);
+it never keeps them under the project.
 
 ## What a language file holds
 

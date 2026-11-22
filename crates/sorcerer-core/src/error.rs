@@ -16,6 +16,16 @@ pub enum Error {
     GrammarFetch { name: String, why: String },
     #[error("no C compiler (cc, gcc or clang) found; install one: {hint}")]
     NoCompiler { hint: String },
+    #[error("there is no place for the grammar cache: {why}")]
+    NoCacheDir { why: String },
+    /// A shipped grammar that could not be downloaded, on a machine with no C compiler to
+    /// build it: `why` says what went wrong with the download.
+    #[error("couldn't download the {name} grammar ({why}); install a C compiler: {hint}")]
+    NoGrammar {
+        name: String,
+        why: String,
+        hint: String,
+    },
     #[error("grammar {name} did not compile: {stderr}")]
     GrammarBuild { name: String, stderr: String },
     #[error("grammar {name} could not be loaded: {why}")]

@@ -34,7 +34,7 @@ run for commit `081e1ec`).
 
 ## Running it
 
-See `../README.md`: `cargo test -p scry --test eval -- --exact bistro_reaches_its_passing_scores --nocapture` runs
+See `../README.md`: `cargo test -p sorcerer-scry --test eval -- --exact bistro_reaches_its_passing_scores --nocapture` runs
 this corpus alone.
 
 ## The bare table (2026-11-21)

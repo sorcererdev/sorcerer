@@ -742,7 +742,7 @@ editor's server tests: a vendored-grammar view, `StubReviewer`,
 every model call replayed, so it costs nothing and runs in CI's test job. One `#[test]` a corpus
 (`bistro_reaches_its_passing_scores` for the Python corpus), each `corpus(name)` then
 `run_corpus(&Corpus)` then `assert_passing_scores`, so a failure names its corpus and
-`cargo test -p scry --test eval bistro_rs` runs one. `corpus/scry/README.md` is the index of corpora
+`cargo test -p sorcerer-scry --test eval bistro_rs` runs one. `corpus/scry/README.md` is the index of corpora
 and says what each file is; each corpus's own `README.md` says how it was made.
 
 - `corpus.toml`, read into `Corpus`: `name`, `language` (written into each case's config),
@@ -792,7 +792,7 @@ average.
 `SCRY_EVAL_CASES=b01,vm02` runs only those cases, prints every stored finding and every
 question Jev is asked (kind, key, P(yes), the findings), and asserts no passing score. To re-record Jev,
 run once by hand with `JEV_API_KEY` set:
-`SCRY_RECORD=jev cargo test -p scry --test eval -- --nocapture`; only missing answers are
+`SCRY_RECORD=jev cargo test -p sorcerer-scry --test eval -- --nocapture`; only missing answers are
 asked, and the ledger rows land in the temp projects. Delete a file to ask its question again.
 
 The **bare table** runs the same cases with no steering: `bare(name)` (`bare_of`) reads the
@@ -804,11 +804,11 @@ cases in the `[bare]` sets (B, T, N) run. A bare review words its findings diffe
 rules-on one, so a finding is a hit by the exact statement listed in `bare/labels.json`
 (`bare_labels`, `{case: {"hits": [...], "unplanted": [...]}}`), judged against each case's `expect`.
 Its tests are `bistro_bare_reaches_its_passing_scores` and `bistro_rs_bare_reaches_its_passing_scores`;
-record one with `SCRY_RECORD=all cargo test -p scry --test eval bistro_bare -- --nocapture`
+record one with `SCRY_RECORD=all cargo test -p sorcerer-scry --test eval bistro_bare -- --nocapture`
 (then write `bare/labels.json` from the B findings and set the scores).
 
 To record a corpus, run its test once by hand with `JEV_API_KEY` set and `claude` on `PATH`:
-`SCRY_RECORD=all cargo test -p scry --test eval bistro_rs -- --nocapture` (name one corpus: a
+`SCRY_RECORD=all cargo test -p sorcerer-scry --test eval bistro_rs -- --nocapture` (name one corpus: a
 statement with no verdict in another corpus would be checked too). `run_corpus` then calls
 `run_corpus_with(corpus, only, Record::All, &live)`; `live` builds, per case, the live calls in a
 `Live`: a `ResearchReviewer` over `researcher_for`, the real `claim_checker` with Jev guarding, and

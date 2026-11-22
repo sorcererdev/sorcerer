@@ -9,7 +9,22 @@ come later.
 
 ## Try scry
 
-`cargo install --path crates/scry`, then in a git repository run `scry`: it reviews what your
+Install scry:
+
+```sh
+# macOS and Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"
+```
+
+With Rust: `cargo install sorcerer-scry`. The installers put `scry` in `~/.local/bin` and need
+neither Rust nor a C compiler: the grammars come prebuilt with the release.
+
+Then in a git repository run `scry`: it reviews what your
 working tree changed against HEAD, prints the findings that survive a claim check and a nitpick
 screen, and exits 1 when any are open. Tell it your project's rules in `.sorcerer/scry.toml`
 (`context`, `include`, and `[[rule]]`s with an `id` and `text`; findings cite a rule by its
@@ -19,7 +34,7 @@ In an editor, `scry lsp` is a language server: save a file and each finding appe
 a clean save shows nothing. Neovim (`sorcerer.nvim`) and VS Code (`editors/vscode/scry`) start it
 for you; the user book's "Scry in your editor" chapter says how.
 
-Scry's quality is measured by the eval (`cargo test -p scry --test eval`), which replays recorded
+Scry's quality is measured by the eval (`cargo test -p sorcerer-scry --test eval`), which replays recorded
 reviews of labelled cases in Python and Rust (`corpus/scry/`) and holds them to passing scores.
 
 ## Try the core

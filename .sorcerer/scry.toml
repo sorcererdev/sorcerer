@@ -98,8 +98,9 @@ Values are built once and replaced rather than changed in place, where that read
 id = "the-engine-knows-no-language"
 text = """
 No language name, file extension or language-specific syntax appears in `crates/*/src/`:
-languages are data under `library/languages/<name>/`. A prompt or rule that assumes one
-language's conventions (such as `Class.method`) takes them from the language's data instead."""
+languages are data under `crates/sorcerer-core/library/languages/<name>/`. A prompt or
+rule that assumes one language's conventions (such as `Class.method`) takes them from the
+language's data instead."""
 
 [[rule]]
 id = "nothing-outside-the-repository"

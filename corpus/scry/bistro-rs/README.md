@@ -146,7 +146,7 @@ a case, T 0.000 and N 0.000.
 
 ## The recording and the labels (2026-11-19)
 
-Recorded once with `SCRY_RECORD=all cargo test -p scry --test eval bistro_rs -- --nocapture` at
+Recorded once with `SCRY_RECORD=all cargo test -p sorcerer-scry --test eval bistro_rs -- --nocapture` at
 scry `6896daf` (the replay fix that followed, `4df22b0`, changed how replies are read, not what was
 recorded): `recorded: 32 reviews $1.861, 8 checks $0.023, 21 jev answers`, 4.5 minutes. The replies
 carry prose and a fenced JSON block, read as the pass reads them (`review_prompt::json_in`).

@@ -141,3 +141,36 @@ fn assemble_without_a_project_dir_is_the_shipped_set() {
         vec!["python", "rust"]
     );
 }
+
+#[test]
+fn a_project_layer_that_names_a_grammar_makes_it_the_projects() {
+    use sorcerer_core::domain::language::{GrammarOrigin, Languages};
+    let d = tempfile::TempDir::new().unwrap();
+    let shipped = Languages::assemble(d.path(), &[]).unwrap();
+    assert_eq!(
+        shipped.get("python").unwrap().grammar_origin(),
+        GrammarOrigin::Shipped
+    );
+
+    // only adding files keeps the shipped grammar
+    let files_only = d.path().join(".sorcerer/languages/python");
+    std::fs::create_dir_all(&files_only).unwrap();
+    std::fs::write(files_only.join("language.toml"), "files = [\"*.pyi\"]\n").unwrap();
+    let ls = Languages::assemble(d.path(), &[]).unwrap();
+    assert_eq!(
+        ls.get("python").unwrap().grammar_origin(),
+        GrammarOrigin::Shipped
+    );
+
+    // naming a grammar, even the shipped one, makes it the project's
+    std::fs::write(
+        files_only.join("language.toml"),
+        "grammar = { path = \"my-grammar\" }\n",
+    )
+    .unwrap();
+    let ls = Languages::assemble(d.path(), &[]).unwrap();
+    assert_eq!(
+        ls.get("python").unwrap().grammar_origin(),
+        GrammarOrigin::Project
+    );
+}

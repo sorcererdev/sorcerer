@@ -1,0 +1,19 @@
+# Publishes sorcerer-core, sorcerer-models, sorcerer-lsp and sorcerer-scry to crates.io, in
+# dependency order. Called by the generated release.yml after the release is announced
+# (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone.
+name: publish-crates
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish --workspace
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

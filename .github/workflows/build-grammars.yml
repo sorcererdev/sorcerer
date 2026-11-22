@@ -1,0 +1,33 @@
+# The release's prebuilt grammars: one library per shipped language per platform, each with
+# its `.sha256`. Called by the generated release.yml (dist-workspace.toml,
+# `global-artifacts-jobs`); the files are uploaded as `artifacts-*` and attached to the same
+# release as the binaries.
+name: build-grammars
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+jobs:
+  grammars:
+    strategy:
+      matrix:
+        # the runners dist builds scry on (dist plan), so a grammar loads wherever scry runs:
+        # the same glibc floor on Linux
+        runner: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel, windows-2022]
+      # every runner reports; any failure still keeps the release from publishing
+      fail-fast: false
+    runs-on: ${{ matrix.runner }}
+    env:
+      # the oldest macOS scry itself runs on, so the library loads there too
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.runner == 'macos-15-intel' && '10.12' || '11.0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo run --release -p sorcerer-core --example build-grammars -- grammars
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-grammars-${{ matrix.runner }}
+          path: grammars/*

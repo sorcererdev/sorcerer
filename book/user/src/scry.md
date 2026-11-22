@@ -174,7 +174,11 @@ scry || exit $?
   on PATH, else `ANTHROPIC_API_KEY`). Scry runs Claude Code itself as the reviewer when
   the provider is `claude`.
 - `jev`: Jev's key (`JEV_API_KEY`). Scry does not run without Jev.
-- `languages`: each language your files use (or `[languages] names`) loads its grammar.
+- `languages`: each language your files use (or `[languages] names`) loads its grammar, and
+  how the grammar got there: `python, rust load (downloaded)` (fetched prebuilt from scry's
+  release), `(built with cc)` (compiled here, by the compiler named), or `(cached)` (already
+  in your cache). When they differ, each says its own: `python (cached), rust (built with cc)
+  load`.
 - `steering`: what `.sorcerer/scry.toml` holds (rules, includes, the context's size), or
   why it does not read.
 - `store`: the finding store reads (one from a newer scry does not, and is left alone).

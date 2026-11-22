@@ -17,6 +17,13 @@ pub const NO_CONFIG_DIR: &str = "neither XDG_CONFIG_HOME nor HOME is set";
 #[cfg(windows)]
 pub const NO_CONFIG_DIR: &str = "APPDATA is not set";
 
+/// Why there is no cache directory, for a message that names what to set.
+#[cfg(not(windows))]
+pub const NO_CACHE_DIR: &str = "neither XDG_CACHE_HOME nor HOME is set";
+/// Why there is no cache directory, for a message that names what to set.
+#[cfg(windows)]
+pub const NO_CACHE_DIR: &str = "LOCALAPPDATA is not set";
+
 /// The directory for files that can be rebuilt, such as compiled grammars; `None` when the
 /// environment names none. Example: on Linux with only `HOME=/home/ann` set, it is
 /// `/home/ann/.cache`.

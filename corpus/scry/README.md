@@ -29,8 +29,8 @@ nitpick: nothing shown), **V-taste** (breaks a rule of taste: shown is allowed, 
 
 ## Running it
 
-- `cargo test -p scry --test eval -- --nocapture` runs every corpus and prints each table under
-  `# <name>`; `cargo test -p scry --test eval bistro_rs -- --nocapture` runs one.
+- `cargo test -p sorcerer-scry --test eval -- --nocapture` runs every corpus and prints each table under
+  `# <name>`; `cargo test -p sorcerer-scry --test eval bistro_rs -- --nocapture` runs one.
 - `SCRY_EVAL_CASES=b01,vm02` runs only those cases (of the corpus whose test runs) and prints each
   stored finding and every question Jev is asked, without asserting the passing scores: a look, not
   a measure.
