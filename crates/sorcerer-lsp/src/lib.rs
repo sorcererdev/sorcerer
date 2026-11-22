@@ -1,8 +1,8 @@
 //! Sorcerer's language-server host: everything about being a language server that is not
 //! about one product. A product (scry first) implements [`Product`] and calls [`serve`]; the
-//! host does the handshake, keeps the set of open documents, turns URIs into paths, routes the
-//! client's replies, and gives the product a [`Client`] to speak through and [`Jobs`] to run
-//! work after a delay.
+//! host does the handshake, keeps the set of open documents (and their text, for a product that
+//! asks), turns URIs into paths, routes the client's replies, and gives the product a [`Client`]
+//! to speak through (and to apply edits with) and [`Jobs`] to run work after a delay.
 //!
 //! Synchronous, like the rest of the workspace: the main loop reads the connection on the
 //! thread that called `serve`; delayed jobs and anything a product starts run on threads of
@@ -13,7 +13,7 @@ pub mod jobs;
 pub mod serve;
 pub mod uri;
 
-pub use client::{Answer, Client, WorkDone};
+pub use client::{Answer, Applied, Client, WorkDone};
 pub use jobs::Jobs;
 pub use serve::{Product, serve};
 pub use uri::{path_of, uri_of};

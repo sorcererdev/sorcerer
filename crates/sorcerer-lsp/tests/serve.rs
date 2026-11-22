@@ -8,7 +8,7 @@ use std::time::Duration;
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response, ResponseError};
 use lsp_types::{MessageType, ServerCapabilities};
 use serde_json::{Value, json};
-use sorcerer_lsp::{Answer, Client, Product, serve, serve::unknown_method, uri_of};
+use sorcerer_lsp::{Answer, Applied, Client, Product, serve, serve::unknown_method, uri_of};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -518,6 +518,148 @@ fn ask_delivers_unsupported_on_an_error_reply() {
     );
     assert_eq!(answer_within(&answer), Some(Answer::Unsupported));
     editor.stop();
+}
+
+/// Applies an edit and hands back the request the editor saw and where its result lands.
+fn applying(editor: &Editor) -> (Request, Arc<Mutex<Option<Applied>>>) {
+    let applied = Arc::new(Mutex::new(None));
+    let landed = Arc::clone(&applied);
+    let a = shop().join("a.txt");
+    let edit: lsp_types::WorkspaceEdit = serde_json::from_value(json!({
+        "changes": { uri(&a): [{ "range": { "start": { "line": 0, "character": 0 },
+                                            "end": { "line": 0, "character": 1 } },
+                                 "newText": "b" }] }
+    }))
+    .unwrap();
+    editor.client().apply_edit("conjure", edit, move |result| {
+        *landed.lock().unwrap() = Some(result);
+    });
+    loop {
+        match editor.next(WAIT).expect("an applyEdit request") {
+            Message::Request(r) if r.method == "workspace/applyEdit" => return (r, applied),
+            _ => {}
+        }
+    }
+}
+
+fn applied_within(applied: &Arc<Mutex<Option<Applied>>>) -> Option<Applied> {
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        if let Some(a) = applied.lock().unwrap().clone() {
+            return Some(a);
+        }
+        if std::time::Instant::now() > deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn apply_edit_sends_the_edit_and_delivers_applied() {
+    let editor = Editor::plain();
+    let (request, applied) = applying(&editor);
+    assert_eq!(request.params["label"], json!("conjure"));
+    let a = uri(&shop().join("a.txt"));
+    assert_eq!(
+        request.params["edit"]["changes"][&a][0]["newText"],
+        json!("b")
+    );
+    editor.reply(request.id, Ok(json!({ "applied": true })));
+    assert_eq!(
+        applied_within(&applied),
+        Some(Applied {
+            applied: true,
+            failure_reason: None
+        })
+    );
+    editor.stop();
+}
+
+#[test]
+fn apply_edit_delivers_a_refusal_with_its_reason() {
+    let editor = Editor::plain();
+    let (request, applied) = applying(&editor);
+    editor.reply(
+        request.id,
+        Ok(json!({ "applied": false, "failureReason": "version moved" })),
+    );
+    assert_eq!(
+        applied_within(&applied),
+        Some(Applied {
+            applied: false,
+            failure_reason: Some("version moved".into())
+        })
+    );
+    editor.stop();
+}
+
+#[test]
+fn apply_edit_delivers_not_applied_on_an_error_reply() {
+    let editor = Editor::plain();
+    let (request, applied) = applying(&editor);
+    editor.reply(
+        request.id,
+        Err(ResponseError {
+            code: -32601,
+            message: "no applyEdit here".into(),
+            data: None,
+        }),
+    );
+    assert_eq!(
+        applied_within(&applied),
+        Some(Applied {
+            applied: false,
+            failure_reason: Some("no applyEdit here".into())
+        })
+    );
+    editor.stop();
+}
+
+#[test]
+fn edit_abilities_are_read_at_initialize() {
+    let none = Editor::plain();
+    let client = none.client();
+    assert!(!client.can_apply_edits());
+    assert!(!client.can_create_files());
+    assert!(!client.can_delete_files());
+    none.stop();
+
+    let apply_only = Editor::start(json!({ "workspace": { "applyEdit": true } }));
+    assert!(
+        !apply_only.client().can_apply_edits(),
+        "documentChanges is needed too"
+    );
+    apply_only.stop();
+
+    let changes_only =
+        Editor::start(json!({ "workspace": { "workspaceEdit": { "documentChanges": true } } }));
+    assert!(
+        !changes_only.client().can_apply_edits(),
+        "applyEdit is needed too"
+    );
+    changes_only.stop();
+
+    let create_only = Editor::start(json!({ "workspace": {
+        "applyEdit": true,
+        "workspaceEdit": { "documentChanges": true, "resourceOperations": ["create"] }
+    } }));
+    let client = create_only.client();
+    assert!(client.can_apply_edits());
+    assert!(client.can_create_files());
+    assert!(!client.can_delete_files());
+    create_only.stop();
+
+    let all = Editor::start(json!({ "workspace": {
+        "applyEdit": true,
+        "workspaceEdit": { "documentChanges": true,
+                           "resourceOperations": ["create", "rename", "delete"] }
+    } }));
+    let client = all.client();
+    assert!(client.can_apply_edits());
+    assert!(client.can_create_files());
+    assert!(client.can_delete_files());
+    all.stop();
 }
 
 #[test]

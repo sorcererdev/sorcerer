@@ -1,5 +1,5 @@
 //! What a product says to the editor, from any thread: diagnostics, a progress line, a message
-//! once, a log line, a document to show, a question with answers. Also what the host knows
+//! once, a log line, a document to show, a question with answers, an edit to apply. Also what the host knows
 //! about the editor: which documents are open, their text when the product tracks it, and what
 //! the editor can show.
 
@@ -10,10 +10,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification, Request, RequestId, Response, ResponseError};
 use lsp_types::{
-    Diagnostic, LogMessageParams, MessageActionItem, MessageType, NumberOrString, ProgressParams,
-    ProgressParamsValue, PublishDiagnosticsParams, Range, ShowDocumentParams, ShowMessageParams,
+    ApplyWorkspaceEditParams, ApplyWorkspaceEditResponse, Diagnostic, LogMessageParams,
+    MessageActionItem, MessageType, NumberOrString, ProgressParams, ProgressParamsValue,
+    PublishDiagnosticsParams, Range, ShowDocumentParams, ShowMessageParams,
     ShowMessageRequestParams, WorkDoneProgress, WorkDoneProgressBegin,
-    WorkDoneProgressCreateParams, WorkDoneProgressEnd, WorkDoneProgressReport,
+    WorkDoneProgressCreateParams, WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit,
 };
 use serde_json::Value;
 
@@ -33,6 +34,14 @@ pub(crate) struct Abilities {
     pub work_done_progress: bool,
     /// `textDocument.publishDiagnostics.relatedInformation`: it shows a diagnostic's links.
     pub related_information: bool,
+    /// `workspace.applyEdit`: it applies an edit the server sends.
+    pub apply_edit: bool,
+    /// `workspace.workspaceEdit.documentChanges`: it takes edits tied to a document's version.
+    pub document_changes: bool,
+    /// `workspace.workspaceEdit.resourceOperations` holds `create`: an edit may create a file.
+    pub create_files: bool,
+    /// `workspace.workspaceEdit.resourceOperations` holds `delete`: an edit may delete a file.
+    pub delete_files: bool,
 }
 
 struct Shared {
@@ -55,6 +64,17 @@ struct State {
 
 /// What to do with the editor's reply to a request the server sent.
 type OnReply = Box<dyn FnOnce(Result<Value, ResponseError>) + Send>;
+
+/// The editor's answer to [`Client::apply_edit`]: whether it applied the edit, and when it did
+/// not, the reason it gave (if any).
+///
+/// Example: an editor whose document moved on since the edit was made answers
+/// `Applied { applied: false, failure_reason: Some("version moved".into()) }`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Applied {
+    pub applied: bool,
+    pub failure_reason: Option<String>,
+}
 
 /// The editor's answer to [`Client::ask`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +213,43 @@ impl Client {
         );
     }
 
+    /// Asks the editor to apply an edit, under a label it may show (in its undo history, say).
+    /// `on_reply` runs on the main loop when the reply arrives, and never if none does; nothing
+    /// waits for it. An error reply (an editor that cannot apply edits) is not applied, with
+    /// the error's message as the reason.
+    pub fn apply_edit(
+        &self,
+        label: &str,
+        edit: WorkspaceEdit,
+        on_reply: impl FnOnce(Applied) + Send + 'static,
+    ) {
+        self.request(
+            "workspace/applyEdit",
+            ApplyWorkspaceEditParams {
+                label: Some(label.to_string()),
+                edit,
+            },
+            Box::new(move |reply| on_reply(applied_from(reply))),
+        );
+    }
+
+    /// Whether the editor applies edits the server sends, tied to documents' versions
+    /// (`workspace/applyEdit` with `documentChanges`). Without both, a product cannot land an
+    /// edit safely.
+    pub fn can_apply_edits(&self) -> bool {
+        self.shared.abilities.apply_edit && self.shared.abilities.document_changes
+    }
+
+    /// Whether an edit the server sends may create a file.
+    pub fn can_create_files(&self) -> bool {
+        self.shared.abilities.create_files
+    }
+
+    /// Whether an edit the server sends may delete a file.
+    pub fn can_delete_files(&self) -> bool {
+        self.shared.abilities.delete_files
+    }
+
     /// Whether the editor has this file open.
     pub fn is_open(&self, path: &Path) -> bool {
         lock(&self.shared.state).open.contains(path)
@@ -289,6 +346,27 @@ fn answer_from(reply: Result<Value, ResponseError>) -> Answer {
         Ok(Value::Null) => Answer::Closed,
         Ok(picked) => serde_json::from_value::<MessageActionItem>(picked)
             .map_or(Answer::Closed, |item| Answer::Picked(item.title)),
+    }
+}
+
+/// The result in a reply to `workspace/applyEdit`: an error, or a result that is not an
+/// answer, is not applied.
+fn applied_from(reply: Result<Value, ResponseError>) -> Applied {
+    match reply {
+        Err(error) => Applied {
+            applied: false,
+            failure_reason: Some(error.message),
+        },
+        Ok(result) => match serde_json::from_value::<ApplyWorkspaceEditResponse>(result) {
+            Ok(answer) => Applied {
+                applied: answer.applied,
+                failure_reason: answer.failure_reason,
+            },
+            Err(error) => Applied {
+                applied: false,
+                failure_reason: Some(format!("an answer that is not one: {error}")),
+            },
+        },
     }
 }
 

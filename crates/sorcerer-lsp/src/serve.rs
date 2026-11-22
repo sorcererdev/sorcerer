@@ -144,13 +144,24 @@ fn open_close_and_save(tracks_text: TracksText) -> TextDocumentSyncCapability {
     })
 }
 
+/// What the editor said it can do, from the `initialize` request's capabilities.
 fn abilities_of(params: &Value) -> Abilities {
     let says = |pointer: &str| params.pointer(pointer).and_then(Value::as_bool) == Some(true);
+    let resource_operation = |operation: &str| {
+        params
+            .pointer("/capabilities/workspace/workspaceEdit/resourceOperations")
+            .and_then(Value::as_array)
+            .is_some_and(|operations| operations.iter().any(|named| named == operation))
+    };
     Abilities {
         work_done_progress: says("/capabilities/window/workDoneProgress"),
         related_information: says(
             "/capabilities/textDocument/publishDiagnostics/relatedInformation",
         ),
+        apply_edit: says("/capabilities/workspace/applyEdit"),
+        document_changes: says("/capabilities/workspace/workspaceEdit/documentChanges"),
+        create_files: resource_operation("create"),
+        delete_files: resource_operation("delete"),
     }
 }
 
