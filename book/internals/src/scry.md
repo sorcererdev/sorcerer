@@ -741,13 +741,16 @@ none.
   versions' directories and scratch directories over an hour old (`removeLeftovers`), and
   returns the binary's path. A mismatch throws and writes nothing.
 - **`src/extension.ts`**: `activate` serves with the binary it finds; with none,
-  `offerDownload` (not awaited) asks once per version (the `globalState` key `scry.declined`
-  holds the version last asked about, whatever the answer): no target or no release (404) is
-  said once with the install line; offline or a server error is said and asked again next
-  time; Download runs `install` under a progress notification and then `serve`s.
+  `offerDownload` (not awaited) runs `offered`, which says how the offer ended (an
+  `OfferEnding`): no target or no release (404) is said with the install line; offline or a
+  server error is said; Download runs `install` under a progress notification and then
+  `serve`s. **`src/offer.ts`** `remembered(ending)` decides which endings keep the offer quiet
+  for this version (the `globalState` key `scry.declined` holds that version): "I'll install
+  it myself", no release, no target. A failed download, a mismatch, an unreachable release or
+  a dismissed offer is offered again on the next start (user ruling, 2026-11-22).
 
 Tests: `test/unit/` (`node --test`: the lookup order, the targets, the sum, the release's two
-layouts, links refused, the size cap, a 503 size check, a mismatched and a matching download
+layouts, links refused, the size cap, a 503 size check, which offer endings are remembered, a mismatched and a matching download
 against a local `http` server). `test/e2e/run.ts` launches a VS Code per suite
 (`SCRY_E2E_SUITES`, default `scry,download`), each with its own `--user-data-dir`:
 `scry.test.ts` against `test/fake-lsp/fake-lsp` (Python, so ubuntu only; `scry.path` in the

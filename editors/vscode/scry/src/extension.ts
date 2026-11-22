@@ -3,14 +3,15 @@ import * as vscode from 'vscode';
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from 'vscode-languageclient/node';
 import { candidates, find, isExecutable } from './binary';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
+import { type OfferEnding, remembered } from './offer';
 
 const INSTALL_LINE =
   process.platform === 'win32'
     ? 'powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"'
     : "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh";
 
-// the globalState key holding the version the user was last asked about (or told why there is
-// no download): the extension asks once per version
+// the globalState key holding the version whose offer ended in a way that is remembered (see
+// remembered in offer.ts): no offer again until the next version
 const ASKED = 'scry.declined';
 const DOWNLOAD = 'Download';
 const MYSELF = "I'll install it myself";
@@ -62,46 +63,51 @@ function serve(context: vscode.ExtensionContext, binary: string): void {
   }));
 }
 
-// offerDownload asks, once per version, whether to download scry of this extension's version,
-// and returns the installed binary, or undefined when nothing was installed:
-// 1. quiet when this version was asked about already;
-// 2. a machine the release has no binary for, or a version with no release (a 404), is told
-//    the install line once instead; a size check that fails otherwise is said and asked
-//    again next time;
-// 3. otherwise the offer, with the archive's size; Download installs it, checked against its
-//    sum; "I'll install it myself" shows the install line.
+// offerDownload offers to download scry of this extension's version, unless an earlier
+// ending for this version is remembered (see remembered), and returns the installed binary, or
+// undefined when nothing was installed.
 async function offerDownload(context: vscode.ExtensionContext, version: string, storage: string): Promise<string | undefined> {
   if (context.globalState.get(ASKED) === version) return undefined;
-  const asked = () => context.globalState.update(ASKED, version);
+  const { ending, binary } = await offered(version, storage);
+  if (remembered(ending)) await context.globalState.update(ASKED, version);
+  return binary;
+}
+
+// offered makes the offer and says how it ended:
+// 1. a machine the release has no binary for, or a version with no release (a 404), is told
+//    the install line instead; a size check that fails otherwise is said;
+// 2. otherwise the offer, with the archive's size; Download installs it, checked against its
+//    sum; "I'll install it myself" shows the install line.
+async function offered(version: string, storage: string): Promise<{ ending: OfferEnding; binary?: string }> {
   const target = targetFor(process.platform, process.arch);
   if (!target) {
-    await asked();
     void vscode.window.showWarningMessage(noTargetText());
-    return undefined;
+    return { ending: 'no target' };
   }
-  const url = assetUrl(releaseBase(process.env), version, target);
   let size: number | undefined;
   try {
-    size = await releaseSize(url);
+    size = await releaseSize(assetUrl(releaseBase(process.env), version, target));
   } catch (err) {
-    // offline, or a server error (any answer but 404): say so, and ask again next time
     void vscode.window.showWarningMessage(unreachableText(version, err));
-    return undefined;
+    return { ending: 'unreachable' };
   }
   if (size === undefined) {
-    await asked();
     void vscode.window.showWarningMessage(noReleaseText(version));
-    return undefined;
+    return { ending: 'no release' };
   }
   const answer = await vscode.window.showInformationMessage(offerText(version, size), DOWNLOAD, MYSELF);
-  await asked();
-  if (answer === MYSELF) void vscode.window.showInformationMessage(installText());
-  if (answer !== DOWNLOAD) return undefined;
-  return downloaded(version, target, storage);
+  if (answer === MYSELF) {
+    void vscode.window.showInformationMessage(installText());
+    return { ending: 'installing it myself' };
+  }
+  if (answer !== DOWNLOAD) return { ending: 'dismissed' };
+  const binary = await downloaded(version, target, storage);
+  return binary ? { ending: 'downloaded', binary } : { ending: 'download failed' };
 }
 
 // downloaded installs the binary under a progress notification; a failure (a sum that does
-// not match, a cut-off download) is said with the install line, and nothing runs.
+// not match, a cut-off download) is said with the install line, nothing runs, and the offer
+// comes again on the next start.
 async function downloaded(version: string, target: string, storage: string): Promise<string | undefined> {
   try {
     return await vscode.window.withProgress(
