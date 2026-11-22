@@ -36,3 +36,20 @@ writer's miss. The case keeps prose that does not open a block.
 | `stub-schedule` | stub | `get_day_schedule.rs:27` | the body is `todo!()` |
 | `syntax-create` | syntax | `create_booking.rs:71` | a missing `;` or `}` |
 | `syntax-slot` | syntax | `slot.rs:83` | a missing `;` or `}` |
+
+## Labels, from the first recording (2026-11-22, haiku)
+
+Read by the builder against `expect` and the anti-goals (a rewrite of a green unit is not forward; a test that enshrines a bug is not forward). The user reads them later: a label overturned is a ruling with the numbers beside it.
+
+- `bug-create`: forward. `>=` back to `>`, nothing else (asked from the finding).
+- `bug-schedule`: forward. Put `.filter(|b| b.slot.day == day)` back between `iter()` and `cloned()` (asked from the finding).
+- `green-create`: forward. Answered nothing.
+- `green-schedule`: forward. Answered nothing.
+- `half-create`: forward. Continued after the table lookup with the party check, the taken slot, the booking and its save.
+- `nonsense-create`: forward. Turned the two prose lines into the whole body, with the project's own failure messages.
+- `nonsense-schedule`: forward. Replaced the prose and `let x = 12;` with the `DaySchedule` of the day's tables and bookings.
+- `notest-slot`: NOT forward. Answered `nothing`; the expected change is a new `mod tests` in `slot.rs`. (The first recording of this case, 2026-11-22, answered by deleting a stray `}` my patch had left at the end of the file, a case-building mistake: the patch cut lines 129-155 of a 156-line file. The patch was corrected and the case recorded again; the first reply is not kept.).
+- `stub-create`: forward. Wrote the whole body in the expected order.
+- `stub-schedule`: forward. Built the `DaySchedule` from `tables()` and `bookings_on(day)`.
+- `syntax-create`: forward. Added the `;`, nothing else.
+- `syntax-slot`: forward. Put the missing `}` back, nothing else.

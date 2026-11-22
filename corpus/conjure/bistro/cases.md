@@ -29,3 +29,22 @@ record the reply fresh with `CONJURE_RECORD=all`.
 | `stub-create` | stub | `create_booking.py:54` | the body is a `raise NotImplementedError` naming the test file |
 | `syntax-cancel` | syntax | `cancel_booking.py:32` | a missing colon or parenthesis |
 | `syntax-create` | syntax | `create_booking.py:54` | a missing colon or parenthesis |
+
+## Labels, from the first recording (2026-11-22, haiku)
+
+Read by the builder against `expect` and the anti-goals (a rewrite of a green unit is not forward; a test that enshrines a bug is not forward). The user reads them later: a label overturned is a ruling with the numbers beside it.
+
+- `bug-cancel`: forward. Changed `remove(booking.table_id)` to `remove(booking.id)`: the same value as the expected `input.id`, nothing else touched.
+- `bug-create`: NOT forward. Edited the test to expect the buggy message (`has 4 seats`) instead of fixing the message in `create_booking.py`; it took the uncommitted message change for the person's intent and made the test agree with it, the anti-goal of enshrining a bug.
+- `green-cancel`: forward. Answered nothing.
+- `green-schedule`: forward. Answered nothing.
+- `half-create`: forward. Continued after the party check: SlotTaken, the booking with `ids.next_id()`, save, `Ok(booking)`.
+- `half-schedule`: forward. Added the sorted `GetDayScheduleResult` return after the filtered list.
+- `nonsense-cancel`: forward. Turned the prose into the lookup, `NotFound`, remove and `Ok(None)`.
+- `nonsense-schedule`: forward. Replaced the stray statements with the filtered, sorted `GetDayScheduleResult`; `foo = 12` is gone.
+- `notest-cancel`: NOT forward. Answered `nothing` although the situation said the module has no test file; the expected change is a new `cancel_booking__test.py`.
+- `notest-count`: forward. Wrote `count_day_bookings__test.py` with two days' bookings (and two zero cases); the body untouched.
+- `stub-cancel`: forward. Wrote the body the two tests describe.
+- `stub-create`: forward. Wrote the whole body in the expected order, more than the first slice the expectation asks for, all of it the tests' behaviour.
+- `syntax-cancel`: forward. Closed the parenthesis, nothing else.
+- `syntax-create`: forward. Added the colon, nothing else.

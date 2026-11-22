@@ -5,9 +5,22 @@ language = "rust"
 writer = "haiku"
 
 # Stated 2026-11-22 in the design, before any recording; they move only by a ruling recorded here.
-# `forward_min` is absent on purpose: Rust was never measured, so it is set from the first
-# recording by the corpus rule (hits minus one), with the date.
+# `forward_min` was absent on purpose (Rust was never measured) and is set 2026-11-22 from the first
+# recording by the corpus rule: hits minus one (11 - 1).
 [passing_scores]
+forward_min = 10
 parses_min = 12
 in_scope_min = 12
 no_change_on_green_min = 2
+
+# The first recording, 2026-11-22 (haiku via claude -p on the subscription, replayed in CI): forward 11
+# of 12, parses 12, in_scope 12, no_change_on_green 2. Notional spend $0.0252 (notest-slot recorded
+# twice: its first patch left a stray `}`, see cases.md). The one not labelled forward is notest-slot.
+[baseline]
+recorded = "2026-11-22"
+conjure = "a3ab4d6"
+writer = "haiku"
+forward = 11
+parses = 12
+in_scope = 12
+no_change_on_green = 2

@@ -1,8 +1,8 @@
 diff --git a/src/booking/models/slot.rs b/src/booking/models/slot.rs
-index 1b066f2..9f6f9bd 100644
+index 1b066f2..0e0aaef 100644
 --- a/src/booking/models/slot.rs
 +++ b/src/booking/models/slot.rs
-@@ -125,32 +125,4 @@ pub struct Slot {
+@@ -125,32 +125,3 @@ pub struct Slot {
      pub day: Day,
      pub start: Time,
  }
@@ -34,4 +34,4 @@ index 1b066f2..9f6f9bd 100644
 -        assert!("2026-13-01".parse::<Day>().is_err());
 -        assert!("25:00".parse::<Time>().is_err());
 -    }
- }
+-}

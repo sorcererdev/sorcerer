@@ -10,3 +10,16 @@ forward_min = 12
 parses_min = 14
 in_scope_min = 14
 no_change_on_green_min = 2
+
+# The first recording, 2026-11-22 (haiku via claude -p on the subscription, replayed in CI): forward 12
+# of 14, parses 14, in_scope 14, no_change_on_green 2. Notional spend $0.0158. The two not labelled
+# forward are bug-create and notest-cancel (see cases.md); forward sits at its minimum, so one more miss
+# fails the eval.
+[baseline]
+recorded = "2026-11-22"
+conjure = "a3ab4d6"
+writer = "haiku"
+forward = 12
+parses = 14
+in_scope = 14
+no_change_on_green = 2

@@ -1,0 +1,16 @@
+{
+ "forward": [
+  "bug-cancel",
+  "green-cancel",
+  "green-schedule",
+  "half-create",
+  "half-schedule",
+  "nonsense-cancel",
+  "nonsense-schedule",
+  "notest-count",
+  "stub-cancel",
+  "stub-create",
+  "syntax-cancel",
+  "syntax-create"
+ ]
+}
