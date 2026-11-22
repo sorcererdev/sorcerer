@@ -79,9 +79,11 @@ impl Server {
         let uri = &params.text_document.uri;
         let (line, end_line) = lines_of(params.range);
         let mut actions = self.mark_actions(&path, &params);
+        // an untrusted project's own grammar is never built or loaded: its files are not parsed,
+        // and Conjure here is offered so that running it says how to trust the project
         if let Ok(project) = (self.cfg.open)(&self.root)
             && let Some(file) = project_file(&project, &path)
-            && self.in_a_unit(&project, &path, &file, line)
+            && (!self.trusted(&project) || self.in_a_unit(&project, &path, &file, line))
         {
             actions.push(conjure_here(uri, line, end_line));
             actions.extend(
@@ -130,8 +132,23 @@ impl Server {
             return Vec::new();
         };
         let others = self.other_files(&mark);
-        let try_harder = self.offers_try_harder();
-        actions_for(&mark, try_harder, &others)
+        let offers = self.offers_for(&mark);
+        actions_for(&mark, offers, &others)
+    }
+
+    /// What the mark's change offers now: Undo while it is open, Try harder too (or on a mark
+    /// of no change) when the settings have it.
+    fn offers_for(&self, mark: &Mark) -> Offers {
+        let (undo, try_harder) = lock(&self.shown)
+            .as_ref()
+            .filter(|shown| shown.change.id == mark.change_id)
+            .map_or((false, false), |shown| {
+                (shown.offers_undo(), shown.offers_try_harder())
+            });
+        Offers {
+            undo: undo && mark.kind != MarkKind::NoChange,
+            try_harder: try_harder && self.offers_try_harder(),
+        }
     }
 
     /// The changed files other than the one the mark is in, as `(path, file name)`.
@@ -221,17 +238,28 @@ fn on_the_line(published: &[Mark], params: &CodeActionParams) -> Option<Mark> {
         .cloned()
 }
 
+/// Which of the actions that change the code a mark offers.
+#[derive(Debug, Clone, Copy)]
+struct Offers {
+    undo: bool,
+    try_harder: bool,
+}
+
 /// A mark's actions, in order: Undo, Try harder, Show why, then Show for each other file. A
-/// mark of no change offers only Try harder and Show why.
+/// mark of no change offers only Try harder and Show why; a change that can no longer be
+/// undone, only the Show actions.
 fn actions_for(
     mark: &Mark,
-    try_harder: bool,
+    offers: Offers,
     others: &[(String, String)],
 ) -> Vec<CodeActionOrCommand> {
     let id = Value::String(mark.change_id.clone());
-    let undo =
-        (mark.kind != MarkKind::NoChange).then(|| action("conjure: Undo", UNDO, vec![id.clone()]));
-    let harder = try_harder.then(|| action("conjure: Try harder", TRY_HARDER, vec![id.clone()]));
+    let undo = offers
+        .undo
+        .then(|| action("conjure: Undo", UNDO, vec![id.clone()]));
+    let harder = offers
+        .try_harder
+        .then(|| action("conjure: Try harder", TRY_HARDER, vec![id.clone()]));
     let why = Some(action("conjure: Show why", WHY, vec![id.clone()]));
     let shows = others.iter().map(|(path, name)| {
         Some(action(

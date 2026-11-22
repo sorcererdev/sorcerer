@@ -105,16 +105,22 @@ each open document's version and text). `ServerConfig { open, cache, trust, cloc
 `wire: WireWriter` builds an attempt's writer over the editor's view (`writer_for` live, a
 scripted writer in the tests). The shared `Server` holds the `Client`, the root, `published` (the
 `Mark`s published per editor path, for the actions on a line), `shown` (the one change marked
-now, a `Shown { change: LandedChange, undoing }`) and `running` (the `Cancel` of the change being
-conjured; one at a time). `project_relative` and `project_file` map an editor path to the
+now, a `Shown { change: LandedChange, state: ShownState, settled }`) and `running` (the `Cancel`
+of the change being conjured or undone; one at a time). `ShownState` is `Open` (Undo and Try
+harder offered), `Undoing(choice)` (an undo waits for the editor; its own edits are not the
+person's) or `Recorded` (the record is written: no change, landed in part, or kept by a save;
+`LandedChange::note` says why on the marks, and only the Show actions are offered). `settled` lists
+the files whose marks are gone for good. `project_relative` and `project_file` map an editor path to the
 project's `/`-separated path on the canonical path, as scry's server does.
 
 `commands.rs`: `capabilities` (code actions; the commands `conjure.conjure`, `conjure.undo`,
 `conjure.tryHarder`, `conjure.why`, `conjure.show`). `code_actions` offers nothing when
 `Client::can_apply_edits` is false (`opened` says so once, `say_once`); otherwise the marked
 change's actions (`on_the_line`: by the change id in the editor's `conjure` diagnostics, else by
-line; `actions_for` in the pinned order), *Conjure here* when the line is in a unit (`in_a_unit`
-parses the editor's text through an `EditorView`), and *Conjure for this finding* per open or
+line; `offers_for` from the shown state; `actions_for` in the pinned order), *Conjure here* when
+the line is in a unit (`in_a_unit` parses the editor's text through an `EditorView`; in an
+untrusted project nothing is parsed, so a grammar of the project's own is never built or loaded
+before trust, and *Conjure here* is offered on any line of a file with a language), and *Conjure for this finding* per open or
 waiting scry finding there (`findings_on`, scry's findings file read afresh). `lines_of` turns
 the request's range into the line and last line, from 1. `execute` runs a command; what the
 person must hear goes through `Client::say`, and an error answers only a malformed command.
@@ -122,8 +128,8 @@ person must hear goes through `Client::say`, and an error answers only a malform
 `changes.rs`, a change's life:
 
 1. **Asked.** `conjure` calls `start`, which takes `running` (`begin_running`; busy is said) and
-   reads `open_documents` on the main loop, so the edit is made at the versions the person saw
-   when they asked. A thread runs `conjure_and_land` under `work_done("conjure", "conjuring a
+   reads `open_documents` (an `OpenDocuments`, with `read_at`) on the main loop, so the edit is
+   made at the versions the person saw when they asked. A thread runs `conjure_and_land` under `work_done("conjure", "conjuring a
    change")`.
 2. **Conjured.** `conjured` opens the project, checks trust (`needs_trust`, the user's
    `TrustList`), maps the open documents into a `landing::Snapshot` (`snapshot_of`), builds an
@@ -132,35 +138,46 @@ person must hear goes through `Client::say`, and an error answers only a malform
    also recorded `failed` (`failed_record`).
 3. **Landed.** `land`: no files is shown at once as no change and recorded `no-change`. Otherwise
    `moved_on` refuses to send when a file the change edits moved on since it was read (an open
-   file at another version, or a file opened since with other text), since an editor may not
-   check (Neovim checks only the first file's version); then `landing::workspace_edit` builds one
+   file at another version; a file not open then and open now with other text, or on disk with
+   other text or written after `read_at`; a new file that is there now), since an editor may not
+   check (Neovim checks only the first file's version) and a file with no version is not checked
+   at all; then `landing::workspace_edit` builds one
    `WorkspaceEdit` (each existing file a `TextDocumentEdit` at the snapshot's version, `None` for
    a file that was not open; each new file a `CreateFile` with `ignoreIfExists` and an insert;
    new files left out under `NewFiles::LeftOut`), and `Client::apply_edit` sends it. On
-   `applied`, `show` makes it the shown change (the one before is recorded `kept` by `end_with`)
-   and `publish_marks` replaces every mark; on a refusal the person is told and it is recorded
-   `dropped`. The progress line ends and `running` is let go in the reply's callback.
+   `applied`, `confirm_landed` (on a thread) waits up to 3 s for each file to read as its
+   after-text (`files_not_as_sent`; an editor may answer before it reports, and may skip a file
+   and still say applied): all as sent, `show` makes it the shown change (`Open`; the one before
+   is recorded `kept` by `end_with`) and `publish_marks` replaces every mark; some not, it is
+   said, recorded `landed-in-part` and shown `Recorded` with the note; none, it is said and
+   recorded `dropped`. On a refusal the person is told and it is recorded `dropped`. `ended` ends
+   the progress line and lets `running` go.
 4. **Marked.** `marks.rs`: `marks_of` (the main mark on the asked file, else the first changed
    file; an `Other` mark per other file; a `NoChange` mark on the unit's first line) and
    `mark_diagnostic` (source `conjure`, Information, code `change` or `no-change`, `data` the
    change id, the whole line; the words in `main_text`, `other_text`, `no_change_text`).
-5. **Ended**, once, by `record` with the choice: `saved` of a changed file is `kept`; `changed`
-   sees the editor's own undo (`all_back`: every file at its text before, a new file empty or
-   gone) and records `undone`, and clears a no-change mark at any edit; `shutdown` records
-   `unanswered` and cancels a running call. `closed` only hides the file's marks; `republish`
-   shows them again when it opens.
+5. **Ended**, once, by `record` through `end_with` (an `Undoing` change records its undo's
+   choice; a `Recorded` one nothing more): the first `saved` of a changed file is `kept`, turns
+   the change `Recorded` with `KEPT_NOTE` and settles that file, and the others keep their marks
+   until each is saved or `closed` (`settle`; the change goes when `all_settled`); `changed` sees
+   the editor's own undo of an `Open` change (`all_back`: every file at its text before, a new file
+   empty or gone) and records `undone`, and clears a no-change mark at any edit; `shutdown`
+   records `unanswered` and cancels a running call. Before the change is recorded, `closed` only
+   hides the file's marks; `republish` shows them again when it opens.
 
-Undo (`undo` → `take_back`) plans per file with `undo_of` from its text now (`versioned_text_now`:
-the editor's, else the disk's): a file at its after-text goes back with `line_edits(after,
-before)` at its current version; a new file is deleted (`DeleteFile`, when
-`Client::can_delete_files`) or emptied; a file not open whose disk is still as before needs
-nothing (the edit never reached it); any other text is the person's, so the whole undo is refused
-with the file named. While the undo is in flight `Shown::undoing` holds its choice, so the edits it
-causes are not taken for the person's; `taken_back` records it when the editor applied it. Try
-harder (`try_harder`) is the same undo recorded `replaced`, then `start` with an `Again` (the
-situation the first writer read, the id it replaces, and each file's text before): its thread
-waits up to 3 s (`documents_after_undo`) for the editor to report the undo, because some editors
-(Neovim) answer `applyEdit` before they send the `didChange`. `show_why` writes `why_text` to
+`undo.rs`: Undo (`undo` → `take_back`) takes `running` for the life of the undo (busy while a
+change is conjured, and nothing lands meanwhile) and plans per file with `undo_of` from its text
+now (`versioned_text_now`: the editor's, else the disk's): a file at its after-text goes back with
+`line_edits(after, before)` at its current version; a new file is deleted (`DeleteFile`, under
+`FileDeletion::Allowed`) or emptied; a new file closed unsaved (empty on disk) is deleted; a file
+already at its text before needs nothing; any other text is the person's, so the whole undo is
+refused with the file named. While the undo is in flight the state is `Undoing(choice)`;
+`taken_back` records it when the editor applied it and runs its `Then` with the held `Cancel`. Try
+harder (`try_harder`) is the same undo recorded `replaced`, then `start_again` with an `Again`
+(the situation the first writer read, the id it replaces, and each file's text before), still
+holding `running`: its thread waits up to 3 s (`documents_after_undo`) for the editor to report
+the undo, because some editors (Neovim) answer `applyEdit` before they send the `didChange`, and
+refuses when it never comes. `show_why` writes `why_text` to
 `.sorcerer/state/conjure/why-<id>.md` and shows it; `show_file` shows a file with its changed
 lines selected (`changed_lines`, in the new text).
 

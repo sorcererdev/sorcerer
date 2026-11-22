@@ -20,6 +20,9 @@ use crate::usecases::conjure_change::{ChangedFile, ConjuredChange};
 pub(super) struct Snapshot {
     pub root: PathBuf,
     pub open: BTreeMap<PathBuf, OpenDocument>,
+    /// When the documents were read: a file not open that the disk shows written later has
+    /// moved on.
+    pub read_at: std::time::SystemTime,
 }
 
 /// An open document as the editor last sent it.

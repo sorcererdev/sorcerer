@@ -148,22 +148,22 @@ fn run_command(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<i32> {
-    if let Some(Cmd::Lsp) = cli.cmd {
-        // the server finds its project from the root the editor sends, not from here
-        return lsp::lsp();
-    }
-    let project = Project::open(cwd)?;
+    // the server finds its project from the root the editor sends, not from here: the
+    // other commands open the project holding the current directory
+    let project = || Project::open(cwd);
     match cli.cmd {
         Some(Cmd::Lsp) => lsp::lsp(),
-        None => conjure_in_project(&cli.run, cwd, project, wire, out, err),
-        Some(Cmd::Doctor) => doctor::doctor(&project, env, &GrammarCache::user(env), out),
-        Some(Cmd::Trust { revoke }) => trust::trust(&project, env, revoke, out),
+        None => conjure_in_project(&cli.run, cwd, project()?, wire, out, err),
+        Some(Cmd::Doctor) => doctor::doctor(&project()?, env, &GrammarCache::user(env), out),
+        Some(Cmd::Trust { revoke }) => trust::trust(&project()?, env, revoke, out),
         Some(Cmd::Cost { since, json }) => {
+            let project = project()?;
             let offset = local_offset(&project, wire)?;
             let ledger = JsonlLedger::for_project(&project)?;
             cost::cost(&ledger, since.as_deref(), offset, json, out)
         }
         Some(Cmd::Log { n }) => {
+            let project = project()?;
             let offset = local_offset(&project, wire)?;
             let store = JsonlChangeStore::for_project(&project)?;
             let n = n.map_or(log::DEFAULT_COUNT, |n| n as usize);

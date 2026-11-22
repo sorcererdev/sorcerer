@@ -104,12 +104,13 @@ fn main_text(change: &LandedChange) -> String {
         format!(" · not written: {}", change.not_written.join(", "))
     };
     format!(
-        "{} · {} · ${:.3} · {:.0} s · {}{also}{not_written}",
+        "{} · {} · ${:.3} · {:.0} s · {}{also}{not_written}{}",
         change.goal_text(),
         change.model,
         change.cost.unwrap_or(0.0),
         change.seconds,
-        parses_text(main)
+        parses_text(main),
+        note_text(change)
     )
 }
 
@@ -127,7 +128,17 @@ fn other_text(change: &LandedChange, path: &PathBuf) -> String {
         .map_or_else(String::new, |line| {
             format!(" · does not parse (line {line})")
         });
-    format!("conjured with {asked}: {}{broken}", change.goal_text())
+    format!(
+        "conjured with {asked}: {}{broken}{}",
+        change.goal_text(),
+        note_text(change)
+    )
+}
+
+/// Why the change can no longer be undone, when it cannot: ` · kept: a file was saved, so no
+/// Undo`.
+fn note_text(change: &LandedChange) -> &str {
+    change.note.as_deref().unwrap_or("")
 }
 
 /// `no change · total needs nothing`.

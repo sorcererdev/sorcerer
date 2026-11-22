@@ -10,6 +10,7 @@
 //!   Undo, Try harder, Show why, Show <file>, and the choice a save, an undo or the next change
 //!   records.
 //! - `landing.rs`: a change as one `WorkspaceEdit`, and its undo.
+//! - `undo.rs`: Undo, and Try harder, which undoes and conjures again.
 //! - `marks.rs`: the marks (diagnostics) a landed change shows and their words.
 //!
 //! One change is marked at a time (`shown`), and one is conjured at a time (`running`).
@@ -18,6 +19,7 @@ pub(crate) mod changes;
 pub(crate) mod commands;
 mod landing;
 mod marks;
+mod undo;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -155,8 +157,7 @@ impl Product for ConjureServer {
     }
 
     fn closed(&mut self, path: &Path) {
-        // the marks follow the open set; they come back when the file opens again
-        self.server.client.publish(path, Vec::new());
+        self.server.closed(path);
     }
 
     fn saved(&mut self, path: &Path) {

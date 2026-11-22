@@ -28,11 +28,16 @@ not started`; the running one goes on.
 
 **The change lands.** One edit carries every file: a file you have open is edited where you see
 it (only the lines the writer changed); a file you do not have open opens as an unsaved buffer; a
-new file is created by the editor and filled. Nothing is saved: the change is in your buffers,
-yours to read, keep or undo. Conjure reads your unsaved text when it asks, and the edit is made
-against exactly that text: if you type in a file the change touches while it is being conjured,
-nothing lands and you are told `conjure: the file changed while the change was conjured; your
-text stands`. An editor that cannot create files gets the rest of the change and the line
+new file is created on disk by the editor, empty, and filled in your buffer. Nothing is saved:
+the change is in your buffers, yours to read, keep or undo. Conjure reads your unsaved text when
+it asks, and the edit is made against exactly that text: if a file the change touches changes
+while it is being conjured (you type in it, or a tool rewrites it on disk, or a new file it would
+create appears), nothing lands and you are told `conjure: the file changed while the change was
+conjured; your text stands`. Once the editor says it applied the edit, conjure checks that each
+file reads as the change made it. When one does not (an editor may skip a file and still say it
+applied the edit), you are told `conjure: the change did not land as sent in <files>; the other
+files were changed, and conjure will not undo them`, the marks end with ` · did not land as sent:
+<files>, so no Undo`, and the change is recorded `landed-in-part`. An editor that cannot create files gets the rest of the change and the line
 `conjure: this editor cannot create files; not created: <paths>`.
 
 **The marks.** On the first changed line of the file you asked in, an information mark says what
@@ -54,19 +59,26 @@ VS Code's Problems panel. One change is marked at a time.
   deleted (emptied, and said, in an editor that cannot delete files). If you have edited a
   changed file since the change landed, Undo does nothing and says `conjure: <file> was edited
   after the change landed; undo it with the editor's own undo`: your typing is never thrown away.
+  A file you put back by hand needs nothing. While a change is being conjured, Undo waits its
+  turn: it is refused with the busy sentence.
 - *conjure: Try harder* undoes the change, then asks the stronger model (`[conjure] try_harder`)
   with what the first writer read; it may read and search the project first. Its change lands
-  and is marked like the first. It is not offered when `try_harder = ""`.
+  and is marked like the first. It is not offered when `try_harder = ""`. If the editor does
+  not report the undo within 3 seconds, Try harder does not start (`conjure: the editor did not
+  report the undo, so Try harder was not started`) rather than write over text it cannot see.
 - *conjure: Show why* opens `.sorcerer/state/conjure/why-<id>.md`: what the change did, the
   situation the writer read, its reply as it came, and what the code said about the function
   before.
 - *conjure: Show `<file>`*, one for each other changed file, opens it with the change selected.
 
-**When a mark goes away.** Saving a changed file keeps the change; undoing it (with the action,
-or with the editor's own undo until every file is back) undoes it; Try harder replaces it; the
-next change keeps it. Closing a file hides its mark until you open it again. Conjure records each
-change once, at the choice that ended it (`kept`, `undone`, `replaced`), or `dropped` when the
-editor refused the edit and `unanswered` when the editor closed with the change still marked;
+**When a mark goes away.** Saving a changed file keeps the change: that file's mark goes, and the
+other files keep theirs, now ending ` · kept: a file was saved, so no Undo`, until each is saved
+or closed, so an unsaved part of the change never slips by unmarked. Undoing it (with the action,
+or with the editor's own undo until every file is back) clears every mark; Try harder replaces
+it; the next change keeps it. Closing a file hides its mark until you open it again (once the
+change is kept, closing a file ends its mark). Conjure records each change once, at the choice
+that ended it (`kept`, `undone`, `replaced`), or `dropped` when nothing landed,
+`landed-in-part` (above) and `unanswered` when the editor closed with the change still marked;
 `conjure log` lists them.
 
 **No change.** When the writer finds nothing to do, a mark on the function's first line says
@@ -77,7 +89,9 @@ not answer: <why>`, and no mark. A spent day says its sentence (below) and calls
 
 **Trust.** A project whose config runs code or moves your key (a provider's `runner` or `url`, a
 grammar of its own) is not conjured in until you trust it: asking says `conjure: this project is
-not trusted; run "conjure trust" in it`. `conjure trust` and `scry trust` keep one list.
+not trusted; run "conjure trust" in it`. Until then conjure does not parse its files (a
+grammar of the project's own is never built or loaded), so *Conjure here* is offered on any line.
+`conjure trust` and `scry trust` keep one list.
 
 An editor must apply edits from a server tied to a document's version (`workspace/applyEdit` with
 `documentChanges`; one that announces file operations is taken to). One that cannot is offered

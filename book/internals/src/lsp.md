@@ -118,8 +118,9 @@ change of an open document, only when `tracks_text` is true). A product that lan
 
 Conjure (`crates/conjure/src/adapters/lsp/`, [Conjure](conjure.md#the-server)) is the product that
 tracks text and edits: it reads `text_of` for every open document when a change is asked for,
-sends one `apply_edit` per change (and per undo) with each open file's version, and checks
-`text_of` again before it sends. Scry tracks no text and never edits. Two things the editors do
+sends one `apply_edit` per change (and per undo) with each open file's version, checks
+`text_of` (and the disk) again before it sends, and after the editor answers `applied` checks that
+each file reads as sent. Scry tracks no text and never edits. Two things the editors do
 that a product must allow for: Neovim answers `workspace/applyEdit` before it sends the
 `didChange` for it (its changes are debounced), and checks the version of only the first
 document in an edit.

@@ -44,6 +44,9 @@ pub enum Choice {
     Failed,
     /// The server shut down with the change still marked.
     Unanswered,
+    /// The editor said it applied the edit, but some files did not read as the change made
+    /// them: the change is not conjure's to undo.
+    LandedInPart,
 }
 
 /// What the code said about the unit before the change.

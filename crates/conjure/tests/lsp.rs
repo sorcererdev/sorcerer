@@ -1616,13 +1616,54 @@ fn show_file_opens_the_change_selected() {
 }
 
 #[test]
-fn a_save_records_kept() {
+fn a_save_keeps_the_change_and_the_other_files_marks_stay() {
     let (_dir, s) = landed(&[&three_files()]);
     assert_eq!(s.marks("src/a.py").len(), 1);
+    assert_eq!(s.marks("src/b.py").len(), 1);
+    assert_eq!(s.marks("src/a__test.py").len(), 1);
     s.save("src/b.py");
     let records = s.records_reach(1);
+    assert_eq!(records.len(), 1);
     assert_eq!(records[0].choice, Choice::Kept);
-    assert!(s.marks("src/a.py").is_empty());
+    // the saved file's mark goes; the unsaved files keep theirs, saying the change is kept
+    assert!(s.marks("src/b.py").is_empty());
+    let main = s.marks("src/a.py");
+    assert_eq!(main.len(), 1);
+    assert!(
+        main[0]
+            .message
+            .ends_with(" · kept: a file was saved, so no Undo"),
+        "{}",
+        main[0].message
+    );
+    assert_eq!(
+        s.titles("src/a.py", 4, &main),
+        [
+            "conjure: Show why",
+            "conjure: Show b.py",
+            "conjure: Show a__test.py",
+            "Conjure here"
+        ]
+    );
+    // each goes when its file is saved or closed, and nothing more is recorded
+    s.save("src/a.py");
+    s.close("src/a__test.py");
+    s.settle();
+    let messages: Vec<Message> = s.inbox.borrow_mut().drain(..).collect();
+    let last_for = |relative: &str| {
+        let uri = s.uri(relative);
+        messages
+            .iter()
+            .rev()
+            .find(|m| is_publish_for(m, &uri))
+            .map(|m| match m {
+                Message::Notification(n) => n.params["diagnostics"].as_array().unwrap().len(),
+                _ => unreachable!(),
+            })
+    };
+    assert_eq!(last_for("src/a.py"), Some(0));
+    assert_eq!(last_for("src/a__test.py"), Some(0));
+    assert_eq!(s.records().len(), 1);
     s.stop();
 }
 
@@ -1683,5 +1724,225 @@ fn try_harder_waits_for_the_editor_to_report_the_undo() {
     );
     let records = s.records_reach(1);
     assert_eq!(records[0].choice, Choice::Replaced);
+    s.stop();
+}
+
+// ---- review fixes ----
+
+#[test]
+fn an_untrusted_projects_own_grammar_is_never_loaded_for_actions() {
+    let dir = project();
+    write(
+        dir.path(),
+        ".sorcerer/languages/toy/language.toml",
+        "files = [\"**/*.toy\"]\ngrammar = { path = \"g\" }\n",
+    );
+    write(dir.path(), "src/a.toy", "toy\n");
+    let s = served(dir.path(), Script::replying(&[]));
+    s.open("src/a.toy");
+    // untrusted: offered without parsing, so the trust sentence can be said when it is run
+    assert_eq!(s.titles("src/a.toy", 0, &[]), ["Conjure here"]);
+    let messages = s.all_within(QUIET);
+    let logged_grammar = messages.iter().any(|m| {
+        matches!(m, Message::Notification(n)
+        if n.method == "window/logMessage")
+    });
+    assert!(!logged_grammar, "{messages:?}");
+    assert!(!support::test_cache().dir().unwrap().join("toy").exists());
+    // trusted, the file is parsed: the grammar (missing here) is tried, and no unit is found
+    s.trust.trust(&s.root).unwrap();
+    assert!(s.titles("src/a.toy", 0, &[]).is_empty());
+    s.stop();
+}
+
+#[test]
+fn a_file_rewritten_on_disk_while_conjuring_keeps_the_edit_from_being_sent() {
+    let dir = project();
+    let script = Script::replying(&[&three_files()]);
+    let open = script.gated();
+    let s = served(dir.path(), script);
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    // a formatter, or a branch switch, rewrites the unopened b.py meanwhile
+    write(dir.path(), "src/b.py", "def helper():\n\n    return 1\n");
+    open.send(()).unwrap();
+    assert_eq!(
+        s.shown_message(),
+        "conjure: the file changed while the change was conjured; your text stands"
+    );
+    assert!(!sent_an_edit(&s));
+    s.stop();
+}
+
+#[test]
+fn a_new_file_that_appeared_while_conjuring_keeps_the_edit_from_being_sent() {
+    let dir = project();
+    let script = Script::replying(&[&three_files()]);
+    let open = script.gated();
+    let s = served(dir.path(), script);
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    write(dir.path(), "src/a__test.py", "def test_mine():\n    pass\n");
+    open.send(()).unwrap();
+    assert_eq!(
+        s.shown_message(),
+        "conjure: the file changed while the change was conjured; your text stands"
+    );
+    assert!(!sent_an_edit(&s));
+    assert_eq!(
+        std::fs::read_to_string(s.path("src/a__test.py")).unwrap(),
+        "def test_mine():\n    pass\n"
+    );
+    s.stop();
+}
+
+#[test]
+fn an_edit_the_editor_applied_in_part_is_said_and_offers_no_undo() {
+    let dir = project();
+    let s = served(dir.path(), Script::replying(&[&three_files()]));
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    // as Neovim does with a stale first file: skips it, applies the rest, answers applied
+    let (id, params) = s.edit_sent();
+    let mut edit = params["edit"].clone();
+    edit["documentChanges"].as_array_mut().unwrap().remove(0);
+    let notes = s.apply_quietly(&edit);
+    s.report(notes);
+    s.reply(id, json!({ "applied": true }));
+    assert_eq!(
+        s.shown_message(),
+        "conjure: the change did not land as sent in a.py; the other files were changed, and conjure will not undo them"
+    );
+    let main = s.marks("src/a.py");
+    assert!(
+        main[0]
+            .message
+            .ends_with(" · did not land as sent: a.py, so no Undo"),
+        "{}",
+        main[0].message
+    );
+    assert_eq!(
+        s.titles("src/a.py", 4, &main),
+        [
+            "conjure: Show why",
+            "conjure: Show b.py",
+            "conjure: Show a__test.py",
+            "Conjure here"
+        ]
+    );
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::LandedInPart);
+    s.stop();
+}
+
+#[test]
+fn conjure_here_while_an_undo_is_in_flight_is_busy_and_every_change_is_recorded() {
+    let harder = format!(
+        "<goal>fill total properly</goal>\n<file path=\"src/a.py\">\n{}</file>\n",
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    let (_dir, s) = landed(&[&three_files(), &harder]);
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Try harder"));
+    let (undo_id, undo) = s.edit_sent();
+    // before the editor answers the undo, the person asks again
+    s.conjure_here("src/a.py", 5);
+    assert_eq!(
+        s.shown_message(),
+        "conjure: a change is already being conjured; this one was not started"
+    );
+    let notes = s.apply_quietly(&undo["edit"]);
+    s.report(notes);
+    s.reply(undo_id, json!({ "applied": true }));
+    s.apply_next_edit();
+    let records = s.records_reach(1);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].choice, Choice::Replaced);
+    assert_eq!(s.script.seen().len(), 2);
+    s.stop();
+}
+
+#[test]
+fn try_harder_of_a_one_file_change_is_recorded_replaced() {
+    // the editor reports the undo's change before it answers (VS Code's order), and the one
+    // file is then back at its text before: that is the undo, not the person's
+    let one = format!("<goal>fill total</goal>\n<file path=\"src/a.py\">\n{NEW_A}</file>\n");
+    let harder = format!(
+        "<goal>fill total properly</goal>\n<file path=\"src/a.py\">\n{}</file>\n",
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    let (_dir, s) = landed(&[&one, &harder]);
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Try harder"));
+    s.apply_next_edit();
+    s.apply_next_edit();
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Replaced);
+    assert_eq!(
+        s.text("src/a.py").unwrap(),
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    s.stop();
+}
+
+#[test]
+fn try_harder_refuses_when_the_editor_never_reports_the_undo() {
+    let (_dir, s) = landed(&[&three_files(), &three_files()]);
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Try harder"));
+    let (id, undo) = s.edit_sent();
+    let _never_reported = s.apply_quietly(&undo["edit"]);
+    s.reply(id, json!({ "applied": true }));
+    let said = s
+        .wait_for(Duration::from_secs(10), |m| {
+            matches!(m, Message::Notification(n)
+            if n.method == "window/showMessage")
+        })
+        .expect("a message");
+    let Message::Notification(note) = said else {
+        unreachable!()
+    };
+    assert_eq!(
+        note.params["message"],
+        "conjure: the editor did not report the undo, so Try harder was not started"
+    );
+    assert_eq!(s.script.seen().len(), 1);
+    s.stop();
+}
+
+#[test]
+fn an_open_file_back_at_its_text_before_does_not_refuse_the_undo() {
+    let (_dir, s) = landed(&[&three_files()]);
+    let main = s.marks("src/a.py");
+    // the person put b.py back by hand
+    s.type_text("src/b.py", B);
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    let params = s.apply_next_edit();
+    let uris: Vec<String> = kinds_and_uris(&params["edit"])
+        .into_iter()
+        .map(|(_, uri, _)| uri)
+        .collect();
+    assert_eq!(uris, [s.uri("src/a.py"), s.uri("src/a__test.py")]);
+    assert_eq!(s.text("src/a.py").unwrap(), A);
+    s.stop();
+}
+
+#[test]
+fn undo_deletes_an_empty_created_file_whose_buffer_was_closed() {
+    let (_dir, s) = landed(&[&three_files()]);
+    let main = s.marks("src/a.py");
+    // closed unsaved: the editor created it empty on disk, and the text is gone
+    s.close("src/a__test.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    let params = s.apply_next_edit();
+    let kinds: Vec<(String, String)> = kinds_and_uris(&params["edit"])
+        .into_iter()
+        .map(|(kind, uri, _)| (kind, uri))
+        .collect();
+    assert!(
+        kinds.contains(&("delete".to_string(), s.uri("src/a__test.py"))),
+        "{kinds:?}"
+    );
+    assert!(!s.path("src/a__test.py").exists());
     s.stop();
 }
