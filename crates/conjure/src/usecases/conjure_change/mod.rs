@@ -83,6 +83,8 @@ pub struct ChangedFile {
 pub struct ConjuredChange {
     pub id: String,
     pub unit: String,
+    /// The unit's lines, from 1: a change with no files is marked on the first.
+    pub unit_lines: Span,
     pub facts: Facts,
     /// The situation the writer read.
     pub situation: String,
@@ -98,7 +100,16 @@ pub struct ConjuredChange {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChangeRefused {
     OutsideAUnit,
-    DaySpent { budget: f64 },
+    DaySpent {
+        budget: f64,
+    },
+    /// The writer was asked and did not answer (a timeout, a refusal, a cancel); the unit it
+    /// was asked about and its facts, so the failure can be recorded.
+    NotAnswered {
+        why: String,
+        unit: String,
+        facts: Facts,
+    },
     Failed(String),
 }
 
@@ -108,6 +119,9 @@ impl ChangeRefused {
         match self {
             ChangeRefused::OutsideAUnit => "put the cursor in a function to conjure".into(),
             ChangeRefused::DaySpent { budget } => day_spent_text(*budget),
+            ChangeRefused::NotAnswered { why, .. } => {
+                format!("conjure: the model did not answer: {why}")
+            }
             ChangeRefused::Failed(why) => format!("conjure: {why}"),
         }
     }
@@ -134,11 +148,18 @@ pub fn conjure_change(
         Some(kept) => kept.clone(),
         None => situation::situation_for(&site, request, deps)?,
     };
-    let written = write::write_once(deps.writer, &situation, deps.cancel)?;
+    let written = write::write_once(deps.writer, &situation, deps.cancel).map_err(|why| {
+        ChangeRefused::NotAnswered {
+            why,
+            unit: site.unit.name.clone(),
+            facts: site.facts.clone(),
+        }
+    })?;
     let reply = read_reply(&written.text);
     let (files, dropped) = check::checked_files(&reply, deps)?;
     Ok(ConjuredChange {
         id: change_id(deps.clock.now(), &request.file, request.line),
+        unit_lines: site.unit.span,
         unit: site.unit.name,
         facts: site.facts,
         situation,

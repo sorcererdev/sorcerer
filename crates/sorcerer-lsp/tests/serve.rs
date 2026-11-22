@@ -433,6 +433,23 @@ fn say_once_says_a_key_once() {
 }
 
 #[test]
+fn say_says_every_time() {
+    let editor = Editor::plain();
+    let client = editor.client();
+    client.say(MessageType::INFO, "busy");
+    client.say(MessageType::INFO, "busy");
+    let shown = notifications(&editor, "window/showMessage");
+    assert_eq!(
+        shown,
+        vec![
+            json!({ "type": 3, "message": "busy" }),
+            json!({ "type": 3, "message": "busy" })
+        ]
+    );
+    editor.stop();
+}
+
+#[test]
 fn publish_and_log_reach_the_editor() {
     let editor = Editor::plain();
     let client = editor.client();

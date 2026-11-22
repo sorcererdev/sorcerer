@@ -1,7 +1,7 @@
 //! The command line. `conjure FILE:LINE[-END]` conjures one change at that place and prints it
 //! (the goal, each file's diff and whether it parses); it lands nothing, since only an editor
 //! can land a change. `--finding ID` conjures for a scry finding, `--try-harder` asks the
-//! stronger model.
+//! stronger model. `conjure lsp` is the editor's language server, which lands changes.
 //!
 //! Each command reads its arguments, calls one use case and prints what comes back. The exit
 //! code is 0 when a change was conjured (or none was needed), and 2 when conjure could not run.
@@ -10,6 +10,7 @@ mod cost;
 mod doctor;
 mod format;
 mod log;
+mod lsp;
 mod run;
 mod trust;
 
@@ -69,6 +70,8 @@ enum Cmd {
         #[arg(long)]
         revoke: bool,
     },
+    /// The editor's language server, over standard input and output
+    Lsp,
 }
 
 #[derive(Args, Debug)]
@@ -145,8 +148,13 @@ fn run_command(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<i32> {
+    if let Some(Cmd::Lsp) = cli.cmd {
+        // the server finds its project from the root the editor sends, not from here
+        return lsp::lsp();
+    }
     let project = Project::open(cwd)?;
     match cli.cmd {
+        Some(Cmd::Lsp) => lsp::lsp(),
         None => conjure_in_project(&cli.run, cwd, project, wire, out, err),
         Some(Cmd::Doctor) => doctor::doctor(&project, env, &GrammarCache::user(env), out),
         Some(Cmd::Trust { revoke }) => trust::trust(&project, env, revoke, out),
