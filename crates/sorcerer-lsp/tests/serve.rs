@@ -56,6 +56,10 @@ impl Product for Recording {
     fn saved(&mut self, path: &Path) {
         self.note(format!("saved {}", path.display()));
     }
+    /// Never called: this product does not track text.
+    fn changed(&mut self, path: &Path, version: i32, _text: &str) {
+        self.note(format!("changed {} v{version}", path.display()));
+    }
     fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
         match method {
             "test/echo" => Ok(params),
@@ -73,6 +77,39 @@ impl Recording {
     }
 }
 
+/// A product that tracks the open documents' text, and records each change with what the
+/// client already says of it.
+struct Tracking(Recording);
+
+impl Product for Tracking {
+    fn capabilities() -> ServerCapabilities {
+        ServerCapabilities::default()
+    }
+    fn tracks_text() -> bool {
+        true
+    }
+    fn opened(&mut self, path: &Path) {
+        self.0.opened(path);
+    }
+    fn changed(&mut self, path: &Path, version: i32, text: &str) {
+        let known = self.0.client().text_of(path);
+        self.0
+            .note(format!("changed v{version} {text} (text_of: {known:?})"));
+    }
+    fn closed(&mut self, path: &Path) {
+        self.0.closed(path);
+    }
+    fn saved(&mut self, path: &Path) {
+        self.0.saved(path);
+    }
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
+        self.0.request(method, params)
+    }
+    fn shutdown(&mut self) {
+        self.0.shutdown();
+    }
+}
+
 /// The editor's end of a server running on a thread.
 struct Editor {
     connection: Connection,
@@ -82,6 +119,14 @@ struct Editor {
 
 impl Editor {
     fn start(capabilities: Value) -> Editor {
+        Editor::serving(capabilities, |seen| Recording { seen })
+    }
+
+    /// An editor talking to the product `make` builds.
+    fn serving<P: Product + 'static>(
+        capabilities: Value,
+        make: fn(Arc<Mutex<Seen>>) -> P,
+    ) -> Editor {
         let (server_end, editor_end) = Connection::memory();
         let seen = Arc::new(Mutex::new(Seen::default()));
         let for_server = Arc::clone(&seen);
@@ -90,9 +135,7 @@ impl Editor {
                 let mut seen = for_server.lock().unwrap();
                 seen.client = Some(client);
                 seen.root = root;
-                Recording {
-                    seen: Arc::clone(&for_server),
-                }
+                make(Arc::clone(&for_server))
             })
         });
         let editor = Editor {
@@ -131,6 +174,23 @@ impl Editor {
 
     fn document(&self, method: &str, uri: &str) {
         self.notify(method, json!({ "textDocument": { "uri": uri } }));
+    }
+
+    fn open_with_text(&self, uri: &str, version: i32, text: &str) {
+        self.notify(
+            "textDocument/didOpen",
+            json!({ "textDocument": { "uri": uri, "languageId": "plaintext",
+                                      "version": version, "text": text } }),
+        );
+    }
+
+    /// A whole-document change, as an editor sends it under full sync.
+    fn change(&self, uri: &str, version: i32, text: &str) {
+        self.notify(
+            "textDocument/didChange",
+            json!({ "textDocument": { "uri": uri, "version": version },
+                    "contentChanges": [{ "text": text }] }),
+        );
     }
 
     fn reply(&self, id: RequestId, result: Result<Value, ResponseError>) {
@@ -206,6 +266,67 @@ fn the_handshake_announces_open_close_and_save_only() {
     assert_eq!(sync["save"], json!({ "includeText": false }));
     editor.client();
     assert_eq!(editor.seen.lock().unwrap().root, Some(shop()));
+    editor.stop();
+}
+
+#[test]
+fn a_product_that_tracks_text_announces_full_sync() {
+    let editor = Editor::serving(json!({}), |seen| Tracking(Recording { seen }));
+    let Some(Message::Response(r)) = editor.next(WAIT) else {
+        panic!("no initialize response")
+    };
+    let sync = &r.response_result.unwrap()["capabilities"]["textDocumentSync"];
+    assert_eq!(sync["openClose"], json!(true));
+    assert_eq!(sync["change"], json!(1));
+    assert_eq!(sync["save"], json!({ "includeText": false }));
+    editor.stop();
+}
+
+#[test]
+fn open_and_change_keep_the_latest_version_and_text() {
+    let editor = Editor::serving(json!({}), |seen| Tracking(Recording { seen }));
+    let a = shop().join("a.txt");
+    editor.open_with_text(&uri(&a), 1, "a");
+    editor.change(&uri(&a), 2, "b");
+    editor.change(&uri(&a), 3, "c");
+    assert_eq!(
+        editor.wait_for_events(3),
+        vec![
+            format!("opened {} (open: true)", a.display()),
+            r#"changed v2 b (text_of: Some((2, "b")))"#.to_string(),
+            r#"changed v3 c (text_of: Some((3, "c")))"#.to_string(),
+        ]
+    );
+    assert_eq!(editor.client().text_of(&a), Some((3, "c".to_string())));
+    editor.stop();
+}
+
+#[test]
+fn close_forgets_the_text() {
+    let editor = Editor::serving(json!({}), |seen| Tracking(Recording { seen }));
+    let a = shop().join("a.txt");
+    editor.open_with_text(&uri(&a), 1, "a");
+    editor.document("textDocument/didClose", &uri(&a));
+    editor.wait_for_events(2);
+    assert_eq!(editor.client().text_of(&a), None);
+    editor.stop();
+}
+
+#[test]
+fn a_product_that_does_not_track_text_keeps_none() {
+    let editor = Editor::plain();
+    let a = shop().join("a.txt");
+    editor.open_with_text(&uri(&a), 1, "a");
+    editor.change(&uri(&a), 2, "b");
+    editor.document("textDocument/didSave", &uri(&a));
+    assert_eq!(
+        editor.wait_for_events(2),
+        vec![
+            format!("opened {} (open: true)", a.display()),
+            format!("saved {}", a.display()),
+        ]
+    );
+    assert_eq!(editor.client().text_of(&a), None);
     editor.stop();
 }
 

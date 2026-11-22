@@ -1,6 +1,7 @@
 //! What a product says to the editor, from any thread: diagnostics, a progress line, a message
 //! once, a log line, a document to show, a question with answers. Also what the host knows
-//! about the editor: which documents are open and what it can show.
+//! about the editor: which documents are open, their text when the product tracks it, and what
+//! the editor can show.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ use lsp_types::{
 };
 use serde_json::Value;
 
+use crate::serve::TracksText;
 use crate::uri::uri_of;
 
 /// The way to the editor. Cloning is cheap; every clone speaks over the same connection.
@@ -36,6 +38,7 @@ pub(crate) struct Abilities {
 struct Shared {
     sender: Sender<Message>,
     abilities: Abilities,
+    tracks_text: TracksText,
     state: Mutex<State>,
 }
 
@@ -43,6 +46,8 @@ struct Shared {
 #[derive(Default)]
 struct State {
     open: BTreeSet<PathBuf>,
+    /// Each open document's version and text, for a product that tracks text.
+    texts: HashMap<PathBuf, (i32, String)>,
     said: HashSet<String>,
     waiting_for_reply: HashMap<RequestId, OnReply>,
     requests_sent: i32,
@@ -63,11 +68,16 @@ pub enum Answer {
 }
 
 impl Client {
-    pub(crate) fn new(sender: Sender<Message>, abilities: Abilities) -> Client {
+    pub(crate) fn new(
+        sender: Sender<Message>,
+        abilities: Abilities,
+        tracks_text: TracksText,
+    ) -> Client {
         Client {
             shared: Arc::new(Shared {
                 sender,
                 abilities,
+                tracks_text,
                 state: Mutex::new(State::default()),
             }),
         }
@@ -198,12 +208,38 @@ impl Client {
         self.shared.abilities.related_information
     }
 
-    pub(crate) fn opened(&self, path: &Path) {
-        lock(&self.shared.state).open.insert(path.to_path_buf());
+    /// The version and text of an open document, as the editor last sent them. `None` when
+    /// the document is not open, or the product does not track text.
+    ///
+    /// Example: after an open at version 1 with `a` and a change to version 2 with `b`,
+    /// `text_of(path)` is `Some((2, "b"))`.
+    pub fn text_of(&self, path: &Path) -> Option<(i32, String)> {
+        lock(&self.shared.state).texts.get(path).cloned()
+    }
+
+    pub(crate) fn tracks_text(&self) -> bool {
+        self.shared.tracks_text == TracksText::Yes
+    }
+
+    /// The editor opened a file, with its version and text when the notification held them.
+    pub(crate) fn opened(&self, path: &Path, document: Option<(i32, String)>) {
+        let mut state = lock(&self.shared.state);
+        state.open.insert(path.to_path_buf());
+        if let (true, Some(document)) = (self.tracks_text(), document) {
+            state.texts.insert(path.to_path_buf(), document);
+        }
+    }
+
+    pub(crate) fn changed(&self, path: &Path, version: i32, text: &str) {
+        lock(&self.shared.state)
+            .texts
+            .insert(path.to_path_buf(), (version, text.to_string()));
     }
 
     pub(crate) fn closed(&self, path: &Path) {
-        lock(&self.shared.state).open.remove(path);
+        let mut state = lock(&self.shared.state);
+        state.open.remove(path);
+        state.texts.remove(path);
     }
 
     /// Hands the editor's reply to whatever waits for it; a reply nothing waits for is
