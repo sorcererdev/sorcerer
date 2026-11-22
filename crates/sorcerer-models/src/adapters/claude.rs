@@ -278,3 +278,33 @@ fn text_of_every_message(req: &Completion) -> String {
         .collect::<Vec<_>>()
         .join("\n\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::domain::model::{Message, ModelId};
+
+    /// A realistic request: the fence prompt's length of system prompt, a long question.
+    fn realistic_request() -> Completion {
+        Completion {
+            model: ModelId("sonnet".into()),
+            system: "The repository is the current directory. ".repeat(40),
+            messages: vec![Message::user(&"a question\n".repeat(200))],
+            tools: vec![],
+            max_tokens: 4096,
+            timeout: Duration::from_secs(60),
+        }
+    }
+
+    /// On Windows `claude` is npm's `claude.cmd`: Rust refuses a newline in an argument sent to
+    /// a `.cmd`, and `cmd.exe` cuts a command line at 8191 characters.
+    #[test]
+    fn no_argument_holds_a_newline_and_the_line_fits_cmd_exe() {
+        let args = completion_args(&realistic_request());
+        assert!(args.iter().all(|a| !a.contains(['\r', '\n'])), "{args:?}");
+        let line_length: usize = args.iter().map(|a| a.len() + 1).sum();
+        assert!(line_length < 8191, "{line_length}");
+    }
+}

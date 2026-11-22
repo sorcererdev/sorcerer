@@ -36,13 +36,30 @@ fn copy_dir(from: &Path, to: &Path) {
 
 #[test]
 fn a_cache_under_a_spaced_non_ascii_directory_builds_and_loads() {
-    // both the sources and the cache under the directory, as a fetched grammar's sources
-    // are: the compiler's `-I`, input and output arguments all carry the space and the `é`
+    builds_and_loads_under_a_directory_named("a b é");
+}
+
+/// Characters outside Windows-1252, which MinGW gcc's ANSI-code-page argument reading may not
+/// carry.
+///
+/// Fails on the Windows job (2026-11-22): MinGW's `ld` is handed the output path in the ANSI code
+/// page, so `日本 Ж` becomes `?? ?` and it reports `cannot open output file ... Invalid
+/// argument`. Not fixed here; a user whose name is outside Windows-1252 and who must compile a
+/// grammar (a project's own) meets it.
+#[test]
+#[ignore = "MinGW ld cannot open an output path outside Windows-1252 (fails on the Windows job)"]
+fn a_cache_under_a_directory_outside_windows_1252_builds_and_loads() {
+    builds_and_loads_under_a_directory_named("日本 Ж");
+}
+
+/// Both the sources and the cache sit under the directory, as a fetched grammar's sources
+/// are: the compiler's `-I`, input and output arguments all carry the name.
+fn builds_and_loads_under_a_directory_named(name: &str) {
     let d = tempfile::TempDir::new().unwrap();
-    let spaced = d.path().join("a b é");
-    let sources = spaced.join("src").join("python");
+    let named = d.path().join(name);
+    let sources = named.join("src").join("python");
     copy_dir(&support::vendored("python"), &sources);
-    let cache = GrammarCache::at(spaced.join("cache"));
+    let cache = GrammarCache::at(named.join("cache"));
     let lang = grammar::load(&cache, "python", &GrammarSource::Local(sources), PROJECT)
         .unwrap()
         .0;
