@@ -7,4 +7,5 @@ pub mod generator_problems;
 pub mod holes;
 pub mod holes_table;
 pub mod inputs;
+pub mod plan;
 pub mod template;

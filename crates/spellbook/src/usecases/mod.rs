@@ -2,3 +2,4 @@
 
 pub mod choices_for;
 pub mod list_generators;
+pub mod plan_generation;

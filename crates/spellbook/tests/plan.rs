@@ -186,3 +186,138 @@ fn the_command_template_renders_three_placeholder_holes() {
         "        raise NotImplementedError(\"hole handle: its first case, from the test file beside it\")"
     );
 }
+
+/// A generator `tiny` with one ident input and one edit.
+fn write_tiny(root: &std::path::Path, create: &str, body: &str, templates: &[(&str, &str)]) {
+    let toml = format!(
+        "name = \"Tiny\"\nlanguage = \"python\"\n\n[inputs.name]\ntype = \"ident\"\n\n[[edits]]\ncreate = \"{create}\"\n{body}\n"
+    );
+    write_generator(root, "tiny", &toml, templates);
+}
+
+/// Every file under a directory and its bytes, to see that nothing changed.
+fn tree_of(dir: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            found.extend(tree_of(&path));
+        } else {
+            found.push((path.clone(), std::fs::read(&path).unwrap()));
+        }
+    }
+    found.sort();
+    found
+}
+
+#[test]
+fn the_command_plan_has_three_files_one_skipped_and_three_holes() {
+    use spellbook::domain::plan::FileStatus;
+
+    let dir = bistro_project();
+    let rig = PlanRig::new(dir.path());
+    let plan = rig.plan("command", &[("command", "cancel_table")]).unwrap();
+    let files: Vec<(&str, FileStatus)> = plan.files.iter().map(|f| (f.path.as_str(), f.status)).collect();
+    assert_eq!(
+        files,
+        [
+            ("src/bistro/booking/commands/__init__.py", FileStatus::Skipped),
+            ("src/bistro/booking/commands/cancel_table.py", FileStatus::New),
+            ("src/bistro/booking/commands/cancel_table__test.py", FileStatus::New),
+        ]
+    );
+    let holes: Vec<&str> = plan.placeholder_holes().iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(holes, ["field", "type", "handle"]);
+    assert_eq!(plan.id.len(), 8);
+    assert_eq!(plan.files[1].lines, 30);
+}
+
+#[test]
+fn the_plan_writes_nothing() {
+    let dir = bistro_project();
+    let before = tree_of(dir.path());
+    let rig = PlanRig::new(dir.path());
+    rig.plan("command", &[("command", "cancel_table")]).unwrap();
+    assert_eq!(tree_of(dir.path()), before);
+}
+
+#[test]
+fn a_path_out_of_the_project_fails_the_plan() {
+    use spellbook::domain::plan::PlanStop;
+
+    for create in ["../x.py", "/abs/x.py", "C:\\\\x.py", ".sorcerer/x.py", ".git/x", "src/.env.local", "src/../../x.py"] {
+        let dir = bistro_project();
+        write_tiny(dir.path(), create, "text = \"\"", &[]);
+        let rig = PlanRig::new(dir.path());
+        let stop = rig.plan("tiny", &[("name", "x")]).unwrap_err();
+        assert!(matches!(stop, PlanStop::PathRefused { .. }), "{create}: {stop:?}");
+    }
+}
+
+#[test]
+fn an_existing_file_fails_the_plan_by_default() {
+    use spellbook::domain::plan::{PlanStop, plan_stop_text};
+
+    let dir = bistro_project();
+    write_file(dir.path(), "src/bistro/booking/commands/cancel_table.py", "x = 1\n");
+    let rig = PlanRig::new(dir.path());
+    let stop = rig.plan("command", &[("command", "cancel_table")]).unwrap_err();
+    assert_eq!(
+        stop,
+        PlanStop::Exists { path: "src/bistro/booking/commands/cancel_table.py".into() }
+    );
+    assert!(plan_stop_text(&stop).contains("is there already"));
+}
+
+#[test]
+fn a_template_whose_placeholder_does_not_parse_fails_with_template_and_line() {
+    use spellbook::domain::plan::{PlanStop, plan_stop_text};
+
+    let dir = bistro_project();
+    write_tiny(
+        dir.path(),
+        "src/{= name =}.py",
+        "template = \"tiny.py.dt\"",
+        &[("tiny.py.dt", "import os\n\nx = ({= ? h: expr | the value =})\n")],
+    );
+    let rig = PlanRig::new(dir.path());
+    let stop = rig.plan("tiny", &[("name", "x")]).unwrap_err();
+    let PlanStop::DoesNotParse { template, file, line } = &stop else {
+        panic!("{stop:?}");
+    };
+    assert_eq!((template.as_str(), file.as_str()), ("templates/tiny.py.dt", "src/x.py"));
+    assert!(*line >= 3, "{line}");
+    assert!(plan_stop_text(&stop).contains("would not parse"));
+}
+
+#[test]
+fn a_file_no_language_covers_is_not_parsed() {
+    use spellbook::domain::plan::FileStatus;
+
+    let dir = bistro_project();
+    write_tiny(dir.path(), "src/{= name =}.html", "text = \"<div\"", &[]);
+    let rig = PlanRig::new(dir.path());
+    let plan = rig.plan("tiny", &[("name", "x")]).unwrap();
+    assert_eq!(plan.files[0].status, FileStatus::New);
+    assert_eq!(plan.files[0].text, "<div");
+}
+
+#[test]
+fn a_placeholder_hole_in_an_uncovered_file_is_refused() {
+    use spellbook::domain::plan::{PlanStop, plan_stop_text};
+
+    let dir = bistro_project();
+    write_tiny(
+        dir.path(),
+        "src/{= name =}.html",
+        "template = \"page.html.dt\"",
+        &[("page.html.dt", "<p>{= ? body: block | the page =}</p>\n")],
+    );
+    let rig = PlanRig::new(dir.path());
+    let stop = rig.plan("tiny", &[("name", "x")]).unwrap_err();
+    assert_eq!(
+        plan_stop_text(&stop),
+        "no language covers src/x.html, so its hole body has no placeholder"
+    );
+    assert!(matches!(stop, PlanStop::NoLanguageForHole { .. }));
+}
