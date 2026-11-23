@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::fnv::fnv64_hex;
 
 use crate::domain::holes::{Hole, HoleOrigin};
@@ -59,7 +59,7 @@ pub struct PlannedFile {
 }
 
 /// Whether a planned file is written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileStatus {
     New,

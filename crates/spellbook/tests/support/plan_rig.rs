@@ -7,10 +7,14 @@ use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use spellbook::adapters::cached_grammars::CachedGrammars;
+use spellbook::adapters::disk_workspace::DiskWorkspace;
+use spellbook::adapters::json_holes::JsonHoles;
+use spellbook::adapters::jsonl_generation_store::JsonlGenerationStore;
 use spellbook::adapters::generator_dir::generator_named;
 use spellbook::domain::generator::Generator;
 use spellbook::domain::inputs::Given;
 use spellbook::domain::plan::{Plan, PlanStop};
+use spellbook::usecases::apply_generation::{AppliedGeneration, ApplyDeps, apply_generation};
 use spellbook::usecases::plan_generation::{PlanDeps, plan_generation};
 
 use super::{FixedClock, project_with_vendored_grammars, test_cache};
@@ -60,5 +64,37 @@ impl PlanRig {
                 .collect(),
         );
         plan_generation(&self.deps(), &self.generator(id), &given)
+    }
+}
+
+/// Everything applying writes to, for the same project.
+pub struct ApplyRig {
+    pub workspace: DiskWorkspace,
+    pub generations: JsonlGenerationStore,
+    pub holes: JsonHoles,
+}
+
+impl PlanRig {
+    pub fn apply_rig(&self) -> ApplyRig {
+        ApplyRig {
+            workspace: DiskWorkspace {
+                root: self.project.root.clone(),
+                fences: self.fences.clone(),
+            },
+            generations: JsonlGenerationStore::for_project(&self.project).unwrap(),
+            holes: JsonHoles::for_project(&self.project).unwrap(),
+        }
+    }
+
+    /// Applies a plan.
+    pub fn apply(&self, plan: Plan) -> AppliedGeneration {
+        let rig = self.apply_rig();
+        let deps = ApplyDeps {
+            workspace: &rig.workspace,
+            generations: &rig.generations,
+            holes: &rig.holes,
+            clock: &self.clock,
+        };
+        apply_generation(&deps, plan).unwrap()
     }
 }
