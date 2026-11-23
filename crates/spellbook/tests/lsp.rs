@@ -284,3 +284,126 @@ fn an_unknown_command_is_refused_by_name() {
     );
     s.stop();
 }
+
+// ---- Task B2: generators, choices, plan ----
+
+const MAIN: &str = "src/bistro/booking/commands/cancel_table.py";
+const RUNNER: &str = "[model.providers.mine]\nrunner = \"/x/run\"\n";
+
+#[test]
+fn generators_lists_the_command_generator_with_its_inputs() {
+    let dir = bistro_project();
+    write_file(
+        dir.path(),
+        ".sorcerer/spellbook/generators/broken/generator.toml",
+        "nonsense = [",
+    );
+    let s = served(dir.path());
+    let reply = s.command("spellbook.generators", json!([]));
+    let generators = reply.as_array().unwrap();
+    // the broken one is left out
+    assert_eq!(generators.len(), 1, "{reply}");
+    assert_eq!(generators[0]["id"], "command");
+    assert_eq!(generators[0]["name"], "Command");
+    let inputs: Vec<(&str, &str)> = generators[0]["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| (i["name"].as_str().unwrap(), i["type"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        inputs,
+        [("app", "enum"), ("service", "enum"), ("command", "ident")]
+    );
+    assert_eq!(generators[0]["inputs"][0]["optional"], false);
+    s.stop();
+}
+
+#[test]
+fn choices_for_service_after_app() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let reply = s.command(
+        "spellbook.choices",
+        json!(["command", { "app": "bistro" }, "service"]),
+    );
+    assert_eq!(reply, json!({ "choices": ["booking"] }));
+    let reply = s.command("spellbook.choices", json!(["command", {}, "app"]));
+    assert_eq!(reply, json!({ "choices": ["bistro"] }));
+    // an empty table crosses as an empty list from Lua
+    let reply = s.command("spellbook.choices", json!(["command", [], "app"]));
+    assert_eq!(reply, json!({ "choices": ["bistro"] }));
+    s.stop();
+}
+
+#[test]
+fn choices_for_an_unknown_generator_is_a_stop() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let reply = s.command("spellbook.choices", json!(["nope", {}, "app"]));
+    assert!(reply["stop"].as_str().unwrap().contains("no generator named nope"));
+    s.stop();
+}
+
+fn given_all() -> Value {
+    json!({ "app": "bistro", "service": "booking", "command": "cancel_table" })
+}
+
+#[test]
+fn plan_returns_files_and_holes_and_writes_nothing() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let reply = s.command("spellbook.plan", json!(["command", given_all()]));
+    assert!(reply["id"].as_str().unwrap().len() == 8, "{reply}");
+    let files = reply["files"].as_array().unwrap();
+    let statuses: Vec<(&str, &str)> = files
+        .iter()
+        .map(|f| (f["path"].as_str().unwrap(), f["status"].as_str().unwrap()))
+        .collect();
+    assert_eq!(statuses[0].1, "skipped");
+    assert_eq!(statuses[1], (MAIN, "new"));
+    assert!(files[1]["text"].as_str().unwrap().contains("NotImplementedError"));
+    assert!(files[1]["lines"].as_u64().unwrap() > 5);
+    let holes = reply["holes"].as_array().unwrap();
+    let handle = holes.iter().find(|h| h["name"] == "handle").unwrap();
+    assert_eq!(handle["kind"], "block");
+    assert_eq!(handle["source"], "placeholder");
+    assert_eq!(handle["places"][0]["file"], MAIN);
+    assert!(handle["places"][0]["line"].as_u64().unwrap() > 0);
+    assert!(!dir.path().join(MAIN).exists());
+    s.stop();
+}
+
+#[test]
+fn plan_with_a_missing_input_returns_the_stop_and_choices() {
+    let dir = bistro_project();
+    write_file(dir.path(), "src/bistro/kitchen/models/__init__.py", "");
+    let s = served(dir.path());
+    let reply = s.command(
+        "spellbook.plan",
+        json!(["command", { "app": "bistro", "command": "cancel_table" }]),
+    );
+    assert!(reply["stop"].as_str().unwrap().contains("service"), "{reply}");
+    assert_eq!(reply["input"], "service");
+    assert_eq!(reply["choices"], json!(["booking", "kitchen"]));
+    s.stop();
+}
+
+#[test]
+fn an_untrusted_project_is_refused() {
+    let dir = bistro_project();
+    write_file(dir.path(), ".sorcerer/config.toml", RUNNER);
+    let s = served(dir.path());
+    let sentence = "spellbook: this project is not trusted; run \"spellbook trust\" in it";
+    for (command, arguments) in [
+        ("spellbook.generators", json!([])),
+        ("spellbook.choices", json!(["command", {}, "app"])),
+        ("spellbook.plan", json!(["command", given_all()])),
+        ("spellbook.apply", json!(["abcd1234"])),
+    ] {
+        assert_eq!(s.command(command, arguments), json!({ "stop": sentence }));
+    }
+    s.trust.trust(&s.root).unwrap();
+    assert!(s.command("spellbook.generators", json!([])).is_array());
+    s.stop();
+}

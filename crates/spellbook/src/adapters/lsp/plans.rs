@@ -33,3 +33,41 @@ impl PlanCache {
         self.made.retain(|_, (made, _)| *made > oldest);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    fn plan(id: &str) -> Plan {
+        Plan {
+            id: id.into(),
+            generator: "g".into(),
+            inputs: BTreeMap::new(),
+            files: Vec::new(),
+            holes: Vec::new(),
+        }
+    }
+
+    fn at(time: &str) -> DateTime<Utc> {
+        time.parse().unwrap()
+    }
+
+    #[test]
+    fn a_plan_is_kept_for_ten_minutes() {
+        let mut cache = PlanCache::default();
+        cache.keep(plan("aaaa1111"), at("2026-11-22T12:00:00Z"));
+        assert!(cache.take("aaaa1111", at("2026-11-22T12:09:59Z")).is_some());
+        cache.keep(plan("bbbb2222"), at("2026-11-22T12:00:00Z"));
+        assert!(cache.take("bbbb2222", at("2026-11-22T12:10:01Z")).is_none());
+    }
+
+    #[test]
+    fn a_plan_is_taken_once() {
+        let mut cache = PlanCache::default();
+        cache.keep(plan("aaaa1111"), at("2026-11-22T12:00:00Z"));
+        assert!(cache.take("aaaa1111", at("2026-11-22T12:01:00Z")).is_some());
+        assert!(cache.take("aaaa1111", at("2026-11-22T12:01:00Z")).is_none());
+    }
+}
