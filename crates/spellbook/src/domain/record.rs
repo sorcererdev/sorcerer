@@ -44,6 +44,8 @@ pub struct OpenHole {
     pub name: String,
     pub kind: String,
     pub instruction: String,
+    /// The code that stands in the hole until it is filled: how it is found again.
+    pub placeholder: String,
 }
 
 /// `holes.json`: the open holes, by file then line.
@@ -97,6 +99,7 @@ pub fn open_holes_of(plan: &Plan, written: &[String]) -> Vec<OpenHole> {
                 name: hole.name.clone(),
                 kind: hole.kind.clone(),
                 instruction: hole.instruction.clone(),
+                placeholder: place.text.clone(),
             }).collect::<Vec<_>>()
         })
         .collect()

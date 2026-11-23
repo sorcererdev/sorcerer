@@ -56,6 +56,7 @@ pub fn render(
                     instruction: instruction.into(),
                     source,
                     line: line_after(&text),
+                    text: filled.clone(),
                 });
                 text.push_str(&filled);
             }

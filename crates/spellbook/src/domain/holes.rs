@@ -13,11 +13,13 @@ pub enum HoleOrigin {
     Placeholder,
 }
 
-/// One place a hole appears: a file (relative to the root, with `/`) and a line from 1.
+/// One place a hole appears: a file (relative to the root, with `/`), a line from 1, and the
+/// code written there (the placeholder, or the derived value).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HolePlace {
     pub file: String,
     pub line: u32,
+    pub text: String,
 }
 
 /// A hole of one generation, with every place it appears.
@@ -38,6 +40,8 @@ pub struct HoleAt {
     pub instruction: String,
     pub source: HoleOrigin,
     pub line: u32,
+    /// The code written in the hole's place.
+    pub text: String,
 }
 
 /// The holes of a generation, gathered file by file in the order the files are written.
@@ -54,6 +58,7 @@ impl HoleBook {
             let place = HolePlace {
                 file: file.to_string(),
                 line: hole.line,
+                text: hole.text.clone(),
             };
             match self.holes.iter_mut().find(|known| known.name == hole.name) {
                 Some(known) if (&known.kind, &known.instruction) != (&hole.kind, &hole.instruction) => {
@@ -92,6 +97,7 @@ mod tests {
             instruction: "its first input".into(),
             source: HoleOrigin::Placeholder,
             line,
+            text: format!("todo_{name}"),
         }
     }
 
@@ -107,8 +113,8 @@ mod tests {
         assert_eq!(
             holes[0].places,
             [
-                HolePlace { file: "a.x".into(), line: 10 },
-                HolePlace { file: "a_test.x".into(), line: 11 }
+                HolePlace { file: "a.x".into(), line: 10, text: "todo_field".into() },
+                HolePlace { file: "a_test.x".into(), line: 11, text: "todo_field".into() }
             ]
         );
     }

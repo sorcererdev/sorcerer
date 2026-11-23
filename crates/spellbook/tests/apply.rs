@@ -132,3 +132,87 @@ fn the_generation_record_is_one_versioned_line() {
     assert_eq!(line["holes"][0]["source"], "derived");
     assert_eq!(line["at"], "2026-11-22T12:00:00Z");
 }
+
+/// The open holes after `new command`, as (name, file, line).
+fn open_after(rig: &PlanRig, files: Option<&[std::path::PathBuf]>) -> Vec<(String, String, u32)> {
+    use spellbook::usecases::open_holes::{HolesDeps, open_holes};
+
+    let store = rig.apply_rig().holes;
+    let deps = HolesDeps {
+        view: &rig.view,
+        holes: &store,
+    };
+    open_holes(&deps, files)
+        .unwrap()
+        .into_iter()
+        .map(|hole| (hole.name, hole.file, hole.line))
+        .collect()
+}
+
+fn generated() -> (tempfile::TempDir, PlanRig) {
+    let dir = bistro_project();
+    let rig = PlanRig::new(dir.path());
+    rig.apply(rig.plan("command", &[("command", "cancel_table")]).unwrap());
+    (dir, rig)
+}
+
+fn replace_in(root: &std::path::Path, rel: &str, from: &str, to: &str) {
+    let text = read(root, rel);
+    assert!(text.contains(from), "{from}");
+    std::fs::write(root.join(rel), text.replacen(from, to, 1)).unwrap();
+}
+
+#[test]
+fn open_holes_right_after_new_are_the_four_places() {
+    let (_dir, rig) = generated();
+    let names: Vec<String> = open_after(&rig, None).into_iter().map(|(n, _, _)| n).collect();
+    assert_eq!(names, ["field", "type", "handle", "field"]);
+}
+
+#[test]
+fn a_replaced_block_placeholder_is_no_longer_open() {
+    let (dir, rig) = generated();
+    replace_in(
+        dir.path(),
+        MAIN,
+        "raise NotImplementedError(\"hole handle: its first case, from the test file beside it\")",
+        "return Ok(None)",
+    );
+    let open = open_after(&rig, None);
+    assert!(open.iter().all(|(name, _, _)| name != "handle"), "{open:?}");
+    assert_eq!(open.len(), 3);
+}
+
+#[test]
+fn an_ident_placeholder_moved_two_lines_is_still_found() {
+    let (dir, rig) = generated();
+    replace_in(dir.path(), MAIN, "from dataclasses import dataclass\n", "from dataclasses import dataclass\nimport os\nimport sys\n");
+    let open = open_after(&rig, Some(&[std::path::PathBuf::from(MAIN)]));
+    assert_eq!(
+        open,
+        [
+            ("field".to_string(), MAIN.to_string(), 12),
+            ("type".to_string(), MAIN.to_string(), 12),
+            ("handle".to_string(), MAIN.to_string(), 32),
+        ]
+    );
+}
+
+#[test]
+fn a_deleted_file_closes_its_holes() {
+    let (dir, rig) = generated();
+    std::fs::remove_file(dir.path().join(TEST)).unwrap();
+    let open = open_after(&rig, None);
+    assert!(open.iter().all(|(_, file, _)| file != TEST), "{open:?}");
+    assert_eq!(open.len(), 3);
+}
+
+#[test]
+fn open_holes_rewrites_holes_json() {
+    let (dir, rig) = generated();
+    replace_in(dir.path(), MAIN, "todo_field: object", "id: str");
+    open_after(&rig, None);
+    let saved = rig.apply_rig().holes.read().unwrap();
+    let names: Vec<&str> = saved.iter().map(|hole| hole.name.as_str()).collect();
+    assert_eq!(names, ["handle", "field"]);
+}
