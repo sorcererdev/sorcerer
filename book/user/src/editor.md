@@ -93,9 +93,20 @@ so nothing is drawn twice. No text in your buffer moves, not even the grey `⟳ 
 (fidget, `vim.lsp.status()`) shows the same. `:checkhealth sorcerer` says whether `scry` is on
 your PATH and its version.
 
+Conjure is off until you turn it on (`conjure = { enabled = true }` in `setup()`); install it with
+`sorcerer-conjure-installer` (the same line with `conjure` for `scry`) or `cargo install
+sorcerer-conjure`, and bind a code-action key (`vim.keymap.set({ "n", "v" }, "<leader>ca",
+vim.lsp.buf.code_action)`). Neovim must find `scry` and `conjure` on the PATH it starts with
+(`~/.local/bin`); started from a launcher it often cannot, so give `cmd = { "/full/path/to/scry",
+"lsp" }`.
+
 ### VS Code
 
-The Scry extension (`sorcererdev.scry`). It looks for `scry` (`scry.exe` on Windows) in the
+Install **Scry** (`sorcererdev.scry`) from the Extensions view (the Marketplace; VS Code forks
+such as VSCodium use Open VSX), or `code --install-extension sorcererdev.scry`. **Conjure**
+(`sorcererdev.conjure`) installs the same way. VS Code copies the environment of your login
+shell when it starts, so put `JEV_API_KEY` and `ANTHROPIC_API_KEY` in your shell's profile and
+restart VS Code completely. The Scry extension looks for `scry` (`scry.exe` on Windows) in the
 setting `scry.path`, then your PATH, then `~/.cargo/bin`, then `~/.local/bin` (where the
 installers put it), then the binary it downloaded itself. `scry.path` is read from your user
 settings only: a workspace's `.vscode/settings.json` cannot choose the program the extension

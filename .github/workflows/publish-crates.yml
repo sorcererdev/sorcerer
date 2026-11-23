@@ -1,4 +1,5 @@
-# Publishes sorcerer-core, sorcerer-models, sorcerer-lsp and sorcerer-scry to crates.io, in
+# Publishes the five crates (sorcerer-core, sorcerer-models, sorcerer-lsp, sorcerer-scry and
+# sorcerer-conjure) to crates.io, in
 # dependency order. Called by the generated release.yml after the release is announced
 # (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone.
 name: publish-crates

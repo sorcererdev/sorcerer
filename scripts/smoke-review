@@ -6,7 +6,9 @@
 #
 # It fails unless doctor is green and its languages row says the grammar was downloaded, and
 # unless scry exits 1 (a finding shown). It prints doctor's rows, the review and `scry cost`.
-# Usage: scripts/smoke-review   (scry on PATH)
+# It checks `conjure --version` too (conjure is installed with its README line; no live conjure
+# call).
+# Usage: scripts/smoke-review   (scry and conjure on PATH)
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
@@ -25,6 +27,9 @@ git init -q -b main
 git add -A
 git -c user.name=smoke -c user.email=smoke@example.com commit -q -m base
 git apply "$here/corpus/scry/bistro/cases/b01.patch"
+
+echo "== conjure --version"
+conjure --version
 
 echo "== scry doctor"
 doctor=$(scry doctor) || { echo "$doctor"; echo "doctor is not green"; exit 1; }

@@ -1,7 +1,7 @@
 # Releasing
 
-A release is a tag `v<version>` on main; everything after the tag is GitHub Actions. All four
-crates and the VS Code extension carry the workspace's one version (`Cargo.toml`,
+A release is a tag `v<version>` on main; everything after the tag is GitHub Actions. All five
+crates and the two VS Code extensions carry the workspace's one version (`Cargo.toml`,
 `[workspace.package] version`).
 
 The files:
@@ -9,9 +9,9 @@ The files:
 - **`dist-workspace.toml`**: cargo-dist's settings (`dist` 0.34.0). Five targets
   (`aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`,
   `aarch64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`), the shell and PowerShell
-  installers (`sorcerer-scry-installer.sh`, `sorcerer-scry-installer.ps1`, which put `scry` in
-  `~/.local/bin`), archives `sorcerer-scry-<target>.tar.gz` (`.zip` on Windows) each with a
-  `.sha256`, no self-updater. Only `sorcerer-scry` is a program to release; the library crates
+  installers (`sorcerer-<product>-installer.sh` and `.ps1`, which put `scry` and `conjure` in
+  `~/.local/bin`), archives `sorcerer-<product>-<target>.tar.gz` (`.zip` on Windows) each with a
+  `.sha256`, no self-updater. Only `sorcerer-scry` and `sorcerer-conjure` are programs to release; the library crates
   set `[package.metadata.dist] dist = false`. The archives carry `LICENSE`, `NOTICE` and
   `README.md`. The targets and archive names are a contract with the VS Code extension, which
   downloads `v<its version>/sorcerer-<product>-<target>` (`editors/vscode/scry/src/download.ts`,
@@ -39,14 +39,24 @@ The files:
   ([The core](core.md), Grammars).
 - **`.github/workflows/publish-crates.yml`**: dist's `post-announce-jobs`. After the release
   is announced, `cargo publish --workspace` with the `CARGO_REGISTRY_TOKEN` secret publishes
-  `sorcerer-core`, `sorcerer-lsp`, `sorcerer-models` and `sorcerer-scry` in dependency order.
+  `sorcerer-core`, `sorcerer-lsp`, `sorcerer-models`, `sorcerer-scry` and `sorcerer-conjure` in
+  dependency order.
   A missing token fails this job alone; the release stands. If it fails after some crates are
   up, re-run it; should cargo refuse the ones already on crates.io, publish the rest with
   `cargo publish -p <crate>` in the same order. CI's
   `cargo publish --workspace --dry-run` checks the packages build from what they include.
+- **`.github/workflows/publish-vscode.yml`**: dist's other `post-announce-jobs` entry
+  (`on: workflow_call`, plus `workflow_dispatch` to publish again by hand). For each of
+  `editors/vscode/scry` and `editors/vscode/conjure` it runs `npm ci`, `npx @vscode/vsce publish
+  -p $VSCE_PAT` (the Marketplace, publisher `sorcererdev`) and `npx ovsx publish -p $OVSX_PAT`
+  (Open VSX, namespace `sorcererdev`, created once with `npx ovsx create-namespace`). The two
+  secrets are `VSCE_PAT` and `OVSX_PAT`; a missing one fails this job alone and the release
+  stands. Each extension's `package.json` `version` must equal the release's: both registries
+  refuse a version they already hold, so a re-run after a half-done publish fails on the
+  registry that took it the first time.
 - **`.github/workflows/smoke.yml`**: run by hand after a release (Actions, smoke, with the
   version). On a bare `ubuntu:24.04` container it installs with the README's shell line,
-  checks that no `cc` and no `cargo` are there and that `scry --version` is the version, and
+  installs conjure with its line too, checks that no `cc` and no `cargo` are there and that `scry --version` and `conjure --version` are the version, and
   runs `scripts/smoke-review`: the bistro demo with case b01's planted bug, one live review
   through the Anthropic API (secrets `ANTHROPIC_API_KEY`, `JEV_API_KEY`; at most $0.20),
   where doctor's languages row must say `downloaded` and `scry` must exit 1. On

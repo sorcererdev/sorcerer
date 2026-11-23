@@ -1,0 +1,34 @@
+# Publishes the Scry and Conjure VS Code extensions to the Marketplace (VSCE_PAT) and Open VSX
+# (OVSX_PAT). Called by the generated release.yml after the release is announced
+# (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone; also run by
+# hand (Actions, publish-vscode) to publish again.
+name: publish-vscode
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+  workflow_dispatch:
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extension: [scry, conjure]
+    defaults:
+      run:
+        working-directory: editors/vscode/${{ matrix.extension }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx @vscode/vsce publish -p "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - run: npx ovsx publish -p "$OVSX_PAT"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
