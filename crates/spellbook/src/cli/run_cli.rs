@@ -14,6 +14,7 @@ use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
+use super::file_arguments::relative_to_root;
 use super::{check, doctor, holes, list, lsp, new, show, trust};
 
 /// The program's entry: runs the command in the current directory, with the real files,
@@ -94,7 +95,13 @@ fn run_command(
             };
             new::new(&wire(project)?, &request, out, err)
         }
-        Cmd::Holes { files, json } => holes::holes(&wire(project)?, &files, json, out),
-        Cmd::Check { files, json } => check::check(&wire(project)?, &files, json, out),
+        Cmd::Holes { files, json } => {
+            let files = relative_to_root(&project, cwd, &files)?;
+            holes::holes(&wire(project)?, &files, json, out)
+        }
+        Cmd::Check { files, json } => {
+            let files = relative_to_root(&project, cwd, &files)?;
+            check::check(&wire(project)?, &files, json, out)
+        }
     }
 }

@@ -6,6 +6,7 @@ mod arguments;
 mod check;
 mod console;
 mod doctor;
+mod file_arguments;
 mod format;
 mod holes;
 mod list;

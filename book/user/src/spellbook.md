@@ -226,7 +226,7 @@ field   src/bistro/booking/commands/cancel_table__test.py:11  ident  its first i
 
 A hole stays open while its placeholder is in the file: a placeholder that says `hole <name>:`
 is found by that text anywhere in the file, a short one (`todo_field`) on its line or within 20
-lines of it. Fill it and it is gone. `spellbook holes FILE…` looks only at those files;
+lines of it. Fill it and it is gone. `spellbook holes FILE…` looks only at those files (`./path`, a path from where you stand or an absolute path inside the project all work; one outside it is refused);
 `--json` prints the rows.
 
 ## The other commands

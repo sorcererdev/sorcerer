@@ -679,7 +679,11 @@ fn an_untrusted_project_says_so_once_on_open_and_save() {
 #[test]
 fn spellbook_off_in_the_config_refuses_commands_and_shows_no_marks() {
     let dir = bistro_project();
-    write_file(dir.path(), ".sorcerer/config.toml", "[spellbook]\nenabled = false\n");
+    write_file(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[spellbook]\nenabled = false\n",
+    );
     let s = served(dir.path());
     let sentence = "spellbook is off in this project ([spellbook] enabled = false)";
     assert_eq!(

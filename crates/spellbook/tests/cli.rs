@@ -249,11 +249,23 @@ fn bistro_with_a_sqlite_command() -> tempfile::TempDir {
 #[test]
 fn spellbook_off_in_the_config_stops_every_command_but_doctor() {
     let dir = bistro_with_a_sqlite_command();
-    write_file(dir.path(), ".sorcerer/config.toml", "[spellbook]\nenabled = false\n");
-    for command in [&["check"][..], &["list"], &["holes"], &["new", "command", "--plan"]] {
+    write_file(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[spellbook]\nenabled = false\n",
+    );
+    for command in [
+        &["check"][..],
+        &["list"],
+        &["holes"],
+        &["new", "command", "--plan"],
+    ] {
         let (code, out, err) = run(dir.path(), command);
         assert_eq!(code, 2, "{command:?} {out}{err}");
-        assert!(err.contains("spellbook is off in this project ([spellbook] enabled = false)"), "{err}");
+        assert!(
+            err.contains("spellbook is off in this project ([spellbook] enabled = false)"),
+            "{err}"
+        );
     }
     let (code, _, _) = run(dir.path(), &["doctor"]);
     assert_eq!(code, 0);
@@ -279,6 +291,27 @@ fn check_exits_0_with_a_warning_and_1_with_an_error() {
     assert_eq!(code, 1, "{out}");
     assert!(out.starts_with("✗ "), "{out}");
     assert!(out.ends_with("1 blocking finding\n"), "{out}");
+}
+
+#[test]
+fn check_takes_files_as_dot_slash_or_absolute_paths() {
+    let dir = bistro_with_a_sqlite_command();
+    let close = "src/bistro/booking/commands/close_table.py";
+    let absolute = dir.path().join(close).display().to_string();
+    for given in [format!("./{close}"), absolute] {
+        let (code, out, err) = run(dir.path(), &["check", &given]);
+        assert_eq!(code, 0, "{out}{err}");
+        assert!(
+            out.contains(&format!("{close}:2  commands-use-ports")),
+            "{given}: {out}"
+        );
+    }
+    let report =
+        std::fs::read_to_string(dir.path().join(".sorcerer/state/spellbook/report.json")).unwrap();
+    assert!(!report.contains("\"./"), "{report}");
+    let (code, _, err) = run(dir.path(), &["check", "/somewhere/else.py"]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("outside the project"), "{err}");
 }
 
 #[test]

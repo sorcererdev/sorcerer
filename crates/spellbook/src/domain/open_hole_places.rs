@@ -17,7 +17,10 @@ pub fn still_open(hole: &OpenHole, text: &str) -> Option<u32> {
     let marker = format!("hole {}:", hole.name);
     let marked = hole.placeholder.contains(&marker);
     let (needle, reach) = if marked {
-        (marker.as_str(), u32::try_from(lines.len()).unwrap_or(u32::MAX))
+        (
+            marker.as_str(),
+            u32::try_from(lines.len()).unwrap_or(u32::MAX),
+        )
     } else {
         (hole.placeholder.as_str(), NEARBY_LINES)
     };

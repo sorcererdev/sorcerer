@@ -80,7 +80,10 @@ impl Server {
         if !self.trusted(&project) {
             return Err(NOT_TRUSTED.to_string());
         }
-        if !spellbook_config(&project).map_err(|e| format!("spellbook: {e:#}"))?.enabled {
+        if !spellbook_config(&project)
+            .map_err(|e| format!("spellbook: {e:#}"))?
+            .enabled
+        {
             return Err(SPELLBOOK_IS_OFF.to_string());
         }
         wired(project, self.cfg.cache.clone(), self.cfg.clock.clone())
