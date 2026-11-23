@@ -26,6 +26,8 @@ pub struct Situation {
     pub unit_words: String,
     pub file: PathBuf,
     pub unit: String,
+    /// Whether `unit` is a stretch the parser could not read, not a definition.
+    pub broken_region: bool,
     /// The cursor's line, from 1.
     pub line: u32,
     pub span: Span,
@@ -89,16 +91,34 @@ fn head_lines(s: &Situation) -> Vec<String> {
     vec![
         format!("Project files are {}{words}.", s.language),
         String::new(),
-        format!(
-            "The cursor is in `{}` in {}, line {} (the unit is lines {}-{}).",
-            s.unit,
+        where_the_cursor_is(s),
+        String::new(),
+    ]
+}
+
+/// The sentence that places the cursor. In a broken region it says the code does not parse
+/// there and that the change is to repair it.
+///
+/// Example: `The cursor is in code that does not parse, in src/a.rs, line 8 (the parser lost
+/// the code on lines 7-10). Repair it: …`
+fn where_the_cursor_is(s: &Situation) -> String {
+    if s.broken_region {
+        return format!(
+            "The cursor is in code that does not parse, in {}, line {} (the parser lost the code on lines {}-{}). Repair it: work out what the code meant to say, and change the file so it parses and does that.",
             forward_slashes(&s.file),
             s.line,
             s.span.start,
             s.span.end
-        ),
-        String::new(),
-    ]
+        );
+    }
+    format!(
+        "The cursor is in `{}` in {}, line {} (the unit is lines {}-{}).",
+        s.unit,
+        forward_slashes(&s.file),
+        s.line,
+        s.span.start,
+        s.span.end
+    )
 }
 
 fn file_lines(s: &Situation) -> Vec<String> {

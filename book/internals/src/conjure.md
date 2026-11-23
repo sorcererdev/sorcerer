@@ -78,8 +78,14 @@ made against what the writer was shown and a disk that moved on meanwhile is see
 `conjure src/cart.py:12` becomes `Place::parse` and `project_relative` in `cli/run.rs`, a
 `ChangeRequest`, and `conjure_change`:
 
-1. **The site.** The language by `Languages::for_path`; `view.units` and `unit_at` on the line
-   (a selection's first line); no language or no unit is `ChangeRefused::OutsideAUnit`.
+1. **The site.** The language by `Languages::for_path`; `view.unit_or_broken_region_at` on the
+   line (a selection's first line): the unit from `unit_at`, else, when the parser lost the unit,
+   the innermost tree-sitter ERROR region holding the line (`broken_region_at`, in
+   `sorcerer-core/src/domain/broken_region.rs`), a `Unit` of kind `UnitKind::BrokenRegion`. Its
+   situation (`where_the_cursor_is` in `domain/situation.rs`, from `Situation.broken_region`) says
+   the code does not parse and is to be repaired. No language, or no unit and no region, is
+   `ChangeRefused::OutsideAUnit`. The code action (`in_a_unit`) and the working text
+   (`show_writing`) ask the same view method, and so does `fingerprint_now` for scry's notes.
 2. **The day.** `spent_since` over the ledger's `conjure` errands, the user's local day;
    `day_allows` refuses a first call at or over `budget_per_day`, and Try harder also when
    its $0.25 would pass it.
@@ -134,7 +140,7 @@ person must hear goes through `Client::say`, and an error answers only a malform
    versions the person saw when they asked. A thread runs `conjure_and_land` under `work_done("conjure", "conjuring a
    change")`.
    `conjured` also calls `show_writing` once the view is built: the unit holding the cursor
-   (`unit_at`) gets `⟳ conjure: writing…` through `Client::show_working` (`sorcerer/working`).
+   (`unit_or_broken_region_at`) gets `⟳ conjure: writing…` through `Client::show_working` (`sorcerer/working`).
    `ended`, and the error branch of `conjure_and_land`, call `clear_working` with the progress
    line, so it stays until the edit is answered.
 2. **Conjured.** `conjured` opens the project, checks trust (`needs_trust`, the user's

@@ -34,7 +34,7 @@ index 0c48854..8c97df0 100644
 -        self.bookings.save(booking.clone());
 -        Ok(booking)
 +        look the table up by input.table_id
-+        say so when the party is too big
++        if the party is too big say so
      }
  }
  

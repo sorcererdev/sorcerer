@@ -28,7 +28,7 @@ use sorcerer_core::adapters::platform::paths::{canonical, names_ignore_case};
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
-use sorcerer_core::domain::unit::{Span, unit_at};
+use sorcerer_core::domain::unit::Span;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::WorkDone;
 
@@ -330,10 +330,10 @@ impl Server {
     /// (an editor that draws it; others are told nothing). It stays until the change has landed
     /// or has not ([`Server::ended`]).
     fn show_writing(&self, ask: &Ask, file: &Path, view: &dyn CodebaseView) {
-        let Ok(units) = view.units(file) else {
+        let Ok(found) = view.unit_or_broken_region_at(file, ask.line) else {
             return;
         };
-        if let Some(unit) = unit_at(&units, ask.line) {
+        if let Some(unit) = found {
             self.client
                 .show_working(WRITING_INLINE, &[(ask.path.clone(), unit.span.start)]);
         }

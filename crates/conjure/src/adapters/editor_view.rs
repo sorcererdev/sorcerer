@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use sorcerer_core::Result;
 use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::domain::broken_region::unit_or_broken_region_at;
 use sorcerer_core::domain::facts::{Facts, facts_of};
 use sorcerer_core::domain::language::Loaded;
 use sorcerer_core::domain::paths::forward_slashes;
@@ -122,6 +123,15 @@ impl CodebaseView for EditorView {
             Some(language) => units_of(&language, &self.text_now(path)?),
             None => Ok(Vec::new()),
         }
+    }
+
+    fn unit_or_broken_region_at(&self, path: &Path, line: u32) -> Result<Option<Unit>> {
+        let Some(language) = self.language_of(path)? else {
+            return Ok(None);
+        };
+        let text = self.text_now(path)?;
+        let units = units_of(&language, &text)?;
+        unit_or_broken_region_at(&language, &text, &units, line)
     }
 
     fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>> {

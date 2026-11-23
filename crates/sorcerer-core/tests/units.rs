@@ -139,3 +139,36 @@ fn a_project_query_that_does_not_compile_is_an_error_naming_its_file() {
         .to_string();
     assert!(e.contains("tags.scm"), "{e}");
 }
+
+const RS_BROKEN: &str = "struct Cart;\n\nimpl Cart {\n    fn before(&self) {}\n\n    pub fn handle(&self) -> u32 {\n        look the table up\n        if the party is too big say so\n    }\n}\n\nfn after() {}\n";
+
+#[test]
+fn a_line_the_parser_lost_gets_the_error_region_around_it() {
+    use sorcerer_core::domain::broken_region::unit_or_broken_region_at;
+    let lang = loaded("rust");
+    let units = units_of(&lang, RS_BROKEN).unwrap();
+    let region = unit_or_broken_region_at(&lang, RS_BROKEN, &units, 8)
+        .unwrap()
+        .expect("a region around the cursor line");
+    assert_eq!(region.kind, UnitKind::BrokenRegion);
+    assert!(region.span.holds(8), "{:?}", region.span);
+    assert_eq!(region.span, Span { start: 7, end: 10 });
+    assert!(region.fingerprint.as_str().len() == 7);
+}
+
+#[test]
+fn a_clean_file_has_no_broken_region_and_keeps_unit_at() {
+    use sorcerer_core::domain::broken_region::{broken_region_at, unit_or_broken_region_at};
+    let lang = loaded("rust");
+    let units = units_of(&lang, RS).unwrap();
+    assert!(broken_region_at(&lang, RS, 4).unwrap().is_none());
+    let found = unit_or_broken_region_at(&lang, RS, &units, 4)
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.name, "Order::new");
+    assert!(
+        unit_or_broken_region_at(&lang, RS, &units, 2)
+            .unwrap()
+            .is_none()
+    );
+}

@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use sorcerer_core::domain::language::Language;
-use sorcerer_core::domain::unit::{Span, unit_at};
+use sorcerer_core::domain::unit::{Span, UnitKind};
 
 use super::{ChangeDeps, ChangeRefused, ChangeRequest, Site};
 use crate::domain::language_tables::tests_path;
@@ -48,6 +48,7 @@ pub(super) fn situation_for(
         unit_words: language.unit_words.clone().unwrap_or_default(),
         file: site.file.clone(),
         unit: site.unit.name.clone(),
+        broken_region: site.unit.kind == UnitKind::BrokenRegion,
         line: request.line,
         span: site.span,
         module: site.text.clone(),
@@ -118,8 +119,10 @@ fn is_stale(finding: &StoredFinding, deps: &ChangeDeps) -> bool {
 
 /// The fingerprint of the unit that holds these lines of a file now.
 fn fingerprint_now(deps: &ChangeDeps, file: &Path, lines: Span) -> Option<String> {
-    let units = deps.view.units(file).ok()?;
-    let unit = unit_at(&units, lines.start)?;
+    let unit = deps
+        .view
+        .unit_or_broken_region_at(file, lines.start)
+        .ok()??;
     Some(unit.fingerprint.as_str().to_string())
 }
 
