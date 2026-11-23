@@ -13,7 +13,7 @@ What is here and what is coming (the five parts of spellbook):
 
 | part | state |
 |---|---|
-| generators with holes | here: `spellbook new`, `spellbook holes` |
+| generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
 | rules that check the code | coming next in this milestone (`spellbook check`) |
 | owned regions (`pub mod` lines a generator keeps), insert edits, list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
@@ -198,10 +198,59 @@ spellbook show <generator>         its inputs and their choices now, the files i
 spellbook doctor                   the config, the generators, the languages and their hole kinds,
                                    whether conjure is installed, trust, holes.json, generations.jsonl
 spellbook trust [--revoke]         let the editor's server run here although the project's config runs code
+spellbook lsp                      the editor's language server (the editor starts it; see below)
 ```
 
 `spellbook doctor` says "holes can be conjured in the editor" when `conjure` is on the PATH, and
 "holes are filled by hand; install conjure to fill them with a model" when it is not.
+
+## In Neovim
+
+Install `spellbook` (no installer is published yet: `cargo install --git
+https://github.com/sorcererdev/sorcerer sorcerer-spellbook`) and [sorcerer.nvim](https://github.com/sorcererdev/sorcerer.nvim),
+and turn it on, which the plugin keeps off until you ask:
+
+```lua
+require("sorcerer").setup({ spellbook = { enabled = true } })
+vim.keymap.set("n", "<leader>sn", "<cmd>Spellbook new<cr>")
+```
+
+| setting | default | what it does |
+|---|---|---|
+| `spellbook.enabled` | `false` | start `spellbook lsp` for the files you open, one server per project root |
+| `spellbook.cmd` | `{ "spellbook", "lsp" }` | the program, when it is not on your PATH |
+| `spellbook.conjure_holes` | `false` | after `:Spellbook new`, run conjure on the first hole (needs conjure on too) |
+
+`:Spellbook new [generator] [input=value…]` takes five steps, with Neovim's own pickers
+(`vim.ui.select`, `vim.ui.input`, so a picker plugin such as telescope or snacks shows them):
+
+1. **Pick the generator** (skipped when you named it): `Command — A command of a service, with
+   its test`.
+2. **Answer its inputs**, in order. An input you gave as `name=value` is not asked. An enum
+   (`app`, `service`) offers what the project holds now, and an enum with one choice takes it
+   without asking; an `ident` or `text` input is typed. An optional input offers `(skip)`, or an
+   empty answer.
+3. **Read the plan** in a float: each file as `+ path (N lines)` or `= path (exists, skipped)`,
+   how many holes there are to fill, then each new file's text with its hole lines lit
+   (`DiagnosticInfo`). Nothing is written yet. `<CR>` applies; `q` or `<Esc>` cancels. If the
+   plan stops on an input (say a `service` that is not there), you are asked that input once
+   more with the choices.
+4. **Apply.** The server writes the new files, never over one that is there, opens the first
+   file at its first hole, and puts a **hole mark** on each hole's line: an Information
+   diagnostic from source `spellbook`, code `hole`, saying `handle (block): its first case, from
+   the test file beside it`. The diagnostics list is the hole list, and `]d` walks it.
+5. **Fill the holes.** By hand, and the marks go when you save the file with the placeholder
+   replaced (the server looks at the file on disk when you open or save it, not at each
+   keystroke). With conjure installed and on, the end line reads `N holes · <leader>ca to
+   conjure the first`: the hole's line already offers *Conjure here* like any line in a
+   function, and conjure's change, mark, Undo and Try harder apply as they do anywhere. With
+   `conjure_holes = true` the plugin runs conjure on the first hole for you, and nothing else.
+   Spellbook never calls a model itself.
+
+An untrusted project (one whose own config sets a provider `runner` or `url`, or a grammar of its
+own) gets no marks and every command answers `spellbook: this project is not trusted; run
+"spellbook trust" in it`. VS Code has no spellbook extension yet (milestone 2).
+`:checkhealth sorcerer` has a spellbook section when it is enabled.
 
 ## The files it writes
 

@@ -66,8 +66,10 @@ the loaded language of a path, or none), `workspace.rs` (`Workspace::write_new`,
 `json_holes.rs` (core's `Store` at `spellbook/holes.json`), `system_clock.rs`, `wiring.rs`
 (`Wired`, `live`, `wired`, and `plan_deps`/`apply_deps`/`holes_deps`).
 
+`adapters/lsp/`: the server, below.
+
 `cli/`: `arguments.rs`, `run_cli.rs` (`main`, `main_with(args, cwd, env, wire, out, err)`),
-one file a command (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `doctor.rs`, `trust.rs`),
+one file a command (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
 `format.rs` (`columns`), `console.rs`.
 
 ## One generation, end to end
@@ -92,6 +94,46 @@ one file a command (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `doctor.rs`, `tr
 5. `open_holes` re-reads each saved place and keeps it at its current line while
    `still_open` finds it; `holes.json` is rewritten with what is still open.
 
+## The server
+
+`spellbook lsp` (`cli/lsp.rs`, which runs before the project is opened: the editor sends its
+root at initialize) serves `adapters/lsp/` through the host's `Product` trait
+(`sorcerer-lsp/src/serve.rs`), the way conjure's does and without conjure's writer.
+
+- `spellbook_server.rs`: `serve` and the product (`SpellbookServer`); `tracks_text` is false:
+  the marks come from the disk, so a placeholder replaced and **saved** loses its mark, not on
+  each keystroke. `opened` and `saved` call `Server::republish`; `closed` publishes an empty
+  list for a file it published for.
+- `server_config.rs`: `ServerConfig { open, cache, trust, clock }` (`live(env)`; tests give the
+  vendored grammars and a clock they move; there is no `wire`, spellbook has no writer).
+  `server_state.rs`: `Server` (`publish`, `republish`, `closed`, `trusted`) and `NOT_TRUSTED`.
+- `commands.rs`: the four commands, all through `workspace/executeCommand`. Each opens the project
+  afresh (config edits need no restart), refuses an untrusted one with a `{ "stop": … }` reply,
+  and builds `Wired` (`wiring::wired`):
+
+  | command | arguments | reply |
+  |---|---|---|
+  | `spellbook.generators` | none | `[GeneratorSummary]` (a broken generator is left out and logged) |
+  | `spellbook.choices` | generator, inputs so far, input | `{ choices }` or `{ stop }` |
+  | `spellbook.plan` | generator, inputs | the `Plan` as JSON (`id`, `files[{path,status,text,lines}]`, `holes[{name,kind,instruction,source,places[{file,line}]}]`), or `{ stop }` (a missing input adds `input` and `choices`) |
+  | `spellbook.apply` | plan id | `{ written, skipped, refused: null or {path, why}, holes, first: null or {file, line} }`, or `{ stop }` for a plan that is gone |
+
+  A hole's location is `file` everywhere (it is `HolePlace::file`, and `holes.json`'s key);
+  `path` is a planned or written file.
+- `plans.rs`: `PlanCache`, the plans made and not applied, dropped after ten minutes by the
+  clock; `take` removes the plan, so a plan is applied once.
+- `marks.rs` (`hole_mark`: the whole line, Information, source `spellbook`, code `hole`, message
+  `<name> (<kind>): <instruction>`, `data` the generation id), `diagnostics.rs`
+  (`file_diagnostics`: `open_holes` for one file, so the same `still_open` search as the command
+  line), `project_paths.rs` (`project_relative`: which editor paths are the project's).
+
+After an apply the server publishes each written file's marks and asks the editor to show the
+first file at its first hole (`Client::show_document`). Spellbook does not know conjure ran: it
+sees the placeholders gone on the next save. The editor side is sorcerer.nvim's
+`lua/sorcerer/spellbook.lua` (`M.new`, one chain of callbacks: generators, choices, plan, the
+float in `spellbook_plan.lua`, apply, then conjure's `conjure.conjure [uri, line]` on the first
+hole when `conjure_holes` is set); it knows only the replies above.
+
 ## Why a grammars port
 
 `scripts/layers` refuses `sorcerer_core::adapters` in `usecases/`, and loading a grammar
@@ -106,7 +148,8 @@ The tests live in `crates/spellbook/tests/`, because they name languages
 (`corpus/conjure/bistro/base`) and writes a `command` generator (olifant's python-htmx
 `command`, ported) from string constants; `support/project_fixtures.rs` points the grammars at
 core's vendored sources, as conjure's tests do, so no test touches the network.
-`generators.rs` covers `[holes]` and the loader's sentences; `plan.rs` inputs, rendering and
+`lsp.rs` drives the server over an in-memory connection with a small editor (the handshake, the
+four commands, the marks on open, save and close, trust); `generators.rs` covers `[holes]` and the loader's sentences; `plan.rs` inputs, rendering and
 planning; `apply.rs` writing, the records and the open holes (a link out of the project made
 with core's `link_to`); `cli.rs` each command through `main_with` with a wiring that uses the
 vendored grammars and a fixed clock.
