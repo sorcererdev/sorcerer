@@ -84,6 +84,16 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
 Its path templates are filled with core's `templates::fill`.
 [Conjure](conjure.md) says what each file holds.
 
+**sorcerer-spellbook** (library and program `spellbook`) has the same five layers and depends on
+`sorcerer-core` and `sorcerer-lsp` only (no models: it never spends). `domain/` (`config`,
+`generator`, `generator_checks`, `generator_problems`, `holes_table`, `inputs`, `template`,
+`holes`, `plan`, `record`, `open_hole_places`), `ports/` (`generators`, `grammars`, `workspace`,
+`generation_store`, `holes_store`, `clock`), `usecases/` (`list_generators`, `choices_for`,
+`plan_generation`, `apply_generation`, `open_holes`), `adapters/` (`generator_dir`,
+`cached_grammars`, `disk_workspace`, `jsonl_generation_store`, `json_holes`, `system_clock`,
+`wiring`) and `cli/`. Its use cases may not load a grammar (that is core's adapter work), so
+they parse through the `Grammars` port. [Spellbook](spellbook.md) says what each file holds.
+
 **sorcerer-lsp** is a flat crate: `src/{lib,serve,client,jobs,uri}.rs`, with no layer
 directories. All of it is adapter code (a connection, threads, the protocol's types), and
 nothing in it is a product's domain, so splitting it into layers would leave every layer but

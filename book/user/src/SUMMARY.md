@@ -6,3 +6,4 @@
 - [Scry](scry.md)
 - [Scry in your editor](editor.md)
 - [Conjure](conjure.md)
+- [Spellbook](spellbook.md)

@@ -7,5 +7,6 @@
 - [Models](models.md)
 - [Scry](scry.md)
 - [Conjure](conjure.md)
+- [Spellbook](spellbook.md)
 - [The language-server host](lsp.md)
 - [Releasing](releasing.md)

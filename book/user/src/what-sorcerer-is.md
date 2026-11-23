@@ -6,7 +6,7 @@ Sorcerer is a suite of small tools that read your code alongside you.
 |---|---|
 | **scry** | reads what you just changed, researches it against the codebase and your rules, and puts the few things worth acting on in the margin |
 | **conjure** | writes one small change where you ask |
-| **spellbook** | conventions: generators, owned regions, rules and checks |
+| **spellbook** | conventions as data: generators that write a convention's files with holes to fill (now); owned regions, rules and checks (partly later) |
 
 Each tool is its own binary and its own language server. They never call each other: they
 share one core library and compose through files in your project's `.sorcerer/`
