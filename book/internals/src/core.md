@@ -248,6 +248,23 @@ does.
 (from 1) of every error or missing node, each once, in order, and an empty list when the parser
 gives up. Conjure checks a changed file with it ("parses", or "does not parse (line N)").
 
+## Templates and name forms
+
+`domain/templates.rs` owns the `{= … =}` template grammar the products share.
+`pieces(template)` splits a template into `Piece::Text`, `Piece::Value { name, filters }`
+(`{= name|pascal =}`, filters left to right) and `Piece::Hole { name, kind, instruction }`
+(`{= ? handle: block | its first case =}`), refusing with a sentence a `{=` never closed,
+`{{ }}` (another template language), `{= if =}`/`{= for =}` (milestone 2), an empty name and a
+hole with no `: kind`. `fill(template, values)` fills the values and applies the filters; a
+hole is an error there ("a hole has no value here"), because only spellbook knows what goes in
+one. Conjure fills its language files' path templates with it; spellbook renders generators
+with `pieces`.
+
+`domain/name_forms.rs`: `words_of(name)` splits a name written in any case style
+(`cancel_table`, `CancelTable`, `cancel-table`, `cancelTable`, `Cancel table`) into the same
+lowercase words, and `apply_filter(filter, value)` writes them again as `snake`, `pascal`,
+`camel`, `kebab`, `upper`, `sentence` or `words` (`FILTERS`).
+
 ## The codebase view
 
 `ports/view.rs`. Products and the researcher's tools never touch the file system directly: they

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use conjure::adapters::imports::related_files;
 use conjure::domain::language_tables::{test_table, tests_path};
-use conjure::domain::templates::fill;
+use sorcerer_core::domain::templates::fill;
 use sorcerer_core::ports::view::CodebaseView;
 use support::*;
 
