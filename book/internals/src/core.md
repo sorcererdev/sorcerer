@@ -213,7 +213,9 @@ every query file over it (`Captured::by_queries`); then `one_per_node`, `widened
    is a `Method`.
 
 A Rust impl is a unit named by its type (`queries/impls.scm`), so methods of a trait impl
-are still `Type::method`. `unit_at(units, line)` gives the innermost unit holding a line.
+are still `Type::method`. `unit_at(units, line)` gives the innermost unit holding a line. When the parser has lost a unit, `unit_or_broken_region_at`
+(`domain/broken_region.rs`) falls back to the innermost ERROR node holding the line, as a `Unit`
+of kind `BrokenRegion`; scry does not use it, conjure does (through `CodebaseView`).
 Units are nested: a changed method also changes its class.
 
 ## Fingerprints

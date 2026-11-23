@@ -11,6 +11,7 @@ use grep_searcher::Searcher;
 use grep_searcher::sinks::UTF8;
 
 use crate::adapters::grammar::GrammarCache;
+use crate::domain::broken_region::unit_or_broken_region_at;
 use crate::domain::facts::{Facts, facts_of};
 use crate::domain::project::Project;
 use crate::domain::unit::{Unit, units_of};
@@ -72,6 +73,16 @@ impl CodebaseView for FilesView {
         }
         let text = self.text(path)?;
         self.units_in(path, &text)
+    }
+
+    fn unit_or_broken_region_at(&self, path: &Path, line: u32) -> Result<Option<Unit>> {
+        let Some(language) = self.project.languages.for_path(path) else {
+            return Ok(None);
+        };
+        let loaded = self.project.languages.load(&language.name, &self.cache)?;
+        let text = self.text(path)?;
+        let units = units_of(&loaded, &text)?;
+        unit_or_broken_region_at(&loaded, &text, &units, line)
     }
 
     fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>> {

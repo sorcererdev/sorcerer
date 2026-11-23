@@ -31,6 +31,9 @@ pub trait CodebaseView: Send + Sync {
     fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>>;
     /// The file's units as it is now; none when no language covers the file.
     fn units(&self, path: &Path) -> Result<Vec<Unit>>;
+    /// The unit holding the line, or when the file does not parse there, the parser's error
+    /// region around it (a unit of kind `BrokenRegion`); `None` when neither holds it.
+    fn unit_or_broken_region_at(&self, path: &Path, line: u32) -> Result<Option<Unit>>;
     /// The file's units at a commit; none when the file did not exist there or no language
     /// covers it.
     fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>>;

@@ -37,6 +37,7 @@ fn fixed_situation() -> Situation {
         unit_words: "a top-level class or function name (Name) or a method (Class.method)".into(),
         file: "src/cancel.py".into(),
         unit: "Cancel.handle".into(),
+        broken_region: false,
         line: 40,
         span: Span { start: 38, end: 52 },
         module: "class Cancel:\n    def handle(self):\n        pass\n".into(),
@@ -594,6 +595,33 @@ fn outside_a_unit_is_refused_with_its_sentence() {
     assert!(rig.writer.situations().is_empty());
     // a file in no language is outside a unit as well
     let refused = conjure_change(&ask("README.md", 1), &rig.deps()).unwrap_err();
+    assert_eq!(refused, ChangeRefused::OutsideAUnit);
+}
+
+const BROKEN_RUST: &str = "struct Cart;\n\nimpl Cart {\n    fn before(&self) {}\n\n    pub fn total(&self) -> u32 {\n        look the table up\n        if the party is too big say so\n    }\n}\n\nfn after() {}\n";
+
+#[test]
+fn a_function_the_parser_lost_is_conjured_as_a_broken_region_to_repair() {
+    let d = git_project();
+    write(d.path(), "src/cart.rs", BROKEN_RUST);
+    commit(d.path(), "broken");
+    let rig = Rig::new(d.path(), "<goal>repair total</goal>");
+    conjure_change(&ask("src/cart.rs", 8), &rig.deps()).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(
+        shown.contains("The cursor is in code that does not parse, in src/cart.rs, line 8"),
+        "{shown}"
+    );
+    assert!(shown.contains("Repair it"), "{shown}");
+}
+
+#[test]
+fn a_line_with_no_unit_and_no_broken_region_is_still_refused() {
+    let d = git_project();
+    write(d.path(), "src/cart.rs", "use std::fmt;\n\nfn total() {}\n");
+    commit(d.path(), "clean");
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    let refused = conjure_change(&ask("src/cart.rs", 1), &rig.deps()).unwrap_err();
     assert_eq!(refused, ChangeRefused::OutsideAUnit);
 }
 

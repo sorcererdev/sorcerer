@@ -32,6 +32,7 @@ root.
 | `domain/language.rs` | languages as shipped and project layers, merged |
 | `domain/query.rs` | compile query files, refusing unsupported predicates |
 | `domain/unit.rs` | units from the queries; `unit_at` |
+| `domain/broken_region.rs` | the parser's ERROR region around a line no unit holds; `unit_or_broken_region_at` |
 | `domain/fingerprint.rs` | formatter-proof fingerprints |
 | `domain/compare.rs` | units before and after a change |
 | `domain/facts.rs` | parse errors, TODOs, empty bodies |

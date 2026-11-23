@@ -22,7 +22,6 @@ use lsp_types::{
 use serde_json::Value;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::domain::project::Project;
-use sorcerer_core::domain::unit::unit_at;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::path_of;
 
@@ -110,7 +109,7 @@ impl Server {
         Ok(Value::Null)
     }
 
-    /// Whether the line (from 1) is in one of the file's units, as the editor has the file now.
+    /// Whether the line (from 1) is in one of the file's units, or in a region the parser lost, as the editor has the file now.
     fn in_a_unit(&self, project: &Project, path: &Path, file: &Path, line: u32) -> bool {
         let open: BTreeMap<PathBuf, String> = self
             .client
@@ -120,8 +119,8 @@ impl Server {
             .collect();
         let files = FilesView::new(Arc::new(project.clone()), self.cfg.cache.clone());
         let view = EditorView::new(files, open);
-        view.units(file)
-            .is_ok_and(|units| unit_at(&units, line).is_some())
+        view.unit_or_broken_region_at(file, line)
+            .is_ok_and(|found| found.is_some())
     }
 
     /// The actions of the marks the request is about: those whose change id the editor's

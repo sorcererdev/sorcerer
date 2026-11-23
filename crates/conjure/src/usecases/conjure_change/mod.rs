@@ -16,7 +16,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::language::Language;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
-use sorcerer_core::domain::unit::{Span, Unit, unit_at};
+use sorcerer_core::domain::unit::{Span, Unit};
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
 
@@ -183,8 +183,9 @@ struct Site {
     facts: Facts,
 }
 
-/// The unit under the cursor (or at the start of the selection) and its facts. A file of no
-/// language, or a line in no unit, is `OutsideAUnit`.
+/// The unit under the cursor (or at the start of the selection) and its facts. When the parser
+/// lost the unit, the broken region around the cursor stands in for it, for the writer to repair.
+/// A file of no language, or a line in no unit and no broken region, is `OutsideAUnit`.
 fn find_site(request: &ChangeRequest, deps: &ChangeDeps) -> Result<Site, ChangeRefused> {
     let failed = |e: sorcerer_core::Error| ChangeRefused::Failed(e.to_string());
     if !deps.fences.allows(&request.file) {
@@ -199,11 +200,12 @@ fn find_site(request: &ChangeRequest, deps: &ChangeDeps) -> Result<Site, ChangeR
         .for_path(&request.file)
         .ok_or(ChangeRefused::OutsideAUnit)?;
     let text = deps.view.text(&request.file).map_err(failed)?;
-    let units = deps.view.units(&request.file).map_err(failed)?;
     let anchor = request.selection.map_or(request.line, |lines| lines.start);
-    let unit = unit_at(&units, anchor)
-        .ok_or(ChangeRefused::OutsideAUnit)?
-        .clone();
+    let unit = deps
+        .view
+        .unit_or_broken_region_at(&request.file, anchor)
+        .map_err(failed)?
+        .ok_or(ChangeRefused::OutsideAUnit)?;
     let facts = deps.view.facts(&request.file, &unit).map_err(failed)?;
     Ok(Site {
         file: request.file.clone(),

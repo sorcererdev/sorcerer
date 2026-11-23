@@ -60,6 +60,9 @@ pub enum UnitKind {
     Class,
     Impl,
     Type,
+    /// Not a definition: the lines the parser could not read, standing where a unit would
+    /// (see `broken_region`).
+    BrokenRegion,
     Other(String),
 }
 

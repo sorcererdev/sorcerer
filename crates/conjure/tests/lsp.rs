@@ -804,6 +804,23 @@ fn conjure_here_is_offered_on_a_line_in_a_unit() {
 }
 
 #[test]
+fn conjure_here_is_offered_on_a_line_the_parser_lost() {
+    let dir = git_project();
+    write(
+        dir.path(),
+        "src/cart.rs",
+        "struct Cart;\n\nimpl Cart {\n    fn before(&self) {}\n\n    pub fn total(&self) -> u32 {\n        look the table up\n        if the party is too big say so\n    }\n}\n\nfn after() {}\n",
+    );
+    commit(dir.path(), "broken");
+    let s = served(dir.path(), Script::replying(&[]));
+    s.open("src/cart.rs");
+    // line 8 (from 1) is the prose line that swallowed `total`
+    let actions = s.actions("src/cart.rs", 7, 7, &[]);
+    assert_eq!(titles_of(&actions), ["Conjure here"]);
+    s.stop();
+}
+
+#[test]
 fn nothing_is_offered_outside_the_projects_languages() {
     let dir = project();
     let s = served(dir.path(), Script::replying(&[]));

@@ -13,12 +13,13 @@ moment as `cases/<id>.patch`, the file and line as `cases/<id>.toml` (with `find
 from a finding, and the findings file as `cases/<id>.findings.json`), write `expect` by hand, then
 record the reply fresh with `CONJURE_RECORD=all`.
 
-**A case that could not be built as first written (2026-11-22, before any recording).**
+**A case that first could not be built (2026-11-22), and the fallback that made it buildable.**
 `nonsense-create` first had the prose line `if the party is too big say so`: the `if` opens a block
 the file never closes, the braces shift, tree-sitter loses the `handle` function altogether, and
-conjure answers "put the cursor in a function to conjure" with no model call. That is a real limit of
-finding the unit under a broken parse (a function the parser cannot see is not a unit), not a
-writer's miss. The case keeps prose that does not open a block.
+conjure answered "put the cursor in a function to conjure" with no model call. The case then kept
+prose that did not open a block. Conjure now falls back to the parser's error region around the
+cursor (`unit_or_broken_region_at`), so the writer is asked to repair the broken code, and the case
+has its block-opening line back (recorded again 2026-11-22, haiku).
 
 ## The cases
 
@@ -29,7 +30,7 @@ writer's miss. The case keeps prose that does not open a block.
 | `green-create` | green | `create_booking.rs:46` | no edit: the body is complete and its tests pass |
 | `green-schedule` | green | `get_day_schedule.rs:27` | no edit: the body is complete and its tests pass |
 | `half-create` | half | `create_booking.rs:46` | the body cut after the table lookup |
-| `nonsense-create` | nonsense | `create_booking.rs:46` | the body replaced by two prose lines (or stray statements) |
+| `nonsense-create` | nonsense | `create_booking.rs:46` | the body replaced by two prose lines, one of them opening a block (`if the party is too big say so`) the file never closes |
 | `nonsense-schedule` | nonsense | `get_day_schedule.rs:27` | the body replaced by two prose lines (or stray statements) |
 | `notest-slot` | no-test | `slot.rs:55` | the file's `mod tests` removed |
 | `stub-create` | stub | `create_booking.rs:46` | the body is `todo!()` |
@@ -46,7 +47,7 @@ Read by the builder against `expect` and the anti-goals (a rewrite of a green un
 - `green-create`: forward. Answered nothing.
 - `green-schedule`: forward. Answered nothing.
 - `half-create`: forward. Continued after the table lookup with the party check, the taken slot, the booking and its save.
-- `nonsense-create`: forward. Turned the two prose lines into the whole body, with the project's own failure messages.
+- `nonsense-create`: forward. Re-recorded 2026-11-22 with the block-opening prose line back, asked as a broken region (the parser had lost `handle`): turned the two prose lines into the whole body (table lookup, party check, slot check, save), and the file parses.
 - `nonsense-schedule`: forward. Replaced the prose and `let x = 12;` with the `DaySchedule` of the day's tables and bookings.
 - `notest-slot`: NOT forward. Answered `nothing`; the expected change is a new `mod tests` in `slot.rs`. (The first recording of this case, 2026-11-22, answered by deleting a stray `}` my patch had left at the end of the file, a case-building mistake: the patch cut lines 129-155 of a 156-line file. The patch was corrected and the case recorded again; the first reply is not kept.).
 - `stub-create`: forward. Wrote the whole body in the expected order.

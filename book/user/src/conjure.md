@@ -49,6 +49,13 @@ there. On a line where scry has an open finding, *Conjure for this finding* asks
 by that finding. Outside a function nothing is offered (`put the cursor in a function to
 conjure` if you ask anyway).
 
+**When the code does not parse.** A stray line such as `if the party is too big say so` can open a
+block the file never closes, and the parser then loses the whole function. Conjure does not give
+up there: it takes the stretch of code the parser marked as an error around your cursor, tells the
+writer that the code does not parse and is to be repaired, and asks for the change as usual
+(*Conjure here* is offered on those lines too). Only a line that is in no function and in no such
+stretch still gets `put the cursor in a function to conjure`.
+
 **Waiting.** A progress line, `conjure: conjuring a change`, for the few seconds the writer takes,
 and grey text at the end of the first line of the unit being changed, `⟳ conjure: writing…`
 (Neovim and VS Code; it follows the line as you type and goes once the change has landed, or has not).
