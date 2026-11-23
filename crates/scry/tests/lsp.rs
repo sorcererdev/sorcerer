@@ -1398,7 +1398,7 @@ fn why_writes_the_explanation_and_shows_it() {
         explain_finding(&project, &ports.store, &ports.settings, &view, "b00001").unwrap();
     assert_eq!(
         std::fs::read_to_string(&file).unwrap(),
-        why_text(&explanation)
+        why_text(&explanation, *chrono::Local::now().offset())
     );
     let shown = shown_document(&s);
     assert!(

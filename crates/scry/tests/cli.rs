@@ -636,10 +636,10 @@ fn list_prints_the_table_open_first() {
     let r = scry(dir.path(), &d, &["list"]);
     let cut = format!("{}…", "x".repeat(79));
     let want = format!(
-        "status    issue type  file       line  rule    statement\n\
-         open      assumption  orders.py  1     -       statement of bbbb01\n\
-         open      bug         orders.py  2     result  {cut}\n\
-         withheld  convention  a.py       9     -       statement of cccc03\n"
+        "id      status    issue type  file       line  rule    statement\n\
+         bbbb01  open      assumption  orders.py  1     -       statement of bbbb01\n\
+         aaaa02  open      bug         orders.py  2     result  {cut}\n\
+         cccc03  withheld  convention  a.py       9     -       statement of cccc03\n"
     );
     assert_eq!(
         (r.code, r.out.as_str(), r.err.as_str()),
@@ -765,8 +765,7 @@ fn cost_since_leaves_earlier_days_out() {
     assert_eq!(
         r.out,
         "day         reviews  checks  review $  check $  total $\n\
-         2026-11-18  2        1       0.09      0.02     0.12\n\
-         waiting on the cap: 0 units\n"
+         2026-11-18  2        1       0.09      0.02     0.12\n"
     );
     let bad = scry(dir.path(), &d, &["cost", "--since", "yesterday"]);
     assert_eq!(bad.code, 2);
@@ -890,7 +889,7 @@ fn why_shows_rule_evidence_verdict_and_history() {
         "[[rule]]\nid = \"result\"\ntext = \"\"\"\nCommands return a Result (must)\nA command returns Result, never panics.\"\"\"\n",
     );
     stored::three(dir.path());
-    let d = plain_doubles(dir.path());
+    let d = ny_doubles(dir.path());
     let r = scry(dir.path(), &d, &["why", "aaaa"]);
     assert_eq!(r.code, 0, "{}", r.err);
     let want = format!(
@@ -909,7 +908,7 @@ fn why_shows_rule_evidence_verdict_and_history() {
          Confidence: 0.90\n\
          Seen: 3 times since 2026-11-18\n\n\
          History:\n\
-         2026-11-18T12:00:00Z  open\n",
+         2026-11-18T07:00:00-05:00  open\n",
         "x".repeat(100)
     );
     assert_eq!(r.out, want);

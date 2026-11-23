@@ -58,13 +58,15 @@ fn findings_json_text(findings: &[Finding]) -> String {
     format!("{}\n", json!({ "findings": v }))
 }
 
-/// A table with a row for each finding, its statement cut to 80
+/// A table with a row for each finding (its id first, as `scry` prints
+/// it after a review), its statement cut to 80
 /// characters.
 fn findings_table_text(findings: &[Finding]) -> String {
     let rows: Vec<Vec<String>> = findings
         .iter()
         .map(|f| {
             vec![
+                f.id.0.clone(),
                 status_word(f.status),
                 f.issue_type.clone(),
                 forward_slashes(&f.place.file),
@@ -75,7 +77,15 @@ fn findings_table_text(findings: &[Finding]) -> String {
         })
         .collect();
     table(
-        &["status", "issue type", "file", "line", "rule", "statement"],
+        &[
+            "id",
+            "status",
+            "issue type",
+            "file",
+            "line",
+            "rule",
+            "statement",
+        ],
         &rows,
     )
 }

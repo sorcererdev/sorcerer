@@ -126,7 +126,10 @@ fn run_in_project<W: Wiring>(
             };
             dismiss::dismiss(&project, &id, dismissal, now, console)
         }
-        Some(Cmd::Why { id }) => why::why(&project, env, &id, console.out),
+        Some(Cmd::Why { id }) => {
+            let (_, offset) = clock_of(&project, &wire);
+            why::why(&project, env, &id, offset, console.out)
+        }
         Some(Cmd::Trust { revoke }) => trust::trust(&project, env, revoke, console.out),
         Some(Cmd::Log { n, list, path }) => {
             let (_, offset) = clock_of(&project, &wire);

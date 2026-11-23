@@ -2,6 +2,7 @@
 //! code it cites, what the check said, and its history. `scry why` prints
 //! it; the editor's *Show why* writes it to a file and opens it.
 
+use chrono::FixedOffset;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 
@@ -10,7 +11,7 @@ use crate::domain::finding::{Evidence, Finding, status_word};
 use crate::usecases::explain_finding::{CitedText, Explanation};
 
 /// A finding in full as Markdown, a section at a time: what `scry why` prints and the
-/// editor's *Show why* opens.
+/// editor's *Show why* opens. Times are in the user's time zone (`offset`).
 ///
 /// Example (shortened):
 /// ```text
@@ -27,7 +28,7 @@ use crate::usecases::explain_finding::{CitedText, Explanation};
 ///   41         return
 /// ...
 /// ```
-pub fn why_text(explanation: &Explanation) -> String {
+pub fn why_text(explanation: &Explanation, offset: FixedOffset) -> String {
     let f = &explanation.finding;
     [
         heading_text(f),
@@ -35,8 +36,8 @@ pub fn why_text(explanation: &Explanation) -> String {
         unit_text(f),
         evidence_text(&explanation.evidence),
         checked_text(f),
-        seen_text(f),
-        history_text(f),
+        seen_text(f, offset),
+        history_text(f, offset),
     ]
     .concat()
 }
@@ -125,22 +126,27 @@ fn checked_text(f: &Finding) -> String {
 
 /// How often passes have raised it, and since when: `Seen: 3 times since
 /// 2026-11-18`.
-fn seen_text(f: &Finding) -> String {
+fn seen_text(f: &Finding, offset: FixedOffset) -> String {
     let times = if f.seen == 1 {
         "1 time".to_string()
     } else {
         format!("{} times", f.seen)
     };
-    format!("Seen: {times} since {}\n\n", f.first.format("%Y-%m-%d"))
+    format!(
+        "Seen: {times} since {}\n\n",
+        f.first.with_timezone(&offset).format("%Y-%m-%d")
+    )
 }
 
 /// Each status the finding has had, with when, one a line.
-fn history_text(f: &Finding) -> String {
+fn history_text(f: &Finding, offset: FixedOffset) -> String {
     let lines: String = f
         .history
         .iter()
         .map(|(at, status)| {
-            let at = at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let at = at
+                .with_timezone(&offset)
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
             format!("{at}  {}\n", status_word(*status))
         })
         .collect();
