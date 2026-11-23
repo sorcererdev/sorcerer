@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# A mod.rs holds only declarations: `mod`, `pub mod`, `use` and `pub use`
+# lines (a `use` may span lines), plus comments, attributes and blank lines.
+# No function, type, const, impl or test lives in a mod.rs: that code goes in
+# a file named for what it does, so the tree and fuzzy-find show where the
+# work is. Files under a corpus/ directory are eval fixtures and are skipped.
+#
+# Usage: scripts/mod-rs-declarations [ROOT]   (ROOT defaults to the repository)
+set -euo pipefail
+root=${1:-$(cd "$(dirname "$0")/.." && pwd)}
+cd "$root"
+find . \( -name target -o -name .git -o -name node_modules -o -name corpus \) -prune -o \
+  -name mod.rs -type f -print0 | sort -z | perl -0 -ne '
+  BEGIN { $bad = 0 }
+  chomp(my $file = $_);
+  $file =~ s{^\./}{};
+  open my $fh, "<", $file or die "$file: $!";
+  local $/ = "\n";
+  my ($in_use, $in_block_comment, $n) = (0, 0, 0);
+  while (my $line = <$fh>) {
+    $n++;
+    $line =~ s/\r?\n\z//;
+    if ($in_block_comment) { $in_block_comment = 0 if $line =~ m{\*/}; next }
+    if ($in_use) { $in_use = 0 if $line =~ /;\s*(?:\/\/.*)?$/; next }
+    next if $line =~ /^\s*$/ || $line =~ m{^\s*//};
+    if ($line =~ m{^\s*/\*}) { $in_block_comment = 1 unless $line =~ m{\*/}; next }
+    next if $line =~ /^\s*#!?\[.*\]\s*$/;
+    next if $line =~ /^(?:pub(?:\([a-z: ]+\))?\s+)?mod\s+\w+\s*;\s*(?:\/\/.*)?$/;
+    if ($line =~ /^(?:pub(?:\([a-z: ]+\))?\s+)?use\s/) {
+      $in_use = 1 unless $line =~ /;\s*(?:\/\/.*)?$/;
+      next;
+    }
+    print "$file:$n: a mod.rs holds only mod and use lines; move this to a named file: $line\n";
+    $bad = 1;
+    last;
+  }
+  close $fh;
+  END { exit $bad }
+'

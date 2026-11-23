@@ -17,8 +17,10 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
 
 **Use cases** (`src/usecases/`), the API, one module a feature:
 
-- `review_change/mod.rs`: `review_change`, `ReviewRequest`, `ReviewDeps`, `ReviewReport`,
-  `ReviewOutcome`, `Progress`; the private `Pass` its steps share.
+- `review_change/run_review.rs`: `review_change`, `pass_text`; `request_and_report.rs`:
+  `ReviewRequest`, `ReviewDeps`, `ReviewReport`, `ReviewOutcome`, `Progress`, `SentUnit`;
+  `spent_so_far.rs`: `SpentSoFar`; `review_pass.rs`: the private `Pass` its steps share, and
+  `Halt`.
 - `review_change/scope.rs`: `scope_of`; `ask.rs`: the review calls (`Pass::send`, `ReviewResults`);
   `judge.rs`: each finding placed, matched, merged or added (`Pass::judge_all`, `judge`,
   `merge`, `add`); `remember.rs`: resolved, gone, moved, not found again, the reviewed marks
@@ -26,7 +28,7 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   verification rounds (`Pass::verify_findings_per_file`, `verify_findings_in_file`, `verify_round`, `PrioritizedFindings`, `FindingsToVerify`, `DisplaySlots`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
-  `DayCost`), `show_findings.rs` (`Shown`, `shown_in_file`: what an editor shows in a file).
+  `DayCost`), `read_findings.rs` (`read_findings`, the store read for the use cases), `show_findings.rs` (`Shown`, `shown_in_file`: what an editor shows in a file).
 
 **Domain** (`src/domain/`), data and rules, no I/O:
 
@@ -61,20 +63,24 @@ version 2 and its `pass.lock`), `scry_toml.rs` (`ScryToml`, `STEERING_FILE`, the
 `runs_dir`, `write_run`, `runs`, `run_key`, `run_time`, `result_of`, `KEEP`, `RESULT`),
 `system_clock.rs` (`SystemClock`), `wiring.rs` (`LiveWiring`, `Wiring`, `jev_for`,
 `claim_checker`, `PRODUCT`; the researcher comes from `sorcerer-models`' `researcher_for`), and `lsp/`, the editor's server (below):
-`mod.rs` (`ServerConfig`, `serve`, `SETTLE`, the product `ScryServer` and its shared `Server`),
+`server_config.rs` (`ServerConfig`, `SETTLE`), `scry_server.rs` (`serve`, the product `ScryServer`),
+`server_state.rs` (the shared `Server`, `Publish`, `lock`), `publisher.rs` (`start_publisher`, what a file shows, `project_file`),
 `diagnostics.rs` (`diagnostic`, `STALE_LINE`), `passes.rs` (`Passes`, `RunningPass`, a save
 to a pass), `commands.rs` (the code actions and the three commands), `trust.rs` (the trust
 gate and its question); and `why_text.rs`
 (`why_text`, `lines_text`: a finding in full as Markdown, for `scry why` and the editor's
 *Show why*).
 
-**The command line** (`src/cli/`): `mod.rs` (`main`, `main_with`, the clap types, `run_command`,
-`clock_of`, and `Console`: the output, the error stream and the width a command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`, `trust.rs`,
+**The command line** (`src/cli/`): `run_cli.rs` (`main`, `main_with`, `run_command`, `clock_of`),
+`arguments.rs` (the clap types), `console.rs` (`Console`: the output, the error stream and the width a
+command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`, `trust.rs`,
 `doctor.rs` with `doctor_rows` (a `DoctorRow` each), `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`Output`: text or `--json`; `table`, `cut_to`, `finding_text`,
 `finding_json`, `cited_range`, `lines_text`). `src/main.rs` is the binary, `cli::main` with
 the real environment.
 
-Tests: `tests/support/mod.rs` holds git fixtures, `project_with_vendored_grammars`, the
+Tests: `tests/support/` (`git_fixtures.rs`, `project_fixtures.rs`, `stub_reviewer.rs`,
+`stub_decider.rs`, `fixed_clock.rs`, `store_fixtures.rs`, `doubles.rs`, all re-exported by its
+`mod.rs`) holds git fixtures, `project_with_vendored_grammars`, the
 doubles `StubReviewer`, `StubDecider`, `FixedClock`, `Doubles` (all of them as one `Wiring`),
 `open_finding` and `put_findings` (a store seeded by hand), and `Ports` (the store, ledger and
 settings adapters over a fixture project). `.sorcerer/scry.toml` at the repository root is
@@ -323,7 +329,7 @@ in a project that turned scry off lets the commit through; any other `Skipped` e
 `SpentSoFar::read`, the Pass section (`pass_text`), `Pass::new`, `Pass::run`, its halts (`Halt::JevDidNotAnswer`
 is `Skipped`, `Halt::Failed` the error), `Progress::Stored`, unlock. `Pass::run` consumes the pass and ends
 by saving it and making the report (`Pass::report`). The steps, in
-`Pass::run` (`mod.rs`), each in its own file:
+`Pass::run` (`review_pass.rs`), each in its own file:
 
 1. **Lock and read.** `FindingStore::hold` takes `state/scry/pass.lock` with `File::lock`
    (blocking) for the whole pass, so two passes never interleave. The store is read once (`findings_on_disk`); `Unreadable` is
@@ -782,7 +788,7 @@ chapter.
 
 ## Test support
 
-`crates/scry/tests/support/mod.rs` holds what the scope, pass and CLI tests share:
+`crates/scry/tests/support/` holds what the scope, pass and CLI tests share:
 `git_repo` (no commit), `git_project`, `write`, `commit`, `project_with_vendored_grammars`
 (core's vendored grammars, no network), and three doubles. `StubReviewer` answers a review by the
 set of files in its batch (an empty findings list otherwise) and records every `ReviewAsk`.

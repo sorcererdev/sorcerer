@@ -20,12 +20,13 @@ Conjure is in five layers (see [Architecture](architecture.md)).
 
 **Use cases** (`src/usecases/`):
 
-- `conjure_change/mod.rs`: `conjure_change(request, deps)`, `ChangeRequest`, `ChangeDeps`,
+- `conjure_change/request_and_result.rs`: `ChangeRequest`, `ChangeDeps`,
   `ConjuredChange` (with `unit_lines`, where a change of no files is marked), `ChangedFile`,
   `ChangeRefused` (with the pinned sentences in its `text`; `NotAnswered` carries the unit and
   its facts so the server can record a call that failed).
-  Its story: `find_site` (the unit at the cursor, through `CodebaseView::units` and `facts`),
-  `refuse_a_spent_day`, the situation, one write, the check.
+- `conjure_change/run_conjure.rs`: `conjure_change(request, deps)` and `refuse_a_spent_day`. Its
+  story: `find_site` (`find_site.rs`, with `Site`: the unit at the cursor, through
+  `CodebaseView::units` and `facts`), `refuse_a_spent_day`, the situation, one write, the check.
 - `conjure_change/situation.rs`: `situation_for` gathers the test file (`tests_path`), the
   related files, the session (`session_of`: `changed_since("HEAD")`, each diff, new files), scry's
   notes and the finding asked for, and the rules, then `situation_text`.
@@ -69,7 +70,8 @@ moment: a file not open is read from the disk once and answered as first read, s
 made against what the writer was shown and a disk that moved on meanwhile is seen),
 `why_text.rs` (`why_text`, Show why's file), and `lsp/` (the server, below).
 
-**Command line** (`src/cli/`): `mod.rs` (the clap types, `main`, `main_with`), `run.rs`
+**Command line** (`src/cli/`): `arguments.rs` (the clap types), `run_cli.rs` (`main`, `main_with`,
+`run_command`), `console.rs`, `run.rs`
 (`conjure FILE:LINE`), `doctor.rs`, `cost.rs`, `log.rs`, `trust.rs`, `lsp.rs` (`conjure lsp`:
 `serve` over stdio with `ServerConfig::live`), `format.rs`.
 
@@ -107,18 +109,18 @@ under `.sorcerer/state/`).
 
 ## The server
 
-`adapters/lsp/mod.rs`: `serve(connection, ServerConfig)` plugs `ConjureServer` into the host
+`adapters/lsp/conjure_server.rs`: `serve(connection, ServerConfig)` plugs `ConjureServer` into the host
 (`sorcerer_lsp::serve`) as a product that tracks text (`tracks_text() -> true`, so the host keeps
 each open document's version and text). `ServerConfig { open, cache, trust, clock, wire }`;
 `wire: WireWriter` builds an attempt's writer over the editor's view (`writer_for` live, a
-scripted writer in the tests). The shared `Server` holds the `Client`, the root, `published` (the
+scripted writer in the tests). `ServerConfig` is in `server_config.rs`. The shared `Server` (`server_state.rs`) holds the `Client`, the root, `published` (the
 `Mark`s published per editor path, for the actions on a line), `shown` (the one change marked
 now, a `Shown { change: LandedChange, state: ShownState, settled }`) and `running` (the `Cancel`
 of the change being conjured or undone; one at a time). `ShownState` is `Open` (Undo and Try
 harder offered), `Undoing(choice)` (an undo waits for the editor; its own edits are not the
 person's) or `Recorded` (the record is written: no change, landed in part, or kept by a save;
 `LandedChange::note` says why on the marks, and only the Show actions are offered). `settled` lists
-the files whose marks are gone for good. `project_relative` and `project_file` map an editor path to the
+the files whose marks are gone for good. `project_relative` and `project_file` (`project_paths.rs`) map an editor path to the
 project's `/`-separated path on the canonical path, as scry's server does.
 
 `commands.rs`: `capabilities` (code actions; the commands `conjure.conjure`, `conjure.undo`,

@@ -58,8 +58,9 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
 
 **scry** (the package `sorcerer-scry`, whose library and program are both `scry`)
 
-- `usecases/`: `review_change/` (`mod.rs` with `review_change` and its request, ports and
-  report; the steps `scope.rs`, `ask.rs`, `judge.rs`, `remember.rs`, `verify.rs`),
+- `usecases/`: `review_change/` (`run_review.rs` with `review_change`, `request_and_report.rs` with its
+  request, ports and report, `review_pass.rs` with the `Pass`; the steps `scope.rs`, `ask.rs`,
+  `judge.rs`, `remember.rs`, `verify.rs`),
   `list_findings.rs`, `explain_finding.rs`, `dismiss_finding.rs`, `report_cost.rs`.
 - `domain/`: `config.rs`, `issue_type.rs`, `finding.rs`, `findings.rs`, `steering.rs`,
   `scope.rs`, `review_prompt.rs`, `judging.rs`, `budget.rs`, `verification.rs`,
@@ -68,7 +69,7 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
   `run_log.rs`.
 - `adapters/`: `json_finding_store.rs`, `scry_toml.rs`, `research_reviewer.rs`,
   `markdown_run_log.rs`, `system_clock.rs`, `wiring.rs`.
-- `cli/`: `mod.rs` (the clap types, `main`, `main_with`), one file a command (`review.rs`,
+- `cli/`: `arguments.rs` (the clap types), `run_cli.rs` (`main`, `main_with`), `console.rs`, one file a command (`review.rs`,
   `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `doctor.rs`, `log.rs`), `format.rs`.
 
 [Scry](scry.md) says what each file holds.
@@ -99,6 +100,15 @@ server lives in that product's `adapters/` and calls its use cases.
 4. Add the command: a file under `cli/` that parses, calls the use case and prints.
 
 An editor's language server is one more caller beside `cli/`: it calls the same use cases.
+
+**A `mod.rs` holds only declarations.** Its lines are `mod`, `pub mod`, `use` and `pub use`
+(plus comments and attributes): no function, type, constant, impl or test. What a directory does
+lives in files named for the job (`review_change/run_review.rs`, `adapters/lsp/publisher.rs`), so
+the tree and fuzzy-find show where the work is, and a `mod.rs` re-exports (`pub use`) what the
+rest of the crate reaches by the directory's path. That includes `tests/support/mod.rs`, which
+re-exports the fixture files beside it. `scripts/mod-rs-declarations` checks the rule on every
+`mod.rs` (the eval fixtures under `corpus/` are skipped) and `scripts/mod-rs-declarations-test`
+checks the check.
 
 ## Testing each layer
 
@@ -146,7 +156,7 @@ goes through `forward_slashes(path)` (`sorcerer_core::domain::paths`), which wri
 `/` on every platform, so the same change gives the same text on Windows; on Linux and macOS
 it is the path's own text. Paths enter `/`-separated where they are made: git names files
 that way, and scry's server turns an editor's path into the project-relative one with `/`
-(`project_file` in `adapters/lsp/mod.rs`), so the editor route and the terminal route store
+(`project_file` in `adapters/lsp/publisher.rs`), so the editor route and the terminal route store
 the same text. An absolute path (a root, the cache, the trust list, a file to open) keeps the
 platform's form.
 

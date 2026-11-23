@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Tests scripts/mod-rs-declarations over a throwaway tree: each planted
+# non-declaration in a mod.rs is named, declarations pass, other files and
+# corpus/ are left alone.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+check="$here/mod-rs-declarations"
+d=$(mktemp -d)
+trap 'rm -rf "$d"' EXIT
+
+put() { mkdir -p "$(dirname "$d/$1")"; cat > "$d/$1"; }
+
+put crates/x/src/clean/mod.rs <<'RS'
+//! Doc comment.
+#![allow(dead_code)]
+
+// a comment
+mod one;
+pub mod two;
+pub(crate) mod three;
+#[cfg(test)]
+mod four;
+
+use std::{
+    fmt,
+    io,
+};
+pub use self::one::Thing;
+pub(crate) use self::two::Other; // trailing comment
+RS
+put crates/x/src/func/mod.rs <<'RS'
+mod one;
+fn helper() {}
+RS
+put crates/x/src/typed/mod.rs <<'RS'
+pub struct Thing;
+RS
+put crates/x/src/impl_block/mod.rs <<'RS'
+impl Thing {}
+RS
+put crates/x/src/consts/mod.rs <<'RS'
+pub const X: u8 = 1;
+RS
+put crates/x/tests/tested/mod.rs <<'RS'
+#[cfg(test)]
+mod tests {
+}
+RS
+put crates/x/src/ordinary.rs <<'RS'
+fn fine() {}
+RS
+put crates/x/corpus/fixture/mod.rs <<'RS'
+fn fixture() {}
+RS
+
+out=$("$check" "$d" 2>&1 || true)
+for f in func typed impl_block consts; do
+  grep -q "crates/x/src/$f/mod.rs:" <<<"$out" || { echo "FAIL: $f/mod.rs not named"; echo "$out"; exit 1; }
+done
+grep -q "crates/x/tests/tested/mod.rs:" <<<"$out" || { echo "FAIL: tests mod.rs not named"; echo "$out"; exit 1; }
+for f in clean ordinary corpus; do
+  if grep -q "$f" <<<"$out"; then echo "FAIL: $f was refused"; echo "$out"; exit 1; fi
+done
+if "$check" "$d" >/dev/null 2>&1; then echo "FAIL: exit code is zero on violations"; exit 1; fi
+rm -rf "$d/crates/x/src/func" "$d/crates/x/src/typed" "$d/crates/x/src/impl_block" "$d/crates/x/src/consts" "$d/crates/x/tests"
+"$check" "$d" || { echo "FAIL: clean tree refused"; exit 1; }
+echo "mod-rs-declarations-test: ok"
