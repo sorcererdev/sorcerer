@@ -141,7 +141,12 @@ fn holes_agree(generator: &Generator, languages: &Languages) -> Result<(), Check
             why,
         };
         for piece in pieces(text).map_err(in_template)? {
-            let Piece::Hole { name, kind, instruction } = piece else {
+            let Piece::Hole {
+                name,
+                kind,
+                instruction,
+            } = piece
+            else {
                 continue;
             };
             instruction_is_plain(name, instruction).map_err(in_template)?;

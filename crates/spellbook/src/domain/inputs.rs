@@ -156,9 +156,9 @@ pub fn input_stop_text(stop: &InputStop) -> String {
         InputStop::NoChoices { input, query } => {
             format!("{input}: nothing to choose from (the query {query} found nothing)")
         }
-        InputStop::NotAName { input, given } => format!(
-            "{input}: \"{given}\" is not a name (letters, digits, _, - and spaces)"
-        ),
+        InputStop::NotAName { input, given } => {
+            format!("{input}: \"{given}\" is not a name (letters, digits, _, - and spaces)")
+        }
         InputStop::Template(why) => why.clone(),
     }
 }
@@ -195,7 +195,11 @@ pub fn is_a_name(value: &str) -> bool {
 ///
 /// Example: with `src/bistro/main.py` among the files, `src/*/main.py` read as the parent folder
 /// gives `["bistro"]`; `src/bistro/*/models` matches the folder `src/bistro/booking/models`.
-pub fn query_choices(files: &[PathBuf], glob: &str, value: QueryValue) -> Result<Vec<String>, String> {
+pub fn query_choices(
+    files: &[PathBuf],
+    glob: &str,
+    value: QueryValue,
+) -> Result<Vec<String>, String> {
     let matcher = GlobBuilder::new(glob)
         .literal_separator(true)
         .build()

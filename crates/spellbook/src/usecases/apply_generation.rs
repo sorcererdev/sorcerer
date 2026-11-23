@@ -7,7 +7,7 @@ use crate::domain::record::{open_holes_of, record_of, sorted_open_holes};
 use crate::ports::clock::Clock;
 use crate::ports::generation_store::GenerationStore;
 use crate::ports::holes_store::HolesStore;
-use crate::ports::workspace::{WriteRefused, Workspace};
+use crate::ports::workspace::{Workspace, WriteRefused};
 
 /// What applying writes to.
 pub struct ApplyDeps<'a> {

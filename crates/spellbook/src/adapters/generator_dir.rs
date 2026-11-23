@@ -61,7 +61,8 @@ pub fn load_generator(dir: &Path, languages: &Languages) -> Result<Generator, Ge
     };
     let text = std::fs::read_to_string(dir.join("generator.toml"))
         .map_err(|e| problem("generator.toml", e.to_string()))?;
-    let templates = templates_in(&dir.join("templates")).map_err(|why| problem("templates/", why))?;
+    let templates =
+        templates_in(&dir.join("templates")).map_err(|why| problem("templates/", why))?;
     let generator =
         read_generator(&id, &text, templates).map_err(|why| problem("generator.toml", why))?;
     check_generator(&generator, languages).map_err(|found| problem(&found.file, found.why))?;
@@ -88,9 +89,12 @@ fn collect_templates(
         if path.is_dir() {
             collect_templates(top, &path, found)?;
         } else {
-            let text = std::fs::read_to_string(&path)
-                .map_err(|e| format!("{}: {e}", path.display()))?;
-            let name = path.strip_prefix(top).map(forward_slashes).unwrap_or_default();
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let name = path
+                .strip_prefix(top)
+                .map(forward_slashes)
+                .unwrap_or_default();
             found.insert(name, text);
         }
     }

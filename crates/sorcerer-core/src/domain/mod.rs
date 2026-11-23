@@ -14,7 +14,7 @@ pub mod name_forms;
 pub mod paths;
 pub mod project;
 pub mod query;
-pub mod trust;
 pub mod templates;
+pub mod trust;
 pub mod unit;
 pub mod versioned;

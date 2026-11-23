@@ -25,7 +25,8 @@ pub fn open_holes(
     files: Option<&[PathBuf]>,
 ) -> sorcerer_core::Result<Vec<OpenHole>> {
     let saved = deps.holes.read()?;
-    let in_scope = |hole: &OpenHole| files.is_none_or(|files| files.iter().any(|f| same_file(f, &hole.file)));
+    let in_scope =
+        |hole: &OpenHole| files.is_none_or(|files| files.iter().any(|f| same_file(f, &hole.file)));
     let mut every_file_read = true;
     let mut kept = Vec::new();
     let mut found = Vec::new();

@@ -4,6 +4,14 @@
 
 mod arguments;
 mod console;
+mod doctor;
+mod format;
+mod holes;
+mod list;
+mod new;
 mod run_cli;
+mod show;
+mod trust;
 
+pub use doctor::{DoctorRow, doctor_rows};
 pub use run_cli::{main, main_with};

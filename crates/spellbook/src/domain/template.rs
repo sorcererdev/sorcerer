@@ -48,7 +48,10 @@ pub fn render(
                     Some(HoleSource::Derived { value }) => {
                         (fill(value, &pairs)?, HoleOrigin::Derived)
                     }
-                    None => (placeholder_of(kind, name, instruction)?, HoleOrigin::Placeholder),
+                    None => (
+                        placeholder_of(kind, name, instruction)?,
+                        HoleOrigin::Placeholder,
+                    ),
                 };
                 holes.push(HoleAt {
                     name: name.into(),
@@ -96,21 +99,39 @@ mod tests {
 
     #[test]
     fn values_and_filters_render() {
-        let rendered = render("class {= command|pascal =}: {= command =}", &values(), &derived(), &placeholder).unwrap();
+        let rendered = render(
+            "class {= command|pascal =}: {= command =}",
+            &values(),
+            &derived(),
+            &placeholder,
+        )
+        .unwrap();
         assert_eq!(rendered.text, "class CancelTable: cancel_table");
         assert!(rendered.holes.is_empty());
     }
 
     #[test]
     fn a_derived_hole_is_filled_from_the_inputs() {
-        let rendered = render("\"{= ? purpose: text | what it does =}\"", &values(), &derived(), &placeholder).unwrap();
+        let rendered = render(
+            "\"{= ? purpose: text | what it does =}\"",
+            &values(),
+            &derived(),
+            &placeholder,
+        )
+        .unwrap();
         assert_eq!(rendered.text, "\"Cancel table.\"");
         assert_eq!(rendered.holes[0].source, HoleOrigin::Derived);
     }
 
     #[test]
     fn a_placeholder_carries_name_and_instruction() {
-        let rendered = render("{= ? handle: block | its first case =}", &values(), &derived(), &placeholder).unwrap();
+        let rendered = render(
+            "{= ? handle: block | its first case =}",
+            &values(),
+            &derived(),
+            &placeholder,
+        )
+        .unwrap();
         assert_eq!(rendered.text, "fail(\"hole handle: its first case\")");
         assert_eq!(rendered.holes[0].source, HoleOrigin::Placeholder);
         assert_eq!(rendered.holes[0].instruction, "its first case");
@@ -129,7 +150,10 @@ mod tests {
     fn a_block_hole_keeps_its_indentation() {
         let template = "def f():\n        {= ? handle: block | x =}\n";
         let rendered = render(template, &values(), &derived(), &placeholder).unwrap();
-        assert_eq!(rendered.text, "def f():\n        fail(\"hole handle: x\")\n");
+        assert_eq!(
+            rendered.text,
+            "def f():\n        fail(\"hole handle: x\")\n"
+        );
         assert_eq!(rendered.holes[0].line, 2);
     }
 }

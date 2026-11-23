@@ -61,7 +61,9 @@ impl HoleBook {
                 text: hole.text.clone(),
             };
             match self.holes.iter_mut().find(|known| known.name == hole.name) {
-                Some(known) if (&known.kind, &known.instruction) != (&hole.kind, &hole.instruction) => {
+                Some(known)
+                    if (&known.kind, &known.instruction) != (&hole.kind, &hole.instruction) =>
+                {
                     return Err(format!(
                         "the hole {} has another kind or instruction in {file} than in {}",
                         hole.name, known.places[0].file
@@ -104,7 +106,10 @@ mod tests {
     #[test]
     fn one_hole_in_two_files_is_one_hole_with_two_places() {
         let holes = HoleBook::default()
-            .with_file("a.x", &[at("field", "ident", 10), at("handle", "block", 28)])
+            .with_file(
+                "a.x",
+                &[at("field", "ident", 10), at("handle", "block", 28)],
+            )
             .unwrap()
             .with_file("a_test.x", &[at("field", "ident", 11)])
             .unwrap()
@@ -113,8 +118,16 @@ mod tests {
         assert_eq!(
             holes[0].places,
             [
-                HolePlace { file: "a.x".into(), line: 10, text: "todo_field".into() },
-                HolePlace { file: "a_test.x".into(), line: 11, text: "todo_field".into() }
+                HolePlace {
+                    file: "a.x".into(),
+                    line: 10,
+                    text: "todo_field".into()
+                },
+                HolePlace {
+                    file: "a_test.x".into(),
+                    line: 11,
+                    text: "todo_field".into()
+                }
             ]
         );
     }

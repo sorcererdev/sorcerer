@@ -73,10 +73,22 @@ pub enum PlanStop {
     Input(InputStop),
     /// No generator by that name, or one that did not load.
     Generator(String),
-    PathRefused { path: String, why: String },
-    Exists { path: String },
-    DoesNotParse { template: String, file: String, line: u32 },
-    NoLanguageForHole { path: String, hole: String },
+    PathRefused {
+        path: String,
+        why: String,
+    },
+    Exists {
+        path: String,
+    },
+    DoesNotParse {
+        template: String,
+        file: String,
+        line: u32,
+    },
+    NoLanguageForHole {
+        path: String,
+        hole: String,
+    },
     Template(String),
 }
 
@@ -91,9 +103,13 @@ pub fn plan_stop_text(stop: &PlanStop) -> String {
         PlanStop::Exists { path } => format!(
             "{path} is there already; nothing was written (on_exists = \"skip\" would leave it)"
         ),
-        PlanStop::DoesNotParse { template, file, line } => format!(
-            "{file} would not parse at line {line} (from {template}); nothing was written"
-        ),
+        PlanStop::DoesNotParse {
+            template,
+            file,
+            line,
+        } => {
+            format!("{file} would not parse at line {line} (from {template}); nothing was written")
+        }
         PlanStop::NoLanguageForHole { path, hole } => {
             format!("no language covers {path}, so its hole {hole} has no placeholder")
         }

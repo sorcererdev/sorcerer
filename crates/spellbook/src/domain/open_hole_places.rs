@@ -16,19 +16,21 @@ pub fn still_open(hole: &OpenHole, text: &str) -> Option<u32> {
     let lines: Vec<&str> = text.lines().collect();
     let marker = format!("hole {}:", hole.name);
     let (needle, reach) = if hole.placeholder.contains(&marker) {
-        (marker.as_str(), u32::try_from(lines.len()).unwrap_or(u32::MAX))
+        (
+            marker.as_str(),
+            u32::try_from(lines.len()).unwrap_or(u32::MAX),
+        )
     } else {
         (hole.placeholder.as_str(), NEARBY_LINES)
     };
     if needle.trim().is_empty() {
         return None;
     }
-    lines_nearest(hole.line, reach)
-        .find(|line| {
-            lines
-                .get((*line - 1) as usize)
-                .is_some_and(|row| holds_whole(row, needle))
-        })
+    lines_nearest(hole.line, reach).find(|line| {
+        lines
+            .get((*line - 1) as usize)
+            .is_some_and(|row| holds_whole(row, needle))
+    })
 }
 
 /// The recorded line, then the lines one away, two away… up to `reach` away (lines from 1).
@@ -83,8 +85,14 @@ mod tests {
     #[test]
     fn a_marked_placeholder_is_found_anywhere() {
         let text = format!("{}fail(\"hole handle: x\")\n", "x\n".repeat(40));
-        assert_eq!(still_open(&hole("handle", "fail(\"hole handle: x\")", 1), &text), Some(41));
-        assert_eq!(still_open(&hole("handle", "fail(\"hole handle: x\")", 1), "done\n"), None);
+        assert_eq!(
+            still_open(&hole("handle", "fail(\"hole handle: x\")", 1), &text),
+            Some(41)
+        );
+        assert_eq!(
+            still_open(&hole("handle", "fail(\"hole handle: x\")", 1), "done\n"),
+            None
+        );
     }
 
     #[test]

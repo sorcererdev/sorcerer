@@ -74,12 +74,20 @@ fn a_file_that_appeared_after_the_plan_is_refused() {
     let plan = rig.plan("command", &[("command", "cancel_table")]).unwrap();
     write_file(dir.path(), MAIN, "mine = 1\n");
     let applied = rig.apply(plan);
-    assert_eq!(applied.refused, Some((MAIN.to_string(), WriteRefused::Exists)));
+    assert_eq!(
+        applied.refused,
+        Some((MAIN.to_string(), WriteRefused::Exists))
+    );
     assert!(applied.written.is_empty());
     assert_eq!(read(dir.path(), MAIN), "mine = 1\n");
     assert!(!dir.path().join(TEST).exists());
     let records = rig.apply_rig().generations.all().unwrap();
-    assert_eq!(records[0].files.len(), 1, "only the skipped file: {:?}", records[0].files);
+    assert_eq!(
+        records[0].files.len(),
+        1,
+        "only the skipped file: {:?}",
+        records[0].files
+    );
     assert!(records[0].holes.is_empty());
 }
 
@@ -97,7 +105,10 @@ fn write_new_refuses_a_link_out() {
     let rig = PlanRig::new(dir.path());
     let plan = rig.plan("tiny", &[("name", "x")]).unwrap();
     let applied = rig.apply(plan);
-    assert_eq!(applied.refused, Some(("src/link/x.py".to_string(), WriteRefused::Fenced)));
+    assert_eq!(
+        applied.refused,
+        Some(("src/link/x.py".to_string(), WriteRefused::Fenced))
+    );
     assert!(!outside.path().join("x.py").exists());
 }
 
@@ -165,7 +176,10 @@ fn replace_in(root: &std::path::Path, rel: &str, from: &str, to: &str) {
 #[test]
 fn open_holes_right_after_new_are_the_four_places() {
     let (_dir, rig) = generated();
-    let names: Vec<String> = open_after(&rig, None).into_iter().map(|(n, _, _)| n).collect();
+    let names: Vec<String> = open_after(&rig, None)
+        .into_iter()
+        .map(|(n, _, _)| n)
+        .collect();
     assert_eq!(names, ["field", "type", "handle", "field"]);
 }
 
@@ -186,7 +200,12 @@ fn a_replaced_block_placeholder_is_no_longer_open() {
 #[test]
 fn an_ident_placeholder_moved_two_lines_is_still_found() {
     let (dir, rig) = generated();
-    replace_in(dir.path(), MAIN, "from dataclasses import dataclass\n", "from dataclasses import dataclass\nimport os\nimport sys\n");
+    replace_in(
+        dir.path(),
+        MAIN,
+        "from dataclasses import dataclass\n",
+        "from dataclasses import dataclass\nimport os\nimport sys\n",
+    );
     let open = open_after(&rig, Some(&[std::path::PathBuf::from(MAIN)]));
     assert_eq!(
         open,

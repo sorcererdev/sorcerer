@@ -11,7 +11,10 @@ pub enum Piece<'t> {
     /// Text copied as it is.
     Text(&'t str),
     /// `{= name|filter|filter =}`: a value, its filters applied left to right.
-    Value { name: &'t str, filters: Vec<&'t str> },
+    Value {
+        name: &'t str,
+        filters: Vec<&'t str>,
+    },
     /// `{= ? name: kind | instruction =}`: a hole, what kind of code belongs there and what it
     /// is for. The instruction may be empty.
     Hole {
@@ -119,13 +122,18 @@ fn value_piece<'t>(inside: &'t str, template: &str) -> Result<Piece<'t>, String>
 
 fn hole_piece<'t>(inside: &'t str, template: &str) -> Result<Piece<'t>, String> {
     let (head, instruction) = inside.split_once('|').unwrap_or((inside, ""));
-    let (name, kind) = head
-        .split_once(':')
-        .ok_or_else(|| format!("the hole `{}` has no `: kind` (in `{template}`)", head.trim()))?;
+    let (name, kind) = head.split_once(':').ok_or_else(|| {
+        format!(
+            "the hole `{}` has no `: kind` (in `{template}`)",
+            head.trim()
+        )
+    })?;
     let (name, kind) = (name.trim(), kind.trim());
     refuse_empty_name(name, template)?;
     if kind.is_empty() {
-        return Err(format!("the hole `{name}` has no `: kind` (in `{template}`)"));
+        return Err(format!(
+            "the hole `{name}` has no `: kind` (in `{template}`)"
+        ));
     }
     Ok(Piece::Hole {
         name,
@@ -203,7 +211,10 @@ mod tests {
     #[test]
     fn an_unknown_filter_names_the_known_ones() {
         let error = fill("{= c|title =}", &[("c", "x")]).unwrap_err();
-        assert!(error.contains("title") && error.contains("snake"), "{error}");
+        assert!(
+            error.contains("title") && error.contains("snake"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -229,7 +240,11 @@ mod tests {
     #[test]
     fn a_hole_without_a_kind_is_an_error() {
         assert!(pieces("{= ? h =}").unwrap_err().contains("no `: kind`"));
-        assert!(pieces("{= ? h: | x =}").unwrap_err().contains("no `: kind`"));
+        assert!(
+            pieces("{= ? h: | x =}")
+                .unwrap_err()
+                .contains("no `: kind`")
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Inputs resolved in the generator's order, and the choices an enum input has now.
 
-use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::domain::templates::fill;
+use sorcerer_core::ports::view::CodebaseView;
 
 use crate::domain::generator::{Generator, Input, InputKind};
 use crate::domain::inputs::{Given, InputStop, Values, is_a_name, query_choices};
@@ -46,7 +46,13 @@ pub fn choices_for(
         .position(|(name, _)| name == input)
         .ok_or_else(|| InputStop::Template(format!("the generator has no input {input}")))?;
     let before = resolve_up_to(view, generator, given, position)?;
-    enum_choices(view, generator, &before, input, &generator.inputs[position].1)
+    enum_choices(
+        view,
+        generator,
+        &before,
+        input,
+        &generator.inputs[position].1,
+    )
 }
 
 /// The first `count` inputs resolved, in order.

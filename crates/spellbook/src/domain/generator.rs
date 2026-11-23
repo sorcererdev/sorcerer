@@ -198,7 +198,13 @@ fn input(name: &str, table: &Table) -> Result<Input, String> {
         "enum" => InputKind::Enum {
             one_of: keys.required_text("one_of")?,
         },
-        other => return Err(keys.at(&unknown_value_text("type", other, &["ident", "enum", "text"]))),
+        other => {
+            return Err(keys.at(&unknown_value_text(
+                "type",
+                other,
+                &["ident", "enum", "text"],
+            )));
+        }
     };
     if !matches!(kind, InputKind::Enum { .. }) && table.contains_key("one_of") {
         return Err(keys.at("one_of belongs to an input of type \"enum\""));
@@ -324,7 +330,7 @@ fn derive_order(text: &str) -> Vec<String> {
 }
 
 /// The entries in the order given, then any the order missed, in name order.
-fn in_file_order<'t, V: Copy>(entries: &BTreeMap<&'t String, V>, order: &[String]) -> Vec<(String, V)> {
+fn in_file_order<V: Copy>(entries: &BTreeMap<&String, V>, order: &[String]) -> Vec<(String, V)> {
     let ordered = order
         .iter()
         .filter_map(|name| entries.get_key_value(name).map(|(k, v)| ((*k).clone(), *v)));

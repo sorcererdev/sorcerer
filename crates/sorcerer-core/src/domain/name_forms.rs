@@ -2,7 +2,9 @@
 //! the style a template asks for (`{= command|pascal =}`).
 
 /// The filters a template may apply to a value, in the order the error message lists them.
-pub const FILTERS: &[&str] = &["snake", "pascal", "camel", "kebab", "upper", "sentence", "words"];
+pub const FILTERS: &[&str] = &[
+    "snake", "pascal", "camel", "kebab", "upper", "sentence", "words",
+];
 
 /// The words of a name, lowercase, whatever case style it was written in. Underscores, dashes
 /// and spaces separate words, and so does a capital letter after a small one. Digits stay with
@@ -61,7 +63,11 @@ fn case_words(piece: &str) -> Vec<String> {
 fn camel(words: &[String]) -> String {
     match words.split_first() {
         Some((first, rest)) => {
-            first.clone() + &rest.iter().map(|word| capitalised(word)).collect::<String>()
+            first.clone()
+                + &rest
+                    .iter()
+                    .map(|word| capitalised(word))
+                    .collect::<String>()
         }
         None => String::new(),
     }
@@ -120,6 +126,9 @@ mod tests {
     #[test]
     fn an_unknown_filter_lists_the_known_ones() {
         let error = apply_filter("title", "x").unwrap_err();
-        assert!(error.contains("title") && error.contains("snake, pascal"), "{error}");
+        assert!(
+            error.contains("title") && error.contains("snake, pascal"),
+            "{error}"
+        );
     }
 }

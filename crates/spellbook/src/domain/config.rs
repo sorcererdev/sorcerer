@@ -87,6 +87,9 @@ mod tests {
     fn a_bad_exclude_glob_is_named() {
         let (_dir, project) = project(Some("[spellbook]\nexclude = [\"[\"]\n"));
         let error = spellbook_config(&project).unwrap_err().to_string();
-        assert!(error.contains("exclude") && error.contains("config.toml"), "{error}");
+        assert!(
+            error.contains("exclude") && error.contains("config.toml"),
+            "{error}"
+        );
     }
 }

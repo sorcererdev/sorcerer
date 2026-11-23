@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use sorcerer_core::domain::fences::Fences;
 
-use crate::ports::workspace::{WriteRefused, Workspace};
+use crate::ports::workspace::{Workspace, WriteRefused};
 
 pub struct DiskWorkspace {
     pub root: PathBuf,

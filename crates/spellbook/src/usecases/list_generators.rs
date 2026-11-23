@@ -26,7 +26,9 @@ pub struct InputSummary {
 }
 
 /// Every generator of the project, by name, each summarised or the problem that stopped it.
-pub fn list_generators(generators: &dyn Generators) -> Vec<Result<GeneratorSummary, GeneratorProblem>> {
+pub fn list_generators(
+    generators: &dyn Generators,
+) -> Vec<Result<GeneratorSummary, GeneratorProblem>> {
     generators
         .all()
         .into_iter()

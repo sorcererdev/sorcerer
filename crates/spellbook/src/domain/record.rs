@@ -91,16 +91,19 @@ pub fn open_holes_of(plan: &Plan, written: &[String]) -> Vec<OpenHole> {
         .into_iter()
         .filter(|hole| hole.source == HoleOrigin::Placeholder)
         .flat_map(|hole| {
-            hole.places.iter().map(move |place| OpenHole {
-                generation: plan.id.clone(),
-                generator: plan.generator.clone(),
-                file: place.file.clone(),
-                line: place.line,
-                name: hole.name.clone(),
-                kind: hole.kind.clone(),
-                instruction: hole.instruction.clone(),
-                placeholder: place.text.clone(),
-            }).collect::<Vec<_>>()
+            hole.places
+                .iter()
+                .map(move |place| OpenHole {
+                    generation: plan.id.clone(),
+                    generator: plan.generator.clone(),
+                    file: place.file.clone(),
+                    line: place.line,
+                    name: hole.name.clone(),
+                    kind: hole.kind.clone(),
+                    instruction: hole.instruction.clone(),
+                    placeholder: place.text.clone(),
+                })
+                .collect::<Vec<_>>()
         })
         .collect()
 }

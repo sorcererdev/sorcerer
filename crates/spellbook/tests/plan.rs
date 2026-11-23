@@ -43,7 +43,11 @@ fn stopped(resolved: Resolved) -> InputStop {
 fn app_is_taken_when_one_folder_has_main_py() {
     let dir = bistro_project();
     let (generator, view) = command_in(dir.path());
-    let values = ready(resolve_inputs(&view, &generator, &given(&[("command", "cancel_table")])));
+    let values = ready(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("command", "cancel_table")]),
+    ));
     assert_eq!(values.get("app"), Some("bistro"));
     assert_eq!(values.get("service"), Some("booking"));
 }
@@ -91,7 +95,11 @@ fn a_missing_input_stops_with_its_prompt_and_choices() {
     let dir = bistro_project();
     write_file(dir.path(), "src/bistro/kitchen/models/__init__.py", "");
     let (generator, view) = command_in(dir.path());
-    let stop = stopped(resolve_inputs(&view, &generator, &given(&[("command", "x")])));
+    let stop = stopped(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("command", "x")]),
+    ));
     assert_eq!(
         input_stop_text(&stop),
         "service: the service it belongs to (booking, kitchen)"
@@ -114,7 +122,11 @@ fn a_missing_ident_stops_with_its_prompt() {
 fn an_ident_that_is_not_a_name_is_refused() {
     let dir = bistro_project();
     let (generator, view) = command_in(dir.path());
-    let stop = stopped(resolve_inputs(&view, &generator, &given(&[("command", "x/y")])));
+    let stop = stopped(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("command", "x/y")]),
+    ));
     assert!(matches!(stop, InputStop::NotAName { .. }), "{stop:?}");
 }
 
@@ -123,7 +135,11 @@ fn an_ident_in_any_case_form_is_the_same_words() {
     let dir = bistro_project();
     let (generator, view) = command_in(dir.path());
     for typed in ["cancel_table", "CancelTable", "cancel-table", "cancelTable"] {
-        let values = ready(resolve_inputs(&view, &generator, &given(&[("command", typed)])));
+        let values = ready(resolve_inputs(
+            &view,
+            &generator,
+            &given(&[("command", typed)]),
+        ));
         assert_eq!(values.get("command_"), Some("cancel_table"), "{typed}");
         assert_eq!(values.get("Command"), Some("CancelTable"), "{typed}");
     }
@@ -133,7 +149,11 @@ fn an_ident_in_any_case_form_is_the_same_words() {
 fn derive_sees_inputs_and_earlier_derives() {
     let dir = bistro_project();
     let (generator, view) = command_in(dir.path());
-    let values = ready(resolve_inputs(&view, &generator, &given(&[("command", "CancelTable")])));
+    let values = ready(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("command", "CancelTable")]),
+    ));
     assert_eq!(values.get("dir"), Some("src/bistro/booking/commands"));
     assert_eq!(
         values.get("module"),
@@ -150,13 +170,29 @@ fn the_command_template_renders_three_placeholder_holes() {
 
     let dir = bistro_project();
     let (generator, view) = command_in(dir.path());
-    let values = ready(resolve_inputs(&view, &generator, &given(&[("command", "cancel_table")])));
+    let values = ready(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("command", "cancel_table")]),
+    ));
     let python = loaded("python");
     let placeholder_of = |kind: &str, name: &str, instruction: &str| {
         placeholder(&python.language, kind, name, instruction).map_err(|e| e.to_string())
     };
-    let main = render(&generator.templates["command.py.dt"], &values, &generator.holes, &placeholder_of).unwrap();
-    let test = render(&generator.templates["command__test.py.dt"], &values, &generator.holes, &placeholder_of).unwrap();
+    let main = render(
+        &generator.templates["command.py.dt"],
+        &values,
+        &generator.holes,
+        &placeholder_of,
+    )
+    .unwrap();
+    let test = render(
+        &generator.templates["command__test.py.dt"],
+        &values,
+        &generator.holes,
+        &placeholder_of,
+    )
+    .unwrap();
     let holes = HoleBook::default()
         .with_file("cancel_table.py", &main.holes)
         .unwrap()
@@ -166,7 +202,13 @@ fn the_command_template_renders_three_placeholder_holes() {
     let placeholders: Vec<(&str, &str, u32)> = holes
         .iter()
         .filter(|hole| hole.source == HoleOrigin::Placeholder)
-        .map(|hole| (hole.name.as_str(), hole.places[0].file.as_str(), hole.places[0].line))
+        .map(|hole| {
+            (
+                hole.name.as_str(),
+                hole.places[0].file.as_str(),
+                hole.places[0].line,
+            )
+        })
         .collect();
     assert_eq!(
         placeholders,
@@ -217,16 +259,33 @@ fn the_command_plan_has_three_files_one_skipped_and_three_holes() {
     let dir = bistro_project();
     let rig = PlanRig::new(dir.path());
     let plan = rig.plan("command", &[("command", "cancel_table")]).unwrap();
-    let files: Vec<(&str, FileStatus)> = plan.files.iter().map(|f| (f.path.as_str(), f.status)).collect();
+    let files: Vec<(&str, FileStatus)> = plan
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.status))
+        .collect();
     assert_eq!(
         files,
         [
-            ("src/bistro/booking/commands/__init__.py", FileStatus::Skipped),
-            ("src/bistro/booking/commands/cancel_table.py", FileStatus::New),
-            ("src/bistro/booking/commands/cancel_table__test.py", FileStatus::New),
+            (
+                "src/bistro/booking/commands/__init__.py",
+                FileStatus::Skipped
+            ),
+            (
+                "src/bistro/booking/commands/cancel_table.py",
+                FileStatus::New
+            ),
+            (
+                "src/bistro/booking/commands/cancel_table__test.py",
+                FileStatus::New
+            ),
         ]
     );
-    let holes: Vec<&str> = plan.placeholder_holes().iter().map(|h| h.name.as_str()).collect();
+    let holes: Vec<&str> = plan
+        .placeholder_holes()
+        .iter()
+        .map(|h| h.name.as_str())
+        .collect();
     assert_eq!(holes, ["field", "type", "handle"]);
     assert_eq!(plan.id.len(), 8);
     assert_eq!(plan.files[1].lines, 30);
@@ -245,12 +304,23 @@ fn the_plan_writes_nothing() {
 fn a_path_out_of_the_project_fails_the_plan() {
     use spellbook::domain::plan::PlanStop;
 
-    for create in ["../x.py", "/abs/x.py", "C:\\\\x.py", ".sorcerer/x.py", ".git/x", "src/.env.local", "src/../../x.py"] {
+    for create in [
+        "../x.py",
+        "/abs/x.py",
+        "C:\\\\x.py",
+        ".sorcerer/x.py",
+        ".git/x",
+        "src/.env.local",
+        "src/../../x.py",
+    ] {
         let dir = bistro_project();
         write_tiny(dir.path(), create, "text = \"\"", &[]);
         let rig = PlanRig::new(dir.path());
         let stop = rig.plan("tiny", &[("name", "x")]).unwrap_err();
-        assert!(matches!(stop, PlanStop::PathRefused { .. }), "{create}: {stop:?}");
+        assert!(
+            matches!(stop, PlanStop::PathRefused { .. }),
+            "{create}: {stop:?}"
+        );
     }
 }
 
@@ -259,12 +329,20 @@ fn an_existing_file_fails_the_plan_by_default() {
     use spellbook::domain::plan::{PlanStop, plan_stop_text};
 
     let dir = bistro_project();
-    write_file(dir.path(), "src/bistro/booking/commands/cancel_table.py", "x = 1\n");
+    write_file(
+        dir.path(),
+        "src/bistro/booking/commands/cancel_table.py",
+        "x = 1\n",
+    );
     let rig = PlanRig::new(dir.path());
-    let stop = rig.plan("command", &[("command", "cancel_table")]).unwrap_err();
+    let stop = rig
+        .plan("command", &[("command", "cancel_table")])
+        .unwrap_err();
     assert_eq!(
         stop,
-        PlanStop::Exists { path: "src/bistro/booking/commands/cancel_table.py".into() }
+        PlanStop::Exists {
+            path: "src/bistro/booking/commands/cancel_table.py".into()
+        }
     );
     assert!(plan_stop_text(&stop).contains("is there already"));
 }
@@ -278,14 +356,25 @@ fn a_template_whose_placeholder_does_not_parse_fails_with_template_and_line() {
         dir.path(),
         "src/{= name =}.py",
         "template = \"tiny.py.dt\"",
-        &[("tiny.py.dt", "import os\n\nx = ({= ? h: expr | the value =})\n")],
+        &[(
+            "tiny.py.dt",
+            "import os\n\nx = ({= ? h: expr | the value =})\n",
+        )],
     );
     let rig = PlanRig::new(dir.path());
     let stop = rig.plan("tiny", &[("name", "x")]).unwrap_err();
-    let PlanStop::DoesNotParse { template, file, line } = &stop else {
+    let PlanStop::DoesNotParse {
+        template,
+        file,
+        line,
+    } = &stop
+    else {
         panic!("{stop:?}");
     };
-    assert_eq!((template.as_str(), file.as_str()), ("templates/tiny.py.dt", "src/x.py"));
+    assert_eq!(
+        (template.as_str(), file.as_str()),
+        ("templates/tiny.py.dt", "src/x.py")
+    );
     assert!(*line >= 3, "{line}");
     assert!(plan_stop_text(&stop).contains("would not parse"));
 }

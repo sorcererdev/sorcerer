@@ -15,7 +15,11 @@ pub struct GeneratorProblem {
 
 impl fmt::Display for GeneratorProblem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "generator {} ({}): {}", self.generator, self.file, self.why)
+        write!(
+            f,
+            "generator {} ({}): {}",
+            self.generator, self.file, self.why
+        )
     }
 }
 
@@ -106,7 +110,10 @@ mod tests {
             unknown_key_text("content", &["create", "text"]),
             "`content` is not a key; write `text`"
         );
-        assert_eq!(unknown_key_text("insert", &["create"]), "`insert` arrives in milestone 2");
+        assert_eq!(
+            unknown_key_text("insert", &["create"]),
+            "`insert` arrives in milestone 2"
+        );
         assert_eq!(
             unknown_key_text("promt", &["prompt", "type"]),
             "`promt` is not a key; did you mean `prompt`?"

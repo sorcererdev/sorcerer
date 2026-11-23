@@ -167,8 +167,10 @@ fn rendered_body(
                 hole,
             });
         }
-        return render(template, values, &generator.holes, &|_, _, _| Err(String::new()))
-            .map_err(|why| PlanStop::Template(format!("{path}: {why}")));
+        return render(template, values, &generator.holes, &|_, _, _| {
+            Err(String::new())
+        })
+        .map_err(|why| PlanStop::Template(format!("{path}: {why}")));
     };
     let placeholder_of = |kind: &str, name: &str, instruction: &str| {
         placeholder(&loaded.language, kind, name, instruction).map_err(|e| e.to_string())
@@ -179,10 +181,15 @@ fn rendered_body(
 
 /// The first hole in a template that no `[holes.X]` fills.
 fn first_placeholder_hole(template: &str, generator: &Generator) -> Option<String> {
-    pieces(template).ok()?.into_iter().find_map(|piece| match piece {
-        Piece::Hole { name, .. } if !generator.holes.contains_key(name) => Some(name.to_string()),
-        _ => None,
-    })
+    pieces(template)
+        .ok()?
+        .into_iter()
+        .find_map(|piece| match piece {
+            Piece::Hole { name, .. } if !generator.holes.contains_key(name) => {
+                Some(name.to_string())
+            }
+            _ => None,
+        })
 }
 
 fn refuse_a_parse_error(
@@ -191,8 +198,8 @@ fn refuse_a_parse_error(
     edit: &Edit,
     path: &str,
 ) -> Result<(), PlanStop> {
-    let errors = parse_errors_of(loaded, text)
-        .map_err(|e| PlanStop::Template(format!("{path}: {e}")))?;
+    let errors =
+        parse_errors_of(loaded, text).map_err(|e| PlanStop::Template(format!("{path}: {e}")))?;
     match errors.first() {
         None => Ok(()),
         Some(line) => Err(PlanStop::DoesNotParse {
