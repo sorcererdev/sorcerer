@@ -1,0 +1,2 @@
+# a command imports sqlite3, which belongs in an adapter.
+patch = "sqlite3-in-command.patch"

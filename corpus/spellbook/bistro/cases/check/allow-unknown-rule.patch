@@ -1,0 +1,13 @@
+diff --git a/src/bistro/booking/commands/create_booking.py b/src/bistro/booking/commands/create_booking.py
+index f136934..b96011f 100644
+--- a/src/bistro/booking/commands/create_booking.py
++++ b/src/bistro/booking/commands/create_booking.py
+@@ -2,6 +2,8 @@
+ 
+ from dataclasses import dataclass
+ from datetime import date, time
++# spellbook:allow commands-use-port — typo in the rule name
++import sqlite3
+ 
+ from bistro.booking.models.booking import Booking
+ from bistro.shared.result import Ok

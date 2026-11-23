@@ -1,0 +1,18 @@
+[
+  {
+    "rule": "unknown-rule",
+    "file": "src/bistro/booking/commands/create_booking.py",
+    "line": 5,
+    "severity": "warn",
+    "message": "`spellbook:allow commands-use-port` names no rule (the rules are: adapters-in-main, commands-use-ports, failures-returned, web-uses-commands)",
+    "fingerprint": "9474f68"
+  },
+  {
+    "rule": "commands-use-ports",
+    "file": "src/bistro/booking/commands/create_booking.py",
+    "line": 6,
+    "severity": "warn",
+    "message": "Commands and queries talk to ports, not the database (python-htmx: ports & adapters)",
+    "fingerprint": "7b9ca4a"
+  }
+]

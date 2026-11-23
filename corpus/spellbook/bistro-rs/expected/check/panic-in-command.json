@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "commands-no-panic",
+    "file": "src/booking/commands/create_booking.rs",
+    "line": 47,
+    "severity": "warn",
+    "message": "A command returns its failure instead of panicking",
+    "fingerprint": "c45adad"
+  }
+]

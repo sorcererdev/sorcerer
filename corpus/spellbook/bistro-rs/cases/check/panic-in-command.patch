@@ -1,0 +1,14 @@
+diff --git a/src/booking/commands/create_booking.rs b/src/booking/commands/create_booking.rs
+index 0c48854..ed47eff 100644
+--- a/src/booking/commands/create_booking.rs
++++ b/src/booking/commands/create_booking.rs
+@@ -43,6 +43,9 @@ impl CreateBooking {
+     }
+ 
+     pub fn handle(&self, input: CreateBookingInput) -> Result<Booking, CreateBookingFailure> {
++        if input.party == 0 {
++            panic!("an empty party");
++        }
+         let Some(table) = self.bookings.table(&input.table_id) else {
+             return Err(CreateBookingFailure::TableNotFound {
+                 reason: format!("there is no table {}", input.table_id),

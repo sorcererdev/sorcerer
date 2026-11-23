@@ -1,0 +1,1 @@
+query rule no-finding: its query has no `@finding` capture; capture the node to report as `@finding`

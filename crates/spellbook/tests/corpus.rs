@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use spellbook::adapters::generator_dir::generator_named;
 use spellbook::domain::plan::plan_stop_text;
+use spellbook::usecases::check_files::check_files;
+use spellbook::usecases::check_project::check_project;
 use spellbook::usecases::open_holes::{HolesDeps, open_holes};
 use support::*;
 use tempfile::TempDir;
@@ -48,9 +50,18 @@ struct ExpectedHole {
 /// A `load` case: a folder of overlay files and the sentence a newcomer reads.
 #[derive(Deserialize)]
 struct LoadCase {
-    generator: String,
+    /// The generator whose load or plan is the mistake; none for a mistake in the rules.
+    generator: Option<String>,
     #[serde(default)]
     inputs: BTreeMap<String, String>,
+    /// A file to check, for a mistake that only shows when a rule runs.
+    check: Option<String>,
+}
+
+/// A `check` case: a patch over the base, then every file checked.
+#[derive(Deserialize)]
+struct CheckCase {
+    patch: Option<String>,
 }
 
 fn corpus_dir(name: &str) -> PathBuf {
@@ -207,8 +218,11 @@ fn load_sentence(dir: &Path, corpus: &CorpusFile, id: &str) -> String {
     let overlay = case_dir.join("spellbook");
     copy_tree(&overlay, &project.path().join(".sorcerer/spellbook"));
     let rig = PlanRig::new(project.path());
-    let loaded = generator_named(&rig.project, &case.generator)
-        .unwrap_or_else(|| panic!("load/{id}: no generator {}", case.generator));
+    let Some(generator) = &case.generator else {
+        return rules_sentence(project.path(), id, case.check.as_deref());
+    };
+    let loaded = generator_named(&rig.project, generator)
+        .unwrap_or_else(|| panic!("load/{id}: no generator {generator}"));
     if let Err(problem) = loaded {
         return problem.to_string();
     }
@@ -217,9 +231,24 @@ fn load_sentence(dir: &Path, corpus: &CorpusFile, id: &str) -> String {
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    match rig.plan(&case.generator, &given) {
+    match rig.plan(generator, &given) {
         Ok(_) => panic!("load/{id}: the generator loaded and planned; the mistake is gone"),
         Err(stop) => plan_stop_text(&stop),
+    }
+}
+
+/// What a newcomer reads for a mistake in the rules: the rules file's problem, or the sentence
+/// of the rule that could not run on the file.
+fn rules_sentence(root: &Path, id: &str, check: Option<&str>) -> String {
+    let wired = wired_at(root);
+    let checking = match wired.checking() {
+        Ok(checking) => checking,
+        Err(problem) => return problem,
+    };
+    let file = check.unwrap_or_else(|| panic!("load/{id}: the rules load; name a file to `check`"));
+    match check_files(&checking.deps(), &[PathBuf::from(file)]) {
+        Ok(_) => panic!("load/{id}: the rules ran; the mistake is gone"),
+        Err(e) => e.to_string(),
     }
 }
 
@@ -254,4 +283,54 @@ fn run_load_cases(name: &str) {
 #[test]
 fn bistro_load_mistakes_say_what_is_wrong() {
     run_load_cases("bistro");
+}
+
+/// Runs one `check` case: the patch applied, every file checked, the findings against
+/// `expected/check/<id>.json`.
+fn run_check_case(dir: &Path, corpus: &CorpusFile, id: &str) {
+    let case: CheckCase = read_toml(&dir.join(format!("cases/check/{id}.toml")));
+    let project = project_of(dir, corpus);
+    if let Some(patch) = &case.patch {
+        git_apply(project.path(), &dir.join("cases/check").join(patch));
+    }
+    let wired = wired_at(project.path());
+    let checking = wired
+        .checking()
+        .unwrap_or_else(|why| panic!("check/{id}: {why}"));
+    let found = check_project(&checking.deps()).unwrap();
+    let got = serde_json::to_string_pretty(&found).unwrap() + "\n";
+    let path = dir.join(format!("expected/check/{id}.json"));
+    if blessing() {
+        std::fs::write(&path, got).unwrap();
+        return;
+    }
+    let expected =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    assert_eq!(unix_newlines(&got), unix_newlines(&expected), "check/{id}");
+    if id == "clean" {
+        assert!(found.is_empty(), "check/clean found {found:#?}");
+    }
+}
+
+fn run_check_cases(name: &str) {
+    let dir = corpus_dir(name);
+    let corpus: CorpusFile = read_toml(&dir.join("corpus.toml"));
+    let ids = case_ids(&dir, "check", "toml");
+    assert!(
+        ids.iter().any(|id| id == "clean"),
+        "{name} has no clean case"
+    );
+    for id in ids {
+        run_check_case(&dir, &corpus, &id);
+    }
+}
+
+#[test]
+fn bistro_check_cases_find_what_was_planted() {
+    run_check_cases("bistro");
+}
+
+#[test]
+fn bistro_rs_check_cases_find_what_was_planted() {
+    run_check_cases("bistro-rs");
 }

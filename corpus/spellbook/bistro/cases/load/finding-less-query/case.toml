@@ -1,0 +1,2 @@
+# A query rule whose query has no `@finding` capture (it fails when the rule first runs).
+check = "src/bistro/booking/commands/create_booking.py"

@@ -1,0 +1,2 @@
+# the allow names no rule (a typo): it silences nothing, and the comment is warned about.
+patch = "allow-unknown-rule.patch"
