@@ -186,6 +186,22 @@ fn holes_lists_four_places_then_three() {
 }
 
 #[test]
+fn a_hole_whose_file_is_briefly_gone_comes_back_with_it() {
+    let dir = bistro_project();
+    run(
+        dir.path(),
+        &["new", "command", "--set", "command=cancel_table"],
+    );
+    let kept = std::fs::read_to_string(dir.path().join(MAIN)).unwrap();
+    std::fs::remove_file(dir.path().join(MAIN)).unwrap();
+    let (_, out, _) = run(dir.path(), &["holes"]);
+    assert!(out.ends_with("1 open hole\n"), "{out}");
+    std::fs::write(dir.path().join(MAIN), kept).unwrap();
+    let (_, out, _) = run(dir.path(), &["holes"]);
+    assert!(out.ends_with("4 open holes\n"), "{out}");
+}
+
+#[test]
 fn doctor_says_holes_are_filled_by_hand_without_conjure() {
     let dir = bistro_project();
     let (code, out, err) = run(dir.path(), &["doctor"]);

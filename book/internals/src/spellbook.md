@@ -111,7 +111,8 @@ one file a command (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `check.rs`, `doc
    that appeared since the plan is never overwritten), stops at the first refusal, appends the
    record for what was written, and adds the placeholder places to `holes.json`.
 5. `open_holes` re-reads each saved place and keeps it at its current line while
-   `still_open` finds it; `holes.json` is rewritten with what is still open.
+   `still_open` finds it; `holes.json` is rewritten with what is still open. A hole whose file is
+   missing is kept (a stash or branch switch may bring it back) but not listed.
 
 ## The server
 

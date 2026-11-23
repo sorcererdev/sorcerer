@@ -41,6 +41,8 @@ pub fn open_holes(
                 kept.push(now);
             }
             Looked::Gone => {}
+            // a stash or a branch switch may bring the file back: keep the row, list nothing
+            Looked::FileMissing => kept.push(hole),
             Looked::Unreadable => {
                 every_file_read = false;
                 kept.push(hole);
@@ -56,13 +58,14 @@ pub fn open_holes(
 enum Looked {
     Open(OpenHole),
     Gone,
+    FileMissing,
     Unreadable,
 }
 
 fn look_again(view: &dyn CodebaseView, hole: &OpenHole) -> Looked {
     let path = Path::new(&hole.file);
     if !view.exists(path) {
-        return Looked::Gone;
+        return Looked::FileMissing;
     }
     let Ok(text) = view.text(path) else {
         return Looked::Unreadable;
