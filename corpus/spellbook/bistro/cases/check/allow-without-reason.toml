@@ -1,0 +1,2 @@
+# the allow names the rule but gives no reason: the import is silenced and the comment is warned about.
+patch = "allow-without-reason.patch"

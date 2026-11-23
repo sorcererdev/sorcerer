@@ -17,7 +17,7 @@ use sorcerer_core::domain::language::Language;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::{Error, Result};
 
-use crate::domain::templates::fill;
+use sorcerer_core::domain::templates::fill;
 
 /// `[test]`: where a source file's tests live.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

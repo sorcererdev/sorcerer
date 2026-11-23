@@ -36,6 +36,12 @@ do not use the plugin, `vim.lsp.start({ name = "conjure", cmd = { "conjure", "ls
 vim.fs.root(0, ".git"), flags = { debounce_text_changes = 0 } })` for every buffer under the
 root does the same.
 
+**Holes.** A hole that [spellbook](spellbook.md) left (a placeholder that parses and says what
+belongs there) is code in a function like any other, so its line offers *Conjure here* with no
+setup. With spellbook's `conjure_holes = true`, `:Spellbook new` runs it on the first hole once the
+files are written; conjure writes the unit whole, so the holes of one unit are one change, marked
+and undoable.
+
 **VS Code.** The `Conjure` extension (`editors/vscode/conjure`) starts `conjure lsp` for each
 workspace folder. It finds the binary from the `conjure.path` setting (user settings only; a
 workspace's settings cannot choose the program it runs), then `PATH`, `~/.cargo/bin` and

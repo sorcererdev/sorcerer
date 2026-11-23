@@ -53,8 +53,9 @@ it never keeps them under the project.
 | `unit_separator` | joins a method to its type in a unit's name; `.` unless set (Rust ships `::`) |
 | `[unit] name` | patterns that read a unit's name from its first line, when the queries do not |
 
-Two tables are read by [conjure](conjure.md): `[test]` and `[imports]` (below). Other tables
-(`[check]` and so on) belong to individual tools and are described in their chapters.
+Two tables are read by [conjure](conjure.md): `[test]` and `[imports]`, and one by
+[spellbook](spellbook.md): `[holes]` (below). Other tables belong to individual tools and are
+described in their chapters.
 
 ## What conjure reads from a language
 
@@ -88,6 +89,32 @@ Imports are found by a query file, `queries/imports.scm`, that captures each imp
 
 A key that is not in the tables is an error naming the language and the table. A language with
 no `imports.scm` has no related files, and conjure still works.
+
+## What spellbook reads from a language
+
+Spellbook writes a placeholder where a generator leaves a hole, and takes the placeholder of
+each kind from the language file:
+
+```toml
+[holes]
+# One template per kind, filled with the hole's {= name =} and {= instruction =}. Python ships
+# these four; Rust ships ident = "todo_{= name =}", type = "()", and todo!("hole …") for
+# expr and block.
+ident = "todo_{= name =}"
+type  = "object"
+expr  = "None  # hole {= name =}: {= instruction =}"
+block = "raise NotImplementedError(\"hole {= name =}: {= instruction =}\")"
+```
+
+Every placeholder must parse where its kind belongs (`ident` and `type` in a declaration,
+`block` as a body, `expr` as a value), because spellbook parses every file it plans before it
+writes it. `expr` and `block` should carry `hole {= name =}:` in the code: that is how
+`spellbook holes` finds them again, anywhere in the file. A generator that uses a kind the
+language does not have is refused with the kinds it has; a value that is not text is an error
+naming the language and the kind.
+
+A project's own `[holes]` (in `.sorcerer/languages/<name>/language.toml`) replaces the shipped
+table whole, as any table does, so it restates every kind its generators use.
 
 ## Changing a shipped language
 

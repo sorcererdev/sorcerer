@@ -18,3 +18,11 @@ tests_for = "{= dir =}/{= stem =}__test.py"
 
 [imports]
 resolve = ["{= path =}.py", "{= path =}/__init__.py", "src/{= path =}.py", "src/{= path =}/__init__.py"]
+
+# The code spellbook writes where a generator leaves a hole: one template per kind, filled with
+# the hole's name and instruction. Every placeholder must parse where its kind belongs.
+[holes]
+ident = "todo_{= name =}"
+type = "object"
+expr = "None  # hole {= name =}: {= instruction =}"
+block = "raise NotImplementedError(\"hole {= name =}: {= instruction =}\")"

@@ -1,0 +1,35 @@
+# `pub mod clock;` in ports/mod.rs is the person's in M1 (a region, milestone 2).
+generator = "port"
+
+[inputs]
+port = "clock"
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "src/booking/ports/clock/in_memory.rs"
+line = 10
+
+[[holes]]
+name = "method"
+kind = "ident"
+file = "src/booking/ports/clock/in_memory.rs"
+line = 9
+
+[[holes]]
+name = "method"
+kind = "ident"
+file = "src/booking/ports/clock/mod.rs"
+line = 6
+
+[[holes]]
+name = "returns"
+kind = "type"
+file = "src/booking/ports/clock/in_memory.rs"
+line = 9
+
+[[holes]]
+name = "returns"
+kind = "type"
+file = "src/booking/ports/clock/mod.rs"
+line = 6

@@ -2,8 +2,9 @@
 
 `crates/sorcerer-lsp` is everything about being a language server that is not about one
 product. Scry's server (`scry lsp`) is the first product on it; conjure's server is next, and
-uses what the host added for it (the open documents' text, `apply_edit`); spellbook's will plug
-in the same way. No scry type appears in the crate.
+uses what the host added for it (the open documents' text, `apply_edit`); spellbook's server (`spellbook lsp`) plugs
+in the same way, with no change to the host (`tracks_text` false, execute commands, `publish`,
+`show_document`). No scry type appears in the crate.
 
 It is synchronous like the rest of the workspace: `lsp-server` gives a connection as two
 channels, and `lsp-types` the message types (its `Uri`, which `uri.rs` turns into paths

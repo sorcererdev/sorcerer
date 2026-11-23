@@ -11,4 +11,3 @@ pub mod reply;
 pub mod rules;
 pub mod scry_notes;
 pub mod situation;
-pub mod templates;

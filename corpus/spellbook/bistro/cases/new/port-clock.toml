@@ -1,0 +1,4 @@
+generator = "port"
+
+[inputs]
+port = "clock"

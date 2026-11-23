@@ -2,10 +2,11 @@
 
 Small tools that read your code alongside you. **scry** reviews what you changed and puts each
 finding on its line. **conjure** writes one small change where you ask, and marks it so you can
-undo it. **spellbook** (conventions) is still to come. They share one core and talk through
+undo it. **spellbook** (conventions as data) is in its first milestone: generators write every file of a
+convention, with holes that say what belongs there, and rules check that the conventions hold. They share one core and talk through
 files in `.sorcerer/`.
 
-**Status:** scry and conjure; Python and Rust; Windows, macOS and Linux; early (0.1).
+**Status:** scry and conjure; spellbook's first milestone in the repository, not yet released; Python and Rust; Windows, macOS and Linux; early (0.1).
 
 ## Install
 

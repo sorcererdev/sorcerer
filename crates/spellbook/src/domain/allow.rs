@@ -1,0 +1,115 @@
+//! Allow comments: a person silences one rule at one place with a reason.
+//!
+//! Written in the file's own comment syntax, on the line of the finding or the line above:
+//! `# spellbook:allow commands-use-ports — migration, tracked in issue 12`. The reason follows
+//! an em dash, ` - ` or ` -- `.
+
+/// One allow comment found in a file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllowComment {
+    /// The line it is on (from 1).
+    pub line: u32,
+    /// The rule it names.
+    pub rule: String,
+    pub has_reason: bool,
+}
+
+const MARK: &str = "spellbook:allow";
+
+/// Every allow comment in a file's text, given how its language starts a line comment.
+///
+/// Example: with `#`, the line `x = 1  # spellbook:allow a-rule — why` is an allow of `a-rule`
+/// with a reason; `# spellbook:allow a-rule` is one without.
+pub fn allow_comments(text: &str, comment_marker: &str) -> Vec<AllowComment> {
+    text.lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let line_number = u32::try_from(index + 1).unwrap_or(u32::MAX);
+            allow_in_line(line, comment_marker, line_number)
+        })
+        .collect()
+}
+
+fn allow_in_line(line: &str, comment_marker: &str, line_number: u32) -> Option<AllowComment> {
+    let at = line.find(MARK)?;
+    // The comment marker comes right before the word (a `#` inside a string earlier is not it).
+    if !line[..at].trim_end().ends_with(comment_marker) {
+        return None;
+    }
+    let after_mark = line[at + MARK.len()..].trim_start();
+    let rule: String = after_mark
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    Some(AllowComment {
+        line: line_number,
+        has_reason: has_a_reason(after_mark[rule.len()..].trim()),
+        rule,
+    })
+}
+
+/// Whether what follows the rule is a separator and then some words.
+fn has_a_reason(after_rule: &str) -> bool {
+    ["—", "--", "-"].iter().any(|separator| {
+        after_rule
+            .strip_prefix(separator)
+            .is_some_and(|reason| !reason.trim().is_empty())
+    })
+}
+
+/// The allow comment that silences a finding: on its line or the line above, naming its rule.
+pub fn silencing<'c>(
+    comments: &'c [AllowComment],
+    rule: &str,
+    line: u32,
+) -> Option<&'c AllowComment> {
+    comments
+        .iter()
+        .find(|c| c.rule == rule && (c.line == line || c.line + 1 == line))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reason_follows_a_dash() {
+        let text = "import x  # spellbook:allow commands-use-ports — migration\n";
+        assert_eq!(
+            allow_comments(text, "#"),
+            [AllowComment {
+                line: 1,
+                rule: "commands-use-ports".into(),
+                has_reason: true
+            }]
+        );
+        for separator in [" - ", " -- "] {
+            let line = format!("# spellbook:allow a{separator}because");
+            assert!(allow_comments(&line, "#")[0].has_reason, "{line}");
+        }
+    }
+
+    #[test]
+    fn no_reason_when_nothing_follows_the_dash_or_the_rule() {
+        assert!(!allow_comments("# spellbook:allow a", "#")[0].has_reason);
+        assert!(!allow_comments("# spellbook:allow a —", "#")[0].has_reason);
+        assert!(!allow_comments("# spellbook:allow a — ", "#")[0].has_reason);
+    }
+
+    #[test]
+    fn other_comments_are_not_allows() {
+        assert!(allow_comments("# a note about spellbook:allow", "#").is_empty());
+        assert!(allow_comments("x = 1", "#").is_empty());
+        assert!(allow_comments("// spellbook:allow a — r", "#").is_empty());
+        assert_eq!(allow_comments("// spellbook:allow a — r", "//").len(), 1);
+    }
+
+    #[test]
+    fn an_allow_silences_its_line_and_the_next() {
+        let comments = allow_comments("# spellbook:allow a — r\nimport x\n\nimport y\n", "#");
+        assert!(silencing(&comments, "a", 1).is_some());
+        assert!(silencing(&comments, "a", 2).is_some());
+        assert!(silencing(&comments, "a", 4).is_none());
+        assert!(silencing(&comments, "b", 2).is_none());
+    }
+}

@@ -8,7 +8,7 @@ Sorcerer is a Cargo workspace. The libraries are:
 | `sorcerer-models` | providers, researchers, the decider (Jev), the claim checker | `sorcerer-core` |
 | `sorcerer-lsp` | the language-server host: handshake, main loop, delayed jobs, the client's senders | nothing of ours |
 
-Products (scry, conjure) depend on both and never on each other. A product that needs
+Products (scry, conjure, spellbook) depend on them and never on each other. A product that needs
 another's results reads a versioned file under `.sorcerer/state/`.
 
 Core is synchronous and makes no model calls. Everything that spends money lives in
@@ -42,6 +42,8 @@ root.
 | `domain/fences.rs` | what a model may never read, matched on a resolved path |
 | `domain/trust.rs` | `needs_trust`: what in a project's own files must be trusted |
 | `domain/fnv.rs` | the one hash |
+| `domain/templates.rs` | the `{= … =}` template grammar: `pieces`, `fill` (values, filters; a hole has no value) |
+| `domain/name_forms.rs` | a name's words in any case style; the filters `snake`, `pascal`, `camel`, `kebab`, `upper`, `sentence`, `words` |
 | `domain/versioned.rs` | `Versioned`, `Snapshot`: a product's state file as data |
 | `ports/view.rs` | `CodebaseView`: the questions a product asks about a codebase |
 | `ports/ledger.rs` | `Ledger`: append and read errands |

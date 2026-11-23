@@ -1,0 +1,10 @@
+diff --git a/src/bistro/booking/commands/cancel_table.py b/src/bistro/booking/commands/cancel_table.py
+index 89ffeb2..ec93f7f 100644
+--- a/src/bistro/booking/commands/cancel_table.py
++++ b/src/bistro/booking/commands/cancel_table.py
+@@ -27,4 +27,4 @@ class CancelTable:
+         """Takes the ports it uses; main.py passes their adapters."""
+ 
+     def handle(self, input: CancelTableInput) -> CancelTableOutput:
+-        raise NotImplementedError("hole handle: its first case, from the test file beside it")
++        return Ok(None)

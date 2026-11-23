@@ -1,0 +1,1 @@
+generator command (generator.toml): [[edits]] 2: `content` is not a key; write `text`

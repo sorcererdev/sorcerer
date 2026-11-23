@@ -1,0 +1,1 @@
+generator command (templates/command.py.dt): the language python has no hole kind stmt (it has: block, expr, ident, type)

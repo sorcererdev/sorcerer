@@ -1,0 +1,12 @@
+# The conventions of bistro-rs, checked by `spellbook check` and on save in the editor.
+
+# A command returns its failures (they are its Failure enum's cases); a panic skips every caller's
+# handling. `todo!` is left out: it is the placeholder a generator leaves in a hole, and conjure
+# or a person replaces it. (`.unwrap()` is not a rule here: a command file holds its tests, and a
+# test may unwrap; a rule cannot yet tell the two apart.)
+[rules.commands-no-panic]
+files    = "src/{service}/commands/*.rs"
+exclude  = ["**/mod.rs"]
+match    = { kind = "macro_invocation", regex = "^(panic|unreachable|unimplemented)!" }
+message  = "A command returns its failure instead of panicking"
+severity = "warn"

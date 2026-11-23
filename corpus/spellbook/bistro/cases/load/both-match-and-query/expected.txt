@@ -1,0 +1,1 @@
+.sorcerer/spellbook/rules.toml: rule both: write `match` or `query`, not both

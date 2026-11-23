@@ -1,0 +1,5 @@
+# A hole kind (`stmt`) the language file does not list.
+generator = "command"
+
+[inputs]
+command = "cancel_table"

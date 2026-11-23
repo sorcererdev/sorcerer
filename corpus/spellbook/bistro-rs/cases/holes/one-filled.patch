@@ -1,0 +1,14 @@
+diff --git a/src/booking/commands/cancel_table.rs b/src/booking/commands/cancel_table.rs
+index 5228f09..2d66913 100644
+--- a/src/booking/commands/cancel_table.rs
++++ b/src/booking/commands/cancel_table.rs
+@@ -15,7 +15,8 @@ pub struct CancelTable;
+ 
+ impl CancelTable {
+     pub fn handle(&self, input: CancelTableInput) -> Result<(), CancelTableFailure> {
+-        todo!("hole handle: its first case, from the test below")
++        let _ = input;
++        Ok(())
+     }
+ }
+ 

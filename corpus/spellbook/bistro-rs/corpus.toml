@@ -1,0 +1,5 @@
+# bistro-rs: spellbook's Rust corpus, on a copy of scry's bistro-rs base. The corpus test
+# (crates/spellbook/tests/corpus.rs) reads this file.
+name     = "bistro-rs"
+language = "rust"
+base     = "../../scry/bistro-rs/base"

@@ -12,7 +12,7 @@ use tree_sitter::{QueryCursor, StreamingIterator};
 
 use crate::domain::language_tables::{ImportsTable, imports_table};
 use crate::domain::situation::{RELATED_FILES, RELATED_LINES};
-use crate::domain::templates::fill;
+use sorcerer_core::domain::templates::fill;
 
 /// The project files `file` imports, with the first 120 lines of each, at most 8, in the order
 /// the imports are written. A language with no `imports.scm` has none.

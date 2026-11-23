@@ -1,0 +1,2 @@
+# a command panics instead of returning a failure.
+patch = "panic-in-command.patch"

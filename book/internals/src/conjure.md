@@ -39,7 +39,7 @@ Conjure is in five layers (see [Architecture](architecture.md)).
 **Domain** (`src/domain/`), no I/O:
 
 - `config.rs`: `ConjureConfig`, `conjure_config`, `PRODUCT`.
-- `templates.rs`: `fill` (`{= name =}`). `language_tables.rs`: `TestTable`, `ImportsTable`,
+- `language_tables.rs` (its path templates filled with core's `templates::fill`, `{= name =}`): `TestTable`, `ImportsTable`,
   `test_table`, `imports_table`, `tests_path`: the language file's `[test]` and `[imports]`,
   read strictly from `Language.rest`.
 - `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `situation_text`,

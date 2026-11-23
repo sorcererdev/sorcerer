@@ -2,7 +2,7 @@
 
 Everything is optional. With no `.sorcerer/config.toml`, the tools use their defaults
 (see [What sorcerer is](what-sorcerer-is.md)). Each tool reads its own table (`[scry]`,
-`[conjure]` and later `[spellbook]`) and refuses keys it does not know; a top-level
+`[conjure]`, `[spellbook]`) and refuses keys it does not know; a top-level
 table no tool knows is reported as a warning, since it is probably a typo.
 
 ## `[conjure]`
@@ -15,6 +15,15 @@ table no tool knows is reported as a warning, since it is probably a typo.
 | `exclude` | globs of files conjure never writes, such as `gen/**` |
 
 See [Conjure](conjure.md).
+
+## `[spellbook]`
+
+| key | meaning |
+|---|---|
+| `enabled` | whether spellbook runs in this project: `true` by default |
+| `exclude` | globs of files no rule looks at, such as `gen/**`: `spellbook check` and the editor's findings skip them. It is the rules', not generation's: a generator ignores it, since it writes only what you ask for by name |
+
+See [Spellbook](spellbook.md).
 
 ## `[model]`
 

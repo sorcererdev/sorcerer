@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "allow-without-reason",
+    "file": "src/bistro/booking/commands/create_booking.py",
+    "line": 5,
+    "severity": "warn",
+    "message": "`spellbook:allow commands-use-ports` gives no reason: write `spellbook:allow commands-use-ports — why it is fine here`",
+    "fingerprint": "54c922a"
+  }
+]

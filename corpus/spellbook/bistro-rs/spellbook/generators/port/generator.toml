@@ -1,0 +1,35 @@
+name        = "Port"
+summary     = "A port: its trait, an in-memory adapter"
+description = "ports/NAME/mod.rs (the trait, one method to start from) and in_memory.rs (an adapter whose method body is a hole)"
+language    = "rust"
+examples    = ["spellbook new port --set service=booking --set port=clock"]
+
+[inputs.service]
+type   = "enum"
+one_of = "services"
+prompt = "The service the port belongs to"
+
+[inputs.port]
+type   = "ident"
+prompt = "The port (clock, email_sender)"
+
+[derive]
+Port = "{= port|pascal =}"
+dir  = "src/{= service|snake =}/ports/{= port|snake =}"
+
+[query.services]
+glob  = "src/*/ports"
+value = "parent folder"
+
+[[edits]]
+create   = "{= dir =}/mod.rs"
+template = "mod.rs.dt"
+
+[[edits]]
+create   = "{= dir =}/in_memory.rs"
+template = "in_memory.rs.dt"
+
+# The doc line starts as the port's name in words.
+[holes.purpose]
+source = "derived"
+value  = "{= port|sentence =}."

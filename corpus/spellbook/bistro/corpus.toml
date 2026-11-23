@@ -1,0 +1,5 @@
+# bistro: spellbook's Python corpus, on a copy of conjure's bistro base. The corpus test
+# (crates/spellbook/tests/corpus.rs) reads this file.
+name     = "bistro"
+language = "python"
+base     = "../../conjure/bistro/base"

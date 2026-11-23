@@ -1,0 +1,29 @@
+# A name already in PascalCase: the filters read it as words, so the file is snake_case.
+generator = "command"
+
+[inputs]
+command = "CancelTable"
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/bistro/booking/commands/cancel_table.py"
+line = 10
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/bistro/booking/commands/cancel_table__test.py"
+line = 11
+
+[[holes]]
+name = "handle"
+kind = "block"
+file = "src/bistro/booking/commands/cancel_table.py"
+line = 30
+
+[[holes]]
+name = "type"
+kind = "type"
+file = "src/bistro/booking/commands/cancel_table.py"
+line = 10

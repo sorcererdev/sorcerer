@@ -1,0 +1,5 @@
+# An `expr` hole inside parentheses: its placeholder ends in a comment, which swallows the closing `)`.
+generator = "command"
+
+[inputs]
+command = "cancel_table"

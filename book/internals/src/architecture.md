@@ -34,7 +34,8 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
   after), `facts.rs`, `versioned.rs` (`Versioned`, `Snapshot`: a product's state file as data),
   `errand.rs` (one paid call), `cost.rs` (`spent_since`), `fences.rs` (the
   patterns and `allows_relative`), `trust.rs` (`needs_trust`), `fnv.rs`, `paths.rs`
-  (`forward_slashes`).
+  (`forward_slashes`), `templates.rs` (the `{= … =}` grammar: `pieces`, `fill`) and
+  `name_forms.rs` (`words_of`, `apply_filter`: the filters a template applies).
 - `ports/`: `view.rs` (`CodebaseView`), `ledger.rs` (`Ledger`), `env.rs` (`Env`).
 - `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars downloaded
   prebuilt or fetched and built, then loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
@@ -76,11 +77,24 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
 
 **sorcerer-conjure** (library and program `conjure`) has the same five layers:
 `usecases/` (`conjure_change/`, `report_cost.rs`, `show_log.rs`), `domain/` (`config`,
-`templates`, `language_tables`, `change_prompt`, `situation`, `scry_notes`, `rules`, `reply`,
+`language_tables`, `change_prompt`, `situation`, `scry_notes`, `rules`, `reply`,
 `edits`, `record`, `budget`, `log_text`), `ports/` (`writer`, `change_store`, `clock`,
 `project_context`), `adapters/` (`provider_writer`, `research_writer`, `imports`, `scry_files`,
 `steering_files`, `project_context`, `jsonl_change_store`, `system_clock`, `wiring`) and `cli/`.
+Its path templates are filled with core's `templates::fill`.
 [Conjure](conjure.md) says what each file holds.
+
+**sorcerer-spellbook** (library and program `spellbook`) has the same five layers and depends on
+`sorcerer-core` and `sorcerer-lsp` only (no models: it never spends). `domain/` (`config`,
+`generator`, `generator_checks`, `generator_problems`, `holes_table`, `inputs`, `template`,
+`holes`, `plan`, `record`, `open_hole_places`, `allow`, `finding`, `path_pattern`, `report`,
+`rule`, `rule_query`), `ports/` (`generators`, `grammars`, `workspace`, `generation_store`,
+`holes_store`, `clock`, `rule_runner`, `report_store`), `usecases/` (`list_generators`,
+`choices_for`, `plan_generation`, `apply_generation`, `open_holes`, `check_files`,
+`check_project`), `adapters/` (`generator_dir`, `cached_grammars`, `disk_workspace`,
+`jsonl_generation_store`, `json_holes`, `json_report`, `rules_toml`, `query_rules`, `checking`,
+`system_clock`, `wiring`, and `lsp/`, the editor server) and `cli/`. Its use cases may not load a grammar (that is core's adapter work), so
+they parse through the `Grammars` port. [Spellbook](spellbook.md) says what each file holds.
 
 **sorcerer-lsp** is a flat crate: `src/{lib,serve,client,jobs,uri}.rs`, with no layer
 directories. All of it is adapter code (a connection, threads, the protocol's types), and

@@ -1,0 +1,24 @@
+# After `new command`, the person fills the `handle` hole.
+generator = "command"
+patch     = "one-filled.patch"
+
+[inputs]
+command = "cancel_table"
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/booking/commands/cancel_table.rs"
+line = 5
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/booking/commands/cancel_table.rs"
+line = 29
+
+[[holes]]
+name = "type"
+kind = "type"
+file = "src/booking/commands/cancel_table.rs"
+line = 5
