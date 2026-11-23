@@ -32,7 +32,8 @@ pub fn render(
 ) -> Result<Rendered, String> {
     let pairs = values.pairs();
     let mut text = String::new();
-    let mut holes = Vec::new();
+    let mut holes: Vec<HoleAt> = Vec::new();
+    let mut ends: Vec<usize> = Vec::new();
     for piece in pieces(template)? {
         match piece {
             Piece::Text(plain) => text.push_str(plain),
@@ -53,6 +54,8 @@ pub fn render(
                         HoleOrigin::Placeholder,
                     ),
                 };
+                let before = text.rsplit('\n').next().unwrap_or("");
+                let edge_before = before.chars().rev().find(|c| !c.is_whitespace());
                 holes.push(HoleAt {
                     name: name.into(),
                     kind: kind.into(),
@@ -60,10 +63,17 @@ pub fn render(
                     source,
                     line: line_after(&text),
                     text: filled.clone(),
+                    edges: edge_before.map(String::from).unwrap_or_else(|| "\n".into()),
                 });
                 text.push_str(&filled);
+                ends.push(text.len());
             }
         }
+    }
+    for (hole, end) in holes.iter_mut().zip(ends) {
+        let rest = text[end..].split('\n').next().unwrap_or("");
+        hole.edges
+            .push(rest.chars().find(|c| !c.is_whitespace()).unwrap_or('\n'));
     }
     Ok(Rendered { text, holes })
 }

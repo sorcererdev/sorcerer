@@ -49,7 +49,9 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   (`holes.json`, a core `Versioned` at version 1), `record_of`, `open_holes_of`.
 - `open_hole_places.rs`: `still_open(hole, text)`: a placeholder carrying `hole <name>:` is
   found by that text anywhere, nearest the recorded line first; a short one (`todo_field`) as a
-  whole word on its line or within `NEARBY_LINES` (20).
+  whole word on its line or within `NEARBY_LINES` (20), standing between the same signs it was written
+  between (`OpenHole.edges`, set by `render`), so a `()` type hole is not mistaken for the `()` of
+  `Result<(), E>`.
 - `path_pattern.rs`: `PathPattern::parse` and `matches(path)` (the slots bound): a rule's `files` and
   `exclude`, compiled to an anchored `regex` (`*` one name, `**` any folders, `**.ext` = `**/*.ext`,
   `{slot}` a lazy `[^/]+?` capture).

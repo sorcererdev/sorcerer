@@ -20,6 +20,11 @@ pub struct HolePlace {
     pub file: String,
     pub line: u32,
     pub text: String,
+    /// The signs beside the code on its line: the last non-blank character before it and the
+    /// first after it (`\n` for the line's edge). Tells a short placeholder from the same text
+    /// elsewhere. Empty in records written before it existed.
+    #[serde(default)]
+    pub edges: String,
 }
 
 /// A hole of one generation, with every place it appears.
@@ -42,6 +47,8 @@ pub struct HoleAt {
     pub line: u32,
     /// The code written in the hole's place.
     pub text: String,
+    /// See [`HolePlace::edges`].
+    pub edges: String,
 }
 
 /// The holes of a generation, gathered file by file in the order the files are written.
@@ -59,6 +66,7 @@ impl HoleBook {
                 file: file.to_string(),
                 line: hole.line,
                 text: hole.text.clone(),
+                edges: hole.edges.clone(),
             };
             match self.holes.iter_mut().find(|known| known.name == hole.name) {
                 Some(known)
@@ -100,6 +108,7 @@ mod tests {
             source: HoleOrigin::Placeholder,
             line,
             text: format!("todo_{name}"),
+            edges: String::new(),
         }
     }
 
@@ -121,12 +130,14 @@ mod tests {
                 HolePlace {
                     file: "a.x".into(),
                     line: 10,
-                    text: "todo_field".into()
+                    text: "todo_field".into(),
+                    edges: String::new()
                 },
                 HolePlace {
                     file: "a_test.x".into(),
                     line: 11,
-                    text: "todo_field".into()
+                    text: "todo_field".into(),
+                    edges: String::new()
                 }
             ]
         );
