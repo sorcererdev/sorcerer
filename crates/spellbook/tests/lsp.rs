@@ -52,7 +52,9 @@ struct Served {
 fn served(dir: &Path) -> Served {
     let trust_home = TempDir::new().unwrap();
     let trust = TrustList::at(trust_home.path());
-    let clock = Arc::new(TestClock(Mutex::new("2026-11-22T12:00:00Z".parse().unwrap())));
+    let clock = Arc::new(TestClock(Mutex::new(
+        "2026-11-22T12:00:00Z".parse().unwrap(),
+    )));
     let cfg = ServerConfig {
         open: Box::new(|root| Ok(vendored_project(root))),
         cache: test_cache(),
@@ -204,7 +206,10 @@ impl Served {
             "workspace/executeCommand",
             json!({ "command": command, "arguments": [] }),
         );
-        self.response(id).response_result.expect_err("an error").message
+        self.response(id)
+            .response_result
+            .expect_err("an error")
+            .message
     }
 
     /// The next diagnostics published for a file.
@@ -341,7 +346,12 @@ fn choices_for_an_unknown_generator_is_a_stop() {
     let dir = bistro_project();
     let s = served(dir.path());
     let reply = s.command("spellbook.choices", json!(["nope", {}, "app"]));
-    assert!(reply["stop"].as_str().unwrap().contains("no generator named nope"));
+    assert!(
+        reply["stop"]
+            .as_str()
+            .unwrap()
+            .contains("no generator named nope")
+    );
     s.stop();
 }
 
@@ -362,7 +372,12 @@ fn plan_returns_files_and_holes_and_writes_nothing() {
         .collect();
     assert_eq!(statuses[0].1, "skipped");
     assert_eq!(statuses[1], (MAIN, "new"));
-    assert!(files[1]["text"].as_str().unwrap().contains("NotImplementedError"));
+    assert!(
+        files[1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("NotImplementedError")
+    );
     assert!(files[1]["lines"].as_u64().unwrap() > 5);
     let holes = reply["holes"].as_array().unwrap();
     let handle = holes.iter().find(|h| h["name"] == "handle").unwrap();
@@ -383,7 +398,10 @@ fn plan_with_a_missing_input_returns_the_stop_and_choices() {
         "spellbook.plan",
         json!(["command", { "app": "bistro", "command": "cancel_table" }]),
     );
-    assert!(reply["stop"].as_str().unwrap().contains("service"), "{reply}");
+    assert!(
+        reply["stop"].as_str().unwrap().contains("service"),
+        "{reply}"
+    );
     assert_eq!(reply["input"], "service");
     assert_eq!(reply["choices"], json!(["booking", "kitchen"]));
     s.stop();
@@ -429,7 +447,10 @@ fn apply_writes_publishes_marks_and_shows_the_first_hole() {
     let id = planned(&s);
     let reply = s.command("spellbook.apply", json!([id]));
     assert_eq!(reply["written"], json!([MAIN, TEST_FILE]));
-    assert_eq!(reply["skipped"], json!(["src/bistro/booking/commands/__init__.py"]));
+    assert_eq!(
+        reply["skipped"],
+        json!(["src/bistro/booking/commands/__init__.py"])
+    );
     assert!(reply["refused"].is_null(), "{reply}");
     assert!(dir.path().join(MAIN).exists());
     assert!(dir.path().join(TEST_FILE).exists());
@@ -442,7 +463,10 @@ fn apply_writes_publishes_marks_and_shows_the_first_hole() {
     assert_eq!(shown["selection"]["start"]["line"], first_line - 1);
 
     let marks = s.marks(MAIN);
-    let names: Vec<&str> = marks.iter().map(|m| m.message.split(' ').next().unwrap()).collect();
+    let names: Vec<&str> = marks
+        .iter()
+        .map(|m| m.message.split(' ').next().unwrap())
+        .collect();
     assert_eq!(names, ["field", "type", "handle"]);
     let handle = marks.iter().find(|m| message_of(m, "handle")).unwrap();
     assert_eq!(
@@ -454,7 +478,10 @@ fn apply_writes_publishes_marks_and_shows_the_first_hole() {
         handle.code,
         Some(lsp_types::NumberOrString::String("hole".into()))
     );
-    assert_eq!(handle.severity, Some(lsp_types::DiagnosticSeverity::INFORMATION));
+    assert_eq!(
+        handle.severity,
+        Some(lsp_types::DiagnosticSeverity::INFORMATION)
+    );
     let on_disk = std::fs::read_to_string(dir.path().join(MAIN)).unwrap();
     assert!(
         on_disk
@@ -519,5 +546,108 @@ fn a_file_that_appeared_after_the_plan_is_reported_refused() {
     assert!(reply["refused"]["why"].is_string());
     assert_eq!(reply["written"], json!([]));
     assert!(reply["first"].is_null());
+    s.stop();
+}
+
+// ---- Task B4: marks follow the disk on open and save ----
+
+/// Applies the plan and takes the marks the apply published, so the next ones are the test's.
+fn applied(s: &Served) {
+    let id = planned(s);
+    s.command("spellbook.apply", json!([id]));
+    s.marks(MAIN);
+    s.marks(TEST_FILE);
+}
+
+fn fill_handle_on_disk(dir: &Path) {
+    let path = dir.join(MAIN);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let filled: Vec<String> = text
+        .lines()
+        .map(|line| {
+            if line.contains("hole handle") {
+                "        return Ok(None)".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    std::fs::write(path, filled.join("\n") + "\n").unwrap();
+}
+
+#[test]
+fn opening_a_generated_file_shows_its_marks() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    applied(&s);
+    s.open(MAIN);
+    assert_eq!(s.marks(MAIN).len(), 3);
+    s.stop();
+}
+
+#[test]
+fn saving_a_file_whose_placeholder_was_replaced_drops_its_mark() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    applied(&s);
+    s.open(MAIN);
+    s.marks(MAIN);
+    fill_handle_on_disk(dir.path());
+    s.save(MAIN);
+    let marks = s.marks(MAIN);
+    let names: Vec<&str> = marks
+        .iter()
+        .map(|m| m.message.split(' ').next().unwrap())
+        .collect();
+    assert_eq!(names, ["field", "type"]);
+    s.stop();
+}
+
+#[test]
+fn closing_clears_the_marks() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    applied(&s);
+    s.open(MAIN);
+    s.marks(MAIN);
+    s.close(MAIN);
+    assert!(s.marks(MAIN).is_empty());
+    s.stop();
+}
+
+#[test]
+fn a_file_outside_the_project_gets_nothing() {
+    let dir = bistro_project();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::write(elsewhere.path().join("x.py"), "x = 1\n").unwrap();
+    let s = served(dir.path());
+    s.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": {
+            "uri": uri_of(&canonical(&elsewhere.path().join("x.py")).unwrap()).as_str(),
+            "languageId": "", "version": 1, "text": "x = 1\n" }}),
+    );
+    let seen = s.all_within(QUIET);
+    assert!(
+        !seen.iter().any(|m| matches!(m, Message::Notification(n)
+            if n.method == "textDocument/publishDiagnostics")),
+        "{seen:?}"
+    );
+    s.stop();
+}
+
+#[test]
+fn an_untrusted_project_publishes_no_marks() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    applied(&s);
+    write_file(dir.path(), ".sorcerer/config.toml", RUNNER);
+    s.open(MAIN);
+    let seen = s.all_within(QUIET);
+    assert!(
+        !seen.iter().any(|m| matches!(m, Message::Notification(n)
+            if n.method == "textDocument/publishDiagnostics")),
+        "{seen:?}"
+    );
     s.stop();
 }

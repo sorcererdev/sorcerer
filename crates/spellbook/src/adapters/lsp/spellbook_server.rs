@@ -51,11 +51,17 @@ impl Product for SpellbookServer {
         false
     }
 
-    fn opened(&mut self, _path: &Path) {}
+    fn opened(&mut self, path: &Path) {
+        self.server.republish(path);
+    }
 
-    fn closed(&mut self, _path: &Path) {}
+    fn closed(&mut self, path: &Path) {
+        self.server.closed(path);
+    }
 
-    fn saved(&mut self, _path: &Path) {}
+    fn saved(&mut self, path: &Path) {
+        self.server.republish(path);
+    }
 
     fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
         match method {

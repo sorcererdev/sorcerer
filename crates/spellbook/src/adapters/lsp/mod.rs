@@ -21,5 +21,5 @@ mod server_state;
 mod spellbook_server;
 
 pub use server_config::{OpenProject, ServerConfig};
-pub use spellbook_server::serve;
 use server_state::{NOT_TRUSTED, Server, lock};
+pub use spellbook_server::serve;

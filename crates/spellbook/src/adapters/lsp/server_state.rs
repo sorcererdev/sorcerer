@@ -1,14 +1,18 @@
 //! What the main loop shares with the commands.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::needs_trust;
 use sorcerer_lsp::Client;
 
+use crate::adapters::wiring::wired;
+
+use super::diagnostics::file_diagnostics;
 use super::plans::PlanCache;
+use super::project_paths::project_relative;
 use super::server_config::ServerConfig;
 
 /// What the server shares.
@@ -29,9 +33,39 @@ impl Server {
     /// Replaces a file's marks in the editor (the file is relative to the root, with `/`), and
     /// remembers it so closing the file clears them.
     pub(super) fn publish(&self, file: &str, marks: Vec<lsp_types::Diagnostic>) {
-        let path = self.root.join(file);
-        lock(&self.published).insert(path.clone(), marks.len());
-        self.client.publish(&path, marks);
+        self.publish_at(&self.root.join(file), marks);
+    }
+
+    /// The same, for a path as the editor names it.
+    fn publish_at(&self, path: &Path, marks: Vec<lsp_types::Diagnostic>) {
+        lock(&self.published).insert(path.to_path_buf(), marks.len());
+        self.client.publish(path, marks);
+    }
+
+    /// Publishes the marks of a file the editor opened or saved, from the file on disk. Nothing
+    /// for a file outside the project, or in a project that is not trusted.
+    pub(super) fn republish(&self, path: &Path) {
+        let Ok(project) = (self.cfg.open)(&self.root) else {
+            return;
+        };
+        if !self.trusted(&project) {
+            return;
+        }
+        let Some(file) = project_relative(&project, path) else {
+            return;
+        };
+        let Ok(wired) = wired(project, self.cfg.cache.clone(), self.cfg.clock.clone()) else {
+            return;
+        };
+        let marks = file_diagnostics(&wired, &file);
+        self.publish_at(path, marks);
+    }
+
+    /// Clears the marks of a file the editor closed.
+    pub(super) fn closed(&self, path: &Path) {
+        if lock(&self.published).remove(path).is_some() {
+            self.client.publish(path, Vec::new());
+        }
     }
 
     /// Whether spellbook may run in the project: it needs no trust, or the user trusted it.
