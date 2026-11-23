@@ -359,8 +359,8 @@ vim.keymap.set("n", "<leader>sn", "<cmd>Spellbook new<cr>")
    Spellbook never calls a model itself.
 
 An untrusted project (one whose own config sets a provider `runner` or `url`, or a grammar of its
-own) gets no marks and every command answers `spellbook: this project is not trusted; run
-"spellbook trust" in it`. VS Code has no spellbook extension yet (milestone 2).
+own) gets no marks, and says `spellbook: this project is not trusted; run "spellbook trust" in it`
+once a session when you open or save a file; every command answers the same sentence. VS Code has no spellbook extension yet (milestone 2).
 `:checkhealth sorcerer` has a spellbook section when it is enabled.
 
 ## The files it writes
@@ -377,7 +377,9 @@ Besides the files you ask for by name, spellbook writes only its own state under
 ## Settings
 
 `[spellbook]` in `.sorcerer/config.toml` has two keys, `enabled` and `exclude`; see
-[Configuration](configuration.md).
+[Configuration](configuration.md). With `enabled = false` the command line (everything but
+`trust` and `doctor`) says `spellbook is off in this project ([spellbook] enabled = false)` and
+exits 2, and the editor server shows no marks and answers commands with that sentence.
 
 ## What is coming
 

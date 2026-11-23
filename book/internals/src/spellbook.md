@@ -12,7 +12,8 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 
 `domain/` (data and rules, no I/O):
 
-- `config.rs`: `SpellbookConfig { enabled, exclude }`, `spellbook_config`, `PRODUCT`.
+- `config.rs`: `SpellbookConfig { enabled, exclude }`, `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
+  the server (`republish`, `wired_for_commands`).
 - `generator.rs`: the types (`Generator`, `Input`/`InputKind`, `Query`/`QueryValue`,
   `Edit`/`EditBody`/`OnExists`, `HoleSource`) and `read_generator(id, text, templates)`, which
   reads `generator.toml` key by key with errors naming the place (`[inputs.app] type: …`). The

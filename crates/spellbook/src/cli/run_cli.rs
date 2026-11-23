@@ -10,6 +10,7 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
 use crate::adapters::wiring::{Wire, live};
+use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
@@ -68,6 +69,11 @@ fn run_command(
         return lsp::lsp(env);
     }
     let project = Project::open(cwd)?;
+    let works_on_code = !matches!(cmd, Cmd::Trust { .. } | Cmd::Doctor);
+    if works_on_code && !spellbook_config(&project)?.enabled {
+        writeln!(err, "{SPELLBOOK_IS_OFF}")?;
+        return Ok(2);
+    }
     match cmd {
         Cmd::Lsp => unreachable!("served above"),
         Cmd::Trust { revoke } => trust::trust(&project, env, revoke, out),

@@ -20,6 +20,7 @@ use sorcerer_core::domain::project::Project;
 use super::diagnostics::file_diagnostics;
 use super::{NOT_TRUSTED, Server, lock};
 use crate::adapters::wiring::{Wired, wired};
+use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 use crate::domain::inputs::{Given, InputStop, input_stop_text};
 use crate::domain::plan::{PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
@@ -78,6 +79,9 @@ impl Server {
             (self.cfg.open)(&self.root).map_err(|e| format!("spellbook: {e:#}"))?;
         if !self.trusted(&project) {
             return Err(NOT_TRUSTED.to_string());
+        }
+        if !spellbook_config(&project).map_err(|e| format!("spellbook: {e:#}"))?.enabled {
+            return Err(SPELLBOOK_IS_OFF.to_string());
         }
         wired(project, self.cfg.cache.clone(), self.cfg.clock.clone())
             .map_err(|e| format!("spellbook: {e:#}"))

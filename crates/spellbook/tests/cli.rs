@@ -247,6 +247,19 @@ fn bistro_with_a_sqlite_command() -> tempfile::TempDir {
 }
 
 #[test]
+fn spellbook_off_in_the_config_stops_every_command_but_doctor() {
+    let dir = bistro_with_a_sqlite_command();
+    write_file(dir.path(), ".sorcerer/config.toml", "[spellbook]\nenabled = false\n");
+    for command in [&["check"][..], &["list"], &["holes"], &["new", "command", "--plan"]] {
+        let (code, out, err) = run(dir.path(), command);
+        assert_eq!(code, 2, "{command:?} {out}{err}");
+        assert!(err.contains("spellbook is off in this project ([spellbook] enabled = false)"), "{err}");
+    }
+    let (code, _, _) = run(dir.path(), &["doctor"]);
+    assert_eq!(code, 0);
+}
+
+#[test]
 fn check_exits_0_with_a_warning_and_1_with_an_error() {
     let dir = bistro_with_a_sqlite_command();
     let (code, out, err) = run(dir.path(), &["check"]);

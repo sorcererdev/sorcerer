@@ -652,6 +652,50 @@ fn an_untrusted_project_publishes_no_marks() {
     s.stop();
 }
 
+#[test]
+fn an_untrusted_project_says_so_once_on_open_and_save() {
+    let dir = bistro_project();
+    write_file(dir.path(), ".sorcerer/config.toml", RUNNER);
+    let s = served(dir.path());
+    s.open(MAIN);
+    s.save(MAIN);
+    let said: Vec<String> = s
+        .all_within(QUIET)
+        .into_iter()
+        .filter_map(|m| match m {
+            Message::Notification(n) if n.method == "window/showMessage" => {
+                n.params["message"].as_str().map(String::from)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        said,
+        ["spellbook: this project is not trusted; run \"spellbook trust\" in it"]
+    );
+    s.stop();
+}
+
+#[test]
+fn spellbook_off_in_the_config_refuses_commands_and_shows_no_marks() {
+    let dir = bistro_project();
+    write_file(dir.path(), ".sorcerer/config.toml", "[spellbook]\nenabled = false\n");
+    let s = served(dir.path());
+    let sentence = "spellbook is off in this project ([spellbook] enabled = false)";
+    assert_eq!(
+        s.command("spellbook.generators", json!([])),
+        json!({ "stop": sentence })
+    );
+    s.open(MAIN);
+    let seen = s.all_within(QUIET);
+    assert!(
+        !seen.iter().any(|m| matches!(m, Message::Notification(n)
+            if n.method == "textDocument/publishDiagnostics")),
+        "{seen:?}"
+    );
+    s.stop();
+}
+
 // ---- Task C8: findings ----
 
 const CLOSE: &str = "src/bistro/booking/commands/close_table.py";

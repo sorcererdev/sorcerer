@@ -9,6 +9,9 @@ use sorcerer_core::{Error, Result};
 /// The product spellbook's records and state are kept under.
 pub const PRODUCT: &str = "spellbook";
 
+/// What is said when spellbook is turned off in the project.
+pub const SPELLBOOK_IS_OFF: &str = "spellbook is off in this project ([spellbook] enabled = false)";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SpellbookConfig {

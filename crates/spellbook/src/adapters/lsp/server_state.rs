@@ -10,6 +10,7 @@ use sorcerer_core::domain::trust::needs_trust;
 use sorcerer_lsp::Client;
 
 use crate::adapters::wiring::wired;
+use crate::domain::config::spellbook_config;
 
 use super::diagnostics::file_diagnostics;
 use super::plans::PlanCache;
@@ -50,6 +51,11 @@ impl Server {
             return;
         };
         if !self.trusted(&project) {
+            self.client
+                .say_once("trust", MessageType::WARNING, NOT_TRUSTED);
+            return;
+        }
+        if !spellbook_config(&project).is_ok_and(|config| config.enabled) {
             return;
         }
         let Some(file) = project_relative(&project, path) else {
