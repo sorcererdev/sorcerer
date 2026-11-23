@@ -180,13 +180,13 @@ fn kind_is_known(generator: &Generator, languages: &Languages, kind: &str) -> Re
     }
 }
 
-/// A placeholder puts the instruction inside a string literal, so it may not hold a quote, a
-/// backslash, a new line or another template.
+/// A placeholder puts the instruction inside a string literal (in Rust a format string), so it may
+/// not hold a quote, a backslash, a new line, a brace or another template.
 fn instruction_is_plain(name: &str, instruction: &str) -> Result<(), String> {
-    let refused = ['"', '\\', '\n', '\r'];
+    let refused = ['"', '\\', '\n', '\r', '{', '}'];
     if instruction.contains(refused) || instruction.contains("{=") {
         Err(format!(
-            "the hole {name}'s instruction must be plain text: no quote, backslash, new line or {{= =}}"
+            "the hole {name}'s instruction must be plain text: no quote, backslash, brace or new line"
         ))
     } else {
         Ok(())

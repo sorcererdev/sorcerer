@@ -134,7 +134,7 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
   |---|---|---|
   | `spellbook.generators` | none | `[GeneratorSummary]` (a broken generator is left out and logged) |
   | `spellbook.choices` | generator, inputs so far, input | `{ choices }` or `{ stop }` |
-  | `spellbook.plan` | generator, inputs | the `Plan` as JSON (`id`, `files[{path,status,text,lines}]`, `holes[{name,kind,instruction,source,places[{file,line}]}]`), or `{ stop }` (a missing input adds `input` and `choices`) |
+  | `spellbook.plan` | generator, inputs | the `Plan` as JSON (`id`, `files[{path,status,text,lines}]`, `holes[{name,kind,instruction,source,places[{file,line,text,edges}]}]`), or `{ stop }` (a missing input adds `input` and `choices`) |
   | `spellbook.apply` | plan id | `{ written, skipped, refused: null or {path, why}, holes, first: null or {file, line} }`, or `{ stop }` for a plan that is gone |
 
   A hole's location is `file` everywhere (it is `HolePlace::file`, and `holes.json`'s key);

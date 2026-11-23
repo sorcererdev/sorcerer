@@ -113,7 +113,7 @@ word to write instead: `content` → `text`, `pascalCase(x)` → `{= x|pascal =}
   `sentence` (`Cancel table`), `words` (`cancel table`). Filters apply left to right.
 - `{= ? name: kind | instruction =}` is a hole. The same hole may appear in several places (and
   several files); it is one hole, with one kind and one instruction. The instruction is plain
-  text: no quotes, backslashes or new lines, since the placeholder puts it inside a string.
+  text: no quotes, backslashes, braces or new lines, since the placeholder puts it inside a string.
 
 ## The generators of the corpus
 
@@ -360,7 +360,7 @@ vim.keymap.set("n", "<leader>sn", "<cmd>Spellbook new<cr>")
 
 An untrusted project (one whose own config sets a provider `runner` or `url`, or a grammar of its
 own) gets no marks, and says `spellbook: this project is not trusted; run "spellbook trust" in it`
-once a session when you open or save a file; every command answers the same sentence. VS Code has no spellbook extension yet (milestone 2).
+once a session when you open or save a file; every command answers the same sentence. The command line trusts the directory you run it in, as scry's does: `spellbook check` in a cloned repository builds that repository's own grammar first. VS Code has no spellbook extension yet (milestone 2).
 `:checkhealth sorcerer` has a spellbook section when it is enabled.
 
 ## The files it writes

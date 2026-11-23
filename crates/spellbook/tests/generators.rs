@@ -4,7 +4,7 @@ mod support;
 
 use sorcerer_core::domain::facts::parse_errors_of;
 use sorcerer_core::domain::language::Language;
-use spellbook::adapters::generator_dir::{generators_in, load_generator};
+use spellbook::adapters::generator_dir::{generator_named, generators_in, load_generator};
 use spellbook::domain::generator::{EditBody, HoleSource, InputKind, OnExists};
 use spellbook::domain::holes_table::{holes_table, placeholder};
 use support::*;
@@ -249,6 +249,29 @@ fn an_instruction_with_a_quote_is_refused() {
         why.contains("the hole handle's instruction must be plain text"),
         "{why}"
     );
+}
+
+#[test]
+fn an_instruction_with_a_brace_is_refused() {
+    let why = template_problem("| its first case, from", "| the map {id: table}, from");
+    assert!(
+        why.contains("the hole handle's instruction must be plain text"),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_generator_id_that_climbs_out_is_not_found() {
+    let dir = bistro_project();
+    write_file(
+        dir.path(),
+        ".sorcerer/spellbook/x/generator.toml",
+        "x = 1\n",
+    );
+    let project = vendored_project(dir.path());
+    for id in ["../x", "..", "a/b", "", "a\\b"] {
+        assert!(generator_named(&project, id).is_none(), "{id:?}");
+    }
 }
 
 #[test]

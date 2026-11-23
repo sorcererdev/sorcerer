@@ -29,6 +29,13 @@ pub fn generators_in(project: &Project) -> Vec<Result<Generator, GeneratorProble
 /// The generator with this name, or the problem that stopped it; `None` when the project has no
 /// such directory.
 pub fn generator_named(project: &Project, id: &str) -> Option<Result<Generator, GeneratorProblem>> {
+    let plain = !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !plain {
+        return None;
+    }
     let dir = project.root.join(GENERATORS_DIR).join(id);
     dir.join("generator.toml")
         .is_file()
