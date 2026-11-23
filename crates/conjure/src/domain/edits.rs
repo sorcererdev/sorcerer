@@ -199,6 +199,7 @@ mod tests {
 
     #[test]
     fn a_path_out_of_the_project_is_dropped() {
+        // spellbook:allow domain-does-no-io — a test names a project root under the temporary directory
         let root = &std::env::temp_dir().join("proj");
         for written in [
             "../x.txt",
@@ -228,6 +229,7 @@ mod tests {
 
     #[test]
     fn a_name_with_a_drive_or_a_stream_is_not_a_path_that_lands() {
+        // spellbook:allow domain-does-no-io — a test names a project root under the temporary directory
         let root = &std::env::temp_dir().join("proj");
         for written in ["C:\\Windows\\x", "a.txt:stream", "C:x"] {
             assert_eq!(lexical_relative(root, written), None, "{written}");

@@ -109,8 +109,10 @@ mod tests {
 
     fn project(toml: Option<&str>) -> (tempfile::TempDir, Project) {
         let d = tempfile::tempdir().unwrap();
+        // spellbook:allow domain-does-no-io — a test sets up its own files
         std::fs::create_dir_all(d.path().join(".sorcerer")).unwrap();
         if let Some(t) = toml {
+            // spellbook:allow domain-does-no-io — a test sets up its own files
             std::fs::write(d.path().join(".sorcerer/config.toml"), t).unwrap();
         }
         let p = Project::open(d.path()).unwrap();

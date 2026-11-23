@@ -1,0 +1,33 @@
+name        = "Command"
+summary     = "A cli subcommand: parse, call one use case, format the result"
+description = """
+cli/COMMAND.rs holds the command's function, which calls one use case and prints what comes back, \
+and the text it prints in its own `…_text` function. It makes no decision a use case should make. \
+Spellbook writes new files only: add `mod COMMAND;` to cli/mod.rs, the subcommand to cli/arguments.rs \
+and its dispatch to cli/run_cli.rs yourself, and give the function the arguments it needs."""
+language    = "rust"
+examples    = ["spellbook new command --set crate=scry --set command=list"]
+
+[inputs.crate]
+type   = "enum"
+one_of = "crates"
+prompt = "The crate the command belongs to (the folder under crates/: scry, conjure or spellbook, the crates with a cli/)"
+
+[inputs.command]
+type   = "ident"
+prompt = "The subcommand, as the user types it (list, dismiss, doctor)"
+
+[query.crates]
+glob  = "crates/*/src"
+value = "parent folder"
+
+[derive]
+command_ = "{= command|snake =}"
+
+[[edits]]
+create   = "crates/{= crate =}/src/cli/{= command_ =}.rs"
+template = "command.rs.dt"
+
+[holes.purpose]
+source = "derived"
+value  = "{= command|words =}."

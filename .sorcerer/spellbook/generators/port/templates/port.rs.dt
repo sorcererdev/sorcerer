@@ -1,0 +1,5 @@
+//! {= ? purpose: text | what this port gives a use case, in its own words =}
+
+pub trait {= Port =}: Send + Sync {
+    fn {= ? method: ident | its first method, named for what a use case asks of it =}(&self) -> {= ? returns: type | what that method returns =};
+}

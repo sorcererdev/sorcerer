@@ -1,0 +1,11 @@
+//! {= ? adapter_purpose: text | what this adapter is built on =}
+
+use crate::ports::{= port|snake =}::{= Port =};
+
+pub struct {= Adapter =};
+
+impl {= Port =} for {= Adapter =} {
+    fn {= ? method: ident | its first method, named for what a use case asks of it =}(&self) -> {= ? returns: type | what that method returns =} {
+        {= ? body: block | the method done for real, with no feature logic =}
+    }
+}
