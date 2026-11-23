@@ -74,7 +74,7 @@ fn cost_json_text(report: &CostReport) -> String {
 }
 
 /// A table with a row for each day, then how many units wait on the cap
-/// (left out when the store could not be read).
+/// (left out when none wait, or the store could not be read).
 fn cost_table_text(report: &CostReport) -> String {
     let rows: Vec<Vec<String>> = report
         .days
@@ -96,6 +96,7 @@ fn cost_table_text(report: &CostReport) -> String {
     );
     let waiting = report
         .waiting_units
+        .filter(|&n| n > 0)
         .map(|n| format!("waiting on the cap: {}\n", count(n, "unit")))
         .unwrap_or_default();
     format!("{days}{waiting}")

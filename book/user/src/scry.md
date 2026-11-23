@@ -66,7 +66,7 @@ A file named like a command (`list`, `cost`, `dismiss`, `why`, `doctor`, `log`, 
 
 ### Looking at the store
 
-`scry list` prints a table, `status  issue type  file  line  rule  statement` (`-` when no rule, the
+`scry list` prints a table, `id  status  issue type  file  line  rule  statement` (`-` when no rule, the
 statement cut to 80 characters), open findings first, then by file and line. `--status` (repeat
 it) keeps only those statuses (`open`, `unverified`, `withheld`, `refuted`, `unsure`, `elsewhere`,
 `dismissed-here`, `dismissed-everywhere`, `resolved`, `gone`). `--json` prints
@@ -74,7 +74,7 @@ it) keeps only those statuses (`open`, `unverified`, `withheld`, `refuted`, `uns
 "verdict", "seen"}]}`. `waiting`, the word older scry used for `unverified`, still works with `--status`, and a store an older scry wrote reads as before.
 
 `scry cost` reads the ledger: a row for each of your local days, `day  reviews  checks  review $
-check $  total $`, then `waiting on the cap: N units`. Jev's questions are in the total only.
+check $  total $`, then `waiting on the cap: N units` when any wait. Jev's questions are in the total only.
 `--since 2026-11-01` leaves earlier days out; `--json` prints `{"days": [...],
 "waiting_units": N}`. When the finding store does not read, `cost` says so on stderr and
 leaves the waiting line out (`waiting_units` is `null`).
@@ -87,7 +87,7 @@ citation outside the project or on a fenced path, such as `.env`, is named but i
 printed), the claim checker's verdict and, under `Cited by the check:`, each citation it
 gave with `confirmed`, `not found`, or `unit not found, confirmed on line N`, the
 confidence, how often
-it was seen and its history. An unknown or ambiguous id exits 2. None of these four needs Jev.
+it was seen and its history (times in your local time zone). An unknown or ambiguous id exits 2. None of these four needs Jev.
 
 ### Reading what a run did
 
@@ -133,8 +133,8 @@ A finding the checker could not confirm is `unsure` and not shown. To see why:
 
 ```
 $ scry list --status unsure
-status  issue type  file             line  rule  statement
-unsure  bug         src/orders.rs    41    -     cancel returns None when the order is missing
+id      status  issue type  file             line  rule  statement
+7f3a21  unsure  bug         src/orders.rs    41    -     cancel returns None when the order is missing
 $ scry why 7f3a
 …
 Checked: cannot_tell: cited code not found

@@ -106,7 +106,11 @@ impl<W: Wiring + 'static> Server<W> {
         let state = project.state_dir().map_err(failed)?;
         let file = state.join(format!("scry/why-{}.md", explanation.finding.id.0));
         std::fs::create_dir_all(state.join("scry")).map_err(failed)?;
-        std::fs::write(&file, why_text(&explanation)).map_err(failed)?;
+        std::fs::write(
+            &file,
+            why_text(&explanation, *chrono::Local::now().offset()),
+        )
+        .map_err(failed)?;
         self.client.show_document(&file, None);
         Ok(())
     }
