@@ -17,6 +17,8 @@ Core is synchronous and makes no model calls. Everything that spends money lives
 Every crate is in layers (`domain/`, `ports/`, `usecases/`, `adapters/`, and `cli/` in a
 product), each depending only on the layers inside it; [Architecture](architecture.md) says
 what each holds, how a feature is added and tested, and how `scripts/layers` checks the rule.
+A `mod.rs` only declares and re-exports; the code is in files named for what it does
+(`scripts/mod-rs-declarations`).
 
 ## The modules
 
