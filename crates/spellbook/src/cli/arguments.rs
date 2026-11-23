@@ -44,6 +44,8 @@ pub(super) enum Cmd {
     /// Whether spellbook can run here: generators, languages and their holes, conjure, trust,
     /// the records
     Doctor,
+    /// The editor's language server, over standard input and output
+    Lsp,
     /// Let the editor's server run spellbook in this project although its config runs code
     Trust {
         /// Take the project off the trust list instead

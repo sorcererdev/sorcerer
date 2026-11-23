@@ -8,6 +8,7 @@ mod doctor;
 mod format;
 mod holes;
 mod list;
+mod lsp;
 mod new;
 mod run_cli;
 mod show;

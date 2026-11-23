@@ -13,7 +13,7 @@ use crate::adapters::wiring::{Wire, live};
 
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
-use super::{doctor, holes, list, new, show, trust};
+use super::{doctor, holes, list, lsp, new, show, trust};
 
 /// The program's entry: runs the command in the current directory, with the real files,
 /// grammars and clock.
@@ -63,8 +63,13 @@ fn run_command(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<i32> {
+    // the editor sends its root at initialize; the server opens the project itself
+    if matches!(cmd, Cmd::Lsp) {
+        return lsp::lsp(env);
+    }
     let project = Project::open(cwd)?;
     match cmd {
+        Cmd::Lsp => unreachable!("served above"),
         Cmd::Trust { revoke } => trust::trust(&project, env, revoke, out),
         Cmd::Doctor => doctor::doctor(&project, env, out),
         Cmd::List => list::list(&wire(project)?, out),
