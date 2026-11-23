@@ -48,7 +48,8 @@ describe('conjure (fake claude)', () => {
         return Promise.resolve(undefined);
       };
     }
-    await vscode.extensions.getExtension('sorcererdev.conjure')!.activate();
+    const api = await vscode.extensions.getExtension('sorcererdev.conjure')!.activate() as
+      { drawn(): { uri: string; line: number; text: string }[]; everDrawn(): { uri: string; line: number; text: string }[] };
     const ws = process.env.CONJURE_E2E_WS!;
     const uri = vscode.Uri.file(join(ws, 'a.py'));
     const doc = await vscode.workspace.openTextDocument(uri);
@@ -60,6 +61,9 @@ describe('conjure (fake claude)', () => {
 
     await until('the new text in the buffer', () => (doc.getText().includes('return x + 1') ? true : undefined), 60_000)
       .catch(err => { throw new Error(`${String(err)}\n${whatConjureKept(ws)}\nmarks: ${JSON.stringify(vscode.languages.getDiagnostics(uri).map(d => d.message))}\nsaid: ${JSON.stringify(said)}`); });
+    // the unit being written had the grey text after its first line, and it is gone now
+    assert.deepEqual(api.everDrawn().map(u => [vscode.Uri.parse(u.uri).toString(), u.line, u.text]), [[uri.toString(), 0, '\u27f3 conjure: writing\u2026']]);
+    await until('the text taken away', () => (api.drawn().length === 0 ? true : undefined));
     assert.equal(readFileSync(join(ws, 'a.py'), 'utf8'), 'def f(x):\n    pass\n', 'nothing was saved: the disk still says pass');
     // compared as URIs: VS Code writes a Windows drive letter in lower case
     const testUri = vscode.Uri.file(join(ws, 'a__test.py')).toString();

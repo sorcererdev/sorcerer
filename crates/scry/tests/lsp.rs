@@ -62,6 +62,8 @@ type Wire = Box<dyn Fn(Arc<Doubles>, Cancel, Cancel) -> anyhow::Result<TestWirin
 /// is built (the doubles, unless a test says otherwise).
 struct Setup {
     capabilities: Value,
+    /// The editor's `initializationOptions`.
+    options: Value,
     wire: Wire,
     trust_dir: Option<PathBuf>,
     /// The claim checker, when not the doubles' (which says right).
@@ -72,6 +74,7 @@ impl Default for Setup {
     fn default() -> Setup {
         Setup {
             capabilities: json!({}),
+            options: json!({}),
             wire: Box::new(|doubles, review, rest| {
                 Ok(TestWiring {
                     doubles,
@@ -143,15 +146,16 @@ fn served_with(dir: &Path, reviewer: StubReviewer, setup: Setup) -> Served {
         trust,
         _trust_home: trust_home,
     };
-    s.initialize(dir, setup.capabilities);
+    s.initialize(dir, setup.capabilities, setup.options);
     s
 }
 
 impl Served {
-    fn initialize(&self, root: &Path, capabilities: Value) {
+    fn initialize(&self, root: &Path, capabilities: Value, options: Value) {
         let id = self.request(
             "initialize",
-            json!({ "capabilities": capabilities, "rootUri": uri_of(root).as_str() }),
+            json!({ "capabilities": capabilities, "rootUri": uri_of(root).as_str(),
+                    "initializationOptions": options }),
         );
         self.response(id);
         self.notify("initialized", json!({}));
@@ -837,6 +841,74 @@ fn progress_begins_with_the_units_and_ends() {
     assert_eq!(first.method, "textDocument/publishDiagnostics", "{first:?}");
     let end = s.progress("end", WAIT).unwrap();
     assert!(end.get("message").is_none(), "{end}");
+    s.stop();
+}
+
+/// The editor draws the units being worked on.
+fn drawing_working() -> Setup {
+    Setup {
+        options: json!({ "drawsWorking": true }),
+        ..Setup::default()
+    }
+}
+
+impl Served {
+    /// The units of the next `sorcerer/working`.
+    fn working(&self, within: Duration) -> Option<Vec<Value>> {
+        let message = self.wait_for(
+            within,
+            |m| matches!(m, Message::Notification(n) if n.method == "sorcerer/working"),
+        )?;
+        let Message::Notification(note) = message else {
+            unreachable!()
+        };
+        Some(note.params["units"].as_array().unwrap().clone())
+    }
+}
+
+#[test]
+fn the_unit_under_review_is_shown_inline_and_cleared_when_the_pass_ends() {
+    let dir = changed_project();
+    let s = served_with(dir.path(), bug_reviewer(), drawing_working());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    let shown = s.working(WAIT).expect("the unit while it is reviewed");
+    assert_eq!(
+        shown,
+        vec![json!({ "uri": uri_of(&orders(&dir)).as_str(),
+                     "line": 0, "text": "\u{27f3} scry: reviewing\u{2026}" })]
+    );
+    assert_eq!(s.working(WAIT), Some(vec![]), "cleared when the pass ends");
+    s.stop();
+}
+
+#[test]
+fn a_failed_review_clears_the_inline_text() {
+    let dir = changed_project();
+    let s = served_with(
+        dir.path(),
+        StubReviewer::new().timing_out(),
+        drawing_working(),
+    );
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    assert_eq!(s.working(WAIT).map(|u| u.len()), Some(1));
+    assert_eq!(s.working(WAIT), Some(vec![]));
+    s.stop();
+}
+
+#[test]
+fn nothing_is_drawn_inline_for_an_editor_that_did_not_ask() {
+    let dir = changed_project();
+    let s = served_with(dir.path(), bug_reviewer(), with_progress());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    assert!(s.progress("end", WAIT).is_some());
+    let said = s.all_within(Duration::from_millis(200));
+    assert!(
+        notifications(&said, "sorcerer/working").is_empty(),
+        "{said:?}"
+    );
     s.stop();
 }
 

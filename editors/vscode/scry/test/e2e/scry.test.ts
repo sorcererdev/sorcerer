@@ -28,4 +28,25 @@ describe('scry (fake server)', () => {
     assert.equal(found[0].range.start.line, 1);
     assert.match(found[0].message, /f adds two, not one\./);
   });
+
+  it('a save shows the unit being reviewed after its first line, and takes it away when the review ends', async () => {
+    const api = await vscode.extensions.getExtension('sorcererdev.scry')!.activate() as { drawn(): { uri: string; line: number; text: string }[] };
+    const uri = vscode.Uri.file(join(process.env.SCRY_E2E_WS!, 'a.py'));
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc);
+    const deadline = Date.now() + 20_000;
+    let shown: { uri: string; line: number; text: string }[] = [];
+    while (Date.now() < deadline && shown.length === 0) {
+      await editor.edit(b => b.insert(new vscode.Position(1, doc.lineAt(1).text.length), ' '));
+      assert.ok(await doc.save(), 'the document saved');
+      for (let i = 0; i < 10 && shown.length === 0; i++) {
+        shown = api.drawn();
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+    assert.deepEqual(shown.map(u => [vscode.Uri.parse(u.uri).toString(), u.line, u.text]), [[uri.toString(), 0, '\u27f3 scry: reviewing\u2026']]);
+    const gone = Date.now() + 10_000;
+    while (Date.now() < gone && api.drawn().length > 0) await new Promise(r => setTimeout(r, 100));
+    assert.deepEqual(api.drawn(), [], 'taken away when the review ends');
+  });
 });

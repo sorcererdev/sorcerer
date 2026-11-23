@@ -157,12 +157,15 @@ fn full_capabilities() -> Value {
 
 struct Setup {
     capabilities: Value,
+    /// The editor's `initializationOptions`.
+    options: Value,
 }
 
 impl Default for Setup {
     fn default() -> Setup {
         Setup {
             capabilities: full_capabilities(),
+            options: json!({}),
         }
     }
 }
@@ -229,7 +232,8 @@ fn served_with(dir: &Path, script: Arc<Script>, setup: Setup) -> Served {
     };
     let id = s.request(
         "initialize",
-        json!({ "capabilities": setup.capabilities, "rootUri": uri_of(&root).as_str() }),
+        json!({ "capabilities": setup.capabilities, "rootUri": uri_of(&root).as_str(),
+                "initializationOptions": setup.options }),
     );
     s.response(id);
     s.notify("initialized", json!({}));
@@ -853,6 +857,7 @@ fn an_editor_without_document_changes_is_offered_nothing_and_told_once() {
     let dir = project();
     let setup = Setup {
         capabilities: json!({ "workspace": { "applyEdit": true } }),
+        ..Setup::default()
     };
     let s = served_with(dir.path(), Script::replying(&[]), setup);
     s.open("src/a.py");
@@ -1065,6 +1070,82 @@ fn a_refused_edit_says_your_text_stands_and_marks_nothing() {
     s.stop();
 }
 
+/// The editor draws the units being worked on.
+fn drawing_working() -> Setup {
+    Setup {
+        options: json!({ "drawsWorking": true }),
+        ..Setup::default()
+    }
+}
+
+impl Served {
+    /// The units of the next `sorcerer/working`.
+    fn working(&self) -> Option<Vec<Value>> {
+        let message = self.wait_for(
+            WAIT,
+            |m| matches!(m, Message::Notification(n) if n.method == "sorcerer/working"),
+        )?;
+        let Message::Notification(note) = message else {
+            unreachable!()
+        };
+        Some(note.params["units"].as_array().unwrap().clone())
+    }
+}
+
+#[test]
+fn the_unit_being_written_is_shown_inline_until_the_edit_is_answered() {
+    let dir = project();
+    let s = served_with(
+        dir.path(),
+        Script::replying(&[&three_files()]),
+        drawing_working(),
+    );
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    // `total` starts on line 4, so line 3 from 0
+    assert_eq!(
+        s.working(),
+        Some(vec![json!({ "uri": s.uri("src/a.py"), "line": 3,
+                          "text": "\u{27f3} conjure: writing\u{2026}" })])
+    );
+    s.apply_next_edit();
+    assert_eq!(s.working(), Some(vec![]));
+    s.stop();
+}
+
+#[test]
+fn a_refused_edit_clears_the_inline_text() {
+    let dir = project();
+    let s = served_with(
+        dir.path(),
+        Script::replying(&[&three_files()]),
+        drawing_working(),
+    );
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    assert_eq!(s.working().map(|u| u.len()), Some(1));
+    s.refuse_next_edit();
+    assert_eq!(s.working(), Some(vec![]));
+    s.stop();
+}
+
+#[test]
+fn nothing_is_drawn_inline_for_an_editor_that_did_not_ask() {
+    let dir = project();
+    let s = served(dir.path(), Script::replying(&[&three_files()]));
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.apply_next_edit();
+    let said = s.all_within(QUIET);
+    assert!(
+        !said
+            .iter()
+            .any(|m| matches!(m, Message::Notification(n) if n.method == "sorcerer/working")),
+        "{said:?}"
+    );
+    s.stop();
+}
+
 /// Whether the server sent an edit within a moment.
 fn sent_an_edit(s: &Served) -> bool {
     s.all_within(QUIET)
@@ -1230,6 +1311,7 @@ fn an_editor_that_cannot_create_files_gets_the_rest() {
         capabilities: json!({
             "workspace": { "applyEdit": true, "workspaceEdit": { "documentChanges": true } }
         }),
+        ..Setup::default()
     };
     let s = served_with(dir.path(), Script::replying(&[&three_files()]), setup);
     s.open("src/a.py");
@@ -1492,6 +1574,7 @@ fn undo_empties_a_created_file_when_the_editor_cannot_delete() {
     let setup = Setup {
         capabilities: json!({ "workspace": { "applyEdit": true,
             "workspaceEdit": { "documentChanges": true, "resourceOperations": ["create"] } } }),
+        ..Setup::default()
     };
     let s = served_with(dir.path(), Script::replying(&[&three_files()]), setup);
     s.open("src/a.py");

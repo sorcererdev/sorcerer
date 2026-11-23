@@ -49,7 +49,9 @@ there. On a line where scry has an open finding, *Conjure for this finding* asks
 by that finding. Outside a function nothing is offered (`put the cursor in a function to
 conjure` if you ask anyway).
 
-**Waiting.** A progress line, `conjure: conjuring a change`, for the few seconds the writer takes.
+**Waiting.** A progress line, `conjure: conjuring a change`, for the few seconds the writer takes,
+and grey text at the end of the first line of the unit being changed, `⟳ conjure: writing…`
+(Neovim and VS Code; it follows the line as you type and goes once the change has landed, or has not).
 Asking again meanwhile is refused with `conjure: a change is already being conjured; this one was
 not started`; the running one goes on.
 

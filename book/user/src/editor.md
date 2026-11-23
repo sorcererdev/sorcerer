@@ -11,6 +11,11 @@ You edit `cancel.rs` and save.
 - **A status line**: `scry: reviewing 2 units` appears a couple of seconds after the save and
   clears when the review ends. It appears only when scry actually sends something to a model,
   so a save with nothing new to review shows nothing.
+- **The unit under review**: grey text at the end of the first line of each unit scry sent to
+  the model, `⟳ scry: reviewing…`, so you see where it is looking. It follows its line as you
+  edit and goes when that review call ends (it finished, failed, or a newer save overtook it).
+  It is drawn by the Neovim plugin and the VS Code extension, which tell the server so when
+  they start; any other editor shows only the status line.
 - **A finding**: a diagnostic on its line, from source `scry`. A bug is an error; every other
   issue type (`assumption`, `convention`, your project's own) is a warning. The message is the
   finding's statement, then `rule: <id>` when it cites one of your project's rules. Editors
@@ -82,7 +87,8 @@ Those are the defaults. The plugin starts `scry lsp` for every ordinary file buf
 nearest directory upward holding `.sorcerer/`, else `.git`. Signs show one mark per finding
 line by issue type (an issue type with no mark of its own gets `•`), tint the line number, and
 dim a stale finding; Neovim's own sign and virtual text are turned off for scry's diagnostics
-so nothing is drawn twice. No text in your buffer moves. `require("sorcerer").status()` gives
+so nothing is drawn twice. No text in your buffer moves, not even the grey `⟳ scry: reviewing…`
+(virtual text, in the `SorcererWorking` highlight, linked to `Comment`). `require("sorcerer").status()` gives
 `scry: reviewing 2 units` or an empty string, for your status line; any LSP progress display
 (fidget, `vim.lsp.status()`) shows the same. `:checkhealth sorcerer` says whether `scry` is on
 your PATH and its version.
@@ -94,7 +100,9 @@ setting `scry.path`, then your PATH, then `~/.cargo/bin`, then `~/.local/bin` (w
 installers put it), then the binary it downloaded itself. `scry.path` is read from your user
 settings only: a workspace's `.vscode/settings.json` cannot choose the program the extension
 runs, and in Restricted Mode the setting is not read at all. It starts one `scry lsp` per workspace
-folder. The diagnostics, the lightbulb and the progress in the status bar are VS Code's own.
+folder. The diagnostics, the lightbulb and the progress in the status bar are VS Code's own;
+the grey `⟳ scry: reviewing…` after a unit's first line is the extension's (a text decoration in the
+theme's `editorCodeLens.foreground` colour, italic, so a theme can change it).
 
 With no `scry` in any of those places, it offers:
 

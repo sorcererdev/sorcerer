@@ -28,7 +28,7 @@ use sorcerer_core::adapters::platform::paths::{canonical, names_ignore_case};
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
-use sorcerer_core::domain::unit::Span;
+use sorcerer_core::domain::unit::{Span, unit_at};
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::WorkDone;
 
@@ -260,6 +260,9 @@ pub(super) struct Again {
     pub undone: Vec<(PathBuf, Option<String>)>,
 }
 
+/// What the editor writes after the first line of the unit being changed.
+const WRITING_INLINE: &str = "\u{27f3} conjure: writing\u{2026}";
+
 /// How long the server waits for the editor to report the changes of an edit it applied: some
 /// editors (Neovim) answer the edit before they report them.
 pub(super) const REPORTED_WITHIN: Duration = Duration::from_secs(3);
@@ -316,9 +319,23 @@ impl Server {
                     let (project, record) = *failed;
                     self.record(&project, &record, Choice::Failed);
                 }
+                self.client.clear_working();
                 progress.end(None);
                 self.end_running();
             }
+        }
+    }
+
+    /// The editor writes `⟳ conjure: writing…` after the first line of the unit being changed
+    /// (an editor that draws it; others are told nothing). It stays until the change has landed
+    /// or has not ([`Server::ended`]).
+    fn show_writing(&self, ask: &Ask, file: &Path, view: &dyn CodebaseView) {
+        let Ok(units) = view.units(file) else {
+            return;
+        };
+        if let Some(unit) = unit_at(&units, ask.line) {
+            self.client
+                .show_working(WRITING_INLINE, &[(ask.path.clone(), unit.span.start)]);
         }
     }
 
@@ -344,6 +361,7 @@ impl Server {
         let snapshot = snapshot_of(&project, open);
         let files = FilesView::new(Arc::new(project.clone()), self.cfg.cache.clone());
         let view: Arc<dyn CodebaseView> = Arc::new(EditorView::new(files, snapshot.texts()));
+        self.show_writing(ask, &file, &*view);
         let attempt = if again.is_some() {
             Attempt::TryHarder
         } else {
@@ -510,6 +528,7 @@ impl Server {
 
     /// The progress line ends and the place for a running change is let go.
     fn ended(&self, progress: WorkDone) {
+        self.client.clear_working();
         progress.end(None);
         self.end_running();
     }

@@ -618,6 +618,12 @@ overtaking check).
   so a large change is reviewed a pass at a time with no further save until it is done or the
   day's budget stops it. `looked_at` counts units in calls that answered, so a per-pass cap
   below one call's estimate, or calls that keep failing, end the chain after one pass.
+- The inline text (`⟳ scry: reviewing…`, `REVIEWING_INLINE`): `told` on `Progress::Sending` calls
+  `show_reviewing`, which finds each sent unit's first line (`FilesView::units`, matched by
+  name and fingerprint) and the file as the editor names it (from the pass's files, since a
+  URI must match the editor's), and `Client::show_working` sends them; each call replaces the
+  last. `end_line` calls `clear_working`, on every way a pass ends (finished, failed, panic,
+  overtaken, shutdown).
 - `Server::review(pass)`: opens the project, keeps the saved files that are its own
   (`project_file`), reads `[scry]` (turned off: the pass ends there, with no wiring, so no
   "cannot run" message for someone who turned scry off), builds the wiring with `cfg.wire(project, review_cancel,

@@ -62,6 +62,13 @@ thread.
   `window/workDoneProgress/create` and holds the begin (and anything after it) until the
   editor answers, as the protocol asks; a refused create drops them. When the editor did not
   announce `window.workDoneProgress`, every call does nothing.
+- `show_working(text, places)` and `clear_working()`: the custom notification
+  `sorcerer/working`, `{ "units": [{ "uri", "line", "text" }] }` with `line` from 0 (a place is a
+  file and the unit's first line from 1), each call replacing the last; the editors draw `text`
+  after that line. It is sent only to an editor whose `initializationOptions` hold
+  `drawsWorking: true` (`Abilities::draws_working`, read in `serve::abilities_of`); to any other
+  both calls do nothing. `clear_working` sends the empty list only when something is shown. The
+  clients clear it themselves when the server exits.
 - `say(kind, text)`: `window/showMessage`, every time (an answer to what the person just did).
 - `say_once(key, kind, text)`: `window/showMessage`, at most once per key for the life of the
   server; answers whether it was sent.

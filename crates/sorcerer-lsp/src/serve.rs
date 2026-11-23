@@ -165,6 +165,10 @@ fn abilities_of(params: &Value) -> Abilities {
             || operations.is_some_and(|operations| !operations.is_empty()),
         create_files: resource_operation("create"),
         delete_files: resource_operation("delete"),
+        draws_working: params
+            .pointer("/initializationOptions/drawsWorking")
+            .and_then(Value::as_bool)
+            == Some(true),
     }
 }
 

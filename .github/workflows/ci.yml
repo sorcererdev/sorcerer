@@ -80,7 +80,7 @@ jobs:
       - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'conjure'
         working-directory: .
         run: |
-          for f in binary download offer; do
+          for f in binary download offer working inline; do
             diff editors/vscode/scry/src/$f.ts editors/vscode/conjure/src/$f.ts
           done
       - run: npm ci

@@ -122,9 +122,22 @@ impl Editor {
         Editor::serving(capabilities, |seen| Recording { seen })
     }
 
+    /// An editor that sent these `initializationOptions`.
+    fn with_options(options: Value) -> Editor {
+        Editor::serving_with(json!({}), options, |seen| Recording { seen })
+    }
+
     /// An editor talking to the product `make` builds.
     fn serving<P: Product + 'static>(
         capabilities: Value,
+        make: fn(Arc<Mutex<Seen>>) -> P,
+    ) -> Editor {
+        Editor::serving_with(capabilities, json!(null), make)
+    }
+
+    fn serving_with<P: Product + 'static>(
+        capabilities: Value,
+        options: Value,
         make: fn(Arc<Mutex<Seen>>) -> P,
     ) -> Editor {
         let (server_end, editor_end) = Connection::memory();
@@ -146,7 +159,8 @@ impl Editor {
         editor.request(
             1,
             "initialize",
-            json!({ "capabilities": capabilities, "rootUri": uri(&shop()) }),
+            json!({ "capabilities": capabilities, "rootUri": uri(&shop()),
+                    "initializationOptions": options }),
         );
         editor.notify("initialized", json!({}));
         editor
@@ -774,4 +788,44 @@ fn a_hang_up_with_a_question_unanswered_shuts_down_and_lets_the_connection_close
     // Every sender on the server's side is gone, so the editor's receiver sees the end.
     seen.lock().unwrap().client = None;
     assert!(receiver.recv_timeout(WAIT).unwrap_err().is_disconnected());
+}
+
+fn working_notes(editor: &Editor) -> Vec<Value> {
+    notifications(editor, "sorcerer/working")
+}
+
+#[test]
+fn working_is_silent_unless_the_editor_draws_it() {
+    let editor = Editor::plain();
+    let client = editor.client();
+    client.show_working("scry: reviewing", &[(shop().join("a.py"), 3)]);
+    client.clear_working();
+    assert!(working_notes(&editor).is_empty());
+    editor.stop();
+}
+
+#[test]
+fn working_sends_each_place_with_its_line_from_zero_and_clears_with_an_empty_list() {
+    let editor = Editor::with_options(json!({ "drawsWorking": true }));
+    let client = editor.client();
+    client.show_working(
+        "scry: reviewing",
+        &[(shop().join("a.py"), 3), (shop().join("b.py"), 1)],
+    );
+    client.clear_working();
+    client.clear_working();
+    let a = uri(&shop().join("a.py"));
+    let b = uri(&shop().join("b.py"));
+    assert_eq!(
+        working_notes(&editor),
+        vec![
+            json!({ "units": [
+                { "uri": a, "line": 2, "text": "scry: reviewing" },
+                { "uri": b, "line": 0, "text": "scry: reviewing" },
+            ] }),
+            json!({ "units": [] }),
+        ],
+        "a clear with nothing shown says nothing"
+    );
+    editor.stop();
 }

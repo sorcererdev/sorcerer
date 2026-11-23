@@ -298,10 +298,40 @@ impl<W: Wiring + 'static> Server<W> {
                     Some(line) => line.report(&message),
                     None => *line = Some(self.client.work_done("scry", &message)),
                 }
+                self.show_reviewing(pass, units);
             }
             Progress::Stored if pass.made_a_call() => self.publish_open(),
             Progress::Stored | Progress::Reviewed(_) => {}
         }
+    }
+
+    /// The editor writes `⟳ scry: reviewing…` after the first line of each unit the call is
+    /// sent (an editor that draws it; others are told nothing). A unit not found in its file
+    /// now (the file moved on) is left out.
+    fn show_reviewing(&self, pass: &RunningPass, units: &[SentUnit]) {
+        let Ok(project) = (self.cfg.open)(&self.root) else {
+            return;
+        };
+        let view = FilesView::new(Arc::new(project.clone()), self.cfg.cache.clone());
+        let places: Vec<(PathBuf, u32)> = units
+            .iter()
+            .filter_map(|sent| {
+                let line = view
+                    .units(&sent.file)
+                    .ok()?
+                    .into_iter()
+                    .find(|u| u.name == sent.unit && u.fingerprint == sent.fingerprint)?
+                    .span
+                    .start;
+                // the file as the editor names it, which its URI must match
+                let editor_path = pass
+                    .files
+                    .iter()
+                    .find(|file| project_file(&project, file).as_ref() == Some(&sent.file))?;
+                Some((editor_path.clone(), line))
+            })
+            .collect();
+        self.client.show_working(REVIEWING_INLINE, &places);
     }
 
     /// After the review: what it changed is published, the progress line ends (saying the
@@ -398,6 +428,7 @@ impl<W: Wiring + 'static> Server<W> {
     /// published, saying the review failed when it did.
     fn end_line(&self, pass: &RunningPass, failed: bool) {
         if let Some(line) = lock(&pass.line).take() {
+            self.client.clear_working();
             self.publish(Publish::After(Box::new(move || {
                 line.end(failed.then_some(REVIEW_FAILED));
             })));
@@ -454,6 +485,9 @@ fn editor_request(files: Vec<PathBuf>, config: &ScryConfig) -> ReviewRequest {
 
 /// How a progress line ends when a review call failed.
 const REVIEW_FAILED: &str = "review failed, see \"scry log\"";
+
+/// What the editor writes after a unit's first line while it is reviewed.
+const REVIEWING_INLINE: &str = "\u{27f3} scry: reviewing\u{2026}";
 
 /// `reviewing 1 unit`, `reviewing 2 units`.
 fn reviewing_text(units: usize) -> String {
