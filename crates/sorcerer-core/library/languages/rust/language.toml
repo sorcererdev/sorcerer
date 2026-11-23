@@ -26,3 +26,11 @@ tests_for = "{= dir =}/{= stem =}.rs"
 [imports]
 resolve = ["src/{= path =}.rs", "src/{= path =}/mod.rs"]
 drop_first = ["crate"]
+
+# The code spellbook writes where a generator leaves a hole: one template per kind, filled with
+# the hole's name and instruction. Every placeholder must parse where its kind belongs.
+[holes]
+ident = "todo_{= name =}"
+type = "()"
+expr = "todo!(\"hole {= name =}: {= instruction =}\")"
+block = "todo!(\"hole {= name =}: {= instruction =}\")"
