@@ -1,0 +1,5 @@
+# An edit that would write under .sorcerer/, which a generator may not touch (a plan stop).
+generator = "command"
+
+[inputs]
+command = "cancel_table"

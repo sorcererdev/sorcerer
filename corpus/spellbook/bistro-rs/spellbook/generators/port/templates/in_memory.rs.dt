@@ -1,0 +1,12 @@
+//! {= Port =} in memory: for tests, and until a real adapter exists.
+
+use super::{= Port =};
+
+#[derive(Default)]
+pub struct InMemory{= Port =};
+
+impl {= Port =} for InMemory{= Port =} {
+    fn {= ? method: ident | its first method =}(&self) -> {= ? returns: type | what that method returns =} {
+        {= ? body: block | what that method does in memory =}
+    }
+}

@@ -1,0 +1,46 @@
+generator = "query"
+
+[inputs]
+query = "find_free_tables"
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/bistro/booking/queries/find_free_tables.py"
+line = 8
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/bistro/booking/queries/find_free_tables.py"
+line = 13
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/bistro/booking/queries/find_free_tables__test.py"
+line = 10
+
+[[holes]]
+name = "field"
+kind = "ident"
+file = "src/bistro/booking/queries/find_free_tables__test.py"
+line = 11
+
+[[holes]]
+name = "handle"
+kind = "block"
+file = "src/bistro/booking/queries/find_free_tables.py"
+line = 21
+
+[[holes]]
+name = "type"
+kind = "type"
+file = "src/bistro/booking/queries/find_free_tables.py"
+line = 8
+
+[[holes]]
+name = "type"
+kind = "type"
+file = "src/bistro/booking/queries/find_free_tables.py"
+line = 13

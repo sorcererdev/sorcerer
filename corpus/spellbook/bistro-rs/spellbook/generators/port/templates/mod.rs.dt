@@ -1,0 +1,7 @@
+//! {= ? purpose: text | what this port does for the service =}
+
+pub mod in_memory;
+
+pub trait {= Port =} {
+    fn {= ? method: ident | its first method =}(&self) -> {= ? returns: type | what that method returns =};
+}

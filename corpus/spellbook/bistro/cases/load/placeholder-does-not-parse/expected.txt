@@ -1,0 +1,1 @@
+src/bistro/booking/commands/cancel_table.py would not parse at line 30 (from templates/command.py.dt); nothing was written

@@ -1,0 +1,31 @@
+//! {= ? purpose: text | what this command does =}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct {= Command =}Input {
+    pub {= ? field: ident | its first input =}: {= ? type: type | that input's type =},
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum {= Command =}Failure {
+    {= ? failure: ident | the first way it can fail =} { reason: String },
+}
+
+#[derive(Default)]
+pub struct {= Command =};
+
+impl {= Command =} {
+    pub fn handle(&self, input: {= Command =}Input) -> Result<{= ? value: type | what it returns when it succeeds =}, {= Command =}Failure> {
+        {= ? handle: block | its first case, from the test below =}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn {= command_ =}_succeeds() {
+        let input = {= Command =}Input { {= ? field: ident | its first input =}: Default::default() };
+        assert_eq!({= Command =}.handle(input), Ok(Default::default()));
+    }
+}

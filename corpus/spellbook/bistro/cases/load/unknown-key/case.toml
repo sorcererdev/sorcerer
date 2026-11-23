@@ -1,0 +1,5 @@
+# An edit says `content` where it means `template` or `text`.
+generator = "command"
+
+[inputs]
+command = "cancel_table"

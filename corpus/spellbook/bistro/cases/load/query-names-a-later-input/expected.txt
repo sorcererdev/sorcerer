@@ -1,0 +1,1 @@
+generator command (generator.toml): [query.apps] glob: a query naming an input not yet given (service, before app)

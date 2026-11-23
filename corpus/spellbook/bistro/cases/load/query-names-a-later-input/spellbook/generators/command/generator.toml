@@ -1,0 +1,59 @@
+name        = "Command"
+summary     = "A command of a service, with its test"
+description = "commands/NAME.py (its Input, a failure in a one-per-line union, handle) and NAME__test.py, a failing stub wired up, ready for the first case"
+language    = "python"
+examples    = ["spellbook new command --set service=booking --set command=cancel_booking"]
+
+[inputs.app]
+type   = "enum"
+one_of = "apps"
+prompt = "The app (the folder under src/ with main.py)"
+
+[inputs.service]
+type   = "enum"
+one_of = "services"
+prompt = "The service it belongs to"
+
+[inputs.command]
+type   = "ident"
+prompt = "The command, a verb phrase (cancel_booking, close_table)"
+
+[derive]
+Command  = "{= command|pascal =}"
+command_ = "{= command|snake =}"
+dir      = "src/{= app =}/{= service|snake =}/commands"
+module   = "{= app =}.{= service|snake =}.commands.{= command|snake =}"
+
+[query.apps]
+glob  = "src/*/{= service =}/main.py"
+value = "parent folder"
+
+[query.services]
+glob  = "src/{= app =}/*/models"
+value = "parent folder"
+
+[[edits]]
+create    = "{= dir =}/__init__.py"
+text      = ""
+on_exists = "skip"
+
+[[edits]]
+create   = "{= dir =}/{= command_ =}.py"
+template = "command.py.dt"
+
+[[edits]]
+create   = "{= dir =}/{= command_ =}__test.py"
+template = "command__test.py.dt"
+
+# The docstring starts as the name in words.
+[holes.purpose]
+source = "derived"
+value  = "{= command|sentence =}."
+
+[holes.value]
+source = "derived"
+value  = "None"
+
+[holes.failure]
+source = "derived"
+value  = "NotFound"

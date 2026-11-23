@@ -6,112 +6,15 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 
-pub const COMMAND_TOML: &str = r#"name        = "Command"
-summary     = "A command of a service, with its test"
-description = "commands/NAME.py (its Input, a failure in a one-per-line union, handle) and NAME__test.py, a failing stub wired up, ready for the first case"
-language    = "python"
-examples    = ["spellbook new command --set service=booking --set command=cancel_booking"]
-
-[inputs.app]
-type   = "enum"
-one_of = "apps"
-prompt = "The app (the folder under src/ with main.py)"
-
-[inputs.service]
-type   = "enum"
-one_of = "services"
-prompt = "The service it belongs to"
-
-[inputs.command]
-type   = "ident"
-prompt = "The command, a verb phrase (cancel_booking, close_table)"
-
-[derive]
-Command  = "{= command|pascal =}"
-command_ = "{= command|snake =}"
-dir      = "src/{= app =}/{= service|snake =}/commands"
-module   = "{= app =}.{= service|snake =}.commands.{= command|snake =}"
-
-[query.apps]
-glob  = "src/*/main.py"
-value = "parent folder"
-
-[query.services]
-glob  = "src/{= app =}/*/models"
-value = "parent folder"
-
-[[edits]]
-create    = "{= dir =}/__init__.py"
-text      = ""
-on_exists = "skip"
-
-[[edits]]
-create   = "{= dir =}/{= command_ =}.py"
-template = "command.py.dt"
-
-[[edits]]
-create   = "{= dir =}/{= command_ =}__test.py"
-template = "command__test.py.dt"
-
-# The docstring starts as the name in words.
-[holes.purpose]
-source = "derived"
-value  = "{= command|sentence =}."
-
-[holes.value]
-source = "derived"
-value  = "None"
-
-[holes.failure]
-source = "derived"
-value  = "NotFound"
-"#;
-
-pub const COMMAND_PY: &str = r#""""{= ? purpose: text | what this command does =}"""
-
-from dataclasses import dataclass
-
-from {= app =}.shared.result import Ok
-
-
-@dataclass(frozen=True)
-class {= Command =}Input:
-    {= ? field: ident | its first input =}: {= ? type: type | that input's type =}
-
-
-@dataclass(frozen=True)
-class {= ? failure: ident | the first way it can fail =}:
-    reason: str
-
-
-type {= Command =}Failure = (
-    {= ? failure: ident | the first way it can fail =}
-)
-
-type {= Command =}Output = Ok[{= ? value: ident | what it returns when it succeeds =}] | {= Command =}Failure
-
-
-class {= Command =}:
-    def __init__(self) -> None:
-        """Takes the ports it uses; main.py passes their adapters."""
-
-    def handle(self, input: {= Command =}Input) -> {= Command =}Output:
-        {= ? handle: block | its first case, from the test file beside it =}
-"#;
-
-pub const COMMAND_TEST_PY: &str = r#"from {= module =} import {= Command =}, {= Command =}Input
-from {= app =}.shared.result import Ok
-
-
-def command() -> {= Command =}:
-    return {= Command =}()
-
-
-def test_{= command_ =}_succeeds() -> None:
-    {= command_ =} = command()
-    result = {= command_ =}.handle({= Command =}Input({= ? field: ident | its first input =}="1"))
-    assert result == Ok(None)
-"#;
+/// The corpus's `command` generator: one source of truth for the tests and the corpus.
+pub const COMMAND_TOML: &str =
+    include_str!("../../../../corpus/spellbook/bistro/spellbook/generators/command/generator.toml");
+pub const COMMAND_PY: &str = include_str!(
+    "../../../../corpus/spellbook/bistro/spellbook/generators/command/templates/command.py.dt"
+);
+pub const COMMAND_TEST_PY: &str = include_str!(
+    "../../../../corpus/spellbook/bistro/spellbook/generators/command/templates/command__test.py.dt"
+);
 
 /// conjure's bistro base, the Python corpus project.
 pub fn bistro_base() -> PathBuf {

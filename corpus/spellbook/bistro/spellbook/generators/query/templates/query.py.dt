@@ -1,0 +1,21 @@
+"""{= ? purpose: text | what this query answers =}"""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class {= Query =}Input:
+    {= ? field: ident | its first input =}: {= ? type: type | that input's type =}
+
+
+@dataclass(frozen=True)
+class {= Query =}Result:
+    {= ? field: ident | its first input =}: {= ? type: type | that input's type =}
+
+
+class {= Query =}:
+    def __init__(self) -> None:
+        """Takes the ports it uses; main.py passes their adapters."""
+
+    def handle(self, input: {= Query =}Input) -> {= Query =}Result:
+        {= ? handle: block | its first case, from the test file beside it =}

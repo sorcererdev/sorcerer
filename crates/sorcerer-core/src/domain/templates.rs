@@ -30,7 +30,8 @@ pub enum Piece<'t> {
 ///
 /// Example: `pieces("a {= x|snake =}")` is `[Text("a "), Value { name: "x", filters: ["snake"] }]`.
 pub fn pieces(template: &str) -> Result<Vec<Piece<'_>>, String> {
-    refuse_double_braces(template)?;
+    let shown = excerpt(template);
+    refuse_double_braces(template, &shown)?;
     let mut found = Vec::new();
     let mut rest = template;
     while let Some(open) = rest.find("{=") {
@@ -40,8 +41,8 @@ pub fn pieces(template: &str) -> Result<Vec<Piece<'_>>, String> {
         let after = &rest[open + 2..];
         let close = after
             .find("=}")
-            .ok_or_else(|| format!("`{{=` is never closed in `{template}`"))?;
-        found.push(piece_inside(after[..close].trim(), template)?);
+            .ok_or_else(|| format!("`{{=` is never closed in `{shown}`"))?;
+        found.push(piece_inside(after[..close].trim(), &shown)?);
         rest = &after[close + 2..];
     }
     if !rest.is_empty() {
@@ -57,14 +58,15 @@ pub fn pieces(template: &str) -> Result<Vec<Piece<'_>>, String> {
 /// Example: `fill("{= dir =}/{= stem|pascal =}.ext", &[("dir","src/a"),("stem","b_c")])` is
 /// `Ok("src/a/BC.ext")`.
 pub fn fill(template: &str, values: &[(&str, &str)]) -> Result<String, String> {
+    let shown = excerpt(template);
     pieces(template)?
         .into_iter()
         .map(|piece| match piece {
             Piece::Text(text) => Ok(text.to_string()),
-            Piece::Value { name, filters } => filled_value(name, &filters, values, template),
-            Piece::Hole { name, .. } => Err(format!(
-                "a hole has no value here: `{name}` (in `{template}`)"
-            )),
+            Piece::Value { name, filters } => filled_value(name, &filters, values, &shown),
+            Piece::Hole { name, .. } => {
+                Err(format!("a hole has no value here: `{name}` (in `{shown}`)"))
+            }
         })
         .collect()
 }
@@ -91,10 +93,25 @@ pub fn filled_value(
         .map_err(|why| format!("{why} (in `{template}`)"))
 }
 
-fn refuse_double_braces(template: &str) -> Result<(), String> {
+/// The template as an error quotes it: whole when it is short (a path or a name), else its
+/// first line cut short, since a whole file of template says nothing about where the trouble is.
+///
+/// Example: a six-line template is quoted as its first line and `…`.
+fn excerpt(template: &str) -> String {
+    const LONGEST: usize = 60;
+    let first = template.lines().next().unwrap_or_default();
+    let is_short = !template.contains('\n') && template.chars().count() <= LONGEST;
+    if is_short {
+        return template.to_string();
+    }
+    let cut: String = first.chars().take(LONGEST).collect();
+    format!("{cut}…")
+}
+
+fn refuse_double_braces(template: &str, shown: &str) -> Result<(), String> {
     if template.contains("{{") && template.contains("}}") {
         Err(format!(
-            "\"{{{{ }}}}\" is not this template language; write {{= name =}} (in `{template}`)"
+            "\"{{{{ }}}}\" is not this template language; write {{= name =}} (in `{shown}`)"
         ))
     } else {
         Ok(())
@@ -265,5 +282,13 @@ mod tests {
         let each = pieces("{= for x in xs =}").unwrap_err();
         assert!(each.contains("arrives in milestone 2"), "{each}");
         assert!(pieces("{=  =}").unwrap_err().contains("no name"));
+    }
+
+    #[test]
+    fn a_long_template_is_quoted_by_its_first_line_only() {
+        let template = format!("first line\n{{= if x =}}\n{}", "more\n".repeat(50));
+        let error = pieces(&template).unwrap_err();
+        assert!(error.contains("(in `first line…`)"), "{error}");
+        assert!(error.len() < 120, "{error}");
     }
 }

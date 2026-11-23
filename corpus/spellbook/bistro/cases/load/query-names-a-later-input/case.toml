@@ -1,0 +1,5 @@
+# `apps` is asked first, so its glob cannot use `service`, which comes after it.
+generator = "command"
+
+[inputs]
+command = "cancel_table"
