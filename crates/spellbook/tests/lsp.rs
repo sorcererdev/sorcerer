@@ -407,3 +407,117 @@ fn an_untrusted_project_is_refused() {
     assert!(s.command("spellbook.generators", json!([])).is_array());
     s.stop();
 }
+
+// ---- Task B3: apply and the hole marks ----
+
+const TEST_FILE: &str = "src/bistro/booking/commands/cancel_table__test.py";
+const GONE: &str = "that plan is gone (plans last ten minutes); make it again";
+
+fn planned(s: &Served) -> String {
+    let plan = s.command("spellbook.plan", json!(["command", given_all()]));
+    plan["id"].as_str().unwrap().to_string()
+}
+
+fn message_of(mark: &Diagnostic, name: &str) -> bool {
+    mark.message.starts_with(&format!("{name} ("))
+}
+
+#[test]
+fn apply_writes_publishes_marks_and_shows_the_first_hole() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let id = planned(&s);
+    let reply = s.command("spellbook.apply", json!([id]));
+    assert_eq!(reply["written"], json!([MAIN, TEST_FILE]));
+    assert_eq!(reply["skipped"], json!(["src/bistro/booking/commands/__init__.py"]));
+    assert!(reply["refused"].is_null(), "{reply}");
+    assert!(dir.path().join(MAIN).exists());
+    assert!(dir.path().join(TEST_FILE).exists());
+    assert_eq!(reply["holes"].as_array().unwrap().len(), 6);
+    let first_line = reply["first"]["line"].as_u64().unwrap();
+    assert_eq!(reply["first"]["file"], MAIN);
+
+    let shown = s.shown_document();
+    assert_eq!(shown["uri"], s.uri(MAIN));
+    assert_eq!(shown["selection"]["start"]["line"], first_line - 1);
+
+    let marks = s.marks(MAIN);
+    let names: Vec<&str> = marks.iter().map(|m| m.message.split(' ').next().unwrap()).collect();
+    assert_eq!(names, ["field", "type", "handle"]);
+    let handle = marks.iter().find(|m| message_of(m, "handle")).unwrap();
+    assert_eq!(
+        handle.message,
+        "handle (block): its first case, from the test file beside it"
+    );
+    assert_eq!(handle.source.as_deref(), Some("spellbook"));
+    assert_eq!(
+        handle.code,
+        Some(lsp_types::NumberOrString::String("hole".into()))
+    );
+    assert_eq!(handle.severity, Some(lsp_types::DiagnosticSeverity::INFORMATION));
+    let on_disk = std::fs::read_to_string(dir.path().join(MAIN)).unwrap();
+    assert!(
+        on_disk
+            .lines()
+            .nth(handle.range.start.line as usize)
+            .unwrap()
+            .contains("NotImplementedError"),
+        "{on_disk}"
+    );
+    let test_marks = s.marks(TEST_FILE);
+    assert_eq!(test_marks.len(), 1);
+    assert!(message_of(&test_marks[0], "field"));
+    s.stop();
+}
+
+#[test]
+fn apply_of_an_unknown_plan_says_it_is_gone() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    assert_eq!(
+        s.command("spellbook.apply", json!(["deadbeef"])),
+        json!({ "stop": GONE })
+    );
+    s.stop();
+}
+
+#[test]
+fn a_plan_is_applied_once() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let id = planned(&s);
+    assert!(s.command("spellbook.apply", json!([id]))["written"].is_array());
+    assert_eq!(
+        s.command("spellbook.apply", json!([id])),
+        json!({ "stop": GONE })
+    );
+    s.stop();
+}
+
+#[test]
+fn a_plan_expires_after_ten_minutes() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let id = planned(&s);
+    *s.clock.0.lock().unwrap() = "2026-11-22T12:11:00Z".parse().unwrap();
+    assert_eq!(
+        s.command("spellbook.apply", json!([id])),
+        json!({ "stop": GONE })
+    );
+    assert!(!dir.path().join(MAIN).exists());
+    s.stop();
+}
+
+#[test]
+fn a_file_that_appeared_after_the_plan_is_reported_refused() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let id = planned(&s);
+    write_file(dir.path(), MAIN, "# mine\n");
+    let reply = s.command("spellbook.apply", json!([id]));
+    assert_eq!(reply["refused"]["path"], MAIN);
+    assert!(reply["refused"]["why"].is_string());
+    assert_eq!(reply["written"], json!([]));
+    assert!(reply["first"].is_null());
+    s.stop();
+}

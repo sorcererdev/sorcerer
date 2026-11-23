@@ -10,16 +10,21 @@
 
 use std::collections::BTreeMap;
 
+use std::path::Path;
+
 use lsp_server::{ErrorCode, ResponseError};
-use lsp_types::{ExecuteCommandOptions, ExecuteCommandParams, ServerCapabilities};
+use lsp_types::{ExecuteCommandOptions, ExecuteCommandParams, Position, Range, ServerCapabilities};
 use serde_json::{Value, json};
 use sorcerer_core::domain::project::Project;
 
+use super::diagnostics::file_diagnostics;
 use super::{NOT_TRUSTED, Server, lock};
 use crate::adapters::wiring::{Wired, wired};
 use crate::domain::inputs::{Given, InputStop, input_stop_text};
 use crate::domain::plan::{PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
+use crate::ports::workspace::write_refused_text;
+use crate::usecases::apply_generation::{AppliedGeneration, apply_generation};
 use crate::usecases::choices_for::choices_for;
 use crate::usecases::list_generators::list_generators;
 use crate::usecases::plan_generation::plan_generation;
@@ -28,6 +33,9 @@ pub(super) const GENERATORS: &str = "spellbook.generators";
 pub(super) const CHOICES: &str = "spellbook.choices";
 pub(super) const PLAN: &str = "spellbook.plan";
 pub(super) const APPLY: &str = "spellbook.apply";
+
+/// What an apply of an unknown, expired or already applied plan is told.
+const PLAN_GONE: &str = "that plan is gone (plans last ten minutes); make it again";
 
 /// The four commands, and no code actions.
 pub(super) fn capabilities() -> ServerCapabilities {
@@ -60,7 +68,7 @@ impl Server {
             GENERATORS => Ok(self.generators(&wired)),
             CHOICES => self.choices(&wired, arguments),
             PLAN => self.plan(&wired, arguments),
-            _ => Err(invalid("apply is not served yet")),
+            _ => self.apply(&wired, arguments),
         }
     }
 
@@ -121,6 +129,62 @@ impl Server {
             Err(why) => Ok(plan_stop_reply(&why)),
         }
     }
+
+    /// `[plan id]`: writes the plan's new files, marks each hole and opens the first one. A
+    /// plan is applied once.
+    fn apply(&self, wired: &Wired, arguments: &[Value]) -> Result<Value, ResponseError> {
+        let id = text_argument(arguments, 0)?;
+        let taken = lock(&self.plans).take(&id, self.cfg.clock.now());
+        let Some(plan) = taken else {
+            return Ok(stop(PLAN_GONE));
+        };
+        let applied = match apply_generation(&wired.apply_deps(), plan) {
+            Ok(applied) => applied,
+            Err(e) => return Ok(stop(&format!("spellbook: {e:#}"))),
+        };
+        let first = self.mark_written_files(wired, &applied.written);
+        if let Some((file, line)) = &first {
+            self.client.show_document(
+                &self.root.join(file),
+                Some(Range::new(
+                    Position::new(line - 1, 0),
+                    Position::new(line - 1, 0),
+                )),
+            );
+        }
+        Ok(applied_reply(&applied, first))
+    }
+
+    /// Publishes the hole marks of each written file; returns the file and line of the first
+    /// hole, by the order the files were written.
+    fn mark_written_files(&self, wired: &Wired, written: &[String]) -> Option<(String, u32)> {
+        let mut first = None;
+        for file in written {
+            let marks = file_diagnostics(wired, Path::new(file));
+            if first.is_none()
+                && let Some(top) = marks.iter().map(|m| m.range.start.line + 1).min()
+            {
+                first = Some((file.clone(), top));
+            }
+            self.publish(file, marks);
+        }
+        first
+    }
+}
+
+/// What apply did, as the plugin reads it.
+fn applied_reply(applied: &AppliedGeneration, first: Option<(String, u32)>) -> Value {
+    let refused = applied
+        .refused
+        .as_ref()
+        .map(|(path, why)| json!({ "path": path, "why": write_refused_text(why) }));
+    json!({
+        "written": applied.written,
+        "skipped": applied.skipped,
+        "refused": refused,
+        "holes": applied.plan.holes,
+        "first": first.map(|(file, line)| json!({ "file": file, "line": line })),
+    })
 }
 
 fn generator_named(

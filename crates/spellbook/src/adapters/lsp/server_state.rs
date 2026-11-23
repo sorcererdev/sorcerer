@@ -26,6 +26,14 @@ pub(super) struct Server {
 }
 
 impl Server {
+    /// Replaces a file's marks in the editor (the file is relative to the root, with `/`), and
+    /// remembers it so closing the file clears them.
+    pub(super) fn publish(&self, file: &str, marks: Vec<lsp_types::Diagnostic>) {
+        let path = self.root.join(file);
+        lock(&self.published).insert(path.clone(), marks.len());
+        self.client.publish(&path, marks);
+    }
+
     /// Whether spellbook may run in the project: it needs no trust, or the user trusted it.
     pub(super) fn trusted(&self, project: &Project) -> bool {
         needs_trust(project).is_empty()
