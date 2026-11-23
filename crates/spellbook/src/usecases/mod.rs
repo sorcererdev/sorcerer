@@ -1,1 +1,4 @@
 //! The API: each use case is one thing spellbook does, given its ports.
+
+pub mod choices_for;
+pub mod list_generators;

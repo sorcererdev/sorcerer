@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use sorcerer_core::domain::language::Languages;
 use sorcerer_core::domain::paths::forward_slashes;
@@ -11,6 +12,7 @@ use sorcerer_core::domain::project::Project;
 use crate::domain::generator::{Generator, read_generator};
 use crate::domain::generator_checks::check_generator;
 use crate::domain::generator_problems::GeneratorProblem;
+use crate::ports::generators::Generators;
 
 /// Where a project keeps its generators, relative to its root.
 pub const GENERATORS_DIR: &str = ".sorcerer/spellbook/generators";
@@ -93,4 +95,25 @@ fn collect_templates(
         }
     }
     Ok(())
+}
+
+/// The project's generator directories, as the use cases ask for them.
+pub struct GeneratorDirs {
+    project: Arc<Project>,
+}
+
+impl GeneratorDirs {
+    pub fn new(project: Arc<Project>) -> GeneratorDirs {
+        GeneratorDirs { project }
+    }
+}
+
+impl Generators for GeneratorDirs {
+    fn all(&self) -> Vec<Result<Generator, GeneratorProblem>> {
+        generators_in(&self.project)
+    }
+
+    fn named(&self, id: &str) -> Option<Result<Generator, GeneratorProblem>> {
+        generator_named(&self.project, id)
+    }
 }
