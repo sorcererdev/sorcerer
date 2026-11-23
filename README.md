@@ -9,7 +9,7 @@ files in `.sorcerer/`.
 
 ## Install
 
-Each tool is one program. Install the ones you want.
+Each tool is one program. Install the ones you want (you can start with just scry).
 
 macOS and Linux:
 
@@ -27,40 +27,117 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcer
 
 Or with Rust: `cargo install sorcerer-scry sorcerer-conjure`.
 
-The installers put `scry` and `conjure` in `~/.local/bin` (make sure that folder is on your
-PATH) and need neither Rust nor a C compiler: the language grammars come prebuilt with the
-release.
+The installers put `scry` and `conjure` in `~/.local/bin` and need neither Rust nor a C
+compiler. They end by telling you to open a new terminal or run a `source` line; do that, then
+check:
 
-## Quickstart
+```sh
+scry --version
+```
 
-1. **Install** with the lines above.
-2. **Two keys.** Sign up at typesafe.ai (free) and set `JEV_API_KEY`. For the model that does
-   the reviewing, have either [Claude Code](https://claude.com/claude-code) on your PATH
-   (signed in) or `ANTHROPIC_API_KEY` set. Conjure uses the same one.
-3. **Check.** In a git project, run `scry doctor` (and `conjure doctor`). Every row should be
-   `ok`; a row that is not says what to fix.
-4. **Run.** Change some code, then run `scry`. It reviews what you changed against HEAD and
-   prints each finding it can stand behind (a file, a line, what is wrong). When there is
-   nothing to say it says nothing. It exits 1 when a finding is open.
+If that says "command not found", `~/.local/bin` is not on your PATH yet.
 
-   ```sh
-   cd my-project
-   scry doctor
-   # edit something, then:
-   scry
-   scry why <id>       # the reasoning behind a finding (ids are printed with each)
-   scry dismiss <id>   # a finding that is wrong, so it stays quiet
-   ```
-5. **Conjure.** Ask for one small change at a line, or at a scry finding:
+## Get started
 
-   ```sh
-   conjure src/cart.py:12           # prints the change; touches nothing
-   conjure --finding <id> src/cart.py:43
-   ```
+You need two things besides the programs, both set up once.
 
-   In an editor the same thing is one click (below), and the change lands in your buffers.
+1. **A model account.** Either [Claude Code](https://claude.com/claude-code) on your PATH and
+   signed in (`claude` works in your terminal), or `ANTHROPIC_API_KEY` set. Scry and conjure
+   both use it.
+2. **A Jev key.** Jev is the checker that confirms a finding before scry shows it. Sign up at
+   typesafe.ai (free) and set `JEV_API_KEY` in your shell profile (`~/.zshrc`, `~/.bashrc`).
 
-A first review on the first run of a language is a little slower while its grammar downloads.
+Then try it on a small project. Make one:
+
+```sh
+mkdir my-project && cd my-project && git init
+mkdir src
+cat > src/cart.py <<'PY'
+def total(prices, discount):
+    """Sum prices and apply a percentage discount."""
+    s = 0
+    for p in prices:
+        s += p
+    return s - s * discount / 100
+
+
+def average(prices):
+    return total(prices, 0) / len(prices)
+PY
+git add . && git commit -m "start"
+```
+
+**Check that everything is in place.** Every row should say `ok`; a row that does not says
+what to fix (for example `provider FAIL no model provider: put claude on PATH or set
+ANTHROPIC_API_KEY`):
+
+```sh
+scry doctor
+```
+
+```text
+git        ok    /usr/bin/git
+provider   ok    claude (claude is on PATH)
+jev        ok    jev (JEV_API_KEY is set)
+languages  ok    python load (downloaded)
+...
+```
+
+(The first time it meets a language it downloads that language's grammar, which takes a
+moment.)
+
+**Make a mistake, and let scry find it.** Scry reviews what you changed since your last
+commit. Break `average` so it divides by one too many:
+
+```sh
+sed -i.bak 's|len(prices)|(len(prices) - 1)|' src/cart.py && rm src/cart.py.bak
+scry
+```
+
+```text
+src/cart.py:9  bug  average divides the total by len(prices) - 1 instead of len(prices), so it no
+                    longer returns the arithmetic mean (e.g. [10,20,30] gives 30.0 instead of 20.0).
+                    ...  (0.98)
+  evidence: src/cart.py:9-10
+  scry why 7386d0
+1 finding, 1 unit looked at, $0.02
+```
+
+Your wording and id will differ. When scry has nothing to say it prints nothing. It exits 1 while
+a finding is open, so it works in scripts and hooks.
+
+**The everyday commands:**
+
+```sh
+scry why 7386d0       # the reasoning and evidence behind a finding (use the id it printed)
+scry dismiss 7386d0   # the finding is wrong: it stays quiet from now on
+scry list             # the findings it remembers
+scry cost             # what you have spent, a day a row
+```
+
+**Ask conjure for a change.** Give it a file and a line, or a scry finding. From the command
+line it only prints the change and touches nothing:
+
+```sh
+conjure src/cart.py:9
+conjure --finding 7386d0 src/cart.py:9
+```
+
+```text
+goal: Restore the divisor in average to len(prices) so it returns the arithmetic mean again.
+--- src/cart.py
+@@ -7,4 +7,4 @@
+ 
+ 
+ def average(prices):
+-    return total(prices, 0) / (len(prices) - 1)
++    return total(prices, 0) / len(prices)
+parses
+haiku · $0.000 · 2 s
+```
+
+To get the change into your file, use conjure in an editor (below): it lands in your buffer,
+unsaved, with an Undo.
 
 ### When it asks you to trust a project
 
@@ -72,8 +149,8 @@ scry trust        # or: conjure trust
 ```
 
 `scry doctor` shows a `trust` row that says where the project stands. A project that sets
-none of these needs no trust. `scry trust --revoke` takes it back. The editor's conjure also
-needs the project trusted.
+none of these (like the one above) needs no trust. `scry trust --revoke` takes it back. The
+editor's conjure also needs the project trusted.
 
 ## In your editor
 
@@ -163,21 +240,12 @@ Sorcerer spends your model account, and keeps its own count.
 - **Still stuck?** Open an issue at https://github.com/sorcererdev/sorcerer/issues with the
   doctor's output and the run log.
 
-## More
+## For contributors
 
-`scry` and its editor chapters, configuration (`.sorcerer/config.toml`, your rules in
-`.sorcerer/scry.toml`) and adding a language are in the user book.
-
-## Books
-
-Not published online yet. Build them locally with `mdbook` (`cargo install mdbook`):
-
-- `book/user/`: using sorcerer (`mdbook serve book/user`)
-- `book/internals/`: how it works, so you can change it (start with its Architecture chapter:
-  every crate is in layers, checked by `scripts/layers`)
-
-Scry's quality is measured by the eval (`cargo test -p sorcerer-scry --test eval`), which
-replays recorded reviews of labelled cases in Python and Rust (`corpus/scry/`).
+How it works is in `book/internals/` (build with `mdbook serve book/internals`; start with its
+Architecture chapter). Scry's quality is measured by the eval
+(`cargo test -p sorcerer-scry --test eval`), which replays recorded reviews of labelled cases
+in Python and Rust (`corpus/scry/`).
 
 ## License
 
