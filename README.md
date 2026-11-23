@@ -36,7 +36,7 @@ release.
 1. **Install** with the lines above.
 2. **Two keys.** Sign up at typesafe.ai (free) and set `JEV_API_KEY`. For the model that does
    the reviewing, have either [Claude Code](https://claude.com/claude-code) on your PATH
-   (signed in) or `ANTHROPIC_API_KEY` set. Conjure uses Claude Code (`claude` on your PATH).
+   (signed in) or `ANTHROPIC_API_KEY` set. Conjure uses the same one.
 3. **Check.** In a git project, run `scry doctor` (and `conjure doctor`). Every row should be
    `ok`; a row that is not says what to fix.
 4. **Run.** Change some code, then run `scry`. It reviews what you changed against HEAD and
