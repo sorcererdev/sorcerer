@@ -234,3 +234,122 @@ fn show_lists_inputs_and_choices() {
     );
     assert!(out.contains("examples:\n  spellbook new command"), "{out}");
 }
+
+fn bistro_with_a_sqlite_command() -> tempfile::TempDir {
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    write_file(
+        dir.path(),
+        "src/bistro/booking/commands/close_table.py",
+        "from dataclasses import dataclass\nimport sqlite3\n",
+    );
+    dir
+}
+
+#[test]
+fn check_exits_0_with_a_warning_and_1_with_an_error() {
+    let dir = bistro_with_a_sqlite_command();
+    let (code, out, err) = run(dir.path(), &["check"]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(
+        out.starts_with("! src/bistro/booking/commands/close_table.py:2  commands-use-ports — Commands and queries talk to ports"),
+        "{out}"
+    );
+    assert!(
+        out.ends_with("conventions hold (1 finding, none blocking)\n"),
+        "{out}"
+    );
+    let rules = std::fs::read_to_string(dir.path().join(".sorcerer/spellbook/rules.toml")).unwrap();
+    let strict = rules.replacen("severity = \"warn\"", "severity = \"error\"", 1);
+    write_file(dir.path(), ".sorcerer/spellbook/rules.toml", &strict);
+    let (code, out, _) = run(dir.path(), &["check"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.starts_with("✗ "), "{out}");
+    assert!(out.ends_with("1 blocking finding\n"), "{out}");
+}
+
+#[test]
+fn check_with_no_findings_holds_and_with_no_rules_says_so() {
+    let dir = bistro_project();
+    let (code, out, _) = run(dir.path(), &["check"]);
+    assert_eq!(code, 0);
+    assert!(out.starts_with("conventions hold (no findings)\n"), "{out}");
+    assert!(out.contains("no rules yet"), "{out}");
+}
+
+#[test]
+fn check_json_equals_the_report() {
+    let dir = bistro_with_a_sqlite_command();
+    let (code, out, _) = run(dir.path(), &["check", "--json"]);
+    assert_eq!(code, 0);
+    let printed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let saved =
+        std::fs::read_to_string(dir.path().join(".sorcerer/state/spellbook/report.json")).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(printed, saved["data"]);
+    assert_eq!(printed["findings"][0]["line"], 2);
+}
+
+#[test]
+fn check_on_named_files_checks_only_those() {
+    let dir = bistro_with_a_sqlite_command();
+    write_file(
+        dir.path(),
+        "src/bistro/booking/commands/open_table.py",
+        "import sqlite3\n",
+    );
+    let (_, out, _) = run(
+        dir.path(),
+        &["check", "src/bistro/booking/commands/open_table.py"],
+    );
+    assert!(out.contains("open_table.py:1"), "{out}");
+    assert!(!out.contains("close_table"), "{out}");
+}
+
+#[test]
+fn a_broken_rules_file_stops_check_with_exit_2() {
+    let dir = bistro_project();
+    write_file(
+        dir.path(),
+        ".sorcerer/spellbook/rules.toml",
+        "[rules.a]\nfiles = \"x\"\n",
+    );
+    let (code, _, err) = run(dir.path(), &["check"]);
+    assert_eq!(code, 2);
+    assert!(
+        err.contains("rules.toml: rule a: `message` is missing"),
+        "{err}"
+    );
+}
+
+#[test]
+fn doctor_names_the_rules_file_and_the_report() {
+    let dir = bistro_with_a_sqlite_command();
+    let (code, out, err) = run(dir.path(), &["doctor"]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(
+        out.contains("rules        ok    4 rules: adapters-in-main, commands-use-ports, failures-returned, web-uses-commands\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("report       ok    no report.json yet"),
+        "{out}"
+    );
+    run(dir.path(), &["check"]);
+    let (_, out, _) = run(dir.path(), &["doctor"]);
+    assert!(
+        out.contains("report.json version 1, 1 finding at the last check, 2026-11-22 12:00 UTC"),
+        "{out}"
+    );
+    write_file(
+        dir.path(),
+        ".sorcerer/spellbook/rules.toml",
+        "[rules.a]\nfiles = \"x\"\n",
+    );
+    let (code, out, _) = run(dir.path(), &["doctor"]);
+    assert_eq!(code, 2);
+    assert!(
+        out.contains("rules        FAIL  .sorcerer/spellbook/rules.toml: rule a:"),
+        "{out}"
+    );
+}

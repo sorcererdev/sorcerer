@@ -3,6 +3,7 @@
 //! stopped to ask for an input.
 
 mod arguments;
+mod check;
 mod console;
 mod doctor;
 mod format;

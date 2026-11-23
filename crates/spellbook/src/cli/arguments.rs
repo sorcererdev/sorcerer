@@ -41,6 +41,14 @@ pub(super) enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Run the project's rules over the project, or only the named files
+    Check {
+        /// Only these files
+        files: Vec<PathBuf>,
+        /// Print the findings as JSON (for an agent or a script)
+        #[arg(long)]
+        json: bool,
+    },
     /// Whether spellbook can run here: generators, languages and their holes, conjure, trust,
     /// the records
     Doctor,

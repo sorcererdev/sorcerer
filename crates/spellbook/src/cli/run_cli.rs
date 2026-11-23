@@ -13,7 +13,7 @@ use crate::adapters::wiring::{Wire, live};
 
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
-use super::{doctor, holes, list, lsp, new, show, trust};
+use super::{check, doctor, holes, list, lsp, new, show, trust};
 
 /// The program's entry: runs the command in the current directory, with the real files,
 /// grammars and clock.
@@ -89,5 +89,6 @@ fn run_command(
             new::new(&wire(project)?, &request, out, err)
         }
         Cmd::Holes { files, json } => holes::holes(&wire(project)?, &files, json, out),
+        Cmd::Check { files, json } => check::check(&wire(project)?, &files, json, out),
     }
 }

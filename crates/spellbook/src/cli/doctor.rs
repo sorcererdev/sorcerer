@@ -12,10 +12,13 @@ use sorcerer_core::ports::env::Env;
 
 use crate::adapters::generator_dir::{GENERATORS_DIR, generators_in};
 use crate::adapters::json_holes::HOLES_FILE;
+use crate::adapters::json_report::REPORT_FILE;
 use crate::adapters::jsonl_generation_store::JsonlGenerationStore;
+use crate::adapters::rules_toml::{RULES_FILE, load_rules};
 use crate::domain::config::spellbook_config;
 use crate::domain::holes_table::holes_table;
 use crate::domain::record::HolesFile;
+use crate::domain::report::ReportFile;
 use crate::ports::generation_store::GenerationStore;
 
 use super::format::count;
@@ -40,8 +43,8 @@ pub(super) fn doctor(project: &Project, env: &dyn Env, out: &mut dyn Write) -> R
     })
 }
 
-/// The rows, in this order: `config`, `generators`, `languages`, `conjure`, `trust`, `holes`,
-/// `generations`.
+/// The rows, in this order: `config`, `generators`, `rules`, `languages`, `conjure`, `trust`,
+/// `holes`, `report`, `generations`.
 pub fn doctor_rows(project: &Project, env: &dyn Env) -> Vec<DoctorRow> {
     let row = |name, result| DoctorRow { name, result };
     vec![
@@ -52,6 +55,7 @@ pub fn doctor_rows(project: &Project, env: &dyn Env) -> Vec<DoctorRow> {
                 .map_err(|e| e.to_string()),
         ),
         row("generators", generators_row(project)),
+        row("rules", rules_row(project)),
         row("languages", Ok(languages_row(project))),
         row("conjure", Ok(conjure_row(env))),
         row(
@@ -59,6 +63,7 @@ pub fn doctor_rows(project: &Project, env: &dyn Env) -> Vec<DoctorRow> {
             Ok(trust_row(project, TrustList::user(env).as_ref())),
         ),
         row("holes", holes_row(project)),
+        row("report", report_row(project)),
         row("generations", generations_row(project)),
     ]
 }
@@ -132,6 +137,38 @@ fn holes_row(project: &Project) -> Result<String, String> {
             count(file.holes.len(), "open hole", "open holes")
         )),
         Snapshot::Unreadable(why) => Err(format!("holes.json cannot be read: {why}")),
+    }
+}
+
+/// The rules file read, with how many rules it holds, or its problem.
+fn rules_row(project: &Project) -> Result<String, String> {
+    let rules = load_rules(project).map_err(|problem| problem.to_string())?;
+    if rules.is_empty() {
+        return Ok(format!(
+            "none yet (add {RULES_FILE}; `spellbook check` has nothing to check)"
+        ));
+    }
+    let ids: Vec<&str> = rules.iter().map(|rule| rule.id.as_str()).collect();
+    Ok(format!(
+        "{}: {}",
+        count(rules.len(), "rule", "rules"),
+        ids.join(", ")
+    ))
+}
+
+/// The last check: how many findings it left and when.
+fn report_row(project: &Project) -> Result<String, String> {
+    let store: Store<ReportFile> = Store::at(project.state.join(REPORT_FILE));
+    match store.read().map_err(|e| e.to_string())? {
+        Snapshot::Absent => Ok("no report.json yet (run `spellbook check`)".into()),
+        Snapshot::Current(file) => Ok(format!(
+            "report.json version 1, {} at the last check{}",
+            count(file.findings.len(), "finding", "findings"),
+            file.checked
+                .map(|at| format!(", {}", at.format("%Y-%m-%d %H:%M UTC")))
+                .unwrap_or_default()
+        )),
+        Snapshot::Unreadable(why) => Err(format!("report.json cannot be read: {why}")),
     }
 }
 
