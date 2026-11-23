@@ -1715,6 +1715,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sorcerer-spellbook"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "globset",
+ "lsp-server",
+ "lsp-types",
+ "regex",
+ "serde",
+ "serde_json",
+ "sorcerer-core",
+ "sorcerer-lsp",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "tree-sitter",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
