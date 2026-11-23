@@ -255,7 +255,9 @@ gives up. Conjure checks a changed file with it ("parses", or "does not parse (l
 (`{= name|pascal =}`, filters left to right) and `Piece::Hole { name, kind, instruction }`
 (`{= ? handle: block | its first case =}`), refusing with a sentence a `{=` never closed,
 `{{ }}` (another template language), `{= if =}`/`{= for =}` (milestone 2), an empty name and a
-hole with no `: kind`. `fill(template, values)` fills the values and applies the filters; a
+hole with no `: kind`. An error quotes the template whole when it is short (a path) and by its first
+line and `…` when it is longer (`excerpt`), so a mistake in a file of template is not buried in the file.
+`fill(template, values) fills the values and applies the filters; a
 hole is an error there ("a hole has no value here"), because only spellbook knows what goes in
 one. Conjure fills its language files' path templates with it; spellbook renders generators
 with `pieces`.

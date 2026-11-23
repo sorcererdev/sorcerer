@@ -14,7 +14,7 @@ What is here and what is coming (the five parts of spellbook):
 | part | state |
 |---|---|
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
-| rules that check the code | coming next in this milestone (`spellbook check`) |
+| rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and warnings on save in the editor |
 | owned regions (`pub mod` lines a generator keeps), insert edits, list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
@@ -234,14 +234,86 @@ lines of it. Fill it and it is gone. `spellbook holes FILE…` looks only at tho
 ```
 spellbook list                     the generators, a row each (a broken one is a row with its problem)
 spellbook show <generator>         its inputs and their choices now, the files it creates, its holes, its examples
-spellbook doctor                   the config, the generators, the languages and their hole kinds,
-                                   whether conjure is installed, trust, holes.json, generations.jsonl
+spellbook check [FILE…] [--json]   run the rules over the project (or the named files)
+spellbook doctor                   the config, the generators, the rules, the languages and their hole kinds,
+                                   whether conjure is installed, trust, holes.json, report.json, generations.jsonl
 spellbook trust [--revoke]         let the editor's server run here although the project's config runs code
 spellbook lsp                      the editor's language server (the editor starts it; see below)
 ```
 
 `spellbook doctor` says "holes can be conjured in the editor" when `conjure` is on the PATH, and
 "holes are filled by hand; install conjure to fill them with a model" when it is not.
+
+## Rules and check
+
+A rule is a convention that checks itself. Rules live in `.sorcerer/spellbook/rules.toml`, one
+`[rules.<id>]` table each:
+
+```toml
+[rules.commands-use-ports]
+files    = "src/{app}/{service}/commands/*.py"
+exclude  = ["**/__init__.py", "**/*__test.py"]
+match    = { any = [
+  { kind = "import_statement", regex = "sqlite3" },
+  { kind = "import_from_statement", regex = "^from sqlite3" },
+] }
+message  = "Commands talk to ports, not the database"
+severity = "warn"
+```
+
+| key | meaning |
+|---|---|
+| `files` | a path pattern: `*` is part of one folder or file name, `**` any number of folders (`**.py` is `**/*.py`), `{name}` a name that must be there (it binds one folder, or the part of a name between the text around it). Required |
+| `exclude` | a list of path patterns no finding is made in |
+| `match` | the short form, below (write this or `query`) |
+| `query` | a [tree-sitter query](https://tree-sitter.github.io/tree-sitter/using-parsers/queries/index.html) in the file's language; every `@finding` capture is a finding. A query with no `@finding` is refused when the rule first runs |
+| `message` | the sentence a finding says. Required |
+| `severity` | `hint`, `warn` (the default) or `error` |
+| `since`, `why` | free text for people: when the convention began and why it holds |
+
+`missing`, `fix` and `fixes` are keys of milestone 2 (a rule that says what to add, and a
+generator that repairs it): a rules file that has one says so and stops.
+
+The short form is `{ kind, regex, not = { regex }, any = [ … ] }`. `kind` is the syntax node's kind
+in the language's grammar (`import_statement`, `call_expression`); `regex` must match the node's
+text (the Rust `regex` syntax), `not` must not, and `any` is a list of forms of which any one is a
+finding. Spellbook writes it out as a query, so the two forms run on one engine. A line gets at most
+one finding for each rule.
+
+`spellbook check` runs every rule over every file whose language the project knows (or just the
+files you name) and prints a row for each finding:
+
+```
+$ spellbook check
+! src/bistro/booking/commands/close_table.py:2  commands-use-ports — Commands and queries talk to ports, not the database
+conventions hold (1 finding, none blocking)
+```
+
+`!` is a warning, `·` a hint, `✗` an error. The exit code is 0 when the conventions hold (hints and
+warnings do not fail), 1 when a finding is an error, and 2 when it could not run (the rules file has
+a mistake, which the message names). `--json` prints `{ "checked", "findings": [ … ] }`: each finding
+has `rule`, `file`, `line`, `severity`, `message` and a `fingerprint` (seven hex digits that stay the
+same when the code is moved or re-indented). `[spellbook] exclude` in `config.toml` lists files no
+rule sees.
+
+To let one place break a rule, say why in a comment on the line or the line above:
+
+```python
+# spellbook:allow commands-use-ports — migration, tracked in issue 12
+import sqlite3
+```
+
+The reason follows an em dash (` - ` and ` -- ` work too). An allow without a reason still silences
+the finding, and leaves a warning, `allow-without-reason`, on the comment; an allow that names no rule
+(a typo) silences nothing and is an `unknown-rule` warning.
+
+In the editor, the server checks a file when you open it and when you save it, and shows each finding
+as a diagnostic on its line (a hint, warning or error, source `spellbook`, the rule's id as its
+code), beside the marks of the holes in the file. Edit `rules.toml` and the next save uses it. A
+`rules.toml` that does not load is said once in the editor, and `spellbook doctor` shows the
+problem.
+
+The last check is kept in `.sorcerer/state/spellbook/report.json`.
 
 ## In Neovim
 
@@ -300,8 +372,18 @@ Besides the files you ask for by name, spellbook writes only its own state under
 |---|---|
 | `generations.jsonl` | one line per generation applied: its id, time, generator, inputs, files and holes (each line has `"version": 1`) |
 | `holes.json` | the open holes, `{"version": 1, "data": {"holes": [...]}}`, refreshed by `new` and `holes` |
+| `report.json` | the findings of the last check, `{"version": 1, "data": {"checked": …, "findings": [...]}}`: rewritten whole by `spellbook check`, a file at a time by the editor's server |
 
 ## Settings
 
 `[spellbook]` in `.sorcerer/config.toml` has two keys, `enabled` and `exclude`; see
 [Configuration](configuration.md).
+
+## What is coming
+
+Milestone 2 brings fixes (a rule that names the generator that repairs it), `missing` rules,
+owned regions (the `pub mod` line a generator keeps), insert edits, list inputs and `if`/`for` in
+templates, packs of generators and rules shared between projects, and a VS Code extension.
+Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
+rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything
+until then, and the model parts stay optional.

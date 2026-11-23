@@ -50,26 +50,42 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `open_hole_places.rs`: `still_open(hole, text)`: a placeholder carrying `hole <name>:` is
   found by that text anywhere, nearest the recorded line first; a short one (`todo_field`) as a
   whole word on its line or within `NEARBY_LINES` (20).
+- `path_pattern.rs`: `PathPattern::parse` and `matches(path)` (the slots bound): a rule's `files` and
+  `exclude`, compiled to an anchored `regex` (`*` one name, `**` any folders, `**.ext` = `**/*.ext`,
+  `{slot}` a lazy `[^/]+?` capture).
+- `rule.rs`: `Rule`, `RuleBody::{Match(MatchForm), Query(String)}`, `Severity`, `parse_rules(text)`
+  (strict keys; `missing`/`fix`/`fixes` say "arrives in milestone 2"; both `match` and `query` is
+  refused; every regex is compiled once to catch a bad one early). `rule_query.rs`: `query_text`, the
+  short form written as tree-sitter query text (`@finding`, `#match?`, `#not-match?`, backslash and
+  quote escaped).
+- `finding.rs` (`Finding`, `RawFinding`, `fingerprint`: seven hex digits of `fnv64_hex` over the
+  rule and the node text with whitespace collapsed), `allow.rs` (`allow_comments`, `silencing`),
+  `report.rs` (`ReportFile`, `with_files_replaced`, `sort_findings`; `report.json` is a core
+  `Versioned` at version 1).
 
 `ports/`: `generators.rs` (`Generators`: `all`, `named`), `grammars.rs` (`Grammars::for_path`:
 the loaded language of a path, or none), `workspace.rs` (`Workspace::write_new`, `WriteRefused`),
-`generation_store.rs`, `holes_store.rs`, `clock.rs`.
+`generation_store.rs`, `holes_store.rs`, `clock.rs`, `rule_runner.rs` (`RuleRunner::findings_in`), `report_store.rs`.
 
 `usecases/`: `list_generators.rs` (`GeneratorSummary`, also the editor's picker reply),
 `choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`,
 `plan_generation`), `apply_generation.rs` (`ApplyDeps`, `apply_generation`,
-`AppliedGeneration`), `open_holes.rs` (`HolesDeps`, `open_holes`).
+`AppliedGeneration`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, `check_files`), `check_project.rs`
+(`check_project`).
 
 `adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
 `load_generator`, `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
 `Languages::for_path` and `Languages::load`), `disk_workspace.rs`, `jsonl_generation_store.rs`,
-`json_holes.rs` (core's `Store` at `spellbook/holes.json`), `system_clock.rs`, `wiring.rs`
-(`Wired`, `live`, `wired`, and `plan_deps`/`apply_deps`/`holes_deps`).
+`json_holes.rs` (core's `Store` at `spellbook/holes.json`), `json_report.rs` (the same at
+`spellbook/report.json`), `rules_toml.rs` (`load_rules`, `RULES_FILE`), `query_rules.rs` (`QueryRules`,
+the `RuleRunner` over tree-sitter), `checking.rs` (`Wired::checking()`: the rules read fresh, the settings
+and the runner, then `Checking::deps()`), `system_clock.rs`, `wiring.rs` (`Wired`, `live`, `wired`, and
+`plan_deps`/`apply_deps`/`holes_deps`).
 
 `adapters/lsp/`: the server, below.
 
 `cli/`: `arguments.rs`, `run_cli.rs` (`main`, `main_with(args, cwd, env, wire, out, err)`),
-one file a command (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
+one file a command (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
 `format.rs` (`columns`), `console.rs`.
 
 ## One generation, end to end
@@ -125,7 +141,10 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
 - `marks.rs` (`hole_mark`: the whole line, Information, source `spellbook`, code `hole`, message
   `<name> (<kind>): <instruction>`, `data` the generation id), `diagnostics.rs`
   (`file_diagnostics`: `open_holes` for one file, so the same `still_open` search as the command
-  line), `project_paths.rs` (`project_relative`: which editor paths are the project's).
+  line, plus the file's findings; it returns `FileDiagnostics { marks, findings, rules_problem }`
+  and `all()` joins them, since the host's `publish` replaces a file's whole list),
+  `findings.rs` (`finding_mark`: the whole line, Hint, Warning or Error, source `spellbook`, the rule
+  id as its code), `project_paths.rs` (`project_relative`: which editor paths are the project's).
 
 After an apply the server publishes each written file's marks and asks the editor to show the
 first file at its first hole (`Client::show_document`). Spellbook does not know conjure ran: it
@@ -133,6 +152,30 @@ sees the placeholders gone on the next save. The editor side is sorcerer.nvim's
 `lua/sorcerer/spellbook.lua` (`M.new`, one chain of callbacks: generators, choices, plan, the
 float in `spellbook_plan.lua`, apply, then conjure's `conjure.conjure [uri, line]` on the first
 hole when `conjure_holes` is set); it knows only the replies above.
+
+## A check
+
+`spellbook check` (`cli/check.rs`) and the server share one path:
+
+1. `Wired::checking()` (`adapters/checking.rs`) reads `.sorcerer/spellbook/rules.toml` fresh
+   (`load_rules` → `parse_rules`, so a bad file is a sentence, not a panic) and `[spellbook]`, and
+   builds a `QueryRules` over the project's `CachedGrammars`.
+2. `check_files(deps, files)` (`usecases/check_files.rs`), for each file: skip it when it matches
+   `[spellbook] exclude`, has no language (`Grammars::for_path`) or is not text; keep the rules whose
+   `files` pattern matches and no `exclude` does (`Rule::applies_to`); ask the `RuleRunner` for raw
+   findings; keep one a line for each rule; read the file's allow comments (`allow_comments`, with the
+   language's `comment` marker) and drop each finding one names (`silencing`: its line or the one
+   above); add an `allow-without-reason` or `unknown-rule` warning on each comment that needs it; sort;
+   then `ReportStore::replace_files` keeps just those files' findings in `report.json`.
+3. `check_project` (`usecases/check_project.rs`) is the same over `view.glob("**")` less
+   `.sorcerer/` and `.git/`, and `replace_all`.
+4. `QueryRules::findings_in` (`adapters/query_rules.rs`) parses the file with `Loaded::parse`,
+   compiles each rule's query once for each language (`sorcerer_core::domain::query::compile`, which
+   refuses predicates tree-sitter would skip; the cache is per `QueryRules`, so per command or per
+   save), refuses one with no `@finding` capture, and reports each capture's start line and text.
+
+The server's `file_diagnostics` calls `check_files` for the one file, so a save refreshes the report
+and the findings; a rules file that does not load is said once with `Client::say_once`.
 
 ## Why a grammars port
 
@@ -149,13 +192,14 @@ copies conjure's Python corpus base (`corpus/conjure/bistro/base`) and installs 
 `command` generator (`corpus/spellbook/bistro/spellbook/generators/command`, read with `include_str!`,
 so the corpus is the one source of truth); `support/project_fixtures.rs` points the grammars at core's
 vendored sources, as conjure's tests do, so no test touches the network.
-`lsp.rs` drives the server over an in-memory connection with a small editor (the handshake, the
+`rules.rs` covers the corpora's rules (path patterns on real paths, queries the grammars accept) and
+the loader; `check.rs` the use cases on a copy of each base (a planted break, the allows, the report); `lsp.rs` drives the server over an in-memory connection with a small editor (the handshake, the
 four commands, the marks on open, save and close, trust); `generators.rs` covers `[holes]` and the
 loader's sentences; `plan.rs` inputs, rendering and planning; `apply.rs` writing, the records and the
 open holes (a link out of the project made with core's `link_to`); `cli.rs` each command through
 `main_with` with a wiring that uses the vendored grammars and a fixed clock.
 
-`corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust). A
+`corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust); each also has `cases/check/<id>.{toml,patch}` (a planted break, every file checked, `expected/check/<id>.json` the findings) and a `rules.toml` among its `spellbook/` files. A
 corpus is a base copied from another corpus plus a `spellbook/` folder that becomes
 `.sorcerer/spellbook/`; its cases are `cases/new/<id>.toml` (a generator and inputs; every written
 file is compared with `expected/new/<id>/<path>` after `\r\n` becomes `\n`, and the open holes, one a

@@ -21,7 +21,7 @@ See [Conjure](conjure.md).
 | key | meaning |
 |---|---|
 | `enabled` | whether spellbook runs in this project: `true` by default |
-| `exclude` | globs of files no rule looks at, such as `gen/**`; a generator ignores them, since it writes only what you ask for by name |
+| `exclude` | globs of files no rule looks at, such as `gen/**`: `spellbook check` and the editor's findings skip them. It is the rules', not generation's: a generator ignores it, since it writes only what you ask for by name |
 
 See [Spellbook](spellbook.md).
 
