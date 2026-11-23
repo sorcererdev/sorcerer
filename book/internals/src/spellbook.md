@@ -144,12 +144,24 @@ so the port may return it.
 ## The tests
 
 The tests live in `crates/spellbook/tests/`, because they name languages
-(`scripts/no-language-names`). `support/bistro_fixtures.rs` copies conjure's Python corpus base
-(`corpus/conjure/bistro/base`) and writes a `command` generator (olifant's python-htmx
-`command`, ported) from string constants; `support/project_fixtures.rs` points the grammars at
-core's vendored sources, as conjure's tests do, so no test touches the network.
+(`scripts/no-language-names`). Unit tests sit in each `domain` file. `support/bistro_fixtures.rs`
+copies conjure's Python corpus base (`corpus/conjure/bistro/base`) and installs the corpus's own
+`command` generator (`corpus/spellbook/bistro/spellbook/generators/command`, read with `include_str!`,
+so the corpus is the one source of truth); `support/project_fixtures.rs` points the grammars at core's
+vendored sources, as conjure's tests do, so no test touches the network.
 `lsp.rs` drives the server over an in-memory connection with a small editor (the handshake, the
-four commands, the marks on open, save and close, trust); `generators.rs` covers `[holes]` and the loader's sentences; `plan.rs` inputs, rendering and
-planning; `apply.rs` writing, the records and the open holes (a link out of the project made
-with core's `link_to`); `cli.rs` each command through `main_with` with a wiring that uses the
-vendored grammars and a fixed clock.
+four commands, the marks on open, save and close, trust); `generators.rs` covers `[holes]` and the
+loader's sentences; `plan.rs` inputs, rendering and planning; `apply.rs` writing, the records and the
+open holes (a link out of the project made with core's `link_to`); `cli.rs` each command through
+`main_with` with a wiring that uses the vendored grammars and a fixed clock.
+
+`corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust). A
+corpus is a base copied from another corpus plus a `spellbook/` folder that becomes
+`.sorcerer/spellbook/`; its cases are `cases/new/<id>.toml` (a generator and inputs; every written
+file is compared with `expected/new/<id>/<path>` after `\r\n` becomes `\n`, and the open holes, one a
+place, with the case's `[[holes]]`), `cases/holes/<id>.{toml,patch}` (a `new`, then a `git apply`
+of the person's edit) and `cases/load/<id>/` (an overlay with one mistake, and `expected.txt`: the
+sentence, from the generator's load error or, for a path the plan refuses, the plan's stop). To add a
+case, write its toml, run the corpus test with `SPELLBOOK_BLESS=1 … -- --nocapture` (it writes
+`expected/` and prints the holes), read every file written, paste the holes in, and run it again
+without the variable. `corpus/spellbook/README.md` has the layout.

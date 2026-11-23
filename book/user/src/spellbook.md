@@ -115,6 +115,45 @@ word to write instead: `content` → `text`, `pascalCase(x)` → `{= x|pascal =}
   several files); it is one hole, with one kind and one instruction. The instruction is plain
   text: no quotes, backslashes or new lines, since the placeholder puts it inside a string.
 
+## The generators of the corpus
+
+The repository ships two small projects with generators you can read and copy, in
+`corpus/spellbook/`. `bistro` is Python (`command`, `query`, `port`); `bistro-rs` is Rust
+(`command`, `port`). Take bistro's `command` end to end:
+
+```
+$ spellbook new command --set command=cancel_table
+command (2 files, 3 holes)
+  = src/bistro/booking/commands/__init__.py            (exists, skipped)
+  + src/bistro/booking/commands/cancel_table.py        (30 lines)
+  + src/bistro/booking/commands/cancel_table__test.py  (12 lines)
+```
+
+`cancel_table.py` holds its input, a failure, a `handle` and the placeholders `todo_field`,
+`object` and `raise NotImplementedError("hole handle: its first case, from the test file
+beside it")`; `cancel_table__test.py` calls it with `todo_field="1"` and runs red until the holes are
+filled. `spellbook holes` lists four places (`field` is in both files), and three once you have
+replaced the `handle` line.
+
+The Rust `command` writes `src/booking/commands/cancel_table.rs` the same way, its `handle` body a
+`todo!("hole handle: …")`. It does not touch `commands/mod.rs`: add `pub mod cancel_table;` yourself.
+Until you do, the new file is not compiled; once you do, it compiles (with an unused-variable
+warning) and its test fails red, as the convention intends. Keeping a `pub mod` line for you is
+what an owned region will do in milestone 2.
+
+### Writing your first generator
+
+1. Copy a generator that is close to what you want:
+   `cp -r corpus/spellbook/bistro/spellbook/generators/command .sorcerer/spellbook/generators/job`.
+2. Open `generator.toml` and change the `name`, `summary`, `description` and `examples`, the `dir`
+   in `[derive]` and the `create` paths in `[[edits]]`.
+3. Change a template in `templates/`: replace the code you do not want and keep the
+   `{= ? name: kind | what belongs here =}` holes where a person decides.
+4. Run `spellbook show job`: it lists the inputs with their choices, what each edit creates and every
+   hole, with the derived ones marked. A mistake in a key or a template is named here, with the file.
+5. Run `spellbook new job --set job=nightly_report --plan`: it prints the files and holes and writes
+   nothing. Take off `--plan` when it reads right.
+
 ## Holes and who fills them
 
 A hole that no `[holes.X]` fills becomes a **placeholder**: the code its kind gives in the
