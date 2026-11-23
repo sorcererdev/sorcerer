@@ -51,3 +51,24 @@ pub fn loaded(name: &str) -> Arc<Loaded> {
         .load(name, &test_cache())
         .unwrap()
 }
+
+/// The real adapters for a project on the vendored grammars and a fixed clock.
+pub fn wired_at(dir: &Path) -> spellbook::adapters::wiring::Wired {
+    spellbook::adapters::wiring::wired(
+        vendored_project(dir),
+        test_cache(),
+        Arc::new(super::FixedClock::at_noon()),
+    )
+    .unwrap()
+}
+
+/// A corpus's rules file copied into a project as `.sorcerer/spellbook/rules.toml`.
+pub fn use_corpus_rules(root: &Path, corpus: &str) {
+    let from = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../corpus/spellbook")
+        .join(corpus)
+        .join("spellbook/rules.toml");
+    let to = root.join(".sorcerer/spellbook/rules.toml");
+    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+    std::fs::copy(from, to).unwrap();
+}

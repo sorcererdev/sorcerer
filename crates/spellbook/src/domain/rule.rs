@@ -246,8 +246,8 @@ mod tests {
 
     const ONE: &str = r#"
 [rules.commands-use-ports]
-files    = "src/{app}/{service}/commands/*.py"
-exclude  = ["**/__init__.py"]
+files    = "src/{app}/{service}/commands/*.txt"
+exclude  = ["**/__init__.txt"]
 match    = { any = [{ kind = "import_statement", regex = "sqlite3" }] }
 message  = "Commands talk to ports"
 severity = "error"
@@ -260,8 +260,8 @@ severity = "error"
         let rule = &rules[0];
         assert_eq!(rule.id, "commands-use-ports");
         assert_eq!(rule.severity, Severity::Error);
-        assert!(rule.applies_to("src/bistro/booking/commands/a.py"));
-        assert!(!rule.applies_to("src/bistro/booking/commands/__init__.py"));
+        assert!(rule.applies_to("src/bistro/booking/commands/a.txt"));
+        assert!(!rule.applies_to("src/bistro/booking/commands/__init__.txt"));
         assert_eq!(
             rule.body,
             RuleBody::Match(MatchForm {

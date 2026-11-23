@@ -17,9 +17,9 @@ pub struct PathPattern {
 impl PathPattern {
     /// Compiles a pattern.
     ///
-    /// Example: `src/{app}/{service}/commands/*.py` matches `src/bistro/booking/commands/a.py`
-    /// and binds `app` to `bistro` and `service` to `booking`; `src/{app}/web/**.py` is
-    /// `src/{app}/web/**/*.py`, so it matches `src/bistro/web/bookings/routes.py` too.
+    /// Example: `src/{app}/{service}/commands/*.txt` matches `src/bistro/booking/commands/a.txt`
+    /// and binds `app` to `bistro` and `service` to `booking`; `src/{app}/web/**.txt` is
+    /// `src/{app}/web/**/*.txt`, so it matches `src/bistro/web/bookings/routes.txt` too.
     pub fn parse(text: &str) -> Result<PathPattern, String> {
         let mut regex = String::from("^");
         let mut slots: Vec<String> = Vec::new();
@@ -53,7 +53,7 @@ impl PathPattern {
 
     /// Whether the path matches, and the value each `{slot}` took when it does.
     ///
-    /// Example: `src/{app}/main.py` on `src/bistro/main.py` is `Some({"app": "bistro"})`.
+    /// Example: `src/{app}/main.txt` on `src/bistro/main.txt` is `Some({"app": "bistro"})`.
     pub fn matches(&self, path: &str) -> Option<BTreeMap<String, String>> {
         let found = self.regex.captures(path)?;
         Some(
@@ -66,7 +66,7 @@ impl PathPattern {
 }
 
 /// `**`: any folders (none too). `**/` is folders then a slash, and `**` ending the pattern is
-/// anything below; `**.py` is `**/*.py`. Returns what is left of the pattern.
+/// anything below; `**.txt` is `**/*.txt`. Returns what is left of the pattern.
 fn any_folders<'p>(after: &'p str, regex: &mut String) -> &'p str {
     if let Some(rest) = after.strip_prefix('/') {
         regex.push_str("(?:.+/)?");
@@ -127,15 +127,15 @@ mod tests {
     fn slots_bind_one_folder_each() {
         assert_eq!(
             bound(
-                "src/{app}/{service}/commands/*.py",
-                "src/bistro/booking/commands/a.py"
+                "src/{app}/{service}/commands/*.txt",
+                "src/bistro/booking/commands/a.txt"
             ),
             Some(vec![pair("app", "bistro"), pair("service", "booking")])
         );
         assert_eq!(
             bound(
-                "src/{app}/{service}/commands/*.py",
-                "src/bistro/booking/queries/a.py"
+                "src/{app}/{service}/commands/*.txt",
+                "src/bistro/booking/queries/a.txt"
             ),
             None
         );
@@ -143,35 +143,35 @@ mod tests {
 
     #[test]
     fn a_star_stays_in_one_name() {
-        assert!(bound("src/*.py", "src/a.py").is_some());
-        assert!(bound("src/*.py", "src/b/a.py").is_none());
+        assert!(bound("src/*.txt", "src/a.txt").is_some());
+        assert!(bound("src/*.txt", "src/b/a.txt").is_none());
     }
 
     #[test]
     fn double_star_is_any_folders_and_none() {
-        assert!(bound("**/__init__.py", "__init__.py").is_some());
-        assert!(bound("**/__init__.py", "src/a/b/__init__.py").is_some());
-        assert!(bound("**/ports/**", "src/bistro/booking/ports/x/y.py").is_some());
-        assert!(bound("**/ports/**", "src/bistro/booking/commands/y.py").is_none());
-        assert!(bound("**/*__test.py", "src/a/b__test.py").is_some());
+        assert!(bound("**/__init__.txt", "__init__.txt").is_some());
+        assert!(bound("**/__init__.txt", "src/a/b/__init__.txt").is_some());
+        assert!(bound("**/ports/**", "src/bistro/booking/ports/x/y.txt").is_some());
+        assert!(bound("**/ports/**", "src/bistro/booking/commands/y.txt").is_none());
+        assert!(bound("**/*__test.txt", "src/a/b__test.txt").is_some());
     }
 
     #[test]
     fn double_star_before_a_suffix_is_olifants_short_form() {
         assert_eq!(
-            bound("src/{app}/web/**.py", "src/bistro/web/bookings/routes.py"),
+            bound("src/{app}/web/**.txt", "src/bistro/web/bookings/routes.txt"),
             Some(vec![pair("app", "bistro")])
         );
-        assert!(bound("src/{app}/web/**.py", "src/bistro/web/app.py").is_some());
-        assert!(bound("src/{app}/web/**.py", "src/bistro/web/home.html").is_none());
+        assert!(bound("src/{app}/web/**.txt", "src/bistro/web/app.txt").is_some());
+        assert!(bound("src/{app}/web/**.txt", "src/bistro/web/home.html").is_none());
     }
 
     #[test]
     fn a_slot_binds_the_part_between_literals() {
         assert_eq!(
             bound(
-                "src/{service}/commands/{command}.rs",
-                "src/booking/commands/cancel_table.rs"
+                "src/{service}/commands/{command}.md",
+                "src/booking/commands/cancel_table.md"
             ),
             Some(vec![
                 pair("command", "cancel_table"),
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn the_dot_is_a_dot() {
-        assert!(bound("a.py", "aXpy").is_none());
+        assert!(bound("a.txt", "aXtxt").is_none());
     }
 
     #[test]

@@ -13,6 +13,7 @@ use crate::adapters::cached_grammars::CachedGrammars;
 use crate::adapters::disk_workspace::DiskWorkspace;
 use crate::adapters::generator_dir::GeneratorDirs;
 use crate::adapters::json_holes::JsonHoles;
+use crate::adapters::json_report::JsonReport;
 use crate::adapters::jsonl_generation_store::JsonlGenerationStore;
 use crate::adapters::system_clock::SystemClock;
 use crate::ports::clock::Clock;
@@ -30,6 +31,7 @@ pub struct Wired {
     pub workspace: DiskWorkspace,
     pub generations: JsonlGenerationStore,
     pub holes: JsonHoles,
+    pub report: JsonReport,
     pub clock: Arc<dyn Clock>,
 }
 
@@ -58,6 +60,7 @@ pub fn wired(project: Project, cache: GrammarCache, clock: Arc<dyn Clock>) -> Re
         },
         generations: JsonlGenerationStore::for_project(&project)?,
         holes: JsonHoles::for_project(&project)?,
+        report: JsonReport::for_project(&project)?,
         fences,
         clock,
         project,
