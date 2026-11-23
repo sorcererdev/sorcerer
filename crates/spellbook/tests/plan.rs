@@ -141,3 +141,48 @@ fn derive_sees_inputs_and_earlier_derives() {
     );
     assert_eq!(values.inputs().len(), 3);
 }
+
+#[test]
+fn the_command_template_renders_three_placeholder_holes() {
+    use spellbook::domain::holes::{HoleBook, HoleOrigin};
+    use spellbook::domain::holes_table::placeholder;
+    use spellbook::domain::template::render;
+
+    let dir = bistro_project();
+    let (generator, view) = command_in(dir.path());
+    let values = ready(resolve_inputs(&view, &generator, &given(&[("command", "cancel_table")])));
+    let python = loaded("python");
+    let placeholder_of = |kind: &str, name: &str, instruction: &str| {
+        placeholder(&python.language, kind, name, instruction).map_err(|e| e.to_string())
+    };
+    let main = render(&generator.templates["command.py.dt"], &values, &generator.holes, &placeholder_of).unwrap();
+    let test = render(&generator.templates["command__test.py.dt"], &values, &generator.holes, &placeholder_of).unwrap();
+    let holes = HoleBook::default()
+        .with_file("cancel_table.py", &main.holes)
+        .unwrap()
+        .with_file("cancel_table__test.py", &test.holes)
+        .unwrap()
+        .holes();
+    let placeholders: Vec<(&str, &str, u32)> = holes
+        .iter()
+        .filter(|hole| hole.source == HoleOrigin::Placeholder)
+        .map(|hole| (hole.name.as_str(), hole.places[0].file.as_str(), hole.places[0].line))
+        .collect();
+    assert_eq!(
+        placeholders,
+        [
+            ("field", "cancel_table.py", 10),
+            ("type", "cancel_table.py", 10),
+            ("handle", "cancel_table.py", 30)
+        ]
+    );
+    let field = holes.iter().find(|hole| hole.name == "field").unwrap();
+    assert_eq!(field.places[1].file, "cancel_table__test.py");
+    let lines: Vec<&str> = main.text.lines().collect();
+    assert_eq!(lines[0], "\"\"\"Cancel table.\"\"\"");
+    assert_eq!(lines[9], "    todo_field: object");
+    assert_eq!(
+        lines[29],
+        "        raise NotImplementedError(\"hole handle: its first case, from the test file beside it\")"
+    );
+}
