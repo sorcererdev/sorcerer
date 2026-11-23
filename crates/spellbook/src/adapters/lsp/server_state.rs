@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use lsp_types::MessageType;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::needs_trust;
 use sorcerer_lsp::Client;
@@ -57,8 +58,15 @@ impl Server {
         let Ok(wired) = wired(project, self.cfg.cache.clone(), self.cfg.clock.clone()) else {
             return;
         };
-        let marks = file_diagnostics(&wired, &file);
-        self.publish_at(path, marks);
+        let diagnostics = file_diagnostics(&wired, &file);
+        if let Some(problem) = &diagnostics.rules_problem {
+            self.client.say_once(
+                "rules",
+                MessageType::WARNING,
+                &format!("spellbook: {problem}"),
+            );
+        }
+        self.publish_at(path, diagnostics.all());
     }
 
     /// Clears the marks of a file the editor closed.

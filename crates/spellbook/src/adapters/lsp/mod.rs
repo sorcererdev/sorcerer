@@ -8,11 +8,13 @@
 //!   `server_state.rs`: what it is built from and what it shares.
 //! - `commands.rs`: the capabilities and the four commands.
 //! - `plans.rs`: the plans made and not yet applied.
-//! - `marks.rs` and `diagnostics.rs`: a hole as a diagnostic, and the diagnostics of one file.
+//! - `marks.rs`, `findings.rs` and `diagnostics.rs`: a hole and a finding as diagnostics, and the
+//!   diagnostics of one file (the marks and the findings published together).
 //! - `project_paths.rs`: which editor paths are the project's.
 
 mod commands;
 mod diagnostics;
+mod findings;
 mod marks;
 mod plans;
 mod project_paths;

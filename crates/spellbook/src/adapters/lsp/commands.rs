@@ -160,13 +160,17 @@ impl Server {
     fn mark_written_files(&self, wired: &Wired, written: &[String]) -> Option<(String, u32)> {
         let mut first = None;
         for file in written {
-            let marks = file_diagnostics(wired, Path::new(file));
+            let diagnostics = file_diagnostics(wired, Path::new(file));
             if first.is_none()
-                && let Some(top) = marks.iter().map(|m| m.range.start.line + 1).min()
+                && let Some(top) = diagnostics
+                    .marks
+                    .iter()
+                    .map(|m| m.range.start.line + 1)
+                    .min()
             {
                 first = Some((file.clone(), top));
             }
-            self.publish(file, marks);
+            self.publish(file, diagnostics.all());
         }
         first
     }

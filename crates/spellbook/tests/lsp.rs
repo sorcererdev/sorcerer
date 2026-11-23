@@ -18,7 +18,7 @@ use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_lsp::uri_of;
 use spellbook::adapters::lsp::{ServerConfig, serve};
 use spellbook::ports::clock::Clock;
-use support::{bistro_project, test_cache, vendored_project, write_file};
+use support::{bistro_project, test_cache, use_corpus_rules, vendored_project, write_file};
 use tempfile::TempDir;
 
 /// How long a test waits for something the server must send.
@@ -648,6 +648,123 @@ fn an_untrusted_project_publishes_no_marks() {
         !seen.iter().any(|m| matches!(m, Message::Notification(n)
             if n.method == "textDocument/publishDiagnostics")),
         "{seen:?}"
+    );
+    s.stop();
+}
+
+// ---- Task C8: findings ----
+
+const CLOSE: &str = "src/bistro/booking/commands/close_table.py";
+
+fn code_of(mark: &Diagnostic) -> String {
+    match mark.code.as_ref() {
+        Some(lsp_types::NumberOrString::String(code)) => code.clone(),
+        other => format!("{other:?}"),
+    }
+}
+
+#[test]
+fn saving_a_command_with_sqlite3_shows_a_warning() {
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    write_file(dir.path(), CLOSE, "from dataclasses import dataclass\n");
+    let s = served(dir.path());
+    s.open(CLOSE);
+    assert!(s.marks(CLOSE).is_empty());
+    write_file(
+        dir.path(),
+        CLOSE,
+        "from dataclasses import dataclass\nimport sqlite3\n",
+    );
+    s.save(CLOSE);
+    let marks = s.marks(CLOSE);
+    assert_eq!(marks.len(), 1);
+    let finding = &marks[0];
+    assert_eq!(
+        finding.severity,
+        Some(lsp_types::DiagnosticSeverity::WARNING)
+    );
+    assert_eq!(code_of(finding), "commands-use-ports");
+    assert_eq!(finding.source.as_deref(), Some("spellbook"));
+    assert_eq!(finding.range.start.line, 1);
+    assert!(
+        finding
+            .message
+            .starts_with("Commands and queries talk to ports")
+    );
+    // an allow with a reason clears it
+    write_file(
+        dir.path(),
+        CLOSE,
+        "import sqlite3  # spellbook:allow commands-use-ports — migration\n",
+    );
+    s.save(CLOSE);
+    assert!(s.marks(CLOSE).is_empty());
+    s.stop();
+}
+
+#[test]
+fn marks_and_findings_are_published_together() {
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    let s = served(dir.path());
+    applied(&s);
+    let text = std::fs::read_to_string(dir.path().join(MAIN)).unwrap();
+    std::fs::write(
+        dir.path().join(MAIN),
+        text.replacen(
+            "from dataclasses import dataclass\n",
+            "from dataclasses import dataclass\nimport sqlite3\n",
+            1,
+        ),
+    )
+    .unwrap();
+    s.open(MAIN);
+    let marks = s.marks(MAIN);
+    let codes: Vec<String> = marks.iter().map(code_of).collect();
+    assert_eq!(
+        codes.iter().filter(|c| *c == "hole").count(),
+        3,
+        "{codes:?}"
+    );
+    assert_eq!(
+        codes.iter().filter(|c| *c == "commands-use-ports").count(),
+        1,
+        "{codes:?}"
+    );
+    // the finding is not what the first hole is
+    s.stop();
+}
+
+#[test]
+fn a_broken_rules_file_is_said_once_and_findings_are_left_out() {
+    let dir = bistro_project();
+    write_file(
+        dir.path(),
+        ".sorcerer/spellbook/rules.toml",
+        "[rules.a]\nfiles = \"x\"\n",
+    );
+    write_file(dir.path(), CLOSE, "import sqlite3\n");
+    let s = served(dir.path());
+    s.open(CLOSE);
+    assert!(s.marks(CLOSE).is_empty());
+    s.save(CLOSE);
+    s.marks(CLOSE);
+    let said: Vec<Message> = s
+        .all_within(QUIET)
+        .into_iter()
+        .filter(|m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"))
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    let Message::Notification(note) = &said[0] else {
+        unreachable!()
+    };
+    assert!(
+        note.params["message"]
+            .as_str()
+            .unwrap()
+            .contains("rule a: `message` is missing"),
+        "{note:?}"
     );
     s.stop();
 }
