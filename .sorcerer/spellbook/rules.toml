@@ -1,0 +1,85 @@
+# Sorcerer's own conventions, checked by `spellbook check` and on save in the editor.
+#
+# These are the mechanical half of the prose rules in `.sorcerer/scry.toml` (which scry reviews
+# with a model): only what a syntax match names exactly. The layer rules mirror
+# `scripts/layers` and the mod.rs rule mirrors `scripts/mod-rs-declarations`; CI runs both
+# scripts, so these are errors. Two things the scripts do that a match cannot: a path that climbs
+# into another layer with `super::super::…`, and skipping a file's `#[cfg(test)] mod tests`
+# (a test may set up files). A test module that needs to break a rule says so with an allow.
+
+# --- domain-is-pure -------------------------------------------------------------------------
+
+[rules.domain-uses-no-other-layer]
+files    = "crates/{crate}/src/domain/**.rs"
+match    = { any = [
+  { kind = "use_declaration", regex = "\\bcrate::(\\{[^}]*[{,]\\s*)?(ports|usecases|adapters|cli)\\b" },
+  { kind = "scoped_identifier", regex = "^crate::(ports|usecases|adapters|cli)\\b" },
+  { kind = "use_declaration", regex = "\\bsorcerer_\\w+::adapters\\b" },
+  { kind = "scoped_identifier", regex = "^sorcerer_\\w+::adapters\\b" },
+] }
+message  = "domain/ depends on nothing else in its crate: no ports, usecases, adapters or cli (and no other crate's adapters)"
+severity = "error"
+why      = "scry.toml domain-is-pure; scripts/layers"
+
+[rules.domain-does-no-io]
+files    = "crates/{crate}/src/domain/**.rs"
+match    = { any = [
+  { kind = "use_declaration", regex = "\\bstd::(fs|process|env|net)\\b|\\bstd::\\{[^}]*\\b(fs|process|env|net)\\b|\\bstd::io::stdin\\b|\\breqwest\\b|\\bSystemTime\\b" },
+  { kind = "scoped_identifier", regex = "^(std::(fs|process|env|net)\\b|std::io::stdin$|std::time::SystemTime$|reqwest::|(\\w+::)*(Instant|Utc|Local)::now$)" },
+  { kind = "field_identifier", regex = "^canonicalize$" },
+] }
+message  = "domain/ does no I/O: no files, processes, environment, network, standard input or clock; take the value as an argument or go through a port"
+severity = "error"
+why      = "scry.toml domain-is-pure; scripts/layers"
+
+# --- the dependency rule for the other layers -------------------------------------------------
+
+[rules.ports-depend-on-domain-only]
+files    = "crates/{crate}/src/ports/**.rs"
+match    = { any = [
+  { kind = "use_declaration", regex = "\\bcrate::(\\{[^}]*[{,]\\s*)?(usecases|adapters|cli)\\b" },
+  { kind = "scoped_identifier", regex = "^crate::(usecases|adapters|cli)\\b" },
+  { kind = "use_declaration", regex = "\\bsorcerer_\\w+::adapters\\b" },
+  { kind = "scoped_identifier", regex = "^sorcerer_\\w+::adapters\\b" },
+] }
+message  = "ports/ uses the domain only: no usecases, adapters or cli"
+severity = "error"
+why      = "scry.toml ports-are-traits; scripts/layers"
+
+[rules.usecases-depend-inward]
+files    = "crates/{crate}/src/usecases/**.rs"
+match    = { any = [
+  { kind = "use_declaration", regex = "\\bcrate::(\\{[^}]*[{,]\\s*)?(adapters|cli)\\b" },
+  { kind = "scoped_identifier", regex = "^crate::(adapters|cli)\\b" },
+  { kind = "use_declaration", regex = "\\bsorcerer_\\w+::adapters\\b" },
+  { kind = "scoped_identifier", regex = "^sorcerer_\\w+::adapters\\b" },
+] }
+message  = "usecases/ uses domain and ports only: it never names an adapter or the cli"
+severity = "error"
+why      = "scry.toml usecases-depend-inward; scripts/layers"
+
+[rules.adapters-do-not-use-cli]
+files    = "crates/{crate}/src/adapters/**.rs"
+match    = { any = [
+  { kind = "use_declaration", regex = "\\bcrate::(\\{[^}]*[{,]\\s*)?cli\\b" },
+  { kind = "scoped_identifier", regex = "^crate::cli\\b" },
+] }
+message  = "adapters/ never uses the cli: the cli drives the use cases, not the other way round"
+severity = "error"
+why      = "scry.toml adapters-implement-ports; scripts/layers"
+
+# --- mod.rs holds declarations only -------------------------------------------------------------
+
+[rules.mod-rs-declarations-only]
+files    = "crates/**/mod.rs"
+exclude  = ["**/corpus/**"]
+query    = """
+(source_file
+  [(function_item) (struct_item) (enum_item) (union_item) (impl_item) (trait_item)
+   (const_item) (static_item) (type_item) (macro_definition) (macro_invocation)
+   (foreign_mod_item) (extern_crate_declaration)
+   (mod_item body: (declaration_list))] @finding)
+"""
+message  = "a mod.rs holds only mod and use lines; move this to a file named for what it does"
+severity = "error"
+why      = "mod.rs shows the tree, named files show the work; scripts/mod-rs-declarations"

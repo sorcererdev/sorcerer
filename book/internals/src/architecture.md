@@ -208,3 +208,24 @@ test may set up files) and skips comment lines. Each refusal is printed as
 `file:line: <layer> may not use <what>`, and the script exits 1. `scripts/layers-test`
 plants each kind of violation in a scratch crate and checks every one is refused; CI runs it
 too.
+
+## The repository checks itself with spellbook
+
+The repository keeps the same conventions as spellbook data, in `.sorcerer/spellbook/`:
+
+- `rules.toml` holds the half of the scry rules (`.sorcerer/scry.toml`) that a syntax match
+  names exactly: `domain-uses-no-other-layer`, `domain-does-no-io`, `ports-depend-on-domain-only`,
+  `usecases-depend-inward`, `adapters-do-not-use-cli` (the paths `scripts/layers` refuses) and
+  `mod-rs-declarations-only` (what `scripts/mod-rs-declarations` refuses). They are errors, as
+  the scripts are. Two things only the scripts do: follow a `super::` chain into another layer,
+  and skip a file's `#[cfg(test)] mod tests`; a test module that sets up files says so with a
+  `// spellbook:allow domain-does-no-io — …` comment. The prose rules stay with scry.
+- `generators/` writes the shapes the crates repeat: `port` (a trait in `ports/` and its adapter
+  in `adapters/`), `usecase` (a request and the feature's public function) and `command` (a cli
+  subcommand and its `…_text`). Each writes new files only, so the `mod` line in the parent
+  `mod.rs`, and a command's place in `arguments.rs` and `run_cli.rs`, are added by hand.
+- `.sorcerer/config.toml` leaves `crates/spellbook/src/domain/allow.rs` out of the check: its
+  tests hold allow comments inside strings, which the allow reader takes for real ones.
+
+CI runs `spellbook check` on ubuntu beside the scripts; `spellbook doctor` shows the rules and
+generators, and the project needs no trust.

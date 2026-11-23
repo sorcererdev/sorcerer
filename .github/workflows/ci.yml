@@ -42,6 +42,9 @@ jobs:
         run: scripts/platform
       - if: matrix.os == 'ubuntu-latest'
         run: bash scripts/platform-test
+      # the repository's own conventions (.sorcerer/spellbook/rules.toml), checked by spellbook
+      - if: matrix.os == 'ubuntu-latest'
+        run: cargo run -q -p sorcerer-spellbook --bin spellbook -- check
       - if: matrix.os == 'ubuntu-latest'
         run: bash scripts/book-check-test
       - if: matrix.os == 'ubuntu-latest'

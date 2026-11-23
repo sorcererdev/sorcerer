@@ -1,0 +1,47 @@
+name        = "Port"
+summary     = "A port (a trait in ports/) and the adapter that implements it"
+description = """
+ports/PORT.rs holds the trait, one method to start from, named for what a use case needs (`Reviewer`, \
+not `ClaudeClient`); adapters/ADAPTER.rs implements it, its method body a hole. Spellbook writes new \
+files only: add `pub mod PORT;` to ports/mod.rs and `pub mod ADAPTER;` to adapters/mod.rs yourself, \
+then build the real adapter in adapters/wiring.rs. A test double for the port lives in the crate's tests/."""
+language    = "rust"
+examples    = ["spellbook new port --set crate=scry --set port=finding_store --set adapter=json_finding_store"]
+
+[inputs.crate]
+type   = "enum"
+one_of = "crates"
+prompt = "The crate the port belongs to (the folder under crates/; one with layers, not sorcerer-lsp)"
+
+[inputs.port]
+type   = "ident"
+prompt = "The port, named for what a use case needs (finding_store, reviewer, clock)"
+
+[inputs.adapter]
+type   = "ident"
+prompt = "Its adapter, named for what it is built on (json_finding_store, system_clock)"
+
+[query.crates]
+glob  = "crates/*/src"
+value = "parent folder"
+
+[derive]
+Port    = "{= port|pascal =}"
+Adapter = "{= adapter|pascal =}"
+src     = "crates/{= crate =}/src"
+
+[[edits]]
+create   = "{= src =}/ports/{= port|snake =}.rs"
+template = "port.rs.dt"
+
+[[edits]]
+create   = "{= src =}/adapters/{= adapter|snake =}.rs"
+template = "adapter.rs.dt"
+
+[holes.purpose]
+source = "derived"
+value  = "{= port|sentence =}."
+
+[holes.adapter_purpose]
+source = "derived"
+value  = "{= adapter|sentence =}: the {= port|words =} port."

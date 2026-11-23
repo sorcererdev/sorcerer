@@ -1,0 +1,12 @@
+//! {= ? purpose: text | what this feature does for its caller =}
+
+/// What the caller asks `{= usecase|snake =}` for.
+#[derive(Debug, Clone, Default)]
+pub struct {= Usecase =}Request {
+    pub {= ? field: ident | the request's first field =}: {= ? field_type: type | that field's type =},
+}
+
+/// {= ? purpose: text | what this feature does for its caller =}
+pub fn {= usecase|snake =}(request: &{= Usecase =}Request) -> anyhow::Result<{= ? returns: type | what the feature gives back =}> {
+    {= ? steps: block | the feature's steps, each a call to a private helper below =}
+}

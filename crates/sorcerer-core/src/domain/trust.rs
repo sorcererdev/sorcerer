@@ -85,10 +85,13 @@ mod tests {
 
     fn project_with(files: &[(&str, &str)]) -> (tempfile::TempDir, Project) {
         let dir = tempfile::TempDir::new().unwrap();
+        // spellbook:allow domain-does-no-io — a test sets up its own files
         std::fs::create_dir_all(dir.path().join(".sorcerer")).unwrap();
         for (rel, text) in files {
             let path = dir.path().join(rel);
+            // spellbook:allow domain-does-no-io — a test sets up its own files
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            // spellbook:allow domain-does-no-io — a test sets up its own files
             std::fs::write(path, text).unwrap();
         }
         let project = Project::open(dir.path()).unwrap();
