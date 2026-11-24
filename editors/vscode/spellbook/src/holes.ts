@@ -119,6 +119,77 @@ export function doneText(others: ReadonlyMap<string, number>): string {
   return `spellbook: holes done · ${count} more in ${[...others.keys()].sort().join(', ')} (Problems)`;
 }
 
+// A stretch of a document, from start to end.
+export interface Range {
+  start: Position;
+  end: Position;
+}
+
+// One edit, shaped as VS Code's TextDocumentContentChangeEvent: the stretch replaced and the
+// text put there.
+export interface Change {
+  range: Range;
+  text: string;
+}
+
+// shifted is where the ranges are after the edits, applied in order (as VS Code reports them).
+// An edit before a range moves it; typing inside a range, or right at its start or end, grows
+// it, so a hole keeps covering what you type into it; an edit after it leaves it alone.
+// Example: the range 1:4–1:14 (`todo_field`) replaced whole by `id` becomes 1:4–1:6, and an `x`
+// typed then at 1:6 makes it 1:4–1:7.
+export function shifted(ranges: readonly Range[], changes: readonly Change[]): Range[] {
+  return changes.reduce((now, change) => now.map(range => ({
+    start: startAfter(range.start, change),
+    end: endAfter(range.end, change),
+  })), [...ranges]);
+}
+
+// stopAt is the index of the range that holds the position (both ends included, so the cursor
+// right after typed text is still in its hole), or -1 when none does.
+export function stopAt(ranges: readonly Range[], position: Position): number {
+  return ranges.findIndex(range => compare(range.start, position) <= 0 && compare(position, range.end) <= 0);
+}
+
+// A range's start after an edit: before the edit it stays; at an insertion point it stays (the
+// range grows); after the edit it moves; inside the replaced stretch it goes to the edit's start.
+function startAfter(p: Position, change: Change): Position {
+  const { start, end } = change.range;
+  if (compare(p, start) < 0) return p;
+  if (compare(p, start) === 0 && compare(start, end) === 0) return p;
+  if (compare(p, end) >= 0) return moved(p, change);
+  return start;
+}
+
+// A range's end after an edit: before the edit it stays; at or after the edit's end it moves
+// (an insertion at the end grows the range); inside the replaced stretch it goes to the end of
+// the new text.
+function endAfter(p: Position, change: Change): Position {
+  const { start, end } = change.range;
+  if (compare(p, start) < 0) return p;
+  if (compare(p, end) >= 0) return moved(p, change);
+  return insertedEnd(change);
+}
+
+// moved is a position at or after the edit's end, carried by the edit.
+function moved(p: Position, change: Change): Position {
+  const { end } = change.range;
+  const inserted = insertedEnd(change);
+  if (p.line === end.line) return { line: inserted.line, character: inserted.character + p.character - end.character };
+  return { line: p.line + inserted.line - end.line, character: p.character };
+}
+
+// insertedEnd is where the edit's new text ends.
+function insertedEnd(change: Change): Position {
+  const lines = change.text.split(/\r\n|\r|\n/);
+  const { start } = change.range;
+  if (lines.length === 1) return { line: start.line, character: start.character + change.text.length };
+  return { line: start.line + lines.length - 1, character: lines[lines.length - 1].length };
+}
+
+function compare(a: Position, b: Position): number {
+  return a.line !== b.line ? a.line - b.line : a.character - b.character;
+}
+
 // `1 file`, `2 files`
 function counted(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
