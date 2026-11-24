@@ -287,6 +287,18 @@ fn template_and_text_together_are_refused() {
 }
 
 #[test]
+fn a_default_outside_the_choices_is_refused() {
+    let why = toml_problem(
+        "one_of = \"apps\"",
+        "choices = [\"front\", \"back\"]\ndefault = \"side\"",
+    );
+    assert!(
+        why.contains("default \"side\" is not one of the choices (front, back)"),
+        "{why}"
+    );
+}
+
+#[test]
 fn a_missing_template_file_is_named() {
     let why = toml_problem("template = \"command.py.dt\"", "template = \"nope.py.dt\"");
     assert!(

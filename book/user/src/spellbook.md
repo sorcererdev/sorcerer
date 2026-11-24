@@ -94,7 +94,7 @@ class {= Command =}:
 |---|---|
 | `name`, `summary`, `description`, `examples` | shown by `spellbook list` and `spellbook show` |
 | `language` | the language the generator is for; it must be one of the project's languages |
-| `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (its values are `one_of` a query over the project's files, or a fixed list, `choices = ["command", "query"]`; not both) or `text`; `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
+| `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (its values are `one_of` a query over the project's files, or a fixed list, `choices = ["command", "query"]`, whose `default` must be one of them; not both) or `text`; `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
 | `[query.X]` | `glob`, a template over the inputs before the one that uses it, and `value`: `"parent folder"`, `"stem"` or `"path"` of each match. In the glob `*` stays inside one folder and `**` crosses folders; a glob may name folders as well as files |
 | `[derive]` | names computed from the inputs, in order; each may use the ones before it |
 | `[[edits]]` | `create` (the path, a template), then `template` (a file under `templates/`) or `text` (written as it is), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"` |

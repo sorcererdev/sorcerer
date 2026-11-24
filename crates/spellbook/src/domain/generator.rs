@@ -213,11 +213,20 @@ fn input(name: &str, table: &Table) -> Result<Input, String> {
             }
         }
     }
+    let default = keys.text("default")?;
+    if let (InputKind::Fixed { choices }, Some(value)) = (&kind, &default)
+        && !choices.contains(value)
+    {
+        return Err(keys.at(&format!(
+            "default \"{value}\" is not one of the choices ({})",
+            choices.join(", ")
+        )));
+    }
     Ok(Input {
         kind,
         prompt: keys.text("prompt")?.unwrap_or_default(),
         optional: keys.flag("optional")?,
-        default: keys.text("default")?,
+        default,
     })
 }
 
