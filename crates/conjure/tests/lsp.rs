@@ -1040,7 +1040,7 @@ fn the_marks_name_the_goal_and_the_other_files() {
     let mark = &main[0];
     assert_eq!(
         mark.message,
-        "fill total · haiku · $0.001 · 0 s · parses · also changed: b.py, a__test.py"
+        "conjured: fill total · haiku · $0.001 · 0 s · parses · also changed: b.py, a__test.py"
     );
     assert_eq!(mark.range.start.line, 4);
     assert_eq!(mark.range.start.character, 0);
@@ -1668,7 +1668,7 @@ fn try_harder_undoes_then_lands_the_stronger_change_with_the_same_situation() {
     assert!(
         marks[0]
             .message
-            .starts_with("fill total properly · sonnet · "),
+            .starts_with("conjured: fill total properly · sonnet · "),
         "{}",
         marks[0].message
     );

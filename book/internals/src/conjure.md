@@ -169,7 +169,7 @@ person must hear goes through `Client::say`, and an error answers only a malform
 4. **Marked.** `marks.rs`: `marks_of` (the main mark on the asked file, else the first changed
    file; an `Other` mark per other file; a `NoChange` mark on the unit's first line) and
    `mark_diagnostic` (source `conjure`, Information, code `change` or `no-change`, `data` the
-   change id, the whole line; the words in `main_text`, `other_text`, `no_change_text`).
+   change id, the whole line; the words in `main_text`, which opens with `done_text` (`conjured: ` and the goal with its first letter lowered by `lowered_first_letter`), `other_text`, `no_change_text`).
 5. **Ended**, once, by `record` through `end_with` (an `Undoing` change records its undo's
    choice; a `Recorded` one nothing more): the first `saved` of a changed file is `kept`, turns
    the change `Recorded` with `KEPT_NOTE` and settles that file, and the others keep their marks

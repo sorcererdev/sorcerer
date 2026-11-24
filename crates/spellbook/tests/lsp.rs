@@ -728,10 +728,7 @@ fn saving_a_command_with_sqlite3_shows_an_error() {
     let marks = s.marks(CLOSE);
     assert_eq!(marks.len(), 1);
     let finding = &marks[0];
-    assert_eq!(
-        finding.severity,
-        Some(lsp_types::DiagnosticSeverity::ERROR)
-    );
+    assert_eq!(finding.severity, Some(lsp_types::DiagnosticSeverity::ERROR));
     assert_eq!(code_of(finding), "commands-use-ports");
     assert_eq!(finding.source.as_deref(), Some("spellbook"));
     assert_eq!(finding.range.start.line, 1);

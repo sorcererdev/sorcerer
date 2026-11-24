@@ -86,12 +86,12 @@ files were changed, and conjure will not undo them`, the marks end with ` · did
 the change did:
 
 ```
-fill total · haiku · $0.001 · 4 s · parses · also changed: b.py, a__test.py
+conjured: fill total · haiku · $0.001 · 4 s · parses · also changed: b.py, a__test.py
 ```
 
-the goal, the model, the cost, the time, whether the file parses (or `does not parse (line 12)`),
+it starts `conjured:` and the goal (its first word in lower case), then the model, the cost, the time, whether the file parses (or `does not parse (line 12)`),
 the other files, and `not written: <paths>` when the writer named a path conjure may not write
-(below). Each other changed file has its own mark, `conjured with a.py: fill total` (and `does not
+(below). Each other changed file has its own mark, `conjured with a.py: fill total` (the goal the same way, and `does not
 parse (line N)` when it does not). Marks are diagnostics: they show in Neovim's diagnostic list and
 VS Code's Problems panel. One change is marked at a time.
 

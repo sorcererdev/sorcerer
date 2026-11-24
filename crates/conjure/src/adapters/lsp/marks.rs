@@ -87,7 +87,7 @@ pub(super) fn mark_diagnostic(mark: &Mark, change: &LandedChange, text: &str) ->
 
 // The words of the marks.
 
-/// `fill total · haiku · $0.001 · 4 s · parses · also changed: b.py · not written: .env`.
+/// `conjured: fill total · haiku · $0.001 · 4 s · parses · also changed: b.py · not written: .env`.
 fn main_text(change: &LandedChange) -> String {
     let Some(main) = change.main_file() else {
         return no_change_text(change);
@@ -105,13 +105,31 @@ fn main_text(change: &LandedChange) -> String {
     };
     format!(
         "{} · {} · ${:.3} · {:.0} s · {}{also}{not_written}{}",
-        change.goal_text(),
+        done_text(change),
         change.model,
         change.cost.unwrap_or(0.0),
         change.seconds,
         parses_text(main),
         note_text(change)
     )
+}
+
+/// `conjured: fill total`: the goal, said as done. The goal's first letter is lowered when its
+/// second is lower case, so `Replace the loop` reads `conjured: replace the loop` and `HTTP
+/// client` stays as it is.
+fn done_text(change: &LandedChange) -> String {
+    format!("conjured: {}", lowered_first_letter(&change.goal_text()))
+}
+
+/// `Replace x` becomes `replace x`; `HTTP x` and `(no goal given)` stay.
+fn lowered_first_letter(text: &str) -> String {
+    let mut letters = text.chars();
+    match (letters.next(), letters.next()) {
+        (Some(first), Some(second)) if first.is_uppercase() && second.is_lowercase() => {
+            first.to_lowercase().chain(text.chars().skip(1)).collect()
+        }
+        _ => text.to_string(),
+    }
 }
 
 /// `conjured with a.py: fill total`, and ` · does not parse (line 3)` when the file does not.
@@ -130,7 +148,7 @@ fn other_text(change: &LandedChange, path: &PathBuf) -> String {
         });
     format!(
         "conjured with {asked}: {}{broken}{}",
-        change.goal_text(),
+        lowered_first_letter(&change.goal_text()),
         note_text(change)
     )
 }
@@ -152,5 +170,18 @@ fn parses_text(file: &LandedFile) -> String {
         (false, _) => "not parsed".into(),
         (true, None) => "parses".into(),
         (true, Some(line)) => format!("does not parse (line {line})"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lowered_first_letter;
+
+    #[test]
+    fn a_goal_is_lowered_only_when_its_second_letter_is_lower_case() {
+        assert_eq!(lowered_first_letter("Replace x"), "replace x");
+        assert_eq!(lowered_first_letter("HTTP x"), "HTTP x");
+        assert_eq!(lowered_first_letter("fill total"), "fill total");
+        assert_eq!(lowered_first_letter(""), "");
     }
 }

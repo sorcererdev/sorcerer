@@ -14,7 +14,7 @@ What is here and what is coming (the five parts of spellbook):
 | part | state |
 |---|---|
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
-| rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and warnings on save in the editor |
+| rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
 | owned regions (`pub mod` lines a generator keeps), insert edits, list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
