@@ -26,7 +26,8 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   (`pascalCase(x)` → `{= x|pascal =}`).
 - `generator_checks.rs`: `check_generator(generator, languages)`, the checks across the file:
   the language is the project's; an enum's `one_of` names a query whose glob uses only earlier
-  inputs; every edit's template exists; paths, derives and derived holes use known names and no
+  inputs (an enum with `choices` is `InputKind::Fixed`: its list is its choices, `choices_for` returns it
+  without resolving earlier inputs, and `one_of` and `choices` together are refused by `read_generator`); every edit's template exists; paths, derives and derived holes use known names and no
   holes; every template parses as a template (core's `pieces`) and uses known names; a hole
   has one kind and one plain instruction; a placeholder hole's kind is in the generator
   language's `[holes]`.

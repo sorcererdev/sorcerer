@@ -16,7 +16,8 @@ one_of = "crates"
 prompt = "The crate the use case belongs to (the folder under crates/; one with layers, not sorcerer-lsp)"
 
 [inputs.kind]
-type    = "ident"
+type    = "enum"
+choices = ["command", "query"]
 default = "command"
 prompt  = "Write command (changes state, returns its outcome) or query (only reads, returns data)"
 

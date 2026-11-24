@@ -65,6 +65,8 @@ pub enum InputKind {
     Ident,
     /// One of the values a query reads from the project.
     Enum { one_of: String },
+    /// One of the values the generator itself lists (`choices = ["command", "query"]`).
+    Fixed { choices: Vec<String> },
     /// Any text.
     Text,
 }
@@ -74,7 +76,7 @@ impl InputKind {
     pub fn word(&self) -> &'static str {
         match self {
             InputKind::Ident => "ident",
-            InputKind::Enum { .. } => "enum",
+            InputKind::Enum { .. } | InputKind::Fixed { .. } => "enum",
             InputKind::Text => "text",
         }
     }
@@ -143,7 +145,7 @@ const TOP_KEYS: &[&str] = &[
     "holes",
     "context",
 ];
-const INPUT_KEYS: &[&str] = &["type", "one_of", "prompt", "optional", "default"];
+const INPUT_KEYS: &[&str] = &["type", "one_of", "choices", "prompt", "optional", "default"];
 const QUERY_KEYS: &[&str] = &["glob", "value"];
 const EDIT_KEYS: &[&str] = &["create", "template", "text", "on_exists"];
 const HOLE_KEYS: &[&str] = &["source", "value"];
@@ -195,9 +197,7 @@ fn input(name: &str, table: &Table) -> Result<Input, String> {
     let kind = match keys.required_text("type")?.as_str() {
         "ident" => InputKind::Ident,
         "text" => InputKind::Text,
-        "enum" => InputKind::Enum {
-            one_of: keys.required_text("one_of")?,
-        },
+        "enum" => enum_kind(&keys, table)?,
         other => {
             return Err(keys.at(&unknown_value_text(
                 "type",
@@ -206,15 +206,52 @@ fn input(name: &str, table: &Table) -> Result<Input, String> {
             )));
         }
     };
-    if !matches!(kind, InputKind::Enum { .. }) && table.contains_key("one_of") {
-        return Err(keys.at("one_of belongs to an input of type \"enum\""));
+    if !is_enum(&kind) {
+        for key in ["one_of", "choices"] {
+            if table.contains_key(key) {
+                return Err(keys.at(&format!("{key} belongs to an input of type \"enum\"")));
+            }
+        }
+    }
+    let default = keys.text("default")?;
+    if let (InputKind::Fixed { choices }, Some(value)) = (&kind, &default)
+        && !choices.contains(value)
+    {
+        return Err(keys.at(&format!(
+            "default \"{value}\" is not one of the choices ({})",
+            choices.join(", ")
+        )));
     }
     Ok(Input {
         kind,
         prompt: keys.text("prompt")?.unwrap_or_default(),
         optional: keys.flag("optional")?,
-        default: keys.text("default")?,
+        default,
     })
+}
+
+fn is_enum(kind: &InputKind) -> bool {
+    matches!(kind, InputKind::Enum { .. } | InputKind::Fixed { .. })
+}
+
+/// An enum's values come from a project query (`one_of`) or from the generator (`choices`),
+/// one of the two.
+fn enum_kind(keys: &Keys, table: &Table) -> Result<InputKind, String> {
+    match (table.contains_key("one_of"), table.contains_key("choices")) {
+        (true, true) => {
+            Err(keys.at("an enum has `one_of` (a query) or `choices` (a list), not both"))
+        }
+        (false, true) => {
+            let choices = keys.texts("choices")?;
+            if choices.is_empty() {
+                return Err(keys.at("choices must list at least one value"));
+            }
+            Ok(InputKind::Fixed { choices })
+        }
+        _ => Ok(InputKind::Enum {
+            one_of: keys.required_text("one_of")?,
+        }),
+    }
 }
 
 fn query(name: &str, table: &Table) -> Result<Query, String> {
