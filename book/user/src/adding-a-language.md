@@ -36,6 +36,8 @@ first review say so and how to get one:
 | Linux | `apt install gcc` (or your distribution's `gcc`) |
 | Windows | install MinGW-w64 (gcc) |
 
+A user name or folder with letters outside Windows-1252 (such as `日本`) is fine: the grammar is built in a plain-ASCII temporary folder and moved into your cache.
+
 The downloaded or compiled grammar is kept in your cache: `~/.cache/sorcerer/grammars` on Linux and macOS
 (`$XDG_CACHE_HOME/sorcerer/grammars` when that is set), `%LOCALAPPDATA%\sorcerer\grammars` on
 Windows. With none of those variables set, scry has nowhere to keep grammars and says which

@@ -137,7 +137,7 @@ match a project-relative path.
    `<cache>/src/<name>-<rev7>/` (`fetch`: `check_fetchable` allows only `https`, `ssh`, `git`
    and `file` URLs, since git's `ext::` transport would run a command, then
    `fetch_commit_into` runs `git fetch --depth 1` of the pinned rev) and compiles `parser.c`
-   and `scanner.c` with the compiler it is given (`compile_library`). `build_here` asks the
+   and `scanner.c` with the compiler it is given (`compile_where_the_compiler_can_read_paths`, then `compile_library`: when the sources' or the output's path is not ASCII, as for a Windows user named outside Windows-1252 whose MinGW `ld` would get `?` for each letter, it copies the sources to a folder from `ascii_scratch_parent` in `platform/paths.rs`, compiles there and copies the library into place). `build_here` asks the
    platform adapter for it: `c_compiler(env)` is the first of `cc`, `gcc` and `clang` on
    PATH, with `-shared -fPIC -O2` on Unix and `-shared -O2` on Windows.
 4. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`
