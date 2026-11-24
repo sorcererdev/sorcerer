@@ -3,7 +3,9 @@ import * as vscode from 'vscode';
 import { LanguageClient, type LanguageClientOptions, type ServerOptions, State } from 'vscode-languageclient/node';
 import { candidates, find, isExecutable } from './binary';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
+import { registerConjuredMarks } from './conjuredMarks';
 import { Working } from './inline';
+import { registerKeys } from './keyActions';
 import { type OfferEnding, remembered } from './offer';
 import { parseWorking, type WorkingUnit } from './working';
 
@@ -61,6 +63,8 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 // candidates); with none, it offers to download this extension's version of conjure and starts
 // once that is in place. The offer is not awaited: VS Code need not wait for the user.
 export function activate(context: vscode.ExtensionContext): { drawn(): WorkingUnit[]; everDrawn(): WorkingUnit[] } {
+  registerKeys(context);
+  registerConjuredMarks(context);
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;
   const setting = vscode.workspace.getConfiguration('conjure').get<string>('path', '');

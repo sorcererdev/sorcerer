@@ -13,6 +13,33 @@ Undo**, **conjure: Try harder** (undo, then a stronger model), **conjure: Show w
 next change. Conjure needs `claude` on your PATH (signed in) and a project you have trusted
 (`conjure trust` in it); `conjure doctor` checks both.
 
+## Keys
+
+Four chords, with the cursor in a function (or lines selected), each running the action the
+lightbulb would offer:
+
+| keys | does |
+|---|---|
+| `ctrl+m c` | **Conjure here** |
+| `ctrl+m u` | **conjure: Undo** the change on this line |
+| `ctrl+m t` | **conjure: Try harder** |
+| `ctrl+m w` | **conjure: Show why** |
+
+They are the same chords as the Neovim plugin's `<leader>m` keys. On macOS `ctrl` is the Control
+key, not Command. A line that offers no such action says so in the status bar.
+
+A conjured change's mark also draws a green sparkle in the gutter and a green tick in the
+overview ruler, so it reads apart from the squiggles of other diagnostics.
+
+**`ctrl+m` and Tab.** On Windows and Linux, `ctrl+m` is VS Code's own "Toggle Tab Key Moves
+Focus"; as the first key of a chord, it no longer does that. To keep it, or to use other keys,
+open Keyboard Shortcuts (`ctrl+k ctrl+s`), search `conjure.keys`, and change or remove a binding;
+or put your own in `keybindings.json`:
+
+```json
+{ "key": "ctrl+alt+c", "command": "conjure.keys.here", "when": "editorTextFocus" }
+```
+
 ## Install the binary
 
 ```sh
