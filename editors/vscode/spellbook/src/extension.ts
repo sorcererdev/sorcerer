@@ -12,7 +12,10 @@ import { PlanPreviews } from './planPreview';
 
 // Until the release ruling there is no installer for spellbook, so every platform is told the
 // one line that builds it from the repository; then the installer lines, like conjure's.
-export const INSTALL_LINE = 'cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-spellbook';
+export const INSTALL_LINE =
+  process.platform === 'win32'
+    ? 'powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.ps1 | iex"'
+    : "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.sh | sh";
 
 // the globalState key holding the version whose offer ended in a way that is remembered (see
 // remembered in offer.ts): no offer again until the next version
@@ -159,11 +162,11 @@ function offerText(version: string, bytes: number): string {
 }
 
 export function installText(): string {
-  return `Install spellbook with: ${INSTALL_LINE}, then reload the window.`;
+  return `Install spellbook with: ${INSTALL_LINE} (or cargo install sorcerer-spellbook), then reload the window.`;
 }
 
 function noTargetText(): string {
-  return `spellbook has no prebuilt binary for ${process.platform} ${process.arch}; install it with: ${INSTALL_LINE}`;
+  return `spellbook has no prebuilt binary for ${process.platform} ${process.arch}; install it with: ${INSTALL_LINE} (or cargo install sorcerer-spellbook)`;
 }
 
 function noReleaseText(version: string): string {
