@@ -71,7 +71,7 @@ fn input_rows(wired: &Wired, generator: &Generator) -> Vec<Vec<String>> {
         .iter()
         .map(|(name, input)| {
             let now = match &input.kind {
-                InputKind::Enum { .. } => {
+                InputKind::Enum { .. } | InputKind::Fixed { .. } => {
                     match choices_for(&wired.view, generator, &Given::default(), name) {
                         Ok(choices) => format!("choices now: {}", choices.join(", ")),
                         Err(stop) => format!("({})", input_stop_text(&stop)),

@@ -45,6 +45,10 @@ pub fn choices_for(
         .iter()
         .position(|(name, _)| name == input)
         .ok_or_else(|| InputStop::Template(format!("the generator has no input {input}")))?;
+    if let InputKind::Fixed { choices } = &generator.inputs[position].1.kind {
+        // The list is the generator's own: no earlier input is needed to know it.
+        return Ok(choices.clone());
+    }
     let before = resolve_up_to(view, generator, given, position)?;
     enum_choices(
         view,
@@ -99,7 +103,9 @@ fn checked(
     choices: Vec<String>,
 ) -> Result<String, InputStop> {
     match &input.kind {
-        InputKind::Enum { .. } if !choices.iter().any(|choice| choice == value) => {
+        InputKind::Enum { .. } | InputKind::Fixed { .. }
+            if !choices.iter().any(|choice| choice == value) =>
+        {
             Err(InputStop::NotAChoice {
                 input: name.into(),
                 given: value.into(),
@@ -132,7 +138,7 @@ fn untold(name: &str, input: &Input, choices: Vec<String>) -> Result<String, Inp
     })
 }
 
-/// An enum's choices now; none for another kind. A query that finds nothing stops.
+/// An enum's choices now (a fixed list as written); none for another kind. A query that finds nothing stops.
 fn enum_choices(
     view: &dyn CodebaseView,
     generator: &Generator,
@@ -140,8 +146,10 @@ fn enum_choices(
     name: &str,
     input: &Input,
 ) -> Result<Vec<String>, InputStop> {
-    let InputKind::Enum { one_of } = &input.kind else {
-        return Ok(Vec::new());
+    let one_of = match &input.kind {
+        InputKind::Enum { one_of } => one_of,
+        InputKind::Fixed { choices } => return Ok(choices.clone()),
+        _ => return Ok(Vec::new()),
     };
     let query = generator
         .queries

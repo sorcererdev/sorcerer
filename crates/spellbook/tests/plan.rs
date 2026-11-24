@@ -410,3 +410,64 @@ fn a_placeholder_hole_in_an_uncovered_file_is_refused() {
     );
     assert!(matches!(stop, PlanStop::NoLanguageForHole { .. }));
 }
+
+const KINDED_TOML: &str = r#"
+name = "Kinded"
+language = "python"
+
+[inputs.kind]
+type    = "enum"
+choices = ["command", "query"]
+default = "command"
+prompt  = "command or query"
+
+[inputs.thing]
+type   = "ident"
+prompt = "the thing"
+
+[[edits]]
+create = "src/{= thing|snake =}.py"
+text   = ""
+"#;
+
+fn kinded_in(dir: &std::path::Path) -> (Generator, FilesView) {
+    write_generator(dir, "kinded", KINDED_TOML, &[]);
+    let (project, view) = project_with_vendored_grammars(dir);
+    let generator = spellbook::adapters::generator_dir::generator_named(&project, "kinded")
+        .unwrap()
+        .unwrap();
+    (generator, view)
+}
+
+#[test]
+fn fixed_choices_are_the_choices_with_no_project_files_needed() {
+    let dir = bistro_project();
+    let (generator, view) = kinded_in(dir.path());
+    // `kind` comes before `thing`, but even asked of a later input's state it is just the list
+    assert_eq!(
+        choices_for(&view, &generator, &Given::default(), "kind"),
+        Ok(vec!["command".to_string(), "query".to_string()])
+    );
+}
+
+#[test]
+fn a_fixed_choice_given_is_checked_and_the_default_stands_in() {
+    let dir = bistro_project();
+    let (generator, view) = kinded_in(dir.path());
+    let values = ready(resolve_inputs(&view, &generator, &given(&[("thing", "x")])));
+    assert_eq!(values.get("kind"), Some("command"));
+    let values = ready(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("thing", "x"), ("kind", "query")]),
+    ));
+    assert_eq!(values.get("kind"), Some("query"));
+    match stopped(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("thing", "x"), ("kind", "service")]),
+    )) {
+        InputStop::NotAChoice { choices, .. } => assert_eq!(choices, ["command", "query"]),
+        other => panic!("{other:?}"),
+    }
+}

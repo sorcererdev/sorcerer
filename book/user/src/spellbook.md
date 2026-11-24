@@ -94,7 +94,7 @@ class {= Command =}:
 |---|---|
 | `name`, `summary`, `description`, `examples` | shown by `spellbook list` and `spellbook show` |
 | `language` | the language the generator is for; it must be one of the project's languages |
-| `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (`one_of` a query) or `text`; `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
+| `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (its values are `one_of` a query over the project's files, or a fixed list, `choices = ["command", "query"]`; not both) or `text`; `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
 | `[query.X]` | `glob`, a template over the inputs before the one that uses it, and `value`: `"parent folder"`, `"stem"` or `"path"` of each match. In the glob `*` stays inside one folder and `**` crosses folders; a glob may name folders as well as files |
 | `[derive]` | names computed from the inputs, in order; each may use the ones before it |
 | `[[edits]]` | `create` (the path, a template), then `template` (a file under `templates/`) or `text` (written as it is), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"` |
@@ -354,7 +354,7 @@ display back (`conjure.sign` for the star).
 1. **Pick the generator** (skipped when you named it): `Command — A command of a service, with
    its test`.
 2. **Answer its inputs**, in order. An input you gave as `name=value` is not asked. An enum
-   (`app`, `service`) offers what the project holds now, and an enum with one choice takes it
+   (`app`, `service`) offers what the project holds now (a `choices` list offers its values), and an enum with one choice takes it
    without asking; an `ident` or `text` input is typed. An optional input offers `(skip)`, or an
    empty answer.
 3. **Read the plan** in a float: each file as `+ path (N lines)` or `= path (exists, skipped)`,
