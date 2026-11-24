@@ -349,7 +349,8 @@ vim.keymap.set("n", "<leader>sn", "<cmd>Spellbook new<cr>")
    plan stops on an input (say a `service` that is not there), you are asked that input once
    more with the choices.
 4. **Apply.** The server writes the new files, never over one that is there, opens the first
-   file at its first hole, and puts a **hole mark** on each hole's line: an Information
+   file at its first hole, and puts a **hole mark** on each hole's placeholder (just the placeholder, not the line, and the
+   first one is selected when the file opens): an Information
    diagnostic from source `spellbook`, code `hole`, saying `handle (block): its first case, from
    the test file beside it`. The diagnostics list is the hole list, and `]d` walks it.
 5. **Fill the holes.** By hand, and the marks go when you save the file with the placeholder

@@ -3,7 +3,8 @@
 //! - `spellbook.generators []`
 //! - `spellbook.choices [generator, inputs, input]`
 //! - `spellbook.plan [generator, inputs]`
-//! - `spellbook.apply [plan id]`
+//! - `spellbook.apply [plan id]`: replies with `written`, `skipped`, `refused`, `holes`, `first`
+//!   (the first hole's file and line) and `stops`, the holes in the order to walk them
 //!
 //! A reply is JSON the plugin reads; a refusal the person must hear is `{ "stop": "<sentence>" }`
 //! in the reply. An error answers only a malformed or unknown command.
@@ -13,7 +14,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use lsp_server::{ErrorCode, ResponseError};
-use lsp_types::{ExecuteCommandOptions, ExecuteCommandParams, Position, Range, ServerCapabilities};
+use lsp_types::{ExecuteCommandOptions, ExecuteCommandParams, ServerCapabilities};
 use serde_json::{Value, json};
 use sorcerer_core::domain::project::Project;
 
@@ -149,42 +150,31 @@ impl Server {
             Ok(applied) => applied,
             Err(e) => return Ok(stop(&format!("spellbook: {e:#}"))),
         };
-        let first = self.mark_written_files(wired, &applied.written);
-        if let Some((file, line)) = &first {
+        let stops = self.mark_written_files(wired, &applied.written);
+        if let Some(first) = stops.first() {
             self.client.show_document(
-                &self.root.join(file),
-                Some(Range::new(
-                    Position::new(line - 1, 0),
-                    Position::new(line - 1, 0),
-                )),
+                &self.root.join(first["file"].as_str().unwrap_or_default()),
+                serde_json::from_value(first["range"].clone()).ok(),
             );
         }
-        Ok(applied_reply(&applied, first))
+        Ok(applied_reply(&applied, stops))
     }
 
-    /// Publishes the hole marks of each written file; returns the file and line of the first
-    /// hole, by the order the files were written.
-    fn mark_written_files(&self, wired: &Wired, written: &[String]) -> Option<(String, u32)> {
-        let mut first = None;
+    /// Publishes the hole marks of each written file; returns the holes as tab stops, the files
+    /// in the order they were written and each file's holes by line then column.
+    fn mark_written_files(&self, wired: &Wired, written: &[String]) -> Vec<Value> {
+        let mut stops = Vec::new();
         for file in written {
-            let diagnostics = file_diagnostics(wired, Path::new(file));
-            if first.is_none()
-                && let Some(top) = diagnostics
-                    .marks
-                    .iter()
-                    .map(|m| m.range.start.line + 1)
-                    .min()
-            {
-                first = Some((file.clone(), top));
-            }
+            let mut diagnostics = file_diagnostics(wired, Path::new(file));
+            stops.append(&mut diagnostics.stops);
             self.publish(file, diagnostics.all());
         }
-        first
+        stops
     }
 }
 
 /// What apply did, as the plugin reads it.
-fn applied_reply(applied: &AppliedGeneration, first: Option<(String, u32)>) -> Value {
+fn applied_reply(applied: &AppliedGeneration, stops: Vec<Value>) -> Value {
     let refused = applied
         .refused
         .as_ref()
@@ -194,7 +184,16 @@ fn applied_reply(applied: &AppliedGeneration, first: Option<(String, u32)>) -> V
         "skipped": applied.skipped,
         "refused": refused,
         "holes": applied.plan.holes,
-        "first": first.map(|(file, line)| json!({ "file": file, "line": line })),
+        "first": first_of(&stops),
+        "stops": stops,
+    })
+}
+
+/// The first stop's file and line (from 1), for an older plugin that reads `first`.
+fn first_of(stops: &[Value]) -> Value {
+    stops.first().map_or(Value::Null, |stop| {
+        let line = stop["range"]["start"]["line"].as_u64().unwrap_or(0) + 1;
+        json!({ "file": stop["file"], "line": line })
     })
 }
 

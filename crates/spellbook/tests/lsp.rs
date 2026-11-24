@@ -440,6 +440,56 @@ fn message_of(mark: &Diagnostic, name: &str) -> bool {
     mark.message.starts_with(&format!("{name} ("))
 }
 
+/// The text a range covers on one line of the file.
+fn slice_of(text: &str, range: &lsp_types::Range) -> String {
+    let row = text.lines().nth(range.start.line as usize).unwrap();
+    let units: Vec<u16> = row.encode_utf16().collect();
+    String::from_utf16(&units[range.start.character as usize..range.end.character as usize])
+        .unwrap()
+}
+
+#[test]
+fn apply_reply_lists_the_stops_in_order() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let id = planned(&s);
+    let reply = s.command("spellbook.apply", json!([id]));
+    let stops = reply["stops"].as_array().unwrap();
+    let named: Vec<(&str, &str)> = stops
+        .iter()
+        .map(|stop| {
+            (
+                stop["file"].as_str().unwrap(),
+                stop["name"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [
+            (MAIN, "field"),
+            (MAIN, "type"),
+            (MAIN, "handle"),
+            (TEST_FILE, "field")
+        ]
+    );
+    for stop in stops {
+        let range: lsp_types::Range = serde_json::from_value(stop["range"].clone()).unwrap();
+        let text =
+            std::fs::read_to_string(dir.path().join(stop["file"].as_str().unwrap())).unwrap();
+        assert!(!slice_of(&text, &range).is_empty(), "{stop}");
+        assert!(stop["kind"].is_string() && stop["instruction"].is_string());
+    }
+    let main_text = std::fs::read_to_string(dir.path().join(MAIN)).unwrap();
+    let first: lsp_types::Range = serde_json::from_value(stops[0]["range"].clone()).unwrap();
+    assert_eq!(slice_of(&main_text, &first), "todo_field");
+    assert_eq!(reply["first"]["file"], MAIN);
+    assert_eq!(reply["first"]["line"], first.start.line + 1);
+    let shown = s.shown_document();
+    assert_eq!(shown["selection"], stops[0]["range"]);
+    s.stop();
+}
+
 #[test]
 fn apply_writes_publishes_marks_and_shows_the_first_hole() {
     let dir = bistro_project();
@@ -484,13 +534,11 @@ fn apply_writes_publishes_marks_and_shows_the_first_hole() {
     );
     let on_disk = std::fs::read_to_string(dir.path().join(MAIN)).unwrap();
     assert!(
-        on_disk
-            .lines()
-            .nth(handle.range.start.line as usize)
-            .unwrap()
-            .contains("NotImplementedError"),
+        slice_of(&on_disk, &handle.range).starts_with("raise NotImplementedError(\"hole handle:"),
         "{on_disk}"
     );
+    let field = marks.iter().find(|m| message_of(m, "field")).unwrap();
+    assert_eq!(slice_of(&on_disk, &field.range), "todo_field");
     let test_marks = s.marks(TEST_FILE);
     assert_eq!(test_marks.len(), 1);
     assert!(message_of(&test_marks[0], "field"));
