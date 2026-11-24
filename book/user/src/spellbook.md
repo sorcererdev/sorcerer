@@ -346,6 +346,7 @@ display back (`conjure.sign` for the star).
 | `spellbook.enabled` | `false` | start `spellbook lsp` for the files you open, one server per project root |
 | `spellbook.cmd` | `{ "spellbook", "lsp" }` | the program, when it is not on your PATH |
 | `spellbook.conjure_holes` | `false` | after `:Spellbook new`, run conjure on the first hole (needs conjure on too) |
+| `spellbook.hole_keys` | `{ next = "<Tab>", prev = "<S-Tab>" }` | after `:Spellbook new`, the keys between the opened file's holes (insert and select mode, that buffer only); `false` = no session |
 
 `:Spellbook new [generator] [input=value…]` takes five steps, with Neovim's own pickers
 (`vim.ui.select`, `vim.ui.input`, so a picker plugin such as telescope or snacks shows them):
@@ -363,16 +364,28 @@ display back (`conjure.sign` for the star).
    plan stops on an input (say a `service` that is not there), you are asked that input once
    more with the choices.
 4. **Apply.** The server writes the new files, never over one that is there, opens the first
-   file at its first hole, and puts a **hole mark** on each hole's placeholder (just the placeholder, not the line, and the
-   first one is selected when the file opens): an Information
-   diagnostic from source `spellbook`, code `hole`, saying `handle (block): its first case, from
-   the test file beside it`. The diagnostics list is the hole list, and `]d` walks it.
-5. **Fill the holes.** By hand, and the marks go when you save the file with the placeholder
+   file at its first hole, and puts a **hole mark** on each hole's placeholder (just the
+   placeholder, not the line): an Information diagnostic from source `spellbook`, code `hole`,
+   saying `handle (block): its first case, from the test file beside it`. The diagnostics list
+   is the hole list, and `]d` walks it.
+5. **Fill the holes, like snippet placeholders.** You land on the first placeholder selected
+   (select mode): type and it is replaced. `<Tab>` moves to the next hole of that file, `<S-Tab>`
+   back, and the message line says where you are: `hole 1 of 3 · field: its first input · type
+   to replace · <Tab> next · <leader>mc conjure` (the conjure part when conjure is on; the last
+   hole says `<Tab> done`). A hole grows with what you type, so `<S-Tab>` selects your whole
+   answer again, and a placeholder you have not reached stays code that parses. `<Tab>` on the
+   last hole ends the session, and so does closing the buffer: `spellbook: holes done`, or
+   `spellbook: holes done · 1 more in command__test.py, marked (]d)` when a hole sits in another
+   file (that one you fill by its mark). The keys are that buffer's own, in insert and select
+   mode only, for the session's length: normal-mode `<Tab>` and your global maps (a completion
+   plugin's `<Tab>`) are never touched, and a buffer-local map you had on them is put back.
+   `spellbook.hole_keys` sets them; `false` means no session, and then the end line reads
+   `N holes, marked; ]d walks them`. The marks go when you save the file with the placeholder
    replaced (the server looks at the file on disk when you open or save it, not at each
-   keystroke). With conjure installed and on, the end line reads `N holes · <leader>mc to
-   conjure the first`: the hole's line already offers *Conjure here* like any line in a
-   function, and conjure's change, mark, Undo and Try harder apply as they do anywhere. With
-   `conjure_holes = true` the plugin runs conjure on the first hole for you, and nothing else.
+   keystroke). With conjure installed and on, a hole's line offers *Conjure here* like any line
+   in a function (`<leader>mc`), and conjure's change, mark, Undo and Try harder apply as they do
+   anywhere. With `conjure_holes = true` the plugin runs conjure on the first hole for you and
+   starts no session.
    Spellbook never calls a model itself.
 
 An untrusted project (one whose own config sets a provider `runner` or `url`, or a grammar of its

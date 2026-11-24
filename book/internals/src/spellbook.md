@@ -161,7 +161,12 @@ for a placeholder. Spellbook does not know conjure ran: it
 sees the placeholders gone on the next save. The editor side is sorcerer.nvim's
 `lua/sorcerer/spellbook.lua` (`M.new`, one chain of callbacks: generators, choices, plan, the
 float in `spellbook_plan.lua`, apply, then conjure's `conjure.conjure [uri, line]` on the first
-hole when `conjure_holes` is set); it knows only the replies above. The plugin draws a hole,
+hole when `conjure_holes` is set); it knows only the replies above. After the apply, `finish`
+hands the stops of the opened file to `spellbook_holes.lua` (`M.start`): one extmark a stop
+(UTF-16 converted to bytes, gravity set so typed text stays inside), buffer-local `<Tab>`/`<S-Tab>`
+in insert and select mode, each stop selected in select mode the way Neovim's `vim/snippet.lua`
+does it. A reply without `stops` (an older server) gets the old end line, so `stops`' fields
+`file`, `name`, `instruction` and `range` are part of the contract too. The plugin draws a hole,
 a rule finding (source `spellbook`, code the rule id) and a conjure mark (code `change`) by their
 `source` and `code` alone (`signs.lua`, `place_marks`), and `:Spellbook check` reads
 `spellbook check --json` (`findings[{rule,file,line,severity,message}]`, exit 0/1, 2 = could not
