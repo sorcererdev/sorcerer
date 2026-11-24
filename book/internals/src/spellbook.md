@@ -173,6 +173,23 @@ a rule finding (source `spellbook`, code the rule id) and a conjure mark (code `
 `spellbook check --json` (`findings[{rule,file,line,severity,message}]`, exit 0/1, 2 = could not
 run) into the quickfix list (`M.check`): those fields are part of the contract.
 
+The VS Code side is `editors/vscode/spellbook/`, the same contract in TypeScript.
+`src/newFlow.ts` (`newFlow`) is the story over two seams, a `Server` and an `Asker`: the four
+commands, sent by `newCommand.ts` (`serverOf`) as `ExecuteCommandRequest`s to the folder's own
+client, never through VS Code's command registry; `asker.ts` is the Asker of VS Code's pickers, and
+the e2e swaps parts of it (`useAsker`). The plan preview is `planPreview.ts` (`PlanPreviews`, a
+content provider for the scheme `spellbook-plan`, one read-only document per new file, coloured by
+VS Code from the path, under a QuickPick of Apply, Cancel and the files). After the apply,
+`newCommand.ts` (`finish`) gives the opened file's `stops` to `holeSession.ts`
+(`startHoleSession`): `holes.ts` (`snippetFor`) turns the lines from the first stop to the last
+into one snippet with each stop as `${n:…}`, put back over the same lines with
+`editor.insertSnippet` (`keepWhitespace`), so the session is VS Code's own snippet mode; the
+status line follows the stops with `shifted` and `stopAt` (also `holes.ts`). `checkCommand.ts`
+runs `spellbook check --json` into the `spellbook check` diagnostic collection, leaving out open
+files (the server shows those). `holeMarks.ts` draws the hole look from the marks' `source` and
+`code` (`marks.ts`, `holeRanges`). Both clients read `stops`, `first`, the hole mark's
+`source`/`code` and the check JSON: the contract.
+
 ## A check
 
 `spellbook check` (`cli/check.rs`) and the server share one path:

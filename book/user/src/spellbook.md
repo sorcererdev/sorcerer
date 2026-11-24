@@ -392,8 +392,84 @@ display back (`conjure.sign` for the star).
 
 An untrusted project (one whose own config sets a provider `runner` or `url`, or a grammar of its
 own) gets no marks, and says `spellbook: this project is not trusted; run "spellbook trust" in it`
-once a session when you open or save a file; every command answers the same sentence. The command line trusts the directory you run it in, as scry's does: `spellbook check` in a cloned repository builds that repository's own grammar first. VS Code has no spellbook extension yet (milestone 2).
+once a session when you open or save a file; every command answers the same sentence. The command line trusts the directory you run it in, as scry's does: `spellbook check` in a cloned repository builds that repository's own grammar first.
 `:checkhealth sorcerer` has a spellbook section when it is enabled.
+
+## In VS Code
+
+The **Spellbook** extension (`sorcererdev.spellbook`) does what the Neovim plugin does. It is not
+on the Marketplace yet: build it from `editors/vscode/spellbook` (`npm ci && npm run package`)
+and install the `.vsix` (`code --install-extension spellbook-0.1.0.vsix`), and install the
+program with `cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-spellbook`.
+The extension finds `spellbook` as scry's and conjure's find theirs (the `spellbook.path` user
+setting, then `PATH`, `~/.cargo/bin`, `~/.local/bin`); with none it tells you that install line.
+It starts one `spellbook lsp` per workspace folder; the server's log is the Output channel
+**Spellbook**.
+
+`ctrl+m n` (or **Spellbook: New** in the Command Palette) runs the same steps as `:Spellbook new`
+in the folder of the file you are in (with no file open and several folders, it asks which):
+
+1. **Pick the generator** in a quick pick, its summary beside it.
+2. **Answer its inputs**, in order: an enum in a quick pick (one choice taken without asking, an
+   optional one offers `(skip)`), an `ident` or `text` input in an input box. `Esc` anywhere
+   cancels, and nothing is said.
+3. **Read the plan.** Each new file opens as a read-only preview, coloured as its language by
+   VS Code itself, and over it a quick pick titled `spellbook: command · 2 files · 3 holes to
+   fill` holds **Apply**, **Cancel** and the file list (`+ path`, `31 lines`; `= path`, `exists,
+   skipped`). Moving onto a file with the arrows shows it; you can click into the preview to
+   scroll, and the pick stays. **Apply** writes; **Cancel** or `Esc` writes nothing. Either way
+   the previews close. If the plan stops on an input, you are asked it once more.
+4. **Apply.** The server writes the files, opens the first at its first hole and puts the hole
+   marks in Problems (Information, source `spellbook`, code `hole`). When no hole session follows
+   (step 5), the status bar says `spellbook: wrote 2 files · 3 holes, marked (Problems)`, or
+   `· ctrl+m c to conjure the first` when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
+   a function. With `spellbook.conjureHoles` on, the extension runs conjure on the first hole for
+   you, and no hole session starts.
+5. **Fill the holes, like snippet placeholders.** The opened file's holes become VS Code's own
+   snippet placeholders: the first is selected, typing replaces it, `Tab` moves to the next hole
+   and `Shift+Tab` back, `Esc` leaves. These are VS Code's snippet keys, so a binding you gave
+   them is kept. A hole grows with what you type. The status bar says where you are: `hole 1 of
+   3 · field: its first input · type to replace · Tab next · ctrl+m c conjure` (the conjure part
+   when the Conjure extension is here; the last hole says `Tab done`). Moving out of every hole
+   (`Tab` on the last, a click elsewhere) ends the session: `spellbook: holes done`, or
+   `spellbook: holes done · 1 more in cancel_table__test.py (Problems)` when another file has
+   holes (fill that one by its marks). The file shows as changed as soon as the session starts,
+   although its text is what was written; save when the holes are filled, which is also when
+   their marks go. `spellbook.holeSession` off gives the end line instead
+   (`3 holes, marked (Problems)`).
+
+The command also takes arguments, so a keybinding can skip questions:
+`{ "key": "ctrl+m b", "command": "spellbook.new", "args": { "generator": "command", "inputs":
+{ "service": "booking" } } }`.
+
+`ctrl+m k` (or **Spellbook: Check**) runs `spellbook check --json` in the folder's root and puts
+the findings in Problems, each on its line with VS Code's error, warning or hint squiggle (source
+`spellbook`, the rule's id as its code); Problems opens when there are any, else the status bar
+says `spellbook: conventions hold`. Each run replaces the last. The files you have open show their
+findings through the server (on open and save), so Check leaves them out and a finding is listed
+once. A check that could not run (exit 2) says why: `spellbook: check could not run: …`.
+
+The looks: a hole's mark draws a `◇` in the gutter, a blue tick in the overview ruler, and its
+placeholder tinted as VS Code tints a snippet's tab stop (the theme's
+`editor.snippetTabstopHighlightBackground`); the plan preview's placeholders have the same tint. A
+rule finding is VS Code's own squiggle in its severity's colour. A conjured change is the green
+`✦` the Conjure extension draws.
+
+Both chords work while the cursor is in an editor (`when: editorTextFocus`): in the integrated
+terminal `ctrl+m` is Enter. On macOS `ctrl` is the Control key. On Windows and Linux `ctrl+m` is
+VS Code's own "Toggle Tab Key Moves Focus", which it no longer does as the first key of a chord;
+to keep it, or for other keys, rebind in Keyboard Shortcuts or `keybindings.json`, for example
+`{ "key": "ctrl+alt+n", "command": "spellbook.new", "when": "editorTextFocus" }`.
+
+An untrusted project says the server's sentence (`run "spellbook trust" in it`) as a warning;
+run `spellbook trust` in a terminal in the project. `[spellbook] enabled = false` reads the same
+way. `spellbook doctor` is the command line's; the extension has no doctor of its own.
+
+| setting | default | what it does |
+|---|---|---|
+| `spellbook.path` | `""` | the `spellbook` binary, from your user settings only (not in Restricted Mode) |
+| `spellbook.conjureHoles` | `false` | after **Spellbook: New**, run conjure on the first hole (needs the Conjure extension) |
+| `spellbook.holeSession` | `true` | after **Spellbook: New**, the opened file's holes as snippet placeholders; off: only marked |
 
 ## The files it writes
 
@@ -417,7 +493,7 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 
 Milestone 2 brings fixes (a rule that names the generator that repairs it), `missing` rules,
 owned regions (the `pub mod` line a generator keeps), insert edits, list inputs and `if`/`for` in
-templates, packs of generators and rules shared between projects, and a VS Code extension.
+templates, and packs of generators and rules shared between projects.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything
 until then, and the model parts stay optional.

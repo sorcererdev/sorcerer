@@ -1,0 +1,148 @@
+import * as assert from 'node:assert/strict';
+import { test } from 'node:test';
+import type { Generator, Input } from '../../src/inputs';
+import { type Asker, newFlow, type Server } from '../../src/newFlow';
+import type { Plan } from '../../src/plan';
+
+const command: Generator = {
+  id: 'command', name: 'Command', summary: 'A command of a service',
+  inputs: [
+    { name: 'app', type: 'enum', prompt: 'The app' },
+    { name: 'service', type: 'enum', prompt: 'The service' },
+    { name: 'command', type: 'ident', prompt: 'The command' },
+  ],
+};
+const plan: Plan = { id: 'p1', generator: 'command', files: [], holes: [] };
+const applied = { written: ['a.py'], skipped: [], refused: null, holes: [], first: { file: 'a.py', line: 3 } };
+
+// A server answering from a table of command → reply (a function of the arguments, or a list
+// of replies given in turn), recording each call.
+function fakeServer(replies: Record<string, unknown>): Server & { calls: [string, unknown[]][] } {
+  const calls: [string, unknown[]][] = [];
+  const turns: Record<string, number> = {};
+  return {
+    calls,
+    run: async (name, args) => {
+      calls.push([name, args]);
+      const reply = replies[name];
+      if (reply instanceof Error) throw reply;
+      if (typeof reply === 'function') return reply(args);
+      if (Array.isArray(reply) && name !== 'spellbook.generators') return reply[(turns[name] = (turns[name] ?? -1) + 1)];
+      return reply;
+    },
+  };
+}
+
+// An asker giving scripted answers (undefined: a cancel), recording what it was told and asked.
+function fakeAsker(answers: { generator?: string; choices?: (string | undefined)[]; texts?: (string | undefined)[]; plan?: 'apply' | 'cancel' }):
+  Asker & { said: [string, string][]; asked: string[] } {
+  const said: [string, string][] = [];
+  const asked: string[] = [];
+  const choices = [...(answers.choices ?? [])];
+  const texts = [...(answers.texts ?? [])];
+  return {
+    said, asked,
+    pickGenerator: async gs => gs.find(g => g.id === answers.generator),
+    pickChoice: async (input: Input, items: string[]) => { asked.push(`${input.name}: ${items.join(',')}`); return choices.shift(); },
+    askText: async (input: Input, prompt: string) => { asked.push(`${input.name}? ${prompt}`); return texts.shift(); },
+    showPlan: async () => answers.plan ?? 'apply',
+    say: (level, text) => { said.push([level, text]); },
+  };
+}
+
+function bistro(overrides: Record<string, unknown> = {}) {
+  return fakeServer({
+    'spellbook.generators': [command],
+    'spellbook.choices': (args: unknown[]) => ({ choices: args[2] === 'app' ? ['bistro'] : ['booking', 'web'] }),
+    'spellbook.plan': plan,
+    'spellbook.apply': applied,
+    ...overrides,
+  });
+}
+
+test('the_full_path_runs_the_four_commands_with_inputs_as_an_object_of_text', async () => {
+  const server = bistro();
+  const asker = fakeAsker({ generator: 'command', choices: ['booking'], texts: [' cancel_table '] });
+  assert.deepEqual(await newFlow(server, asker), applied);
+  assert.deepEqual(server.calls, [
+    ['spellbook.generators', []],
+    ['spellbook.choices', ['command', {}, 'app']],
+    ['spellbook.choices', ['command', { app: 'bistro' }, 'service']],
+    ['spellbook.plan', ['command', { app: 'bistro', service: 'booking', command: 'cancel_table' }]],
+    ['spellbook.apply', ['p1']],
+  ]);
+  // the one app is taken without asking
+  assert.deepEqual(asker.asked, ['service: booking,web', 'command? The command']);
+  assert.deepEqual(asker.said, []);
+});
+
+test('a_given_generator_and_inputs_skip_their_questions', async () => {
+  const server = bistro();
+  const asker = fakeAsker({ texts: ['x'] });
+  await newFlow(server, asker, { generator: 'command', inputs: { service: 'web' } });
+  assert.deepEqual(asker.asked, ['command? The command']);
+  assert.deepEqual(server.calls.at(-2), ['spellbook.plan', ['command', { service: 'web', app: 'bistro', command: 'x' }]]);
+});
+
+test('an_unknown_generator_or_none_at_all_is_said', async () => {
+  const asker = fakeAsker({});
+  assert.equal(await newFlow(bistro(), asker, { generator: 'nope' }), undefined);
+  const none = fakeAsker({});
+  assert.equal(await newFlow(bistro({ 'spellbook.generators': [] }), none), undefined);
+  assert.deepEqual([...asker.said, ...none.said], [['warn', 'spellbook: no generator named nope'], ['warn', 'spellbook: this project has no generators']]);
+});
+
+test('a_plan_stop_naming_an_input_asks_it_once_more_and_a_second_stop_is_said', async () => {
+  const stop = { stop: 'spellbook: service must be one of booking', input: 'service', choices: ['booking'] };
+  const server = bistro({ 'spellbook.plan': [stop, stop] });
+  const asker = fakeAsker({ generator: 'command', choices: ['web', 'booking'], texts: ['x'] });
+  assert.equal(await newFlow(server, asker), undefined);
+  assert.deepEqual(server.calls.filter(c => c[0] === 'spellbook.plan').map(c => c[1]), [
+    ['command', { app: 'bistro', service: 'web', command: 'x' }],
+    ['command', { app: 'bistro', service: 'booking', command: 'x' }],
+  ]);
+  assert.deepEqual(asker.said, [['warn', stop.stop], ['warn', stop.stop]]);
+});
+
+test('a_retry_that_then_plans_goes_on_to_apply', async () => {
+  const stop = { stop: 'spellbook: which service?', input: 'service', choices: ['booking'] };
+  const asker = fakeAsker({ generator: 'command', choices: ['web', 'booking'], texts: ['x'] });
+  assert.deepEqual(await newFlow(bistro({ 'spellbook.plan': [stop, plan] }), asker), applied);
+});
+
+test('a_stop_on_any_command_is_said_and_ends', async () => {
+  for (const name of ['spellbook.generators', 'spellbook.choices', 'spellbook.plan', 'spellbook.apply']) {
+    const asker = fakeAsker({ generator: 'command', choices: ['booking'], texts: ['x'] });
+    const reply = { stop: `spellbook: this project is not trusted (${name})` };
+    assert.equal(await newFlow(bistro({ [name]: name === 'spellbook.plan' ? [reply] : reply }), asker), undefined, name);
+    assert.deepEqual(asker.said, [['warn', reply.stop]], name);
+  }
+});
+
+test('a_cancel_at_any_step_ends_silently', async () => {
+  const cases = [
+    fakeAsker({}),
+    fakeAsker({ generator: 'command', choices: [undefined] }),
+    fakeAsker({ generator: 'command', choices: ['booking'], texts: [undefined] }),
+    fakeAsker({ generator: 'command', choices: ['booking'], texts: ['x'], plan: 'cancel' }),
+  ];
+  for (const asker of cases) {
+    const server = bistro();
+    assert.equal(await newFlow(server, asker), undefined);
+    assert.deepEqual(asker.said, []);
+    assert.ok(!server.calls.some(c => c[0] === 'spellbook.apply'));
+  }
+});
+
+test('a_refused_file_is_said_and_the_reply_still_returned', async () => {
+  const refused = { ...applied, refused: { path: 'b.py', why: 'it changed on disk' } };
+  const asker = fakeAsker({ generator: 'command', choices: ['booking'], texts: ['x'] });
+  assert.deepEqual(await newFlow(bistro({ 'spellbook.apply': refused }), asker), refused);
+  assert.deepEqual(asker.said, [['warn', 'spellbook: b.py was not written: it changed on disk']]);
+});
+
+test('a_failed_request_is_said_as_an_error', async () => {
+  const asker = fakeAsker({});
+  assert.equal(await newFlow(bistro({ 'spellbook.generators': new Error('the server stopped') }), asker), undefined);
+  assert.deepEqual(asker.said, [['error', 'spellbook: spellbook.generators failed: the server stopped']]);
+});

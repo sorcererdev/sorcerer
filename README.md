@@ -173,6 +173,10 @@ code --install-extension sorcererdev.scry
 code --install-extension sorcererdev.conjure
 ```
 
+**Spellbook** (`sorcererdev.spellbook`) is not on the Marketplace yet: build the `.vsix` from
+`editors/vscode/spellbook` (its README says how) and the program with `cargo install --git
+https://github.com/sorcererdev/sorcerer sorcerer-spellbook`.
+
 - **Finding the program.** The extension looks for `scry` / `conjure` in the setting
   `scry.path` / `conjure.path` (your user settings only), then on PATH, then `~/.cargo/bin` and
   `~/.local/bin`. If it finds none it offers to download that version for you, checked against
