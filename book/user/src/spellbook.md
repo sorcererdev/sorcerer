@@ -418,9 +418,9 @@ in the folder of the file you are in (with no file open and several folders, it 
    scroll, and the pick stays. **Apply** writes; **Cancel** or `Esc` writes nothing. Either way
    the previews close. If the plan stops on an input, you are asked it once more.
 4. **Apply.** The server writes the files, opens the first at its first hole and puts the hole
-   marks in Problems (Information, source `spellbook`, code `hole`). The status bar says
-   `spellbook: wrote 2 files · 3 holes, marked (Problems)`, or `· ctrl+m c to conjure the first`
-   when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
+   marks in Problems (Information, source `spellbook`, code `hole`). When no hole session follows
+   (step 5), the status bar says `spellbook: wrote 2 files · 3 holes, marked (Problems)`, or
+   `· ctrl+m c to conjure the first` when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
    a function. With `spellbook.conjureHoles` on, the extension runs conjure on the first hole for
    you, and no hole session starts.
 5. **Fill the holes, like snippet placeholders.** The opened file's holes become VS Code's own
@@ -491,7 +491,7 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 
 Milestone 2 brings fixes (a rule that names the generator that repairs it), `missing` rules,
 owned regions (the `pub mod` line a generator keeps), insert edits, list inputs and `if`/`for` in
-templates, packs of generators and rules shared between projects, and a VS Code extension.
+templates, and packs of generators and rules shared between projects.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything
 until then, and the model parts stay optional.
