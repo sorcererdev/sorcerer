@@ -1,8 +1,8 @@
 # After a release: install it the way the README says, on machines with nothing else, and see
 # it work. Run by hand (Actions → smoke → Run workflow, with the version just released).
 #
-# linux: a bare ubuntu:24.04 container (no Rust, no C compiler); the README's shell lines (scry and conjure;
-#   conjure gets `conjure --version`, no live call); one
+# linux: a bare ubuntu:24.04 container (no Rust, no C compiler); the README's shell lines (scry, conjure and spellbook;
+#   conjure and spellbook get `--version`, no live call); one
 #   live review of the bistro demo with a planted bug (scripts/smoke-review, at most $0.20).
 # windows: the README's PowerShell lines; `scry doctor` on the bistro demo; no live review.
 # Both check that the grammar was downloaded, not compiled.
@@ -29,6 +29,7 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh
           curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-conjure-installer.sh | sh
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: nothing to build with
         shell: bash
@@ -41,6 +42,7 @@ jobs:
         run: |
           test "$(scry --version)" = "scry ${{ inputs.version }}"
           test "$(conjure --version)" = "conjure ${{ inputs.version }}"
+          test "$(spellbook --version)" = "spellbook ${{ inputs.version }}"
       - name: one live review
         shell: bash
         run: scripts/smoke-review
@@ -56,6 +58,7 @@ jobs:
         run: |
           powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"
           powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-conjure-installer.ps1 | iex"
+          powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.ps1 | iex"
           "$HOME\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: the version asked for
         shell: pwsh
@@ -64,6 +67,8 @@ jobs:
           if ($version -ne "scry ${{ inputs.version }}") { throw "scry --version says $version" }
           $conjure = conjure --version
           if ($conjure -ne "conjure ${{ inputs.version }}") { throw "conjure --version says $conjure" }
+          $spellbook = spellbook --version
+          if ($spellbook -ne "spellbook ${{ inputs.version }}") { throw "spellbook --version says $spellbook" }
       - name: doctor on the bistro demo
         shell: pwsh
         run: |

@@ -118,8 +118,9 @@ folder. The diagnostics, the lightbulb and the progress in the status bar are VS
 the grey `⟳ scry: reviewing…` after a unit's first line is the extension's (a text decoration in the
 theme's `editorCodeLens.foreground` colour, italic, so a theme can change it).
 
-**Spellbook** (`sorcererdev.spellbook`) will install the same way once it is published; until then
-build its `.vsix` from `editors/vscode/spellbook`. `ctrl+m n` is **Spellbook: New** and `ctrl+m k`
+**Spellbook** (`sorcererdev.spellbook`) installs the same way, from the Marketplace (Open VSX for
+forks), and so does its program (`sorcerer-spellbook-installer`, or `cargo install
+sorcerer-spellbook`). `ctrl+m n` is **Spellbook: New** and `ctrl+m k`
 **Spellbook: Check**; see [Spellbook](spellbook.md#in-vs-code).
 
 With no `scry` in any of those places, it offers:

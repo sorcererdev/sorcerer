@@ -43,21 +43,28 @@ put your own in `keybindings.json`:
 
 ## Install
 
-The extension is not on the Marketplace yet, and `spellbook` has no installer yet. Build the
-program with Rust:
+Install the extension from the Marketplace (VS Code forks such as VSCodium get it from Open VSX):
 
 ```sh
-cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-spellbook
+code --install-extension sorcererdev.spellbook
 ```
 
-and the extension from this folder (`npm ci && npm run package`), then sideload it:
+and the program. macOS and Linux:
 
 ```sh
-code --install-extension spellbook-0.1.0.vsix
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.sh | sh
 ```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.ps1 | iex"
+```
+
+Or with Rust: `cargo install sorcerer-spellbook`. To build the extension yourself, see Development below.
 
 The extension finds `spellbook` from the `spellbook.path` setting, then `PATH`, then
-`~/.cargo/bin` and `~/.local/bin`. With none it tells you the install line above.
+`~/.cargo/bin` and `~/.local/bin`. With none it offers to download it, or tells you the install line above.
 
 ## Trust
 

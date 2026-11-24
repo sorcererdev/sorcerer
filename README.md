@@ -6,7 +6,7 @@ undo it. **spellbook** (conventions as data) is in its first milestone: generato
 convention, with holes that say what belongs there, and rules check that the conventions hold. They share one core and talk through
 files in `.sorcerer/`.
 
-**Status:** scry and conjure; spellbook's first milestone in the repository, not yet released; Python and Rust; Windows, macOS and Linux; early (0.1).
+**Status:** scry, conjure and spellbook; Python and Rust; Windows, macOS and Linux; early (0.1).
 
 ## Install
 
@@ -17,6 +17,7 @@ macOS and Linux:
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-conjure-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.sh | sh
 ```
 
 Windows (PowerShell):
@@ -24,11 +25,12 @@ Windows (PowerShell):
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-conjure-installer.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.ps1 | iex"
 ```
 
-Or with Rust: `cargo install sorcerer-scry sorcerer-conjure`.
+Or with Rust: `cargo install sorcerer-scry sorcerer-conjure sorcerer-spellbook`.
 
-The installers put `scry` and `conjure` in `~/.local/bin` and need neither Rust nor a C
+The installers put `scry`, `conjure` and `spellbook` in `~/.local/bin` and need neither Rust nor a C
 compiler. They end by telling you to open a new terminal or run a `source` line; do that, then
 check:
 
@@ -164,18 +166,15 @@ On a finding, the same menu has **Show why**, **Show code** and **Dismiss**.
 
 ### VS Code
 
-Install **Scry** and **Conjure** (publisher `sorcererdev`; ids `sorcererdev.scry` and
+Install **Scry**, **Conjure** and **Spellbook** (publisher `sorcererdev`; ids `sorcererdev.scry` and
 `sorcererdev.conjure`) from the Extensions view, which uses the Marketplace. VS Code forks such
 as VSCodium get them from Open VSX. From a terminal:
 
 ```sh
 code --install-extension sorcererdev.scry
 code --install-extension sorcererdev.conjure
+code --install-extension sorcererdev.spellbook
 ```
-
-**Spellbook** (`sorcererdev.spellbook`) is not on the Marketplace yet: build the `.vsix` from
-`editors/vscode/spellbook` (its README says how) and the program with `cargo install --git
-https://github.com/sorcererdev/sorcerer sorcerer-spellbook`.
 
 - **Finding the program.** The extension looks for `scry` / `conjure` in the setting
   `scry.path` / `conjure.path` (your user settings only), then on PATH, then `~/.cargo/bin` and

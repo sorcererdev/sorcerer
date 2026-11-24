@@ -321,8 +321,8 @@ The last check is kept in `.sorcerer/state/spellbook/report.json`.
 
 ## In Neovim
 
-Install `spellbook` (no installer is published yet: `cargo install --git
-https://github.com/sorcererdev/sorcerer sorcerer-spellbook`) and [sorcerer.nvim](https://github.com/sorcererdev/sorcerer.nvim),
+Install `spellbook` (`sorcerer-spellbook-installer`, the same line as scry's with `spellbook` for
+`scry`, or `cargo install sorcerer-spellbook`) and [sorcerer.nvim](https://github.com/sorcererdev/sorcerer.nvim),
 and turn it on, which the plugin keeps off until you ask:
 
 ```lua
@@ -397,10 +397,9 @@ once a session when you open or save a file; every command answers the same sent
 
 ## In VS Code
 
-The **Spellbook** extension (`sorcererdev.spellbook`) does what the Neovim plugin does. It is not
-on the Marketplace yet: build it from `editors/vscode/spellbook` (`npm ci && npm run package`)
-and install the `.vsix` (`code --install-extension spellbook-0.1.0.vsix`), and install the
-program with `cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-spellbook`.
+The **Spellbook** extension (`sorcererdev.spellbook`) does what the Neovim plugin does. Install it
+from the Marketplace (`code --install-extension sorcererdev.spellbook`; forks get it from Open
+VSX) and the program with `sorcerer-spellbook-installer` or `cargo install sorcerer-spellbook`.
 The extension finds `spellbook` as scry's and conjure's find theirs (the `spellbook.path` user
 setting, then `PATH`, `~/.cargo/bin`, `~/.local/bin`); with none it tells you that install line.
 It starts one `spellbook lsp` per workspace folder; the server's log is the Output channel

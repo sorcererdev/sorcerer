@@ -37,7 +37,3 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
-
-# Not shipped as a program yet: no installer until the morning's ruling.
-[package.metadata.dist]
-dist = false
