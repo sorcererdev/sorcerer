@@ -74,7 +74,7 @@ root.
 | `adapters/{scripted_provider,recorded_researcher,recorded_decider}.rs` | the doubles tests use |
 
 `crates/scry/src/` adds a fifth layer, `cli/`, beside `usecases/` (the API: `review_change`
-and the small commands' use cases), `domain/`, `ports/` and `adapters/` (the store file, the
+and the small subcommands' use cases), `domain/`, `ports/` and `adapters/` (the store file, the
 run log, the settings, the reviewer over a researcher, the wiring). Its module map is in
 [Scry](scry.md).
 

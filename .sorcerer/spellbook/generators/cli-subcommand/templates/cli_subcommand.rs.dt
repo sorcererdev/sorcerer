@@ -1,0 +1,17 @@
+//! `{= crate =} {= subcommand|kebab =}`: {= ? purpose: text | what the subcommand prints =}
+
+use std::io::Write;
+
+use anyhow::Result;
+
+/// Calls the use case and prints its result; the exit code is 0 when it ran.
+pub(super) fn {= subcommand_ =}(out: &mut dyn Write) -> Result<i32> {
+    let result = {= ? call: expr | the one use case this subcommand calls =};
+    write!(out, "{}", {= subcommand_ =}_text(&result))?;
+    Ok(0)
+}
+
+/// The text the subcommand prints.
+fn {= subcommand_ =}_text(result: &{= ? result_type: type | what the use case returns =}) -> String {
+    {= ? text: block | the result as the user reads it =}
+}

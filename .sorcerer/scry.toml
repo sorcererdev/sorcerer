@@ -47,9 +47,9 @@ or a use case. Real adapters are built for a project in one place (`adapters/wir
 [[rule]]
 id = "cli-is-thin"
 text = """
-A cli command parses its arguments, calls one use case, and formats the result. It makes no
-decisions a use case or the domain should make, so an editor server can offer the same
-feature by calling the same use case."""
+A cli subcommand (an inbound adapter) parses its arguments, calls one use case, and formats the
+result. It makes no decisions a use case or the domain should make, so another inbound adapter,
+such as the editor server, can offer the same feature by calling the same use case."""
 
 [[rule]]
 id = "one-name-per-concept"

@@ -1,22 +1,28 @@
 name        = "Use case"
-summary     = "A use case: one feature's whole API, its request and its public function"
+summary     = "A use case (a command or a query): its request and its public function"
 description = """
-usecases/USECASE.rs holds the request the feature takes and the one public function callers use \
-(cli, the editor server, another crate). It uses domain/ and ports/ only: pass each port it needs as \
+usecases/USECASE.rs holds the request one use case takes and the one public function its callers \
+use: the inbound adapters (the cli, the editor server) and other crates. A command changes state \
+and returns its outcome; a query only reads and returns data, changing nothing. It uses domain/ and ports/ only: pass each port it needs as \
 `&dyn Port`, never an adapter. Its steps are private helpers below it, or private modules once it \
 grows (usecases/USECASE/). Spellbook writes new files only: add `pub mod USECASE;` to usecases/mod.rs \
 yourself."""
 language    = "rust"
-examples    = ["spellbook new usecase --set crate=scry --set usecase=list_findings"]
+examples    = ["spellbook new usecase --set crate=scry --set kind=query --set usecase=list_findings"]
 
 [inputs.crate]
 type   = "enum"
 one_of = "crates"
-prompt = "The crate the feature belongs to (the folder under crates/; one with layers, not sorcerer-lsp)"
+prompt = "The crate the use case belongs to (the folder under crates/; one with layers, not sorcerer-lsp)"
+
+[inputs.kind]
+type    = "ident"
+default = "command"
+prompt  = "Write command (changes state, returns its outcome) or query (only reads, returns data)"
 
 [inputs.usecase]
 type   = "ident"
-prompt = "The feature, a verb phrase (list_findings, review_change)"
+prompt = "The use case, a verb phrase (list_findings, review_change)"
 
 [query.crates]
 glob  = "crates/*/src"
