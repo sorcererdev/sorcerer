@@ -3,7 +3,7 @@
   "displayName": "Conjure",
   "description": "Conjure in VS Code: a code action writes one small change through the editor, marks every file it changed, and offers Undo, Try harder and Show why",
   "publisher": "sorcererdev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.0 — 2026-11-24
+
+Spellbook joins scry and conjure.
+
+- **spellbook**, your project's conventions as data: generators (templates with holes an AI or
+  you fill, answered input by input, previewed as a plan before anything is written) and rules
+  (tree-sitter queries, errors unless they say otherwise; `spellbook check`, with
+  `# spellbook:allow rule — why` to let one place break one). Works without a model; conjure
+  fills holes when asked. Installers `sorcerer-spellbook-installer.sh`/`.ps1`, or
+  `cargo install sorcerer-spellbook`.
+- **Spellbook in the editors.** `spellbook lsp`; in Neovim (`sorcerer.nvim`) and in the new
+  Spellbook VS Code extension: New (`ctrl+m n`), Check into Problems (`ctrl+m k`), holes as
+  snippet placeholders you Tab through, hole and rule marks.
+- **Generator inputs with fixed choices** (`choices = [...]` on an enum input).
+- **Conjure in VS Code** under `ctrl+m` (`c`, `u`, `t`, `w`) with a conjured mark; a line the
+  parser lost is conjured as a broken region to repair.
+- **scry**: `list` shows ids, `cost` hides an empty waiting line, `why` uses local time.
+- **Windows**: a grammar compiles when the user's folder has letters outside Windows-1252.
+- The README is a worked first run.
+
 ## 0.1.0 — 2026-11-23
 
 The first release: scry and conjure.
