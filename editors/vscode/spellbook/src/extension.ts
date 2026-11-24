@@ -10,8 +10,7 @@ import { type AskerOverrides, registerNew } from './newCommand';
 import { type OfferEnding, remembered } from './offer';
 import { PlanPreviews } from './planPreview';
 
-// Until the release ruling there is no installer for spellbook, so every platform is told the
-// one line that builds it from the repository; then the installer lines, like conjure's.
+// The release's installer line for this platform, like conjure's.
 export const INSTALL_LINE =
   process.platform === 'win32'
     ? 'powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.ps1 | iex"'
