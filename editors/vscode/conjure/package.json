@@ -40,7 +40,47 @@
           "markdownDescription": "The `conjure` binary: an absolute path, read from your user settings only (a workspace's settings cannot choose the program the extension runs). Empty: `conjure` (`conjure.exe` on Windows) is looked up on `PATH`, then in `~/.cargo/bin`, `~/.local/bin` and the binary this extension downloaded."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "conjure.keys.here",
+        "title": "Conjure: Conjure here"
+      },
+      {
+        "command": "conjure.keys.undo",
+        "title": "Conjure: Undo"
+      },
+      {
+        "command": "conjure.keys.tryHarder",
+        "title": "Conjure: Try harder"
+      },
+      {
+        "command": "conjure.keys.showWhy",
+        "title": "Conjure: Show why"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "conjure.keys.here",
+        "key": "ctrl+m c",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "conjure.keys.undo",
+        "key": "ctrl+m u",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "conjure.keys.tryHarder",
+        "key": "ctrl+m t",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "conjure.keys.showWhy",
+        "key": "ctrl+m w",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

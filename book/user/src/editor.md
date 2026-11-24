@@ -139,7 +139,7 @@ with no release at all (a build of your own from main, say) is told the install 
 ## The four actions
 
 Your editor's code-action menu on a finding's line (Neovim: your code-action key, or `<leader>mc/u/t/w` for conjure's; VS Code:
-the lightbulb) offers:
+the lightbulb, or `ctrl+m c/u/t/w` for conjure's) offers:
 
 - **scry: Show why**: the finding in full, as `scry why` prints it, opened beside your code
   (it is written to `.sorcerer/state/scry/why-<id>.md`).

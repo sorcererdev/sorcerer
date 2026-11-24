@@ -54,7 +54,12 @@ workspace folder. It finds the binary from the `conjure.path` setting (user sett
 workspace's settings cannot choose the program it runs), then `PATH`, `~/.cargo/bin` and
 `~/.local/bin`; with none, it offers to download its own version's binary, checked against its
 checksum, as the Scry extension does. The actions are in the quick-fix menu (`Ctrl+.`), the
-marks in the Problems panel.
+marks in the Problems panel and, for a conjured change, as a green gutter icon and an
+overview-ruler tick. The keys are the Neovim plugin's, under a `ctrl+m` chord on every system
+(`ctrl` is Control on macOS too): `ctrl+m c` Conjure here, `ctrl+m u` Undo, `ctrl+m t` Try
+harder, `ctrl+m w` Show why; a line with no such action says so in the status bar. On Windows
+and Linux the chord replaces VS Code's "Toggle Tab Key Moves Focus" (`ctrl+m`); rebind any of
+them in Keyboard Shortcuts (search `conjure.keys`).
 
 **Asking.** Put the cursor in a function, or select lines in one, and open the code-action menu
 (`<leader>mc` in Neovim, or `vim.lsp.buf.code_action()`; `Ctrl+.` in VS Code). *Conjure here* asks for one change
