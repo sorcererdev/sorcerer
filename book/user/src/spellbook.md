@@ -436,8 +436,10 @@ findings through the server (on open and save), so Check leaves them out and a f
 once. A check that could not run (exit 2) says why: `spellbook: check could not run: …`.
 
 Both chords work while the cursor is in an editor (`when: editorTextFocus`): in the integrated
-terminal `ctrl+m` is Enter. If "Toggle Tab Key Moves Focus" is on, `ctrl+m` toggles it instead;
-rebind in `keybindings.json`, for example `{ "key": "ctrl+alt+n", "command": "spellbook.new" }`.
+terminal `ctrl+m` is Enter. On macOS `ctrl` is the Control key. On Windows and Linux `ctrl+m` is
+VS Code's own "Toggle Tab Key Moves Focus", which it no longer does as the first key of a chord;
+to keep it, or for other keys, rebind in Keyboard Shortcuts or `keybindings.json`, for example
+`{ "key": "ctrl+alt+n", "command": "spellbook.new", "when": "editorTextFocus" }`.
 
 An untrusted project says the server's sentence (`run "spellbook trust" in it`) as a warning;
 run `spellbook trust` in a terminal in the project. `[spellbook] enabled = false` reads the same
