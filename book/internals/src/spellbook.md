@@ -136,13 +136,13 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
   | `spellbook.generators` | none | `[GeneratorSummary]` (a broken generator is left out and logged) |
   | `spellbook.choices` | generator, inputs so far, input | `{ choices }` or `{ stop }` |
   | `spellbook.plan` | generator, inputs | the `Plan` as JSON (`id`, `files[{path,status,text,lines}]`, `holes[{name,kind,instruction,source,places[{file,line,text,edges}]}]`), or `{ stop }` (a missing input adds `input` and `choices`) |
-  | `spellbook.apply` | plan id | `{ written, skipped, refused: null or {path, why}, holes, first: null or {file, line} }`, or `{ stop }` for a plan that is gone |
+  | `spellbook.apply` | plan id | `{ written, skipped, refused: null or {path, why}, holes, first: null or {file, line}, stops: [{ file, name, kind, instruction, range }] }`, or `{ stop }` for a plan that is gone |
 
   A hole's location is `file` everywhere (it is `HolePlace::file`, and `holes.json`'s key);
   `path` is a planned or written file.
 - `plans.rs`: `PlanCache`, the plans made and not applied, dropped after ten minutes by the
   clock; `take` removes the plan, so a plan is applied once.
-- `marks.rs` (`hole_mark`: the whole line, Information, source `spellbook`, code `hole`, message
+- `marks.rs` (`hole_mark(hole, row)`: the placeholder's span (the whole line when the row no longer holds it), Information, source `spellbook`, code `hole`, message
   `<name> (<kind>): <instruction>`, `data` the generation id), `diagnostics.rs`
   (`file_diagnostics`: `open_holes` for one file, so the same `still_open` search as the command
   line, plus the file's findings; it returns `FileDiagnostics { marks, findings, rules_problem }`
@@ -151,7 +151,13 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
   id as its code), `project_paths.rs` (`project_relative`: which editor paths are the project's).
 
 After an apply the server publishes each written file's marks and asks the editor to show the
-first file at its first hole (`Client::show_document`). Spellbook does not know conjure ran: it
+first file with its first hole's placeholder selected (`Client::show_document`). The span comes
+from `placeholder_span` (`domain/open_hole_places.rs`, the same match `still_open` makes, as a
+byte range); `file_diagnostics` (`adapters/lsp/diagnostics.rs`) reads the file once and builds
+both the marks and `stops`, and `mark_written_files` (`commands.rs`) joins the files' stops in
+written order. `stops` are the session's tab stops, each hole by line then column, ranges in
+protocol positions (0-based, UTF-16); `first` stays for older plugins. Clients never search text
+for a placeholder. Spellbook does not know conjure ran: it
 sees the placeholders gone on the next save. The editor side is sorcerer.nvim's
 `lua/sorcerer/spellbook.lua` (`M.new`, one chain of callbacks: generators, choices, plan, the
 float in `spellbook_plan.lua`, apply, then conjure's `conjure.conjure [uri, line]` on the first

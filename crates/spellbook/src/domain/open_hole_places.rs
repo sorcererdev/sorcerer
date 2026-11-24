@@ -1,5 +1,7 @@
 //! Whether a hole is still open: its placeholder still in the file, and on which line now.
 
+use std::ops::Range;
+
 use crate::domain::record::OpenHole;
 
 /// How far from its recorded line a short placeholder is looked for, in lines.
@@ -33,7 +35,7 @@ pub fn still_open(hole: &OpenHole, text: &str) -> Option<u32> {
     lines_nearest(hole.line, reach).find(|line| {
         lines
             .get((*line - 1) as usize)
-            .is_some_and(|row| holds_whole(row, needle, edges))
+            .is_some_and(|row| whole_match_at(row, needle, edges).is_some())
     })
 }
 
@@ -47,17 +49,42 @@ fn lines_nearest(line: u32, reach: u32) -> impl Iterator<Item = u32> {
     }))
 }
 
-/// Whether the row holds the needle not glued to a longer word: `todo_field` is not in
-/// `todo_fields`.
-fn holds_whole(row: &str, needle: &str, edges: &str) -> bool {
+/// Where on the row the needle first stands, not glued to a longer word (`todo_field` is not in
+/// `todo_fields`) and between the recorded edges; the byte offset, or `None`.
+fn whole_match_at(row: &str, needle: &str, edges: &str) -> Option<usize> {
     let is_word = |c: char| c.is_alphanumeric() || c == '_';
-    row.match_indices(needle).any(|(at, _)| {
-        let before = row[..at].chars().next_back();
-        let after = row[at + needle.len()..].chars().next();
-        let starts_clean = !needle.starts_with(is_word) || !before.is_some_and(is_word);
-        let ends_clean = !needle.ends_with(is_word) || !after.is_some_and(is_word);
-        starts_clean && ends_clean && between_the_edges(row, at, needle.len(), edges)
-    })
+    row.match_indices(needle)
+        .find(|(at, _)| {
+            let before = row[..*at].chars().next_back();
+            let after = row[*at + needle.len()..].chars().next();
+            let starts_clean = !needle.starts_with(is_word) || !before.is_some_and(is_word);
+            let ends_clean = !needle.ends_with(is_word) || !after.is_some_and(is_word);
+            starts_clean && ends_clean && between_the_edges(row, *at, needle.len(), edges)
+        })
+        .map(|(at, _)| at)
+}
+
+/// Where the hole's placeholder stands on its row: the byte range of the whole placeholder (a
+/// short one only between its recorded edges), or for a marked one the `hole <name>:` marker.
+/// `None` when the row no longer holds it.
+///
+/// Example: `    todo_field: object` for a hole whose placeholder is `todo_field` is `4..14`.
+pub fn placeholder_span(hole: &OpenHole, row: &str) -> Option<Range<usize>> {
+    let marker = format!("hole {}:", hole.name);
+    let marked = hole.placeholder.contains(&marker);
+    let (needle, edges) = if marked {
+        (hole.placeholder.as_str(), "")
+    } else {
+        (hole.placeholder.as_str(), hole.edges.as_str())
+    };
+    let found = (!needle.trim().is_empty())
+        .then(|| whole_match_at(row, needle, edges))
+        .flatten()
+        .map(|at| at..at + needle.len());
+    if found.is_some() || !marked {
+        return found;
+    }
+    whole_match_at(row, &marker, "").map(|at| at..at + marker.len())
 }
 
 /// Whether the signs beside the needle at `at` are the recorded `edges` (always, when none).
@@ -119,6 +146,33 @@ mod tests {
         assert_eq!(still_open(&open, filled), None);
         let waiting = "struct A {\n    pub id: (),\n}\nfn f() -> Result<(), E> {\n}\n";
         assert_eq!(still_open(&open, waiting), Some(2));
+    }
+
+    #[test]
+    fn the_span_is_where_the_placeholder_stands_on_its_row() {
+        let row = "    todo_field: object";
+        assert_eq!(
+            placeholder_span(&hole("field", "todo_field", 1), row),
+            Some(4..14)
+        );
+        assert_eq!(
+            placeholder_span(&hole("field", "todo_field", 1), "    id: str"),
+            None
+        );
+        let call = "    fail(\"hole handle: x\")";
+        let marked = hole("handle", "fail(\"hole handle: x\")", 1);
+        assert_eq!(placeholder_span(&marked, call), Some(4..call.len()));
+        // the placeholder was reworded: only the marker is left to point at
+        let reworded = "    fail(\"hole handle: y\")";
+        assert_eq!(placeholder_span(&marked, reworded), Some(10..22));
+    }
+
+    #[test]
+    fn the_span_respects_the_edges() {
+        let mut open = hole("type", "()", 1);
+        open.edges = ":,".into();
+        let row = "fn f() -> Result<(), E> { pub id: (), }";
+        assert_eq!(placeholder_span(&open, row), Some(34..36));
     }
 
     #[test]
