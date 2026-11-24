@@ -4,6 +4,7 @@ import { LanguageClient, type LanguageClientOptions, type ServerOptions } from '
 import { candidates, find, isExecutable } from './binary';
 import { registerCheck } from './checkCommand';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
+import { holeDecoration, placeholderLook, registerHoleMarks } from './holeMarks';
 import { holeStatus } from './holeSession';
 import { type AskerOverrides, registerNew } from './newCommand';
 import { type OfferEnding, remembered } from './offer';
@@ -70,7 +71,9 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 // candidates); with none, it offers to download this extension's version of spellbook and
 // starts once that is in place. The offer is not awaited: VS Code need not wait for the user.
 export function activate(context: vscode.ExtensionContext): SpellbookApi {
-  const useAsker = registerNew(context, clientFor, new PlanPreviews(() => undefined));
+  const look = holeDecoration(context);
+  registerHoleMarks(context, look);
+  const useAsker = registerNew(context, clientFor, new PlanPreviews(placeholderLook(look)));
   registerCheck(context, binaryFound, installText);
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;

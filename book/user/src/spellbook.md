@@ -447,6 +447,12 @@ says `spellbook: conventions hold`. Each run replaces the last. The files you ha
 findings through the server (on open and save), so Check leaves them out and a finding is listed
 once. A check that could not run (exit 2) says why: `spellbook: check could not run: …`.
 
+The looks: a hole's mark draws a `◇` in the gutter, a blue tick in the overview ruler, and its
+placeholder tinted as VS Code tints a snippet's tab stop (the theme's
+`editor.snippetTabstopHighlightBackground`); the plan preview's placeholders have the same tint. A
+rule finding is VS Code's own squiggle in its severity's colour. A conjured change is the green
+`✦` the Conjure extension draws.
+
 Both chords work while the cursor is in an editor (`when: editorTextFocus`): in the integrated
 terminal `ctrl+m` is Enter. On macOS `ctrl` is the Control key. On Windows and Linux `ctrl+m` is
 VS Code's own "Toggle Tab Key Moves Focus", which it no longer does as the first key of a chord;
