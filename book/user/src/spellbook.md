@@ -428,6 +428,17 @@ The command also takes arguments, so a keybinding can skip questions:
 `{ "key": "ctrl+m b", "command": "spellbook.new", "args": { "generator": "command", "inputs":
 { "service": "booking" } } }`.
 
+`ctrl+m k` (or **Spellbook: Check**) runs `spellbook check --json` in the folder's root and puts
+the findings in Problems, each on its line with VS Code's error, warning or hint squiggle (source
+`spellbook`, the rule's id as its code); Problems opens when there are any, else the status bar
+says `spellbook: conventions hold`. Each run replaces the last. The files you have open show their
+findings through the server (on open and save), so Check leaves them out and a finding is listed
+once. A check that could not run (exit 2) says why: `spellbook: check could not run: …`.
+
+Both chords work while the cursor is in an editor (`when: editorTextFocus`): in the integrated
+terminal `ctrl+m` is Enter. If "Toggle Tab Key Moves Focus" is on, `ctrl+m` toggles it instead;
+rebind in `keybindings.json`, for example `{ "key": "ctrl+alt+n", "command": "spellbook.new" }`.
+
 An untrusted project says the server's sentence (`run "spellbook trust" in it`) as a warning;
 run `spellbook trust` in a terminal in the project. `[spellbook] enabled = false` reads the same
 way. `spellbook doctor` is the command line's; the extension has no doctor of its own.

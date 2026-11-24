@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from 'vscode-languageclient/node';
 import { candidates, find, isExecutable } from './binary';
+import { registerCheck } from './checkCommand';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
 import { type AskerOverrides, registerNew } from './newCommand';
 import { type OfferEnding, remembered } from './offer';
@@ -67,6 +68,7 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 // starts once that is in place. The offer is not awaited: VS Code need not wait for the user.
 export function activate(context: vscode.ExtensionContext): SpellbookApi {
   const useAsker = registerNew(context, clientFor, new PlanPreviews(() => undefined));
+  registerCheck(context, binaryFound, installText);
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;
   const setting = vscode.workspace.getConfiguration('spellbook').get<string>('path', '');

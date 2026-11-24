@@ -50,12 +50,21 @@
       {
         "command": "spellbook.new",
         "title": "Spellbook: New"
+      },
+      {
+        "command": "spellbook.check",
+        "title": "Spellbook: Check"
       }
     ],
     "keybindings": [
       {
         "command": "spellbook.new",
         "key": "ctrl+m n",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "spellbook.check",
+        "key": "ctrl+m k",
         "when": "editorTextFocus"
       }
     ]

@@ -37,8 +37,12 @@ function answers(said: [string, string][], asked: string[]): Record<string, unkn
 
 // the row (from 0) of the first line of DOC that contains TEXT
 function rowOf(doc: vscode.TextDocument, text: string): number {
-  const row = doc.getText().split(/\r?\n/).findIndex(line => line.includes(text));
-  assert.ok(row >= 0, `${text} is in ${doc.uri.fsPath}`);
+  return rowOfText(doc.getText(), text);
+}
+
+function rowOfText(whole: string, text: string): number {
+  const row = whole.split(/\r?\n/).findIndex(line => line.includes(text));
+  assert.ok(row >= 0, `${text} is in the file`);
   return row;
 }
 
@@ -54,15 +58,30 @@ describe('spellbook', () => {
     api = await vscode.extensions.getExtension('sorcererdev.spellbook')!.activate() as Api;
   });
 
-  it('the server starts and its rules mark the planted import of an open file', async () => {
+  it('Check puts the finding of a file not open in Problems', async () => {
+    await vscode.commands.executeCommand('spellbook.check');
+    const uri = vscode.Uri.file(PLANTED);
+    const row = rowOfText(readFileSync(PLANTED, 'utf8'), 'import sqlite3');
+    const found = await until('the finding from Check', () => {
+      const marks = spellbookMarks(uri);
+      return marks.length > 0 ? marks : undefined;
+    });
+    assert.deepEqual(found.map(d => [d.range.start.line, d.code, d.severity]), [[row, 'commands-use-ports', vscode.DiagnosticSeverity.Error]]);
+  });
+
+  it('the server marks an open file, and Check then lists its finding once', async () => {
     const uri = vscode.Uri.file(PLANTED);
     const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc);
     const row = rowOf(doc, 'import sqlite3');
-    await until('the finding on the import', () => {
+    // opening the file takes it out of Check's list; the server's own finding comes instead
+    await until('the server\'s finding on the import', () => {
       const found = spellbookMarks(uri).filter(d => d.range.start.line === row);
-      return found.length > 0 ? found : undefined;
+      return found.length === 1 ? found : undefined;
     }, 60_000);
+    await vscode.commands.executeCommand('spellbook.check');
+    const marks = spellbookMarks(uri).filter(d => d.code === 'commands-use-ports');
+    assert.deepEqual(marks.map(d => d.range.start.line), [row], 'one finding, not two');
   });
 
   it('New previews the plan as coloured documents, applies it, and marks the holes', async () => {
