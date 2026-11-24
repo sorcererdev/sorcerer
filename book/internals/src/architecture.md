@@ -231,8 +231,6 @@ The repository keeps the same conventions as spellbook data, in `.sorcerer/spell
   and `cli-subcommand` (an inbound adapter: a cli subcommand and its `…_text`). Each writes new
   files only, so the `mod` line in the parent `mod.rs`, and a subcommand's place in
   `arguments.rs` and `run_cli.rs`, are added by hand.
-- `.sorcerer/config.toml` leaves `crates/spellbook/src/domain/allow.rs` out of the check: its
-  tests hold allow comments inside strings, which the allow reader takes for real ones.
 
 CI runs `spellbook check` on ubuntu beside the scripts; `spellbook doctor` shows the rules and
 generators, and the project needs no trust.

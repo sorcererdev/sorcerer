@@ -1,4 +1,0 @@
-[spellbook]
-# allow.rs's tests hold `// spellbook:allow …` inside string literals, which the allow reader
-# (a line scan) takes for real allow comments. scripts/layers still checks the file in CI.
-exclude = ["crates/spellbook/src/domain/allow.rs"]

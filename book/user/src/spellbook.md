@@ -305,6 +305,8 @@ To let one place break a rule, say why in a comment on the line or the line abov
 import sqlite3
 ```
 
+Only a real comment counts: the same words inside a string are ignored.
+
 The reason follows an em dash (` - ` and ` -- ` work too). An allow without a reason still silences
 the finding, and leaves a warning, `allow-without-reason`, on the comment; an allow that names no rule
 (a typo) silences nothing and is an `unknown-rule` warning.
