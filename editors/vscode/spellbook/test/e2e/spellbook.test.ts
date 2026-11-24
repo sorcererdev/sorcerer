@@ -22,6 +22,7 @@ const WRITTEN = join(COMMANDS, 'cancel_table.py');
 // What the extension's activate returns (see SpellbookApi).
 interface Api {
   useAsker(overrides: Record<string, unknown>): void;
+  holeStatus(): string | undefined;
 }
 
 // The person's answers to Spellbook: New: the command generator, `cancel_table` typed (bistro
@@ -115,5 +116,37 @@ describe('spellbook', () => {
     assert.deepEqual(slices.slice(0, 2), [[9, 'todo_field'], [9, 'object']]);
     assert.equal(slices[2][0], 29);
     assert.match(String(slices[2][1]), /^raise NotImplementedError\("hole handle/);
+  });
+
+  it('after New the holes are snippet placeholders: type, Tab, and the status follows', async () => {
+    const editor = vscode.window.activeTextEditor;
+    assert.ok(editor, 'an editor is active');
+    assert.equal(editor.document.uri.toString(), vscode.Uri.file(WRITTEN).toString());
+    const disk = readFileSync(WRITTEN, 'utf8');
+    // the snippet went in over the same text: nothing re-indented
+    assert.equal(editor.document.getText().replace(/\r\n/g, '\n'), disk.replace(/\r\n/g, '\n'));
+    assert.equal(editor.document.getText(editor.selection), 'todo_field');
+    assert.equal(editor.selection.start.line, 9);
+    assert.match(api.holeStatus() ?? '', /^hole 1 of 3 · field: its first input · type to replace · Tab next/);
+
+    // VS Code's snippet keys act on the focused window; a test window without the keyboard (a
+    // locked screen) moves the selection itself, which is all the session reads
+    if (vscode.window.state.focused) {
+      await vscode.commands.executeCommand('type', { text: 'id' });
+      await vscode.commands.executeCommand('jumpToNextSnippetPlaceholder');
+    } else {
+      console.log('the window has no keyboard focus: the selection is moved by the test, not by Tab');
+      await editor.edit(edit => edit.replace(editor.selection, 'id'), { undoStopBefore: false, undoStopAfter: false });
+      editor.selection = new vscode.Selection(9, 8, 9, 14);
+    }
+    await until('the second hole selected', () => (editor.document.getText(editor.selection) === 'object' ? true : undefined), 5000)
+      .catch(err => { throw new Error(`${String(err)}: line 9 ${JSON.stringify(editor.document.lineAt(9).text)}, selection ${JSON.stringify(editor.selection)}, status ${api.holeStatus()}`); });
+    assert.match(editor.document.lineAt(9).text, /^ {4}id: object$/);
+    await until('the status on hole 2', () => (api.holeStatus()?.startsWith('hole 2 of 3') ? true : undefined));
+    assert.equal(readFileSync(WRITTEN, 'utf8'), disk, 'nothing is saved');
+
+    await vscode.commands.executeCommand('leaveSnippet');
+    editor.selection = new vscode.Selection(0, 0, 0, 0);
+    await until('the session ended', () => (api.holeStatus() === undefined ? true : undefined));
   });
 });

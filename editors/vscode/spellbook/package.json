@@ -43,6 +43,11 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "After **Spellbook: New**, run conjure on the first hole (needs the Conjure extension, `sorcererdev.conjure`)."
+        },
+        "spellbook.holeSession": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "After **Spellbook: New**, the opened file's holes become snippet placeholders: the first is selected, typing replaces it, `Tab` and `Shift+Tab` move between them. Off: the holes are only marked (Problems)."
         }
       }
     },

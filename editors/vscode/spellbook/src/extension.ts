@@ -4,6 +4,7 @@ import { LanguageClient, type LanguageClientOptions, type ServerOptions } from '
 import { candidates, find, isExecutable } from './binary';
 import { registerCheck } from './checkCommand';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
+import { holeStatus } from './holeSession';
 import { type AskerOverrides, registerNew } from './newCommand';
 import { type OfferEnding, remembered } from './offer';
 import { PlanPreviews } from './planPreview';
@@ -27,6 +28,8 @@ let found: string | undefined;
 export interface SpellbookApi {
   // useAsker swaps parts of the Asker Spellbook: New asks with (the tests answer for the person)
   useAsker(overrides: AskerOverrides): void;
+  // holeStatus is the hole session's status line, or undefined when none runs
+  holeStatus(): string | undefined;
 }
 
 // clientFor is the running `spellbook lsp` of a workspace folder, or undefined when none runs
@@ -75,7 +78,7 @@ export function activate(context: vscode.ExtensionContext): SpellbookApi {
   const binary = find(candidates('spellbook', setting, process.env, homedir(), process.platform, binDir(storage, version)), isExecutable);
   if (binary) serve(context, binary);
   else void offerDownload(context, version, storage).then(downloaded => downloaded && serve(context, downloaded));
-  return { useAsker };
+  return { useAsker, holeStatus };
 }
 
 // serve starts a server for every open folder and for each folder added later.

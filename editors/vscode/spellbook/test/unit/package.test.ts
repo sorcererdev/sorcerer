@@ -47,3 +47,8 @@ test('check_is_ctrl_m_k_in_an_editor_only', () => {
   assert.deepEqual(keys()['spellbook.check'], { command: 'spellbook.check', key: 'ctrl+m k', when: 'editorTextFocus' });
   assert.deepEqual(manifest.contributes.commands.map((c: { command: string }) => c.command), ['spellbook.new', 'spellbook.check']);
 });
+
+test('the_hole_session_is_on_unless_turned_off', () => {
+  assert.equal(settings['spellbook.holeSession'].type, 'boolean');
+  assert.equal(settings['spellbook.holeSession'].default, true);
+});

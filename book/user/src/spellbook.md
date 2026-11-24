@@ -422,7 +422,19 @@ in the folder of the file you are in (with no file open and several folders, it 
    `spellbook: wrote 2 files · 3 holes, marked (Problems)`, or `· ctrl+m c to conjure the first`
    when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
    a function. With `spellbook.conjureHoles` on, the extension runs conjure on the first hole for
-   you.
+   you, and no hole session starts.
+5. **Fill the holes, like snippet placeholders.** The opened file's holes become VS Code's own
+   snippet placeholders: the first is selected, typing replaces it, `Tab` moves to the next hole
+   and `Shift+Tab` back, `Esc` leaves. These are VS Code's snippet keys, so a binding you gave
+   them is kept. A hole grows with what you type. The status bar says where you are: `hole 1 of
+   3 · field: its first input · type to replace · Tab next · ctrl+m c conjure` (the conjure part
+   when the Conjure extension is here; the last hole says `Tab done`). Moving out of every hole
+   (`Tab` on the last, a click elsewhere) ends the session: `spellbook: holes done`, or
+   `spellbook: holes done · 1 more in cancel_table__test.py (Problems)` when another file has
+   holes (fill that one by its marks). The file shows as changed as soon as the session starts,
+   although its text is what was written; save when the holes are filled, which is also when
+   their marks go. `spellbook.holeSession` off gives the end line instead
+   (`3 holes, marked (Problems)`).
 
 The command also takes arguments, so a keybinding can skip questions:
 `{ "key": "ctrl+m b", "command": "spellbook.new", "args": { "generator": "command", "inputs":
@@ -449,6 +461,7 @@ way. `spellbook doctor` is the command line's; the extension has no doctor of it
 |---|---|---|
 | `spellbook.path` | `""` | the `spellbook` binary, from your user settings only (not in Restricted Mode) |
 | `spellbook.conjureHoles` | `false` | after **Spellbook: New**, run conjure on the first hole (needs the Conjure extension) |
+| `spellbook.holeSession` | `true` | after **Spellbook: New**, the opened file's holes as snippet placeholders; off: only marked |
 
 ## The files it writes
 
