@@ -16,16 +16,33 @@ pub struct AllowComment {
 
 const MARK: &str = "spellbook:allow";
 
-/// Every allow comment in a file's text, given how its language starts a line comment.
+/// One comment of a file, as the parser found it (so text inside a string is never one).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comment {
+    /// The line the comment starts on (from 1).
+    pub line: u32,
+    /// Its text, from its comment marker to its end.
+    pub text: String,
+}
+
+/// Every allow comment among a file's comments, given how its language starts a line comment.
 ///
-/// Example: with `#`, the line `x = 1  # spellbook:allow a-rule — why` is an allow of `a-rule`
+/// Example: with `#`, the comment `# spellbook:allow a-rule — why` is an allow of `a-rule`
 /// with a reason; `# spellbook:allow a-rule` is one without.
-pub fn allow_comments(text: &str, comment_marker: &str) -> Vec<AllowComment> {
-    text.lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let line_number = u32::try_from(index + 1).unwrap_or(u32::MAX);
-            allow_in_line(line, comment_marker, line_number)
+pub fn allow_comments(comments: &[Comment], comment_marker: &str) -> Vec<AllowComment> {
+    comments
+        .iter()
+        .flat_map(|comment| {
+            comment
+                .text
+                .lines()
+                .enumerate()
+                .filter_map(|(offset, line)| {
+                    let line_number = comment
+                        .line
+                        .saturating_add(u32::try_from(offset).unwrap_or(0));
+                    allow_in_line(line, comment_marker, line_number)
+                })
         })
         .collect()
 }
@@ -71,6 +88,25 @@ pub fn silencing<'c>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The comments of a file whose every line is a comment or code, by its `#`s (a test double
+    /// for the parser: a line is a comment from its `#`, `//` or nothing).
+    fn comments_of(text: &str) -> Vec<Comment> {
+        text.lines()
+            .enumerate()
+            .filter_map(|(index, line)| {
+                let start = line.find("//").or_else(|| line.find('#'))?;
+                Some(Comment {
+                    line: u32::try_from(index + 1).unwrap(),
+                    text: line[start..].to_string(),
+                })
+            })
+            .collect()
+    }
+
+    fn allow_comments(text: &str, marker: &str) -> Vec<AllowComment> {
+        super::allow_comments(&comments_of(text), marker)
+    }
 
     #[test]
     fn a_reason_follows_a_dash() {

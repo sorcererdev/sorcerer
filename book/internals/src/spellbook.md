@@ -182,7 +182,7 @@ run) into the quickfix list (`M.check`): those fields are part of the contract.
 2. `check_files(deps, files)` (`usecases/check_files.rs`), for each file: skip it when it matches
    `[spellbook] exclude`, has no language (`Grammars::for_path`) or is not text; keep the rules whose
    `files` pattern matches and no `exclude` does (`Rule::applies_to`); ask the `RuleRunner` for raw
-   findings; keep one a line for each rule; read the file's allow comments (`allow_comments`, with the
+   findings; keep one a line for each rule; read the file's allow comments (`allow_comments` over `RuleRunner::comments_in`, the parser's comment nodes, so text in a string is never one; with the
    language's `comment` marker) and drop each finding one names (`silencing`: its line or the one
    above); add an `allow-without-reason` or `unknown-rule` warning on each comment that needs it; sort;
    then `ReportStore::replace_files` keeps just those files' findings in `report.json`.

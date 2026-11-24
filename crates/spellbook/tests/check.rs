@@ -64,6 +64,17 @@ fn an_allow_with_a_reason_silences_it() {
 }
 
 #[test]
+fn allow_text_inside_a_string_is_not_an_allow() {
+    let text = SQLITE_COMMAND.replace(
+        "import sqlite3",
+        "NOTE = \"# spellbook:allow commands-use-ports — in a string\"\nimport sqlite3",
+    );
+    let dir = bistro_with(&text);
+    let found = check(dir.path(), &[COMMAND]).unwrap();
+    assert_eq!(lines(&found), [("commands-use-ports", 5)]);
+}
+
+#[test]
 fn an_allow_without_a_reason_leaves_a_warning_on_the_comment() {
     let text = SQLITE_COMMAND.replace(
         "import sqlite3",
