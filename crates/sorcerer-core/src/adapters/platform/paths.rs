@@ -64,9 +64,58 @@ fn make_link(target: &Path, link: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Whether the path is plain ASCII, which every program reads the same way. A path with other
+/// characters (a user named `日本`) can reach a Windows tool, such as MinGW's `ld`, with its
+/// letters turned into `?`.
+pub fn is_ascii_path(path: &Path) -> bool {
+    path.to_str().is_some_and(str::is_ascii)
+}
+
+/// A directory with a plain ASCII path to make temporary folders in, or `None` when the
+/// machine has none. The temporary directory when its path is ASCII; on Windows, where it sits
+/// under the user's profile, also the shared `Public` and `ProgramData` folders and the system
+/// drive's root.
+///
+/// Example: on Linux `ascii_scratch_parent()` is `Some("/tmp")`; for a Windows user `日本` it
+/// is `Some("C:\Users\Public")`.
+pub fn ascii_scratch_parent() -> Option<PathBuf> {
+    let mut candidates = vec![std::env::temp_dir()];
+    if cfg!(windows) {
+        for variable in ["PUBLIC", "ProgramData", "SystemDrive"] {
+            if let Some(value) = std::env::var_os(variable) {
+                let mut path = PathBuf::from(value);
+                if variable == "SystemDrive" {
+                    path.push("\\");
+                }
+                candidates.push(path);
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|path| is_ascii_path(path) && path.is_dir())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_scratch_parent_is_a_directory_with_an_ascii_path() {
+        let parent = ascii_scratch_parent().expect("this machine has an ASCII temporary directory");
+        assert!(
+            parent.is_dir() && is_ascii_path(&parent),
+            "{}",
+            parent.display()
+        );
+    }
+
+    #[test]
+    fn a_path_is_ascii_when_every_character_is() {
+        assert!(is_ascii_path(Path::new("cache/a b")));
+        assert!(!is_ascii_path(Path::new("cache/日本 Ж")));
+        assert!(!is_ascii_path(Path::new("a b é")));
+    }
 
     #[test]
     fn canonical_has_no_verbatim_prefix() {

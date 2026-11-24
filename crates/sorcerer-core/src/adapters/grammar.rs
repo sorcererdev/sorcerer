@@ -38,7 +38,7 @@ use crate::adapters::platform::compiler::{
     CCompiler, c_compiler, compiler_hint, shared_library_extension,
 };
 use crate::adapters::platform::dirs::{NO_CACHE_DIR, user_cache_dir};
-use crate::adapters::platform::paths::canonical;
+use crate::adapters::platform::paths::{ascii_scratch_parent, canonical, is_ascii_path};
 use crate::domain::fnv::fnv64_hex;
 use crate::domain::language::{
     GrammarObtained, GrammarOrigin, GrammarSource, Languages, Layer, Loaded, parse_toml,
@@ -496,9 +496,68 @@ pub fn build_if_absent(
     let dir = cache.dir()?;
     std::fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
     let temporary = aside(&lib);
-    compile_library(name, compiler, &src, &temporary)?;
+    compile_where_the_compiler_can_read_paths(name, compiler, &src, &temporary)?;
     std::fs::rename(&temporary, &lib).map_err(|e| Error::io(&lib, e))?;
     Ok(lib)
+}
+
+/// Compiles the library at `out`, in place when `src` and `out` have plain ASCII paths. When
+/// either has other characters, a Windows user whose name is outside Windows-1252, MinGW's
+/// linker is handed the path with `?` for each letter and cannot open it: then it compiles a
+/// copy of the sources in an ASCII-only temporary folder and moves the library to `out`.
+fn compile_where_the_compiler_can_read_paths(
+    name: &str,
+    compiler: &CCompiler,
+    src: &Path,
+    out: &Path,
+) -> Result<()> {
+    if is_ascii_path(src) && is_ascii_path(out) {
+        return compile_library(name, compiler, src, out);
+    }
+    let Some(parent) = ascii_scratch_parent() else {
+        return compile_library(name, compiler, src, out);
+    };
+    let scratch = parent.join(format!(
+        "sorcerer-grammar-{}-{}",
+        std::process::id(),
+        fnv64_hex(out.to_string_lossy().as_bytes())
+    ));
+    let result = compile_in_scratch(name, compiler, src, out, &scratch);
+    let _ = std::fs::remove_dir_all(&scratch);
+    result
+}
+
+/// Copies the sources into `scratch`, compiles there and copies the library to `out`.
+fn compile_in_scratch(
+    name: &str,
+    compiler: &CCompiler,
+    src: &Path,
+    out: &Path,
+    scratch: &Path,
+) -> Result<()> {
+    let _ = std::fs::remove_dir_all(scratch);
+    let copied = scratch.join("src");
+    copy_tree(src, &copied)?;
+    let built = scratch.join("grammar.lib");
+    compile_library(name, compiler, &copied, &built)?;
+    std::fs::copy(&built, out).map_err(|e| Error::io(out, e))?;
+    Ok(())
+}
+
+/// Copies a folder and everything in it (the headers a grammar includes sit beside its C files).
+fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to).map_err(|e| Error::io(to, e))?;
+    for entry in std::fs::read_dir(from).map_err(|e| Error::io(from, e))? {
+        let entry = entry.map_err(|e| Error::io(from, e))?;
+        let target = to.join(entry.file_name());
+        let kind = entry.file_type().map_err(|e| Error::io(from, e))?;
+        if kind.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target).map_err(|e| Error::io(&target, e))?;
+        }
+    }
+    Ok(())
 }
 
 /// Compiles `parser.c` (and `scanner.c`, when there is one) into a shared library at `out`. A
