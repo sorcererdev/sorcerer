@@ -325,8 +325,21 @@ and turn it on, which the plugin keeps off until you ask:
 
 ```lua
 require("sorcerer").setup({ spellbook = { enabled = true } })
-vim.keymap.set("n", "<leader>sn", "<cmd>Spellbook new<cr>")
 ```
+
+The plugin binds `<leader>mn` to `:Spellbook new` and `<leader>mk` to `:Spellbook check` (and
+conjure's `<leader>mc/u/t/w` when conjure is on; see [Conjure](conjure.md)). `keys = false`
+binds none; a key you already mapped is skipped and listed by `:checkhealth sorcerer`.
+`:Spellbook check` runs `spellbook check --json` in the project root and fills the quickfix list with the findings
+(opened when there are any, else `spellbook: conventions hold`); findings on the file you save
+already show as marks.
+
+The marks have their own looks, apart from scry's: a hole is `◇` (`SorcererHole`, linking
+`Special`) with its placeholder underlined (`SorcererHolePlaceholder`, `DiagnosticUnderlineHint`); a
+rule finding is `≡` in its severity's colour (`SorcererRuleError`, `SorcererRuleWarn`,
+`SorcererRuleHint`, linking `DiagnosticSign*`); a conjured change is `✦` (`SorcererConjured`).
+`spellbook.signs = { hole = "◇", rule = "≡" }` sets the glyphs and `false` gives Neovim's own
+display back (`conjure.sign` for the star).
 
 | setting | default | what it does |
 |---|---|---|
@@ -344,8 +357,9 @@ vim.keymap.set("n", "<leader>sn", "<cmd>Spellbook new<cr>")
    without asking; an `ident` or `text` input is typed. An optional input offers `(skip)`, or an
    empty answer.
 3. **Read the plan** in a float: each file as `+ path (N lines)` or `= path (exists, skipped)`,
-   how many holes there are to fill, then each new file's text with its hole lines lit
-   (`DiagnosticInfo`). Nothing is written yet. `<CR>` applies; `q` or `<Esc>` cancels. If the
+   how many holes there are to fill, then each new file's text coloured as its
+   language (the tree-sitter parser you have for it; a language with none stays plain), each
+   placeholder underlined (`SorcererHolePlaceholder`). Nothing is written yet. `<CR>` applies; `q` or `<Esc>` cancels. If the
    plan stops on an input (say a `service` that is not there), you are asked that input once
    more with the choices.
 4. **Apply.** The server writes the new files, never over one that is there, opens the first
@@ -355,7 +369,7 @@ vim.keymap.set("n", "<leader>sn", "<cmd>Spellbook new<cr>")
    the test file beside it`. The diagnostics list is the hole list, and `]d` walks it.
 5. **Fill the holes.** By hand, and the marks go when you save the file with the placeholder
    replaced (the server looks at the file on disk when you open or save it, not at each
-   keystroke). With conjure installed and on, the end line reads `N holes · <leader>ca to
+   keystroke). With conjure installed and on, the end line reads `N holes · <leader>mc to
    conjure the first`: the hole's line already offers *Conjure here* like any line in a
    function, and conjure's change, mark, Undo and Try harder apply as they do anywhere. With
    `conjure_holes = true` the plugin runs conjure on the first hole for you, and nothing else.

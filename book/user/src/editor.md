@@ -95,8 +95,11 @@ your PATH and its version.
 
 Conjure is off until you turn it on (`conjure = { enabled = true }` in `setup()`); install it with
 `sorcerer-conjure-installer` (the same line with `conjure` for `scry`) or `cargo install
-sorcerer-conjure`, and bind a code-action key (`vim.keymap.set({ "n", "v" }, "<leader>ca",
-vim.lsp.buf.code_action)`). Neovim must find `scry` and `conjure` on the PATH it starts with
+sorcerer-conjure`. sorcerer.nvim binds the keys itself: `<leader>mc` conjures here, `<leader>mu` undoes,
+`<leader>mt` tries harder, `<leader>mw` says why (and `<leader>mn` / `<leader>mk` are spellbook's
+`:Spellbook new` and `:Spellbook check`; see [Spellbook](spellbook.md#in-neovim)). Set `keys = false`, or
+one key to `false`, to bind none; a key you already mapped is left alone and listed by
+`:checkhealth sorcerer`. Neovim must find `scry` and `conjure` on the PATH it starts with
 (`~/.local/bin`); started from a launcher it often cannot, so give `cmd = { "/full/path/to/scry",
 "lsp" }`.
 
@@ -135,7 +138,7 @@ with no release at all (a build of your own from main, say) is told the install 
 
 ## The four actions
 
-Your editor's code-action menu on a finding's line (Neovim: your code-action key; VS Code:
+Your editor's code-action menu on a finding's line (Neovim: your code-action key, or `<leader>mc/u/t/w` for conjure's; VS Code:
 the lightbulb) offers:
 
 - **scry: Show why**: the finding in full, as `scry why` prints it, opened beside your code
