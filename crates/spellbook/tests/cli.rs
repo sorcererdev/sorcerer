@@ -288,8 +288,19 @@ fn spellbook_off_in_the_config_stops_every_command_but_doctor() {
 }
 
 #[test]
-fn check_exits_0_with_a_warning_and_1_with_an_error() {
+fn check_exits_1_with_an_error_and_0_with_only_warnings() {
     let dir = bistro_with_a_sqlite_command();
+    let (code, out, _) = run(dir.path(), &["check"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.starts_with("✗ "), "{out}");
+    assert!(out.ends_with("1 blocking finding\n"), "{out}");
+    let rules = std::fs::read_to_string(dir.path().join(".sorcerer/spellbook/rules.toml")).unwrap();
+    let lenient = rules.replacen(
+        "[rules.commands-use-ports]\n",
+        "[rules.commands-use-ports]\nseverity = \"warn\"\n",
+        1,
+    );
+    write_file(dir.path(), ".sorcerer/spellbook/rules.toml", &lenient);
     let (code, out, err) = run(dir.path(), &["check"]);
     assert_eq!(code, 0, "{out}{err}");
     assert!(
@@ -300,13 +311,6 @@ fn check_exits_0_with_a_warning_and_1_with_an_error() {
         out.ends_with("conventions hold (1 finding, none blocking)\n"),
         "{out}"
     );
-    let rules = std::fs::read_to_string(dir.path().join(".sorcerer/spellbook/rules.toml")).unwrap();
-    let strict = rules.replacen("severity = \"warn\"", "severity = \"error\"", 1);
-    write_file(dir.path(), ".sorcerer/spellbook/rules.toml", &strict);
-    let (code, out, _) = run(dir.path(), &["check"]);
-    assert_eq!(code, 1, "{out}");
-    assert!(out.starts_with("✗ "), "{out}");
-    assert!(out.ends_with("1 blocking finding\n"), "{out}");
 }
 
 #[test]
@@ -316,7 +320,7 @@ fn check_takes_files_as_dot_slash_or_absolute_paths() {
     let absolute = dir.path().join(close).display().to_string();
     for given in [format!("./{close}"), absolute] {
         let (code, out, err) = run(dir.path(), &["check", &given]);
-        assert_eq!(code, 0, "{out}{err}");
+        assert_eq!(code, 1, "{out}{err}");
         assert!(
             out.contains(&format!("{close}:2  commands-use-ports")),
             "{given}: {out}"
@@ -343,7 +347,7 @@ fn check_with_no_findings_holds_and_with_no_rules_says_so() {
 fn check_json_equals_the_report() {
     let dir = bistro_with_a_sqlite_command();
     let (code, out, _) = run(dir.path(), &["check", "--json"]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     let printed: serde_json::Value = serde_json::from_str(&out).unwrap();
     let saved =
         std::fs::read_to_string(dir.path().join(".sorcerer/state/spellbook/report.json")).unwrap();

@@ -712,7 +712,7 @@ fn code_of(mark: &Diagnostic) -> String {
 }
 
 #[test]
-fn saving_a_command_with_sqlite3_shows_a_warning() {
+fn saving_a_command_with_sqlite3_shows_an_error() {
     let dir = bistro_project();
     use_corpus_rules(dir.path(), "bistro");
     write_file(dir.path(), CLOSE, "from dataclasses import dataclass\n");
@@ -730,7 +730,7 @@ fn saving_a_command_with_sqlite3_shows_a_warning() {
     let finding = &marks[0];
     assert_eq!(
         finding.severity,
-        Some(lsp_types::DiagnosticSeverity::WARNING)
+        Some(lsp_types::DiagnosticSeverity::ERROR)
     );
     assert_eq!(code_of(finding), "commands-use-ports");
     assert_eq!(finding.source.as_deref(), Some("spellbook"));

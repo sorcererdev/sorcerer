@@ -1,4 +1,5 @@
 # The conventions of bistro-rs, checked by `spellbook check` and on save in the editor.
+# A rule is an error unless it says `severity = "warn"` or `"hint"`.
 
 # A command returns its failures (they are its Failure enum's cases); a panic skips every caller's
 # handling. `todo!` is left out: it is the placeholder a generator leaves in a hole, and conjure
@@ -9,4 +10,3 @@ files    = "src/{service}/commands/*.rs"
 exclude  = ["**/mod.rs"]
 match    = { kind = "macro_invocation", regex = "^(panic|unreachable|unimplemented)!" }
 message  = "A command returns its failure instead of panicking"
-severity = "warn"

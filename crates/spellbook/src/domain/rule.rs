@@ -9,6 +9,7 @@ use crate::domain::generator_problems::unknown_key_text;
 use crate::domain::path_pattern::PathPattern;
 
 /// How serious a finding is: only an `error` makes `spellbook check` fail.
+/// A rule that names no severity is an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -184,9 +185,9 @@ fn patterns_of(table: &toml::Table, key: &str) -> Result<Vec<PathPattern>, Strin
 
 fn severity_of(table: &toml::Table) -> Result<Severity, String> {
     match string_of(table, "severity")?.as_deref() {
-        None | Some("warn") => Ok(Severity::Warn),
+        None | Some("error") => Ok(Severity::Error),
+        Some("warn") => Ok(Severity::Warn),
         Some("hint") => Ok(Severity::Hint),
-        Some("error") => Ok(Severity::Error),
         Some(other) => Err(format!(
             "severity = \"{other}\" is not one of: hint, warn, error"
         )),
@@ -276,11 +277,11 @@ severity = "error"
     }
 
     #[test]
-    fn severity_defaults_to_warn() {
+    fn severity_defaults_to_error() {
         let rules =
             parse_rules("[rules.a]\nfiles = \"x\"\nmessage = \"m\"\nmatch = { kind = \"k\" }\n")
                 .unwrap();
-        assert_eq!(rules[0].severity, Severity::Warn);
+        assert_eq!(rules[0].severity, Severity::Error);
     }
 
     #[test]

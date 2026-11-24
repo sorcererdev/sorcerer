@@ -3,7 +3,7 @@
     "rule": "commands-use-ports",
     "file": "src/bistro/booking/commands/create_booking.py",
     "line": 5,
-    "severity": "warn",
+    "severity": "error",
     "message": "Commands and queries talk to ports, not the database (python-htmx: ports & adapters)",
     "fingerprint": "7b9ca4a"
   }

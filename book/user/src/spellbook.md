@@ -258,8 +258,9 @@ match    = { any = [
   { kind = "import_from_statement", regex = "^from sqlite3" },
 ] }
 message  = "Commands talk to ports, not the database"
-severity = "warn"
 ```
+
+This rule names no severity, so it is an error.
 
 | key | meaning |
 |---|---|
@@ -268,7 +269,7 @@ severity = "warn"
 | `match` | the short form, below (write this or `query`) |
 | `query` | a [tree-sitter query](https://tree-sitter.github.io/tree-sitter/using-parsers/queries/index.html) in the file's language; every `@finding` capture is a finding. A query with no `@finding` is refused when the rule first runs |
 | `message` | the sentence a finding says. Required |
-| `severity` | `hint`, `warn` (the default) or `error` |
+| `severity` | `hint`, `warn` or `error` (the default: a rule that names no severity is an error) |
 | `since`, `why` | free text for people: when the convention began and why it holds |
 
 `missing`, `fix` and `fixes` are keys of milestone 2 (a rule that says what to add, and a
@@ -285,12 +286,13 @@ files you name) and prints a row for each finding:
 
 ```
 $ spellbook check
-! src/bistro/booking/commands/close_table.py:2  commands-use-ports — Commands and queries talk to ports, not the database
-conventions hold (1 finding, none blocking)
+✗ src/bistro/booking/commands/close_table.py:2  commands-use-ports — Commands and queries talk to ports, not the database
+1 blocking finding
 ```
 
-`!` is a warning, `·` a hint, `✗` an error. The exit code is 0 when the conventions hold (hints and
-warnings do not fail), 1 when a finding is an error, and 2 when it could not run (the rules file has
+`!` is a warning, `·` a hint, `✗` an error. A rule is an error unless it says `severity = "warn"`
+or `"hint"`. The exit code is 0 when the conventions hold (hints and warnings do not fail), 1 when a
+finding is an error, and 2 when it could not run (the rules file has
 a mistake, which the message names). `--json` prints `{ "checked", "findings": [ … ] }`: each finding
 has `rule`, `file`, `line`, `severity`, `message` and a `fingerprint` (seven hex digits that stay the
 same when the code is moved or re-indented). `[spellbook] exclude` in `config.toml` lists files no
