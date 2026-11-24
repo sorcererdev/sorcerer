@@ -3,7 +3,9 @@ import * as vscode from 'vscode';
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from 'vscode-languageclient/node';
 import { candidates, find, isExecutable } from './binary';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
+import { type AskerOverrides, registerNew } from './newCommand';
 import { type OfferEnding, remembered } from './offer';
+import { PlanPreviews } from './planPreview';
 
 // Until the release ruling there is no installer for spellbook, so every platform is told the
 // one line that builds it from the repository; then the installer lines, like conjure's.
@@ -20,8 +22,11 @@ const clients = new Map<string, LanguageClient>();
 // the binary the servers run, once found or downloaded; Spellbook: Check runs it too
 let found: string | undefined;
 
-// What activate returns: hooks for the end-to-end tests. Later commands add to it.
-export type SpellbookApi = Record<string, never>;
+// What activate returns: hooks for the end-to-end tests.
+export interface SpellbookApi {
+  // useAsker swaps parts of the Asker Spellbook: New asks with (the tests answer for the person)
+  useAsker(overrides: AskerOverrides): void;
+}
 
 // clientFor is the running `spellbook lsp` of a workspace folder, or undefined when none runs
 // there (the binary was not found, or it did not start).
@@ -61,13 +66,14 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 // candidates); with none, it offers to download this extension's version of spellbook and
 // starts once that is in place. The offer is not awaited: VS Code need not wait for the user.
 export function activate(context: vscode.ExtensionContext): SpellbookApi {
+  const useAsker = registerNew(context, clientFor, new PlanPreviews(() => undefined));
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;
   const setting = vscode.workspace.getConfiguration('spellbook').get<string>('path', '');
   const binary = find(candidates('spellbook', setting, process.env, homedir(), process.platform, binDir(storage, version)), isExecutable);
   if (binary) serve(context, binary);
   else void offerDownload(context, version, storage).then(downloaded => downloaded && serve(context, downloaded));
-  return {};
+  return { useAsker };
 }
 
 // serve starts a server for every open folder and for each folder added later.

@@ -390,8 +390,52 @@ display back (`conjure.sign` for the star).
 
 An untrusted project (one whose own config sets a provider `runner` or `url`, or a grammar of its
 own) gets no marks, and says `spellbook: this project is not trusted; run "spellbook trust" in it`
-once a session when you open or save a file; every command answers the same sentence. The command line trusts the directory you run it in, as scry's does: `spellbook check` in a cloned repository builds that repository's own grammar first. VS Code has no spellbook extension yet (milestone 2).
+once a session when you open or save a file; every command answers the same sentence. The command line trusts the directory you run it in, as scry's does: `spellbook check` in a cloned repository builds that repository's own grammar first.
 `:checkhealth sorcerer` has a spellbook section when it is enabled.
+
+## In VS Code
+
+The **Spellbook** extension (`sorcererdev.spellbook`) does what the Neovim plugin does. It is not
+on the Marketplace yet: build it from `editors/vscode/spellbook` (`npm ci && npm run package`)
+and install the `.vsix` (`code --install-extension spellbook-0.1.0.vsix`), and install the
+program with `cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-spellbook`.
+The extension finds `spellbook` as scry's and conjure's find theirs (the `spellbook.path` user
+setting, then `PATH`, `~/.cargo/bin`, `~/.local/bin`); with none it tells you that install line.
+It starts one `spellbook lsp` per workspace folder; the server's log is the Output channel
+**Spellbook**.
+
+`ctrl+m n` (or **Spellbook: New** in the Command Palette) runs the same steps as `:Spellbook new`
+in the folder of the file you are in (with no file open and several folders, it asks which):
+
+1. **Pick the generator** in a quick pick, its summary beside it.
+2. **Answer its inputs**, in order: an enum in a quick pick (one choice taken without asking, an
+   optional one offers `(skip)`), an `ident` or `text` input in an input box. `Esc` anywhere
+   cancels, and nothing is said.
+3. **Read the plan.** Each new file opens as a read-only preview, coloured as its language by
+   VS Code itself, and over it a quick pick titled `spellbook: command · 2 files · 3 holes to
+   fill` holds **Apply**, **Cancel** and the file list (`+ path`, `31 lines`; `= path`, `exists,
+   skipped`). Moving onto a file with the arrows shows it; you can click into the preview to
+   scroll, and the pick stays. **Apply** writes; **Cancel** or `Esc` writes nothing. Either way
+   the previews close. If the plan stops on an input, you are asked it once more.
+4. **Apply.** The server writes the files, opens the first at its first hole and puts the hole
+   marks in Problems (Information, source `spellbook`, code `hole`). The status bar says
+   `spellbook: wrote 2 files · 3 holes, marked (Problems)`, or `· ctrl+m c to conjure the first`
+   when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
+   a function. With `spellbook.conjureHoles` on, the extension runs conjure on the first hole for
+   you.
+
+The command also takes arguments, so a keybinding can skip questions:
+`{ "key": "ctrl+m b", "command": "spellbook.new", "args": { "generator": "command", "inputs":
+{ "service": "booking" } } }`.
+
+An untrusted project says the server's sentence (`run "spellbook trust" in it`) as a warning;
+run `spellbook trust` in a terminal in the project. `[spellbook] enabled = false` reads the same
+way. `spellbook doctor` is the command line's; the extension has no doctor of its own.
+
+| setting | default | what it does |
+|---|---|---|
+| `spellbook.path` | `""` | the `spellbook` binary, from your user settings only (not in Restricted Mode) |
+| `spellbook.conjureHoles` | `false` | after **Spellbook: New**, run conjure on the first hole (needs the Conjure extension) |
 
 ## The files it writes
 

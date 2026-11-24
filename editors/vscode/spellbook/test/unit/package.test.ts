@@ -27,3 +27,18 @@ test('the_binary_setting_is_read_from_user_settings_only_and_not_in_restricted_m
   assert.equal(settings['spellbook.path'].scope, 'machine');
   assert.deepEqual(manifest.capabilities.untrustedWorkspaces.restrictedConfigurations, ['spellbook.path']);
 });
+
+// keys is the manifest's keybindings by command
+function keys(): Record<string, { key: string; when: string }> {
+  return Object.fromEntries(manifest.contributes.keybindings.map((k: { command: string; key: string; when: string }) => [k.command, k]));
+}
+
+test('new_is_ctrl_m_n_in_an_editor_only', () => {
+  assert.deepEqual(keys()['spellbook.new'], { command: 'spellbook.new', key: 'ctrl+m n', when: 'editorTextFocus' });
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'spellbook.new'));
+});
+
+test('conjure_on_the_first_hole_is_off_unless_asked', () => {
+  assert.equal(settings['spellbook.conjureHoles'].type, 'boolean');
+  assert.equal(settings['spellbook.conjureHoles'].default, false);
+});

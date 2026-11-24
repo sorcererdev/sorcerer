@@ -38,9 +38,27 @@
           "default": "",
           "scope": "machine",
           "markdownDescription": "The `spellbook` binary: an absolute path, read from your user settings only (a workspace's settings cannot choose the program the extension runs). Empty: `spellbook` (`spellbook.exe` on Windows) is looked up on `PATH`, then in `~/.cargo/bin`, `~/.local/bin` and the binary this extension downloaded."
+        },
+        "spellbook.conjureHoles": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "After **Spellbook: New**, run conjure on the first hole (needs the Conjure extension, `sorcererdev.conjure`)."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "spellbook.new",
+        "title": "Spellbook: New"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "spellbook.new",
+        "key": "ctrl+m n",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
