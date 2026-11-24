@@ -2,6 +2,7 @@
 # with a comment on the line or the line above:
 #   # spellbook:allow commands-use-ports — migration, tracked in issue 12
 # (ported from olifant's python-htmx pack; its `fixes` come in milestone 2)
+# A rule is an error unless it says `severity = "warn"` or `"hint"`.
 
 # Commands and queries reach data through ports: sqlite3 belongs in an
 # adapter (ports/PORT/sqlite_PORT.py), which main.py chooses.
@@ -14,7 +15,6 @@ match    = { any = [
   { kind = "attribute", regex = "^sqlite3\\." },
 ] }
 message  = "Commands and queries talk to ports, not the database (python-htmx: ports & adapters)"
-severity = "warn"
 
 # The usual answer first: a port the service already has.
 [rules.web-uses-commands]
@@ -26,7 +26,6 @@ match    = { any = [
   { kind = "import_from_statement", regex = "^from sqlite3" },
 ] }
 message  = "The web goes through commands and queries, not ports or the database (python-htmx)"
-severity = "warn"
 
 # Only main.py chooses adapters (and tests, their fakes); everything else
 # depends on a port's Protocol.
@@ -35,7 +34,6 @@ files    = "src/{app}/**.py"
 exclude  = ["**/main.py", "**/*__test.py", "**/ports/**", "**/web/**"]
 match    = { kind = "import_from_statement", regex = "\\.ports\\.[a-z_0-9]+\\.(sqlite|in_memory)_" }
 message  = "Only main.py chooses adapters: depend on the port's Protocol (python-htmx)"
-severity = "warn"
 
 # A command returns its failures (they are its union's members); a raise
 # skips every caller's match. NotImplementedError and other *Error /

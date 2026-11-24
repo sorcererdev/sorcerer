@@ -78,7 +78,7 @@ describe('conjure (fake claude)', () => {
       });
     // the mark sits on the first changed line of the file: `pass` became `return x + 1`
     assert.equal(marks[0].range.start.line, 1);
-    assert.match(marks[0].message, /^fill f · /);
+    assert.match(marks[0].message, /^conjured: fill f · /);
 
     const undo = await until('the Undo action', () => actionTitled(uri, 'conjure: Undo', 1))
       .catch(err => { throw new Error(`${String(err)}\nmarks: ${JSON.stringify(vscode.languages.getDiagnostics().flatMap(([, ds]) => ds.map(d => d.message)))}\nsaid: ${JSON.stringify(said)}\n${whatConjureKept(ws)}`); });

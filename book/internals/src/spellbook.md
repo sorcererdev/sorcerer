@@ -56,7 +56,7 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `path_pattern.rs`: `PathPattern::parse` and `matches(path)` (the slots bound): a rule's `files` and
   `exclude`, compiled to an anchored `regex` (`*` one name, `**` any folders, `**.ext` = `**/*.ext`,
   `{slot}` a lazy `[^/]+?` capture).
-- `rule.rs`: `Rule`, `RuleBody::{Match(MatchForm), Query(String)}`, `Severity`, `parse_rules(text)`
+- `rule.rs`: `Rule`, `RuleBody::{Match(MatchForm), Query(String)}`, `Severity` (a rule that names none is `Error`; `warn` and `hint` are written out), `parse_rules(text)`
   (strict keys; `missing`/`fix`/`fixes` say "arrives in milestone 2"; both `match` and `query` is
   refused; every regex is compiled once to catch a bad one early). `rule_query.rs`: `query_text`, the
   short form written as tree-sitter query text (`@finding`, `#match?`, `#not-match?`, backslash and

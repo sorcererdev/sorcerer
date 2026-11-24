@@ -38,7 +38,7 @@ fn sqlite3_in_a_command_is_a_finding() {
     let found = check(dir.path(), &[COMMAND]).unwrap();
     assert_eq!(lines(&found), [("commands-use-ports", 4)]);
     assert_eq!(found[0].file, COMMAND);
-    assert_eq!(found[0].severity, Severity::Warn);
+    assert_eq!(found[0].severity, Severity::Error);
     assert!(
         found[0]
             .message
