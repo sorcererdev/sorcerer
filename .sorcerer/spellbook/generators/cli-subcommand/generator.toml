@@ -1,0 +1,35 @@
+name        = "Cli subcommand"
+summary     = "A cli subcommand: an inbound adapter that parses, calls one use case, prints its text"
+description = """
+cli/SUBCOMMAND.rs is an inbound adapter. Its function parses nothing itself (clap does), calls one \
+use case and prints what comes back, and the text it prints lives in its own `…_text` function. It \
+makes no decision a use case should make, so another inbound adapter (the editor server) can call \
+the same use case. Spellbook writes new files only: add `mod SUBCOMMAND;` to cli/mod.rs, the \
+subcommand to cli/arguments.rs and its dispatch to cli/run_cli.rs yourself, and give the function \
+the arguments it needs."""
+language    = "rust"
+examples    = ["spellbook new cli-subcommand --set crate=scry --set subcommand=list"]
+
+[inputs.crate]
+type   = "enum"
+one_of = "crates"
+prompt = "The crate the subcommand belongs to (the folder under crates/: scry, conjure or spellbook, the crates with a cli/)"
+
+[inputs.subcommand]
+type   = "ident"
+prompt = "The subcommand, as the user types it (list, dismiss, doctor)"
+
+[query.crates]
+glob  = "crates/*/src"
+value = "parent folder"
+
+[derive]
+subcommand_ = "{= subcommand|snake =}"
+
+[[edits]]
+create   = "crates/{= crate =}/src/cli/{= subcommand_ =}.rs"
+template = "cli_subcommand.rs.dt"
+
+[holes.purpose]
+source = "derived"
+value  = "{= subcommand|words =}."

@@ -88,7 +88,7 @@ and the runner, then `Checking::deps()`), `system_clock.rs`, `wiring.rs` (`Wired
 `adapters/lsp/`: the server, below.
 
 `cli/`: `arguments.rs`, `file_arguments.rs` (`relative_to_root`: `check`/`holes` file arguments made project-relative), `run_cli.rs` (`main`, `main_with(args, cwd, env, wire, out, err)`),
-one file a command (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
+one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
 `format.rs` (`columns`), `console.rs`.
 
 ## One generation, end to end

@@ -1,4 +1,4 @@
-//! {= ? purpose: text | what this feature does for its caller =}
+//! The `{= usecase|snake =}` {= kind =}: {= ? purpose: text | what this use case does for its caller =}
 
 /// What the caller asks `{= usecase|snake =}` for.
 #[derive(Debug, Clone, Default)]
@@ -6,7 +6,9 @@ pub struct {= Usecase =}Request {
     pub {= ? field: ident | the request's first field =}: {= ? field_type: type | that field's type =},
 }
 
-/// {= ? purpose: text | what this feature does for its caller =}
-pub fn {= usecase|snake =}(request: &{= Usecase =}Request) -> anyhow::Result<{= ? returns: type | what the feature gives back =}> {
-    {= ? steps: block | the feature's steps, each a call to a private helper below =}
+/// The `{= kind =}` use case: {= ? purpose: text | what this use case does for its caller =}
+///
+/// A command changes state and returns its outcome; a query only reads and returns data.
+pub fn {= usecase|snake =}(request: &{= Usecase =}Request) -> anyhow::Result<{= ? returns: type | what it gives back: the outcome of a command, or the data a query read =}> {
+    {= ? steps: block | its steps, each a call to a private helper below =}
 }

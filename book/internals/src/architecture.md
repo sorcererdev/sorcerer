@@ -7,9 +7,15 @@ Every crate is laid out the same way, in layers. A layer is a directory under th
 |---|---|---|
 | `domain/` | data and the rules over it; no I/O (no files, processes, environment, network or clock) | nothing else of the crate |
 | `ports/` | the traits the crate talks through, and the data they pass | `domain` |
-| `usecases/` | the API: one module a feature, its steps private | `domain`, `ports` |
+| `usecases/` | the service layer, the API: one module a use case, its steps private | `domain`, `ports` |
 | `adapters/` | the ports implemented over the disk, git, a model, the clock; the wiring | anything but `cli` |
-| `cli/` | parse the arguments, call one use case, print | anything |
+| `cli/` | an inbound adapter: parse the arguments, call one use case, print | anything |
+
+**The vocabulary.** `usecases/` is the service layer. Each use case is a **command** (it changes
+state and returns its outcome) or a **query** (it only reads and returns data). Nothing sits
+above the use cases: **inbound adapters** call them. The cli, a web controller or the editor's
+server are inbound adapters, and each cli subcommand is one small piece of the cli. So "command"
+never names a cli subcommand or a layer.
 
 A crate root (`lib.rs`, `main.rs`, `error.rs`, `cancel.rs`) sits outside the layers. Across
 crates the same rule holds: a product's `domain/`, `ports/` and `usecases/` use another
@@ -70,7 +76,7 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
   `run_log.rs`.
 - `adapters/`: `json_finding_store.rs`, `scry_toml.rs`, `research_reviewer.rs`,
   `markdown_run_log.rs`, `system_clock.rs`, `wiring.rs`.
-- `cli/`: `arguments.rs` (the clap types), `run_cli.rs` (`main`, `main_with`), `console.rs`, one file a command (`review.rs`,
+- `cli/`: `arguments.rs` (the clap types), `run_cli.rs` (`main`, `main_with`), `console.rs`, one file a cli subcommand (`review.rs`,
   `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `doctor.rs`, `log.rs`), `format.rs`.
 
 [Scry](scry.md) says what each file holds.
@@ -111,9 +117,9 @@ server lives in that product's `adapters/` and calls its use cases.
    one that exists, or add a trait under `ports/` that says what the use case needs in its own
    words.
 3. Implement the port in `adapters/`, and build it in the wiring.
-4. Add the command: a file under `cli/` that parses, calls the use case and prints.
+4. Add the cli subcommand: a file under `cli/` that parses, calls the use case and prints.
 
-An editor's language server is one more caller beside `cli/`: it calls the same use cases.
+An editor's language server is one more inbound adapter beside `cli/`: it calls the same use cases.
 
 **A `mod.rs` holds only declarations.** Its lines are `mod`, `pub mod`, `use` and `pub use`
 (plus comments and attributes): no function, type, constant, impl or test. What a directory does
@@ -221,9 +227,10 @@ The repository keeps the same conventions as spellbook data, in `.sorcerer/spell
   and skip a file's `#[cfg(test)] mod tests`; a test module that sets up files says so with a
   `// spellbook:allow domain-does-no-io — …` comment. The prose rules stay with scry.
 - `generators/` writes the shapes the crates repeat: `port` (a trait in `ports/` and its adapter
-  in `adapters/`), `usecase` (a request and the feature's public function) and `command` (a cli
-  subcommand and its `…_text`). Each writes new files only, so the `mod` line in the parent
-  `mod.rs`, and a command's place in `arguments.rs` and `run_cli.rs`, are added by hand.
+  in `adapters/`), `usecase` (a request and the use case's public function, a command or a query by its `kind`)
+  and `cli-subcommand` (an inbound adapter: a cli subcommand and its `…_text`). Each writes new
+  files only, so the `mod` line in the parent `mod.rs`, and a subcommand's place in
+  `arguments.rs` and `run_cli.rs`, are added by hand.
 - `.sorcerer/config.toml` leaves `crates/spellbook/src/domain/allow.rs` out of the check: its
   tests hold allow comments inside strings, which the allow reader takes for real ones.
 

@@ -73,7 +73,7 @@ gate and its question); and `why_text.rs`
 
 **The command line** (`src/cli/`): `run_cli.rs` (`main`, `main_with`, `run_command`, `clock_of`),
 `arguments.rs` (the clap types), `console.rs` (`Console`: the output, the error stream and the width a
-command writes with), one file a command (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`, `trust.rs`,
+command writes with), one file a cli subcommand (`review.rs`, `list.rs`, `why.rs`, `dismiss.rs`, `cost.rs`, `lsp.rs`, `trust.rs`,
 `doctor.rs` with `doctor_rows` (a `DoctorRow` each), `check_setup`, `languages_row`, `log.rs`), and `format.rs` (`Output`: text or `--json`; `table`, `cut_to`, `finding_text`,
 `finding_json`, `cited_range`, `lines_text`). `src/main.rs` is the binary, `cli::main` with
 the real environment.
