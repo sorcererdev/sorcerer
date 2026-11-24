@@ -22,14 +22,21 @@ conjure on, which it keeps off until you ask:
 
 ```lua
 require("sorcerer").setup({ conjure = { enabled = true } })
-vim.keymap.set({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action)
 ```
+
+The plugin binds the keys: `<leader>mc` conjures here (select lines first for a range),
+`<leader>mu` undoes the change, `<leader>mt` tries harder and `<leader>mw` says why. Each runs the
+code action of that name on the cursor's line, so the line offers what it always did. `keys = false`
+binds none, `keys = { undo = false }` skips one, and a key you already mapped is never overwritten
+(`:checkhealth sorcerer` lists it).
 
 The plugin starts `conjure lsp` on the files you open, one server per project root, and does two
 things the server relies on: it reports every edit at once (`debounce_text_changes = 0`, so a
 change never lands over what you typed a moment ago), and it attaches conjure to every buffer
 under the project root, including the files a change opens (a file the server cannot see counts
-as not landed). Marks show in `vim.diagnostic` (the sign column, `vim.diagnostic.setloclist()`).
+as not landed). Marks show in `vim.diagnostic` (`vim.diagnostic.setloclist()`), and a conjured change draws `✦` in the sign
+column with its line number tinted (`SorcererConjured`, linking `DiagnosticSignOk`), apart from a
+hole's `◇` and a rule finding's `≡`; `conjure.sign = false` gives Neovim's own display back.
 `require("sorcerer").status()` says `conjure: conjuring a change` while one runs (joined to
 scry's line when both work), and `:checkhealth sorcerer` checks that `conjure` is found. If you
 do not use the plugin, `vim.lsp.start({ name = "conjure", cmd = { "conjure", "lsp" }, root_dir =
@@ -50,7 +57,7 @@ checksum, as the Scry extension does. The actions are in the quick-fix menu (`Ct
 marks in the Problems panel.
 
 **Asking.** Put the cursor in a function, or select lines in one, and open the code-action menu
-(`vim.lsp.buf.code_action()` in Neovim, `Ctrl+.` in VS Code). *Conjure here* asks for one change
+(`<leader>mc` in Neovim, or `vim.lsp.buf.code_action()`; `Ctrl+.` in VS Code). *Conjure here* asks for one change
 there. On a line where scry has an open finding, *Conjure for this finding* asks for a change led
 by that finding. Outside a function nothing is offered (`put the cursor in a function to
 conjure` if you ask anyway).
