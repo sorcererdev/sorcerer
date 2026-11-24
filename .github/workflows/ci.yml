@@ -62,14 +62,15 @@ jobs:
       - if: matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
         run: scripts/book-check origin/${{ github.base_ref }}
   vscode:
-    # the end-to-end tests of both extensions. scry: ubuntu runs both suites (the fake
+    # the end-to-end tests of the three extensions. scry: ubuntu runs both suites (the fake
     # server's is Python, which VS Code's client cannot start on Windows), windows runs the
     # download suite against the real scry built here and served as a local release. conjure:
-    # ubuntu and windows run its one suite, the real conjure with a fake claude.
+    # ubuntu and windows run its one suite, the real conjure with a fake claude. spellbook:
+    # ubuntu and windows run its one suite, the real spellbook, no model.
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        extension: [scry, conjure]
+        extension: [scry, conjure, spellbook]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     defaults:
@@ -90,6 +91,12 @@ jobs:
           for f in binary download offer working inline; do
             diff editors/vscode/scry/src/$f.ts editors/vscode/conjure/src/$f.ts
           done
+      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'spellbook'
+        working-directory: .
+        run: |
+          for f in binary download offer; do
+            diff editors/vscode/scry/src/$f.ts editors/vscode/spellbook/src/$f.ts
+          done
       - run: npm ci
       - run: npm run lint
       - run: npm run test:unit
@@ -100,6 +107,8 @@ jobs:
         run: |
           cargo build -p sorcerer-conjure
           cargo build -p sorcerer-models --bin fake-claude
+      - if: matrix.extension == 'spellbook'
+        run: cargo build -p sorcerer-spellbook
       - if: matrix.os == 'ubuntu-latest'
         run: xvfb-run -a npm run test:e2e
       - if: matrix.os == 'windows-latest' && matrix.extension == 'scry'
@@ -107,4 +116,6 @@ jobs:
         env:
           SCRY_E2E_SUITES: download
       - if: matrix.os == 'windows-latest' && matrix.extension == 'conjure'
+        run: npm run test:e2e
+      - if: matrix.os == 'windows-latest' && matrix.extension == 'spellbook'
         run: npm run test:e2e
