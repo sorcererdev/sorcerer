@@ -1121,21 +1121,21 @@ mod tests {
     #[test]
     fn a_change_names_each_file_with_its_lines_and_the_goal() {
         let files = vec![
-            ("tests/seat_party__test.py".to_string(), 1),
-            ("src/seat_party.py".to_string(), 2),
+            ("tests/seat_party__test.txt".to_string(), 1),
+            ("src/seat_party.txt".to_string(), 2),
         ];
         assert_eq!(
             changed_text(&files, "seat the party"),
-            "conjure: changed seat_party__test.py (1 line), seat_party.py (2 lines) \u{b7} seat the party"
+            "conjure: changed seat_party__test.txt (1 line), seat_party.txt (2 lines) \u{b7} seat the party"
         );
     }
 
     #[test]
     fn two_files_with_one_name_are_told_apart_by_their_paths() {
-        let files = vec![("a/mod.py".to_string(), 3), ("b/mod.py".to_string(), 1)];
+        let files = vec![("a/mod.txt".to_string(), 3), ("b/mod.txt".to_string(), 1)];
         assert_eq!(
             changed_text(&files, "x"),
-            "conjure: changed a/mod.py (3 lines), b/mod.py (1 line) \u{b7} x"
+            "conjure: changed a/mod.txt (3 lines), b/mod.txt (1 line) \u{b7} x"
         );
     }
 
