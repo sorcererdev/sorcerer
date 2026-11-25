@@ -12,7 +12,7 @@ use crate::domain::inputs::Given;
 use crate::domain::plan::{FileStatus, Plan, PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
 use crate::ports::workspace::write_refused_text;
-use crate::usecases::apply_generation::{AppliedGeneration, apply_generation};
+use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::plan_generation::plan_generation;
 
 use super::format::{columns, count};
@@ -42,7 +42,7 @@ pub(super) fn new(
         print_planned(&plan, request.json, out)?;
         return Ok(0);
     }
-    let applied = apply_generation(&wired.apply_deps(), plan)?;
+    let applied = apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet)?;
     print_applied(&applied, request.json, out, err)
 }
 

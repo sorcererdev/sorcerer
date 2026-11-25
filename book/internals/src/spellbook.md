@@ -73,7 +73,7 @@ the loaded language of a path, or none), `workspace.rs` (`Workspace::write_new`,
 
 `usecases/`: `list_generators.rs` (`GeneratorSummary`, also the editor's picker reply),
 `choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`,
-`plan_generation`), `apply_generation.rs` (`ApplyDeps`, `apply_generation`,
+`plan_generation`), `apply_plan.rs` (`ApplyDeps`, `apply_plan`,
 `AppliedGeneration`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, `check_files`), `check_project.rs`
 (`check_project`).
 
@@ -107,7 +107,7 @@ one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `check.rs
    Every new file a language covers is parsed (`parse_errors_of`); an error line is
    `PlanStop::DoesNotParse` naming the template. Then the holes are gathered (`HoleBook`) and
    the id made. Nothing is written.
-4. `apply_generation` writes each new file through `Workspace::write_new` (`DiskWorkspace`
+4. `apply_plan` writes each new file through `Workspace::write_new` (`DiskWorkspace`
    refuses with `Fences::allows`, which follows links, and opens with `create_new`, so a file
    that appeared since the plan is never overwritten), stops at the first refusal, appends the
    record for what was written, and adds the placeholder places to `holes.json`.

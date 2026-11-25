@@ -35,6 +35,8 @@ pub struct RawFinding {
     pub rule: String,
     pub line: u32,
     pub node_text: String,
+    /// The matched node's kind in the grammar (`import_statement`).
+    pub kind: String,
     pub span: Span,
 }
 

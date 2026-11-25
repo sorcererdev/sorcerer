@@ -96,7 +96,7 @@ Its path templates are filled with core's `templates::fill`.
 `holes`, `plan`, `record`, `open_hole_places`, `allow`, `finding`, `path_pattern`, `report`,
 `rule`, `rule_query`), `ports/` (`generators`, `grammars`, `workspace`, `generation_store`,
 `holes_store`, `clock`, `rule_runner`, `report_store`), `usecases/` (`list_generators`,
-`choices_for`, `plan_generation`, `apply_generation`, `open_holes`, `check_files`,
+`choices_for`, `plan_generation`, `apply_plan`, `open_holes`, `check_files`,
 `check_project`), `adapters/` (`generator_dir`, `cached_grammars`, `disk_workspace`,
 `jsonl_generation_store`, `json_holes`, `json_report`, `rules_toml`, `query_rules`, `checking`,
 `system_clock`, `wiring`, and `lsp/`, the editor server) and `cli/`. Its use cases may not load a grammar (that is core's adapter work), so

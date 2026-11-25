@@ -12,7 +12,7 @@ use sorcerer_core::domain::templates::{Piece, fill, pieces};
 use sorcerer_core::ports::view::CodebaseView;
 
 use crate::domain::anchor::{Anchor, Resolution, resolution_text};
-use crate::domain::change::{added_and_removed, apply_changes, change_at, changes_between, hunks};
+use crate::domain::change::{apply_changes, change_at};
 use crate::domain::generator::{Edit, EditBody, Generator, OnExists, OnMissing};
 use crate::domain::holes::{HoleAt, HoleBook};
 use crate::domain::holes_table::placeholder;
@@ -106,22 +106,8 @@ impl Draft {
         if self.file.status != FileStatus::Changed {
             return self;
         }
-        let mut file = self.file;
-        if file.text == file.before {
-            file.status = FileStatus::Unchanged;
-            return Draft {
-                file,
-                holes: self.holes,
-            };
-        }
-        file.changes = changes_between(&file.before, &file.text);
-        file.hunks = hunks(&file.before, &file.text);
-        let (added, removed) = added_and_removed(&file.hunks);
-        file.added = u32::try_from(added).unwrap_or(u32::MAX);
-        file.removed = u32::try_from(removed).unwrap_or(u32::MAX);
-        file.lines = line_count(&file.text);
         Draft {
-            file,
+            file: PlannedFile::changed(self.file.path, self.file.before, self.file.text),
             holes: self.holes,
         }
     }

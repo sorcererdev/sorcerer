@@ -23,6 +23,30 @@ pub struct GenerationRecord {
     pub inputs: BTreeMap<String, String>,
     pub files: Vec<RecordedFile>,
     pub holes: Vec<Hole>,
+    /// The finding a fix answered, when the generation was a fix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<RecordedFix>,
+    /// The files that were there and were changed, with how many lines were added and removed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed: Vec<ChangedFile>,
+}
+
+/// The finding a fix answered: its rule, where it was, its fingerprint, and which fix (from 1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedFix {
+    pub rule: String,
+    pub file: String,
+    pub line: u32,
+    pub fingerprint: String,
+    pub index: usize,
+}
+
+/// A file a generation changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangedFile {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
 }
 
 /// A file a generation wrote or left as it was.
@@ -85,6 +109,23 @@ pub fn record_of(plan: &Plan, at: DateTime<Utc>, kept: &[String]) -> GenerationR
         inputs: plan.inputs.clone(),
         files,
         holes: holes_in(&plan.holes, kept),
+        fix: plan.fix.as_ref().map(|fix| RecordedFix {
+            rule: fix.rule.clone(),
+            file: fix.file.clone(),
+            line: fix.line,
+            fingerprint: fix.fingerprint.clone(),
+            index: fix.index,
+        }),
+        changed: plan
+            .files
+            .iter()
+            .filter(|file| file.status == FileStatus::Changed && kept.contains(&file.path))
+            .map(|file| ChangedFile {
+                path: file.path.clone(),
+                added: file.added,
+                removed: file.removed,
+            })
+            .collect(),
     }
 }
 

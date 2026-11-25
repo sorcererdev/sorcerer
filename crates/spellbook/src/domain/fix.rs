@@ -107,6 +107,70 @@ pub fn finding_for_instruction(text: &str) -> String {
         .collect()
 }
 
+/// A `replace` text ready to render: the values inside each hole's instruction filled now (a
+/// placeholder puts the instruction in a string, so `finding` goes in as
+/// [`finding_for_instruction`] has it), the rest left for the renderer.
+///
+/// Example: `{= ? call: block | the same as {= finding =} through self.{= param =} =}` with
+/// `param = clock` and the finding `sqlite3.connect("x")` becomes `{= ? call: block | the same as
+/// sqlite3.connect(x) through self.clock =}`.
+pub fn with_instructions_filled(
+    template: &str,
+    values: &[(&str, &str)],
+    finding: &str,
+) -> Result<String, String> {
+    let squashed = finding_for_instruction(finding);
+    let mut in_instruction: Vec<(&str, &str)> = values
+        .iter()
+        .copied()
+        .filter(|(name, _)| *name != "finding")
+        .collect();
+    in_instruction.push(("finding", &squashed));
+    let mut out = String::new();
+    let mut rest = template;
+    while let Some(open) = rest.find("{= ?") {
+        out.push_str(&rest[..open]);
+        let hole = &rest[open..];
+        let end =
+            hole_end(hole).ok_or_else(|| format!("a hole is never closed in `{template}`"))?;
+        let inside = &hole[4..end - 2];
+        match inside.split_once('|') {
+            Some((head, instruction)) => {
+                let filled = fill(instruction, &in_instruction)?;
+                out.push_str(&format!("{{= ?{head}|{filled}=}}"));
+            }
+            None => out.push_str(&hole[..end]),
+        }
+        rest = &hole[end..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// The length of the hole at the start of `text` up to and including its own `=}`, counting the
+/// `{= =}` pairs nested in its instruction.
+fn hole_end(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut at = 0;
+    while at + 1 < text.len() {
+        match &text[at..at + 2] {
+            "{=" => {
+                depth += 1;
+                at += 2;
+            }
+            "=}" => {
+                depth -= 1;
+                at += 2;
+                if depth == 0 {
+                    return Some(at);
+                }
+            }
+            _ => at += text[at..].chars().next().map_or(1, char::len_utf8),
+        }
+    }
+    None
+}
+
 /// The text with every run of whitespace (line breaks included) made one space, trimmed.
 fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -241,6 +305,20 @@ mod tests {
         assert_eq!(
             fix_label(&labelled, "Use a port", &builtins).unwrap(),
             "Use a port in b"
+        );
+    }
+
+    #[test]
+    fn values_inside_a_hole_instruction_are_filled_first() {
+        let got = with_instructions_filled(
+            "    {= ? port_call: block | the same as {= finding =} through self.{= param =} =}\nx = {= param =}",
+            &[("param", "clock"), ("finding", "conn = sqlite3.connect(\"x\")")],
+            "conn = sqlite3.connect(\"x\")",
+        )
+        .unwrap();
+        assert_eq!(
+            got,
+            "    {= ? port_call: block | the same as conn = sqlite3.connect(x) through self.clock =}\nx = {= param =}"
         );
     }
 

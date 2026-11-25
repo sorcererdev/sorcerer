@@ -58,6 +58,11 @@ pub struct HoleBook {
 }
 
 impl HoleBook {
+    /// A book holding these holes already, to add more files' holes to.
+    pub fn of(holes: Vec<Hole>) -> HoleBook {
+        HoleBook { holes }
+    }
+
     /// This book with one file's holes added: a name seen before gains a place, a new name is a
     /// new hole. One name written with two kinds or two instructions is an error.
     pub fn with_file(mut self, file: &str, found: &[HoleAt]) -> Result<HoleBook, String> {

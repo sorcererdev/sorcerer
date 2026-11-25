@@ -94,6 +94,7 @@ impl RuleRunner for QueryRules<'_> {
                             .utf8_text(text.as_bytes())
                             .unwrap_or_default()
                             .to_string(),
+                        kind: hit.node.kind().to_string(),
                         span: span_of(hit.node),
                     });
                 }

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::fnv::fnv64_hex;
 
-use crate::domain::change::{Hunk, TextChange};
+use crate::domain::change::{Hunk, TextChange, added_and_removed, changes_between, hunks};
 use crate::domain::holes::{Hole, HoleOrigin};
 use crate::domain::inputs::{InputStop, input_stop_text};
 
@@ -112,6 +112,27 @@ impl PlannedFile {
             before: String::new(),
             added: 0,
             removed: 0,
+        }
+    }
+
+    /// A file that is there, changed from `before` to `after`: its changes and diff worked out.
+    /// The same text both times is a file left unchanged.
+    pub fn changed(path: String, before: String, after: String) -> PlannedFile {
+        if before == after {
+            return PlannedFile::left(path, FileStatus::Unchanged);
+        }
+        let hunks = hunks(&before, &after);
+        let (added, removed) = added_and_removed(&hunks);
+        PlannedFile {
+            lines: line_count(&after),
+            changes: changes_between(&before, &after),
+            hunks,
+            added: u32::try_from(added).unwrap_or(u32::MAX),
+            removed: u32::try_from(removed).unwrap_or(u32::MAX),
+            path,
+            status: FileStatus::Changed,
+            text: after,
+            before,
         }
     }
 

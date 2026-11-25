@@ -36,4 +36,16 @@ impl Workspace for DiskWorkspace {
         file.write_all(text.as_bytes())
             .map_err(|e| WriteRefused::Disk(e.to_string()))
     }
+
+    fn write_changed(&self, path: &Path, before: &str, after: &str) -> Result<(), WriteRefused> {
+        let full = self.root.join(path);
+        if !self.fences.allows(&full) {
+            return Err(WriteRefused::Fenced);
+        }
+        match std::fs::read_to_string(&full) {
+            Ok(now) if now == before => {}
+            _ => return Err(WriteRefused::Changed),
+        }
+        std::fs::write(&full, after).map_err(|e| WriteRefused::Disk(e.to_string()))
+    }
 }

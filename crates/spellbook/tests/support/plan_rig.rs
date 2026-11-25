@@ -15,7 +15,7 @@ use spellbook::adapters::query_anchors::QueryAnchors;
 use spellbook::domain::generator::Generator;
 use spellbook::domain::inputs::Given;
 use spellbook::domain::plan::{Plan, PlanStop};
-use spellbook::usecases::apply_generation::{AppliedGeneration, ApplyDeps, apply_generation};
+use spellbook::usecases::apply_plan::{AppliedGeneration, ApplyDeps, ChangesLanded, apply_plan};
 use spellbook::usecases::plan_generation::{PlanDeps, plan_generation};
 
 use super::{FixedClock, project_with_vendored_grammars, test_cache};
@@ -102,6 +102,6 @@ impl PlanRig {
             holes: &rig.holes,
             clock: &self.clock,
         };
-        apply_generation(&deps, plan).unwrap()
+        apply_plan(&deps, plan, ChangesLanded::NotYet).unwrap()
     }
 }

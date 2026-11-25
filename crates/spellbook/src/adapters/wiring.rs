@@ -18,7 +18,7 @@ use crate::adapters::jsonl_generation_store::JsonlGenerationStore;
 use crate::adapters::query_anchors::QueryAnchors;
 use crate::adapters::system_clock::SystemClock;
 use crate::ports::clock::Clock;
-use crate::usecases::apply_generation::ApplyDeps;
+use crate::usecases::apply_plan::ApplyDeps;
 use crate::usecases::open_holes::HolesDeps;
 use crate::usecases::plan_generation::PlanDeps;
 

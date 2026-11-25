@@ -26,7 +26,7 @@ use crate::domain::inputs::{Given, InputStop, input_stop_text};
 use crate::domain::plan::{PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
 use crate::ports::workspace::write_refused_text;
-use crate::usecases::apply_generation::{AppliedGeneration, apply_generation};
+use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::choices_for::choices_for;
 use crate::usecases::list_generators::list_generators;
 use crate::usecases::plan_generation::plan_generation;
@@ -146,7 +146,7 @@ impl Server {
         let Some(plan) = taken else {
             return Ok(stop(PLAN_GONE));
         };
-        let applied = match apply_generation(&wired.apply_deps(), plan) {
+        let applied = match apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet) {
             Ok(applied) => applied,
             Err(e) => return Ok(stop(&format!("spellbook: {e:#}"))),
         };

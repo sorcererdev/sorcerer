@@ -62,13 +62,17 @@ pub fn wired_at(dir: &Path) -> spellbook::adapters::wiring::Wired {
     .unwrap()
 }
 
-/// A corpus's rules file copied into a project as `.sorcerer/spellbook/rules.toml`.
+/// A corpus's rules file copied into a project as `.sorcerer/spellbook/rules.toml`, with the
+/// corpus's generators (its rules' fixes name them).
 pub fn use_corpus_rules(root: &Path, corpus: &str) {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let spellbook = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../corpus/spellbook")
         .join(corpus)
-        .join("spellbook/rules.toml");
+        .join("spellbook");
     let to = root.join(".sorcerer/spellbook/rules.toml");
     std::fs::create_dir_all(to.parent().unwrap()).unwrap();
-    std::fs::copy(from, to).unwrap();
+    std::fs::copy(spellbook.join("rules.toml"), to).unwrap();
+    let generators = root.join(".sorcerer/spellbook/generators");
+    std::fs::create_dir_all(&generators).unwrap();
+    super::copy_tree(&spellbook.join("generators"), &generators);
 }
