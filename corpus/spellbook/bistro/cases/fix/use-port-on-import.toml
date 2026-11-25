@@ -1,0 +1,5 @@
+# `import sqlite3` in a command: use-port swaps it for the table port, wired into __init__ and the test.
+patch  = "sqlite3-import-in-cancel-booking.patch"
+at     = "src/bistro/booking/commands/cancel_booking.py:4"
+fix    = 1
+inputs = { port = "table_repository" }

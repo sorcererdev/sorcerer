@@ -1,0 +1,11 @@
+# `sqlite3.connect(…)` in handle: the statement becomes a hole saying what it did, through the port.
+patch  = "sqlite3-call-in-handle.patch"
+at     = "src/bistro/booking/commands/cancel_booking.py:32"
+fix    = 1
+inputs = { port = "table_repository" }
+
+[[holes]]
+name = "port_call"
+kind = "block"
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 34

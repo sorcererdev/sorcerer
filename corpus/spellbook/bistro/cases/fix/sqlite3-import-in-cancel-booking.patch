@@ -1,0 +1,12 @@
+diff --git a/src/bistro/booking/commands/cancel_booking.py b/src/bistro/booking/commands/cancel_booking.py
+index d2059db..0c2ba8a 100644
+--- a/src/bistro/booking/commands/cancel_booking.py
++++ b/src/bistro/booking/commands/cancel_booking.py
+@@ -1,6 +1,7 @@
+ """Cancel a booking."""
+ 
+ from dataclasses import dataclass
++import sqlite3
+ 
+ from bistro.shared.result import Ok
+ from bistro.booking.ports.booking_repository.booking_repository import BookingRepository

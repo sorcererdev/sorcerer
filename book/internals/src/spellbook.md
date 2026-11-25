@@ -308,7 +308,7 @@ corpus is a base copied from another corpus plus a `spellbook/` folder that beco
 `.sorcerer/spellbook/`; its cases are `cases/new/<id>.toml` (a generator and inputs; every written
 file is compared with `expected/new/<id>/<path>` after `\r\n` becomes `\n`, and the open holes, one a
 place, with the case's `[[holes]]`), `cases/holes/<id>.{toml,patch}` (a `new`, then a `git apply`
-of the person's edit) and `cases/load/<id>/` (an overlay with one mistake, and `expected.txt`: the
+of the person's edit), `cases/fix/<id>.{toml,patch}` (a planted finding, then `plan_fix` and `apply_plan` with the case's fix and inputs; every changed or written file is compared with `expected/fix/<id>/<path>`, and the open holes with the case's `[[holes]]`) and `cases/load/<id>/` (an overlay with one mistake, and `expected.txt`: the
 sentence, from the generator's load error or, for a path the plan refuses, the plan's stop). To add a
 case, write its toml, run the corpus test with `SPELLBOOK_BLESS=1 … -- --nocapture` (it writes
 `expected/` and prints the holes), read every file written, paste the holes in, and run it again

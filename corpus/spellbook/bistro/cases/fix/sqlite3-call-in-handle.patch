@@ -1,0 +1,12 @@
+diff --git a/src/bistro/booking/commands/cancel_booking.py b/src/bistro/booking/commands/cancel_booking.py
+index d2059db..84addb8 100644
+--- a/src/bistro/booking/commands/cancel_booking.py
++++ b/src/bistro/booking/commands/cancel_booking.py
+@@ -29,6 +29,7 @@ class CancelBooking:
+         self.bookings = bookings
+ 
+     def handle(self, input: CancelBookingInput) -> CancelBookingOutput:
++        conn = sqlite3.connect("bistro.db")
+         booking = self.bookings.get(input.id)
+         if booking is None:
+             return NotFound(f"there is no booking {input.id}")
