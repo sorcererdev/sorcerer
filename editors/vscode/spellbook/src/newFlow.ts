@@ -15,7 +15,7 @@ export interface Asker {
   pickGenerator(generators: Generator[]): Promise<Generator | undefined>;
   pickChoice(input: Input, items: string[]): Promise<string | undefined>;
   askText(input: Input, prompt: string): Promise<string | undefined>;
-  showPlan(plan: Plan): Promise<'apply' | 'cancel'>;
+  showPlan(plan: Plan, taken: Values): Promise<'apply' | 'cancel'>;
   say(level: 'info' | 'warn' | 'error', text: string): void;
 }
 
@@ -56,7 +56,8 @@ class Ended extends Error {}
 // 1. the generator: the given one, else picked from `spellbook.generators`;
 // 2. its inputs, in order, the given ones kept (an enum's choices from `spellbook.choices`);
 // 3. the plan (`spellbook.plan`), asking a named input once more if the plan stops for it;
-// 4. the plan shown; Apply runs `spellbook.apply` and a refused file is said.
+// 4. the plan shown, with the inputs taken without asking; Apply runs `spellbook.apply` and a
+//    refused file is said.
 // Example: given { generator: 'command', inputs: { service: 'booking' } } asks only `command`.
 export async function newFlow(server: Server, asker: Asker, given: Given = {}): Promise<ApplyReply | undefined> {
   const talk = new Talk(server, asker);
@@ -64,7 +65,7 @@ export async function newFlow(server: Server, asker: Asker, given: Given = {}): 
     const generator = await chosenGenerator(talk, given.generator);
     const values = generator && await answeredInputs(talk, generator, { ...given.inputs });
     const plan = generator && values && await madePlan(talk, generator, values);
-    if (!plan || await asker.showPlan(plan) !== 'apply') return undefined;
+    if (!plan || await asker.showPlan(plan, talk.taken) !== 'apply') return undefined;
     return await applied(talk, plan);
   } catch (err) {
     if (err instanceof Ended) return undefined;
@@ -74,6 +75,9 @@ export async function newFlow(server: Server, asker: Asker, given: Given = {}): 
 
 // The server and the person together: a command whose reply is a stop says it and ends.
 class Talk {
+  // the inputs taken without asking (an enum with one choice), to show with the plan
+  readonly taken: Values = {};
+
   constructor(readonly server: Server, readonly asker: Asker) {}
 
   // reply runs a command; a `{ stop }` reply is said and ends the flow, unless `keepStop` lets
@@ -121,7 +125,10 @@ async function answeredInputs(talk: Talk, generator: Generator, values: Values):
 async function valueOf(talk: Talk, generator: Generator, input: Input, values: Values): Promise<string | undefined> {
   if (input.type !== 'enum') return asked(talk, input, undefined);
   const { choices } = await talk.reply<{ choices: string[] }>('spellbook.choices', [generator.id, { ...values }, input.name]);
-  return takenWithoutAsking(input, choices) ?? asked(talk, input, choices);
+  const only = takenWithoutAsking(input, choices);
+  if (only === undefined) return asked(talk, input, choices);
+  talk.taken[input.name] = only;
+  return only;
 }
 
 async function asked(talk: Talk, input: Input, choices: string[] | undefined): Promise<string | undefined> {

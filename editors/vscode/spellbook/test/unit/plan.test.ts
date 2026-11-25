@@ -27,6 +27,12 @@ test('the_title_counts_new_files_and_holes_to_fill', () => {
   assert.equal(planTitle(one), 'spellbook: command · 1 file · 1 hole to fill');
 });
 
+test('the_title_names_the_inputs_taken_without_asking', () => {
+  assert.equal(planTitle(plan, { app: 'bistro' }), 'spellbook: command · 2 files · 2 holes to fill · app bistro (the only choice)');
+  assert.equal(planTitle(plan, { app: 'bistro', service: 'booking' }),
+    'spellbook: command · 2 files · 2 holes to fill · app bistro, service booking (the only choices)');
+});
+
 test('new_files_say_their_lines_and_skipped_ones_say_so', () => {
   assert.deepEqual(fileItems(plan), [
     { label: '= src/b/commands/__init__.py', description: 'exists, skipped', path: 'src/b/commands/__init__.py' },

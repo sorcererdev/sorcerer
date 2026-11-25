@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { Values } from './inputs';
 import { type FileItem, fileItems, type LineRange, newFiles, type Plan, placeholderRanges, planTitle, planUriPath } from './plan';
 
 // The scheme of the plan's preview documents: virtual, so they are read-only, and each path
@@ -29,12 +30,12 @@ export class PlanPreviews implements vscode.TextDocumentContentProvider {
   // 3. either way the preview tabs close and the plan's texts are forgotten.
   // Example: a command plan opens cancel_table.py coloured as Python under
   // `spellbook: command · 2 files · 3 holes to fill`.
-  async showPlan(plan: Plan): Promise<'apply' | 'cancel'> {
+  async showPlan(plan: Plan, taken: Values = {}): Promise<'apply' | 'cancel'> {
     for (const file of newFiles(plan)) this.texts.set(planUriPath(plan.id, file.path), file.text);
     try {
       const first = newFiles(plan)[0];
       if (first) await this.showFile(plan, first.path);
-      return await this.asked(plan);
+      return await this.asked(plan, taken);
     } finally {
       await closePreviews(plan.id);
       for (const file of newFiles(plan)) this.texts.delete(planUriPath(plan.id, file.path));
@@ -48,9 +49,9 @@ export class PlanPreviews implements vscode.TextDocumentContentProvider {
     this.look(editor, placeholderRanges(plan, path, row => editor.document.lineAt(Math.min(row, editor.document.lineCount - 1)).text));
   }
 
-  private asked(plan: Plan): Promise<'apply' | 'cancel'> {
+  private asked(plan: Plan, taken: Values): Promise<'apply' | 'cancel'> {
     const pick = vscode.window.createQuickPick<PickItem>();
-    pick.title = planTitle(plan);
+    pick.title = planTitle(plan, taken);
     pick.placeholder = 'Apply writes the files; the arrows show each file';
     pick.ignoreFocusOut = true;
     pick.items = pickItems(plan);

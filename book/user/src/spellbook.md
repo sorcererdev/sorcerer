@@ -411,7 +411,8 @@ in the folder of the file you are in (with no file open and several folders, it 
 1. **Pick the generator** in a quick pick, its summary beside it.
 2. **Answer its inputs**, in order: an enum in a quick pick (one choice taken without asking, an
    optional one offers `(skip)`), an `ident` or `text` input in an input box. `Esc` anywhere
-   cancels, and nothing is said.
+   cancels, and nothing is said. An input taken without asking is named in the plan's title, so
+   you see what was picked for you: `· app bistro, service booking (the only choices)`.
 3. **Read the plan.** Each new file opens as a read-only preview, coloured as its language by
    VS Code itself, and over it a quick pick titled `spellbook: command · 2 files · 3 holes to
    fill` holds **Apply**, **Cancel** and the file list (`+ path`, `31 lines`; `= path`, `exists,

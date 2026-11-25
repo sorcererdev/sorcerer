@@ -14,7 +14,7 @@ export function vscodeAsker(previews: PlanPreviews): Asker {
     },
     pickChoice: (input, items) => Promise.resolve(vscode.window.showQuickPick(items, { title: 'spellbook: new', placeHolder: input.prompt })),
     askText: (input, prompt) => Promise.resolve(vscode.window.showInputBox({ title: 'spellbook: new', prompt, placeHolder: input.name })),
-    showPlan: plan => previews.showPlan(plan),
+    showPlan: (plan, taken) => previews.showPlan(plan, taken),
     say: (level, text) => {
       if (level === 'error') void vscode.window.showErrorMessage(text);
       else if (level === 'warn') void vscode.window.showWarningMessage(text);
