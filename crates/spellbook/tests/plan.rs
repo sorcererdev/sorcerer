@@ -471,3 +471,121 @@ fn a_fixed_choice_given_is_checked_and_the_default_stands_in() {
         other => panic!("{other:?}"),
     }
 }
+
+const WIRE_TOML: &str = r#"
+name     = "Wire"
+summary  = "A command takes one more port"
+language = "python"
+
+[inputs.unit]
+type   = "ident"
+prompt = "The command"
+
+[inputs.port]
+type   = "ident"
+prompt = "The port"
+
+[derive]
+Unit   = "{= unit|pascal =}"
+Port   = "{= port|pascal =}"
+module = "src/bistro/booking/commands/{= unit|snake =}.py"
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of imports"
+text   = "from bistro.booking.ports.{= port =}.{= port =} import {= Port =}"
+unless = { matches = "import .*\\b{= Port =}\\b" }
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of parameters in {= Unit =}.__init__"
+text   = "{= port =}: {= Port =}"
+unless = { matches = "\\b{= port =}: {= Port =}\\b" }
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of function {= Unit =}.__init__"
+text   = "self.{= port =} = {= port =}"
+unless = { matches = "self\\.{= port =} = {= port =}" }
+
+[[edits]]
+insert     = "src/bistro/booking/commands/{= unit|snake =}__nope.py"
+at         = "end of imports"
+text       = "x = 1"
+on_missing = "skip"
+"#;
+
+#[test]
+fn inserts_change_a_file_in_one_composed_change_and_a_second_plan_has_nothing_to_do() {
+    use spellbook::domain::plan::{Applied, FileStatus, PlanStop};
+
+    let dir = bistro_project();
+    write_generator(dir.path(), "wire", WIRE_TOML, &[]);
+    let rig = PlanRig::new(dir.path());
+    let plan = rig
+        .plan("wire", &[("unit", "cancel_booking"), ("port", "clock")])
+        .unwrap();
+    assert_eq!(plan.files.len(), 1, "{:?}", plan.files);
+    let file = &plan.files[0];
+    assert_eq!(file.path, "src/bistro/booking/commands/cancel_booking.py");
+    assert_eq!(file.status, FileStatus::Changed);
+    assert_eq!((file.added, file.removed), (3, 1));
+    assert!(
+        file.text.contains(
+            "import BookingRepository\nfrom bistro.booking.ports.clock.clock import Clock\n"
+        ),
+        "{}",
+        file.text
+    );
+    assert!(
+        file.text.contains(
+            "    def __init__(self, bookings: BookingRepository, clock: Clock) -> None:\n"
+        ),
+        "{}",
+        file.text
+    );
+    assert!(
+        file.text
+            .contains("        self.bookings = bookings\n        self.clock = clock\n"),
+        "{}",
+        file.text
+    );
+    let before = std::fs::read_to_string(dir.path().join(&file.path)).unwrap();
+    assert_eq!(
+        spellbook::domain::change::apply_changes(&before, &file.changes).unwrap(),
+        file.text
+    );
+
+    std::fs::write(dir.path().join(&file.path), &file.text).unwrap();
+    let again = PlanRig::new(dir.path())
+        .plan("wire", &[("unit", "cancel_booking"), ("port", "clock")])
+        .unwrap_err();
+    assert_eq!(again, PlanStop::NothingToDo(Applied::Generation));
+}
+
+#[test]
+fn an_insert_whose_phrase_misses_stops_the_plan_naming_it() {
+    use spellbook::domain::plan::plan_stop_text;
+
+    let dir = bistro_project();
+    write_generator(dir.path(), "wire", WIRE_TOML, &[]);
+    let stop = PlanRig::new(dir.path())
+        .plan("wire", &[("unit", "nope"), ("port", "clock")])
+        .unwrap_err();
+    assert_eq!(
+        plan_stop_text(&stop),
+        "[[edits]] 1 insert (src/bistro/booking/commands/nope.py): the file is not there; nothing was written"
+    );
+    write_file(
+        dir.path(),
+        "src/bistro/booking/commands/nope.py",
+        "import os\n\n\nclass Other:\n    pass\n",
+    );
+    let stop = PlanRig::new(dir.path())
+        .plan("wire", &[("unit", "nope"), ("port", "clock")])
+        .unwrap_err();
+    assert_eq!(
+        plan_stop_text(&stop),
+        "[[edits]] 2 insert (src/bistro/booking/commands/nope.py): `end of parameters in Nope.__init__`: no function `Nope.__init__` in nope.py; nothing was written"
+    );
+}

@@ -99,13 +99,65 @@ pub enum QueryValue {
     Path,
 }
 
-/// `[[edits]]`: one file to create.
+/// `[[edits]]`: one file to create, or lines to put in a file that is there.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Edit {
-    /// The path, a template over the inputs and derived names.
-    pub create: String,
-    pub body: EditBody,
-    pub on_exists: OnExists,
+pub enum Edit {
+    /// `create`: a new file.
+    Create {
+        /// The path, a template over the inputs and derived names.
+        path: String,
+        body: EditBody,
+        on_exists: OnExists,
+    },
+    /// `insert`: lines put in a file that is there (or that an earlier edit of the plan creates).
+    ///
+    /// Example: `insert = "{= module =}"`, `at = "end of imports"`, `text = "import os"`,
+    /// `unless = { matches = "^import os$" }` adds the import once.
+    Insert {
+        /// The file, a template over the inputs and derived names.
+        file: String,
+        /// Where the lines go: phrases tried in order, the first that resolves wins.
+        at: Vec<String>,
+        body: EditBody,
+        /// A regex (a template): when any line of the file matches it, the edit is skipped.
+        unless: Option<String>,
+        /// A phrase (a template): the edit happens only when it resolves in the file.
+        when: Option<String>,
+        on_missing: OnMissing,
+    },
+}
+
+impl Edit {
+    /// The path template of the file the edit writes or changes.
+    pub fn path(&self) -> &str {
+        match self {
+            Edit::Create { path, .. } => path,
+            Edit::Insert { file, .. } => file,
+        }
+    }
+
+    pub fn body(&self) -> &EditBody {
+        match self {
+            Edit::Create { body, .. } | Edit::Insert { body, .. } => body,
+        }
+    }
+
+    /// The key that names the path: `create` or `insert`.
+    pub fn word(&self) -> &'static str {
+        match self {
+            Edit::Create { .. } => "create",
+            Edit::Insert { .. } => "insert",
+        }
+    }
+}
+
+/// What an `insert` does when its file is not there or none of its phrases resolves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnMissing {
+    /// Stop the plan, naming the edit and the phrase (the default).
+    Error,
+    /// Leave the file as it is.
+    Skip,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,7 +199,19 @@ const TOP_KEYS: &[&str] = &[
 ];
 const INPUT_KEYS: &[&str] = &["type", "one_of", "choices", "prompt", "optional", "default"];
 const QUERY_KEYS: &[&str] = &["glob", "value"];
-const EDIT_KEYS: &[&str] = &["create", "template", "text", "on_exists"];
+const EDIT_KEYS: &[&str] = &[
+    "create",
+    "insert",
+    "at",
+    "template",
+    "text",
+    "on_exists",
+    "unless",
+    "when",
+    "on_missing",
+];
+const CREATE_ONLY: &[&str] = &["on_exists"];
+const INSERT_ONLY: &[&str] = &["at", "unless", "when", "on_missing"];
 const HOLE_KEYS: &[&str] = &["source", "value"];
 
 /// Reads a generator from its `generator.toml` text and its templates, key by key. The first
@@ -317,18 +381,51 @@ fn edit(number: usize, table: &Table) -> Result<Edit, String> {
         (Some(_), Some(_)) => return Err(keys.at("give template or text, not both")),
         (None, None) => return Err(keys.at("give template (a file under templates/) or text")),
     };
-    let on_exists = match keys.text("on_exists")?.as_deref() {
-        None | Some("error") => OnExists::Error,
-        Some("skip") => OnExists::Skip,
-        Some(other) => {
-            return Err(keys.at(&unknown_value_text("on_exists", other, &["error", "skip"])));
+    match (keys.text("create")?, keys.text("insert")?) {
+        (Some(path), None) => {
+            keys.refuse_keys_of_the_other("create", INSERT_ONLY)?;
+            Ok(Edit::Create {
+                path,
+                body,
+                on_exists: match keys.text("on_exists")?.as_deref() {
+                    None | Some("error") => OnExists::Error,
+                    Some("skip") => OnExists::Skip,
+                    Some(other) => {
+                        return Err(keys.at(&unknown_value_text(
+                            "on_exists",
+                            other,
+                            &["error", "skip"],
+                        )));
+                    }
+                },
+            })
         }
-    };
-    Ok(Edit {
-        create: keys.required_text("create")?,
-        body,
-        on_exists,
-    })
+        (None, Some(file)) => {
+            keys.refuse_keys_of_the_other("insert", CREATE_ONLY)?;
+            Ok(Edit::Insert {
+                file,
+                at: keys.phrases("at")?,
+                body,
+                unless: keys.inner_text("unless", "matches")?,
+                when: keys.inner_text("when", "found")?,
+                on_missing: match keys.text("on_missing")?.as_deref() {
+                    None | Some("error") => OnMissing::Error,
+                    Some("skip") => OnMissing::Skip,
+                    Some(other) => {
+                        return Err(keys.at(&unknown_value_text(
+                            "on_missing",
+                            other,
+                            &["error", "skip"],
+                        )));
+                    }
+                },
+            })
+        }
+        (Some(_), Some(_)) => Err(keys.at("give create or insert, not both")),
+        (None, None) => {
+            Err(keys.at("give create (a new file) or insert (lines in a file that is there)"))
+        }
+    }
 }
 
 fn hole(name: &str, table: &Table) -> Result<HoleSource, String> {
@@ -426,6 +523,42 @@ impl<'t> Keys<'t> {
             None => Ok(false),
             Some(Value::Boolean(on)) => Ok(*on),
             Some(_) => Err(self.at(&format!("{key} must be true or false"))),
+        }
+    }
+
+    /// A key of the other kind of edit: `on_exists` in an `insert`, `at` in a `create`.
+    fn refuse_keys_of_the_other(&self, word: &str, others: &[&str]) -> Result<(), String> {
+        match others.iter().find(|key| self.table.contains_key(**key)) {
+            Some(key) => Err(self.at(&format!("`{key}` does not go with {word}"))),
+            None => Ok(()),
+        }
+    }
+
+    /// `at`: one phrase or a list of them, at least one.
+    fn phrases(&self, key: &str) -> Result<Vec<String>, String> {
+        let phrases = match self.table.get(key) {
+            None => Vec::new(),
+            Some(Value::String(one)) => vec![one.clone()],
+            Some(_) => self.texts(key)?,
+        };
+        if phrases.is_empty() {
+            return Err(self.at(&format!(
+                "{key} is missing: where the lines go (\"end of imports\", or a list tried in order)"
+            )));
+        }
+        Ok(phrases)
+    }
+
+    /// A one-key table's text: `unless = { matches = "…" }`.
+    fn inner_text(&self, key: &str, inner: &str) -> Result<Option<String>, String> {
+        let Some(value) = self.table.get(key) else {
+            return Ok(None);
+        };
+        let shape = || self.at(&format!("{key} is a table, `{{ {inner} = \"…\" }}`"));
+        let table = value.as_table().ok_or_else(shape)?;
+        match (table.len(), table.get(inner)) {
+            (1, Some(Value::String(text))) => Ok(Some(text.clone())),
+            _ => Err(shape()),
         }
     }
 

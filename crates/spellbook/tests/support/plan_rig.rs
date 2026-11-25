@@ -11,6 +11,7 @@ use spellbook::adapters::disk_workspace::DiskWorkspace;
 use spellbook::adapters::generator_dir::generator_named;
 use spellbook::adapters::json_holes::JsonHoles;
 use spellbook::adapters::jsonl_generation_store::JsonlGenerationStore;
+use spellbook::adapters::query_anchors::QueryAnchors;
 use spellbook::domain::generator::Generator;
 use spellbook::domain::inputs::Given;
 use spellbook::domain::plan::{Plan, PlanStop};
@@ -23,6 +24,7 @@ pub struct PlanRig {
     pub project: Arc<Project>,
     pub view: FilesView,
     pub grammars: CachedGrammars,
+    pub anchors: QueryAnchors<CachedGrammars>,
     pub fences: Fences,
     pub clock: FixedClock,
 }
@@ -35,6 +37,10 @@ impl PlanRig {
                 languages: project.languages.clone(),
                 cache: test_cache(),
             },
+            anchors: QueryAnchors::new(CachedGrammars {
+                languages: project.languages.clone(),
+                cache: test_cache(),
+            }),
             fences: Fences::for_project(&project).unwrap(),
             clock: FixedClock::at_noon(),
             project,
@@ -46,6 +52,7 @@ impl PlanRig {
         PlanDeps {
             view: &self.view,
             grammars: &self.grammars,
+            anchors: &self.anchors,
             fences: &self.fences,
             clock: &self.clock,
         }

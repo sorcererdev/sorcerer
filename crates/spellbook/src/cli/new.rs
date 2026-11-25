@@ -183,13 +183,18 @@ fn summary_text(plan: &Plan, written: &[String]) -> String {
     let file_rows: Vec<Vec<String>> = plan
         .files
         .iter()
-        .filter(|file| file.status == FileStatus::Skipped || written.contains(&file.path))
+        .filter(|file| file.status != FileStatus::New || written.contains(&file.path))
         .map(|file| match file.status {
             FileStatus::New => vec![
                 format!("+ {}", file.path),
                 format!("({} lines)", file.lines),
             ],
+            FileStatus::Changed => vec![
+                format!("~ {}", file.path),
+                format!("(+{} \u{2212}{})", file.added, file.removed),
+            ],
             FileStatus::Skipped => vec![format!("= {}", file.path), "(exists, skipped)".into()],
+            FileStatus::Unchanged => vec![format!("= {}", file.path), "(unchanged)".into()],
         })
         .collect();
     text.push_str(&columns("  ", &file_rows));

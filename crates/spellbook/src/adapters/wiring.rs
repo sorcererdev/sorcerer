@@ -79,6 +79,7 @@ impl Wired {
         PlanDeps {
             view: &self.view,
             grammars: &self.grammars,
+            anchors: &self.anchors,
             fences: &self.fences,
             clock: self.clock.as_ref(),
         }

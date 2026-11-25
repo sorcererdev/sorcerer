@@ -1,7 +1,10 @@
 //! Changes to a file that is already there, made of whole lines: what an `insert` edit or a fix's
 //! `replace` does to the text, and the line diff a plan shows for it.
 
-use similar::{ChangeTag, TextDiff};
+use serde::Serialize;
+
+use crate::domain::anchor::Place;
+use similar::{ChangeTag, DiffOp, TextDiff};
 
 /// Lines `from_row` up to (not including) `to_row` (rows from 0) replaced by `new`. An insertion
 /// has `from_row == to_row` and `old` empty; a deletion has `new` empty. `old` is the text the
@@ -10,7 +13,7 @@ use similar::{ChangeTag, TextDiff};
 ///
 /// Example: putting `import os\n` before row 2 is `{ from_row: 2, to_row: 2, old: "", new:
 /// "import os\n" }`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TextChange {
     pub from_row: usize,
     pub to_row: usize,
@@ -18,9 +21,69 @@ pub struct TextChange {
     pub new: String,
 }
 
+/// The change that puts `lines` (rendered text, `\n` line endings) at a place in `text`: as new
+/// lines indented by the place's indent, or joined to a line; in the file's own line ending. A
+/// line of `lines` lands on row `place_row + n - 1` of the changed text, for its `n` from 1.
+///
+/// Example: `self.port = port` at `Lines { row: 3, indent: "        " }` is the change inserting
+/// `        self.port = port\n` before row 3.
+pub fn change_at(text: &str, place: &Place, lines: &str) -> TextChange {
+    let lines = lines.trim_end_matches('\n');
+    match place {
+        Place::Lines {
+            row,
+            indent,
+            suffix,
+        } => {
+            let indented: Vec<String> = lines
+                .split('\n')
+                .map(|line| {
+                    if line.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{indent}{line}")
+                    }
+                })
+                .collect();
+            TextChange {
+                from_row: *row,
+                to_row: *row,
+                old: String::new(),
+                new: with_line_ending(&format!("{}{suffix}\n", indented.join("\n")), text),
+            }
+        }
+        Place::InLine {
+            row,
+            column,
+            prefix,
+            suffix,
+        } => {
+            let old = text
+                .split_inclusive('\n')
+                .nth(*row)
+                .unwrap_or("")
+                .to_string();
+            let body = old.trim_end_matches(['\n', '\r']);
+            let ending = &old[body.len()..];
+            let column = (*column).min(body.len());
+            let new = format!(
+                "{}{prefix}{lines}{suffix}{}{ending}",
+                &body[..column],
+                &body[column..]
+            );
+            TextChange {
+                from_row: *row,
+                to_row: *row + 1,
+                old,
+                new: with_line_ending(&new, text),
+            }
+        }
+    }
+}
+
 /// One hunk of a line diff: its `@@ -a,b +c,d @@` header and its lines, each starting with ` `
 /// (unchanged), `-` (removed) or `+` (added), without the line ending.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Hunk {
     pub header: String,
     pub lines: Vec<String>,
@@ -105,6 +168,42 @@ pub fn hunks(old: &str, new: &str) -> Vec<Hunk> {
                 .collect(),
         })
         .collect()
+}
+
+/// The whole-line changes that turn `old` into `new`, rows counted in `old`: what an editor
+/// applies to the file as it was when the plan was made.
+///
+/// Example: `a\nb\n` to `a\nB\nc\n` is one change, rows 1..2 become `B\nc\n`.
+pub fn changes_between(old: &str, new: &str) -> Vec<TextChange> {
+    let diff = TextDiff::from_lines(old, new);
+    let old_lines: Vec<&str> = old.split_inclusive('\n').collect();
+    let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
+    diff.ops()
+        .iter()
+        .filter(|op| !matches!(op, DiffOp::Equal { .. }))
+        .map(|op| {
+            let (old_range, new_range) = (op.old_range(), op.new_range());
+            TextChange {
+                from_row: old_range.start,
+                to_row: old_range.end,
+                old: old_lines[old_range].concat(),
+                new: new_lines[new_range].concat(),
+            }
+        })
+        .fold(Vec::new(), join_touching)
+}
+
+/// A change that starts where the one before ends joins it, so a replaced line is one change.
+fn join_touching(mut changes: Vec<TextChange>, next: TextChange) -> Vec<TextChange> {
+    match changes.last_mut() {
+        Some(last) if last.to_row == next.from_row => {
+            last.to_row = next.to_row;
+            last.old.push_str(&next.old);
+            last.new.push_str(&next.new);
+        }
+        _ => changes.push(next),
+    }
+    changes
 }
 
 /// How many lines a diff adds and removes, for a plan's `(+3 −1)`.
@@ -203,6 +302,53 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got, "a\r\nn\r\nb\r\n");
+    }
+
+    #[test]
+    fn text_lands_as_indented_lines_or_on_a_line() {
+        let text = "def f(self) -> None:\n    pass\n";
+        let lines = Place::Lines {
+            row: 2,
+            indent: "    ".into(),
+            suffix: String::new(),
+        };
+        assert_eq!(
+            apply_changes(text, &[change_at(text, &lines, "x = 1\n\ny = 2\n")]).unwrap(),
+            "def f(self) -> None:\n    pass\n    x = 1\n\n    y = 2\n"
+        );
+        let on_line = Place::InLine {
+            row: 0,
+            column: 10,
+            prefix: ", ".into(),
+            suffix: String::new(),
+        };
+        assert_eq!(
+            apply_changes(text, &[change_at(text, &on_line, "port: Port")]).unwrap(),
+            "def f(self, port: Port) -> None:\n    pass\n"
+        );
+        let crlf = "a\r\n";
+        let at_end = Place::Lines {
+            row: 1,
+            indent: String::new(),
+            suffix: ",".into(),
+        };
+        assert_eq!(change_at(crlf, &at_end, "b").new, "b,\r\n");
+    }
+
+    #[test]
+    fn changes_between_two_texts_apply_back() {
+        let (old, new) = ("a\nb\nc\nd\n", "z\na\nB\nc\nd\ne\n");
+        let changes = changes_between(old, new);
+        assert_eq!(apply_changes(old, &changes).unwrap(), new);
+        assert_eq!(
+            changes[1],
+            TextChange {
+                from_row: 1,
+                to_row: 2,
+                old: "b\n".into(),
+                new: "B\n".into()
+            }
+        );
     }
 
     #[test]

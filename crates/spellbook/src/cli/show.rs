@@ -6,7 +6,7 @@ use anyhow::Result;
 use sorcerer_core::domain::templates::{Piece, pieces};
 
 use crate::adapters::wiring::Wired;
-use crate::domain::generator::{EditBody, Generator, InputKind, OnExists};
+use crate::domain::generator::{Edit, EditBody, Generator, InputKind, OnExists, OnMissing};
 use crate::domain::inputs::{Given, input_stop_text};
 use crate::ports::generators::Generators;
 use crate::usecases::choices_for::choices_for;
@@ -94,15 +94,29 @@ fn edit_rows(generator: &Generator) -> Vec<Vec<String>> {
         .edits
         .iter()
         .map(|edit| {
-            let body = match &edit.body {
+            let body = match edit.body() {
                 EditBody::Template(name) => format!("from templates/{name}"),
                 EditBody::Text(_) => "a fixed text".into(),
             };
-            let exists = match edit.on_exists {
-                OnExists::Error => "stops if it exists",
-                OnExists::Skip => "skipped if it exists",
+            let when = match edit {
+                Edit::Create {
+                    on_exists: OnExists::Error,
+                    ..
+                } => "stops if it exists".to_string(),
+                Edit::Create {
+                    on_exists: OnExists::Skip,
+                    ..
+                } => "skipped if it exists".to_string(),
+                Edit::Insert { at, on_missing, .. } => format!(
+                    "inserted at {}{}",
+                    at.join(" or "),
+                    match on_missing {
+                        OnMissing::Error => "",
+                        OnMissing::Skip => ", skipped if missing",
+                    }
+                ),
             };
-            vec![edit.create.clone(), body, exists.into()]
+            vec![edit.path().to_string(), body, when]
         })
         .collect()
 }
