@@ -166,8 +166,13 @@ fn inserts_are_well_formed(generator: &Generator) -> Result<(), String> {
             let filled =
                 fill(regex, &stand_ins).map_err(|why| format!("{}: {why}", place("unless")))?;
             Regex::new(&filled).map_err(|e| {
+                let why = e
+                    .to_string()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 format!(
-                    "{}: the regex `{regex}` does not compile ({e})",
+                    "{}: the regex `{regex}` does not compile ({why})",
                     place("unless")
                 )
             })?;

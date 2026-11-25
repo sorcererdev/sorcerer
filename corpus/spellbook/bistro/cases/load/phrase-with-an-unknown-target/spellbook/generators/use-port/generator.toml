@@ -1,0 +1,81 @@
+name        = "Use a port"
+summary     = "A command or query takes one of the service's ports; its test passes the in-memory fake"
+description = "The port's Protocol is imported, __init__ takes and keeps it, and the test's helper passes InMemory<Port>(). main.py is yours until the adapter choice (SQLite or in-memory) can be written (milestone 2b)."
+language    = "python"
+examples    = ["spellbook new use-port --set service=booking --set kind=commands --set unit=close_table --set port=table_repository"]
+
+[inputs.app]
+type   = "enum"
+one_of = "apps"
+prompt = "The app (the folder under src/ with main.py)"
+
+[inputs.service]
+type   = "enum"
+one_of = "services"
+prompt = "The service it belongs to"
+
+[inputs.kind]
+type    = "enum"
+choices = ["commands", "queries"]
+prompt  = "A command or a query"
+
+[inputs.unit]
+type   = "ident"
+prompt = "The command or query (its module's name)"
+
+[inputs.port]
+type   = "enum"
+one_of = "ports"
+prompt = "The port it takes (one of the service's ports/)"
+
+[query.apps]
+glob  = "src/*/main.py"
+value = "parent folder"
+
+[query.services]
+glob  = "src/{= app =}/*/models"
+value = "parent folder"
+
+[query.ports]
+glob  = "src/{= app =}/{= service|snake =}/ports/*/__init__.py"
+value = "parent folder"
+
+[derive]
+Unit   = "{= unit|pascal =}"
+Port   = "{= port|pascal =}"
+param  = "{= port|snake =}"
+module = "src/{= app =}/{= service|snake =}/{= kind =}/{= unit|snake =}.py"
+test   = "src/{= app =}/{= service|snake =}/{= kind =}/{= unit|snake =}__test.py"
+ports  = "{= app =}.{= service|snake =}.ports.{= port|snake =}"
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of the imports"
+text   = "from {= ports =}.{= port|snake =} import {= Port =}"
+unless = { matches = "import .*\\b{= Port =}\\b" }
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of parameters in {= Unit =}.__init__"
+text   = "{= param =}: {= Port =}"
+unless = { matches = "\\b{= param =}: {= Port =}\\b" }
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of function {= Unit =}.__init__"
+text   = "self.{= param =} = {= param =}"
+unless = { matches = "self\\.{= param =} = {= param =}" }
+
+[[edits]]
+insert     = "{= test =}"
+at         = "end of imports"
+text       = "from {= ports =}.in_memory_{= port|snake =} import InMemory{= Port =}"
+unless     = { matches = "import InMemory{= Port =}\\b" }
+on_missing = "skip"            # no test file: nothing to wire there
+
+[[edits]]
+insert     = "{= test =}"
+at         = ["end of call {= Unit =} in command", "end of call {= Unit =} in query"]
+text       = "{= param =}=InMemory{= Port =}()"
+unless     = { matches = "{= param =}=InMemory{= Port =}\\(" }
+on_missing = "skip"
