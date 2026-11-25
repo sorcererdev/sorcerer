@@ -34,6 +34,28 @@ pub(super) enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Fix the finding on a line with one of its rule's fixes, after showing the change;
+    /// --plan only shows it
+    Fix {
+        /// The finding's place, FILE:LINE
+        #[arg(value_name = "FILE:LINE")]
+        at: String,
+        /// The rule, when two rules find something on the line
+        #[arg(long)]
+        rule: Option<String>,
+        /// Which fix: its number from 1, or its label (the first when not given)
+        #[arg(long = "fix", value_name = "N|LABEL")]
+        fix: Option<String>,
+        /// An input's value (repeat it for each input)
+        #[arg(long = "set", value_name = "INPUT=VALUE")]
+        set: Vec<String>,
+        /// Show the change, write nothing
+        #[arg(long)]
+        plan: bool,
+        /// Print the plan (or what was applied) as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// The holes still open: placeholders a generation left that nobody has filled yet
     Holes {
         /// Only the holes in these files

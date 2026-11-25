@@ -26,6 +26,9 @@ pub struct Finding {
     /// Stays the same when the code is moved or re-indented, so a later milestone can tell an
     /// old finding from a new one.
     pub fingerprint: String,
+    /// The found node's text, for the fixes a finding offers; not kept in `report.json`.
+    #[serde(skip)]
+    pub node_text: String,
 }
 
 /// What a rule found in one file, before the allow comments are read: the rule, the line the

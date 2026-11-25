@@ -2,10 +2,11 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
@@ -15,7 +16,7 @@ use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
 use super::file_arguments::relative_to_root;
-use super::{check, doctor, holes, list, lsp, new, show, trust};
+use super::{check, doctor, fix, holes, list, lsp, new, show, trust};
 
 /// The program's entry: runs the command in the current directory, with the real files,
 /// grammars and clock.
@@ -98,6 +99,33 @@ fn run_command(
         Cmd::Holes { files, json } => {
             let files = relative_to_root(&project, cwd, &files)?;
             holes::holes(&wire(project)?, &files, json, out)
+        }
+        Cmd::Fix {
+            at,
+            rule,
+            fix,
+            set,
+            plan,
+            json,
+        } => {
+            let Some((file, line)) = at
+                .rsplit_once(':')
+                .and_then(|(file, line)| Some((file, line.parse::<u32>().ok()?)))
+            else {
+                writeln!(err, "spellbook: `{at}` is not FILE:LINE (a line from 1)")?;
+                return Ok(2);
+            };
+            let file = relative_to_root(&project, cwd, &[PathBuf::from(file)])?;
+            let request = fix::FixRequest {
+                file: forward_slashes(&file[0]),
+                line,
+                rule,
+                fix,
+                set,
+                only_plan: plan,
+                json,
+            };
+            fix::fix(&wire(project)?, &request, out, err)
         }
         Cmd::Check { files, json } => {
             let files = relative_to_root(&project, cwd, &files)?;

@@ -209,7 +209,7 @@ fn summary_text(plan: &Plan, written: &[String]) -> String {
     text
 }
 
-fn hole_row(hole: &Hole) -> Vec<String> {
+pub(super) fn hole_row(hole: &Hole) -> Vec<String> {
     let place = &hole.places[0];
     vec![
         hole.name.clone(),
