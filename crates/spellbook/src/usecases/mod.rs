@@ -9,3 +9,4 @@ pub mod list_generators;
 pub mod open_holes;
 pub mod plan_fix;
 pub mod plan_generation;
+pub mod planned_view;

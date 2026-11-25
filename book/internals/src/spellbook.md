@@ -15,7 +15,7 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `config.rs`: `SpellbookConfig { enabled, exclude }`, `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
   the server (`republish`, `wired_for_commands`).
 - `generator.rs`: the types (`Generator`, `Input`/`InputKind`, `Query`/`QueryValue`,
-  `Edit::{Create, Insert}`/`EditBody`/`OnExists`/`OnMissing`, `HoleSource`) and `read_generator(id, text, templates)`, which
+  `Edit::{Create, Insert}`/`EditBody`/`OnExists`/`OnMissing`, `HoleSource`, `Use`) and `read_generator(id, text, templates)`, which
   reads `generator.toml` key by key with errors naming the place (`[inputs.app] type: …`). The
   workspace's `toml` sorts a table's keys, so the order of `[inputs.X]` headers and `[derive]`
   lines (which is the order inputs are asked and names derived) is read from the text with a
@@ -96,13 +96,17 @@ finding), `anchors.rs` (`Anchors::resolve(file, text, anchor)`), `report_store.r
 
 `usecases/`: `list_generators.rs` (`GeneratorSummary`, also the editor's picker reply),
 `choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`, which
-carries `anchors`, and `plan_generation`, whose `Insert` places an insert edit), `fixes_for.rs`
+carries `anchors`, and `plan_generation`, whose `Insert` places an insert edit and whose `with_used` plans each
+`[[uses]]` over a `PlannedView`), `planned_view.rs` (`PlannedView`: a `CodebaseView` that answers
+`exists`, `text` and `glob` with the plan so far laid over the project and passes every other
+question on), `fixes_for.rs`
 (`FixOffer`, `fixes_for`), `plan_fix.rs` (`FixDeps`, `FindingAt`, `plan_fix`), `apply_plan.rs`
 (`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, `check_files`), `check_project.rs`
 (`check_project`).
 
 `adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
-`load_generator`, `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
+`load_generator`, which follows `[[uses]]` with `uses_agree`: each used generator there and
+loading, its `with` names its inputs, no cycle, at most four in a chain; `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
 `Languages::for_path` and `Languages::load`), `disk_workspace.rs`, `jsonl_generation_store.rs`,
 `json_holes.rs` (core's `Store` at `spellbook/holes.json`), `json_report.rs` (the same at
 `spellbook/report.json`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every

@@ -136,6 +136,11 @@ impl PlannedFile {
         }
     }
 
+    /// Whether the plan leaves this file as it is: skipped, or every edit to it in place already.
+    pub fn leaves_the_code_as_it_is(&self) -> bool {
+        matches!(self.status, FileStatus::Skipped | FileStatus::Unchanged)
+    }
+
     /// A file the plan leaves as it is: skipped (there already) or unchanged (every insert's
     /// `unless` holds).
     pub fn left(path: String, status: FileStatus) -> PlannedFile {

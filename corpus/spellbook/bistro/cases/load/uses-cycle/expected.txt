@@ -1,0 +1,1 @@
+generator add-port (generator.toml): [[uses]] 1 of use-port: a cycle (add-port → use-port → add-port)

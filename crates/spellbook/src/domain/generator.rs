@@ -48,6 +48,19 @@ pub struct Generator {
     pub context: Vec<String>,
     /// Each template file's name (under `templates/`) and its text.
     pub templates: BTreeMap<String, String>,
+    /// `[[uses]]`: other generators planned into the same plan after this one's edits.
+    pub uses: Vec<Use>,
+}
+
+/// `[[uses]]`: another generator planned into the same plan, its inputs templates over this
+/// generator's values.
+///
+/// Example: `{ generator = "port", with = { port = "{= port =}" } }` plans the `port` generator
+/// with this generator's `port`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Use {
+    pub generator: String,
+    pub with: BTreeMap<String, String>,
 }
 
 /// One input a person gives (or the project gives, when an enum has one choice).
@@ -196,7 +209,9 @@ const TOP_KEYS: &[&str] = &[
     "edits",
     "holes",
     "context",
+    "uses",
 ];
+const USE_KEYS: &[&str] = &["generator", "with"];
 const INPUT_KEYS: &[&str] = &["type", "one_of", "choices", "prompt", "optional", "default"];
 const QUERY_KEYS: &[&str] = &["glob", "value"];
 const EDIT_KEYS: &[&str] = &[
@@ -252,7 +267,44 @@ pub fn read_generator(
             .collect::<Result<_, String>>()?,
         context: top.texts("context")?,
         templates,
+        uses: uses(&top)?,
     })
+}
+
+/// `[[uses]]`: each a generator id and its `with`.
+fn uses(top: &Keys) -> Result<Vec<Use>, String> {
+    let Some(value) = top.table.get("uses") else {
+        return Ok(Vec::new());
+    };
+    let list = value
+        .as_array()
+        .ok_or_else(|| "uses must be written as [[uses]] tables".to_string())?;
+    list.iter()
+        .enumerate()
+        .map(|(i, value)| {
+            let place = format!("[[uses]] {}", i + 1);
+            let table = value
+                .as_table()
+                .ok_or_else(|| format!("{place}: must be a table"))?;
+            let keys = Keys::new(&place, table);
+            keys.refuse_unknown(USE_KEYS)?;
+            let with = match table.get("with") {
+                None => BTreeMap::new(),
+                Some(Value::Table(with)) => with
+                    .iter()
+                    .map(|(name, value)| match value {
+                        Value::String(text) => Ok((name.clone(), text.clone())),
+                        _ => Err(keys.at(&format!("with.{name} is a template (text)"))),
+                    })
+                    .collect::<Result<_, String>>()?,
+                Some(_) => return Err(keys.at("with is a table of input = template")),
+            };
+            Ok(Use {
+                generator: keys.required_text("generator")?,
+                with,
+            })
+        })
+        .collect()
 }
 
 fn input(name: &str, table: &Table) -> Result<Input, String> {

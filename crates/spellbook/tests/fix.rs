@@ -96,7 +96,10 @@ fn the_finding_offers_use_port_asking_only_the_port() {
         MODULE,
         "import sqlite3",
     );
-    assert_eq!(offers.len(), 1);
+    assert_eq!(offers.len(), 2);
+    assert_eq!(offers[1].label, "Add a port and use it");
+    assert_eq!(offers[1].generator, "add-port");
+    assert_eq!(offers[1].missing, vec!["port".to_string()]);
     assert_eq!(offers[0].label, "Use a port the service has");
     assert_eq!(offers[0].generator, "use-port");
     assert_eq!(offers[0].inputs["unit"], "close_table");

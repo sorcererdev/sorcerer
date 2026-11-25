@@ -8,7 +8,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use spellbook::adapters::cached_grammars::CachedGrammars;
 use spellbook::adapters::disk_workspace::DiskWorkspace;
-use spellbook::adapters::generator_dir::generator_named;
+use spellbook::adapters::generator_dir::{GeneratorDirs, generator_named};
 use spellbook::adapters::json_holes::JsonHoles;
 use spellbook::adapters::jsonl_generation_store::JsonlGenerationStore;
 use spellbook::adapters::query_anchors::QueryAnchors;
@@ -25,6 +25,7 @@ pub struct PlanRig {
     pub view: FilesView,
     pub grammars: CachedGrammars,
     pub anchors: QueryAnchors<CachedGrammars>,
+    pub generators: GeneratorDirs,
     pub fences: Fences,
     pub clock: FixedClock,
 }
@@ -42,6 +43,7 @@ impl PlanRig {
                 cache: test_cache(),
             }),
             fences: Fences::for_project(&project).unwrap(),
+            generators: GeneratorDirs::new(project.clone()),
             clock: FixedClock::at_noon(),
             project,
             view,
@@ -53,6 +55,7 @@ impl PlanRig {
             view: &self.view,
             grammars: &self.grammars,
             anchors: &self.anchors,
+            generators: &self.generators,
             fences: &self.fences,
             clock: &self.clock,
         }

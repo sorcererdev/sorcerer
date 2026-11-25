@@ -1,0 +1,43 @@
+name     = "Add a port and use it"
+summary  = "A new port for the service (Protocol, in-memory adapter, contract test), taken by a command or query"
+language = "python"
+examples = ["spellbook new add-port --set service=booking --set kind=commands --set unit=close_table --set port=clock"]
+
+[inputs.app]
+type   = "enum"
+one_of = "apps"
+prompt = "The app (the folder under src/ with main.py)"
+
+[inputs.service]
+type   = "enum"
+one_of = "services"
+prompt = "The service it belongs to"
+
+[inputs.kind]
+type    = "enum"
+choices = ["commands", "queries"]
+prompt  = "A command or a query"
+
+[inputs.unit]
+type   = "ident"
+prompt = "The command or query (its module's name)"
+
+[inputs.port]
+type   = "ident"
+prompt = "The new port (clock, email_sender)"
+
+[query.apps]
+glob  = "src/*/main.py"
+value = "parent folder"
+
+[query.services]
+glob  = "src/{= app =}/*/models"
+value = "parent folder"
+
+[[uses]]
+generator = "port"
+with      = { app = "{= app =}", service = "{= service =}", port = "{= port =}" }
+
+[[uses]]
+generator = "use-port"
+with      = { app = "{= app =}", service = "{= service =}", kind = "{= kind =}", unit = "{= unit =}", port = "{= port =}" }

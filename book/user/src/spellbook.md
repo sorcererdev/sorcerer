@@ -15,8 +15,8 @@ What is here and what is coming (the five parts of spellbook):
 |---|---|
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
 | rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
-| fixes (a rule names the generator that repairs a finding) and insert edits | here: `spellbook fix` on the command line; in the editors with the next parts of milestone 2 |
-| owned regions (`pub mod` lines a generator keeps), `[[uses]]`, list inputs, `if`/`for` in templates | milestone 2 |
+| fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line; in the editors with the next parts of milestone 2 |
+| owned regions (`pub mod` lines a generator keeps), list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
 
@@ -100,9 +100,10 @@ class {= Command =}:
 | `[derive]` | names computed from the inputs, in order; each may use the ones before it |
 | `[[edits]]` | `create` (the path, a template), then `template` (a file under `templates/`) or `text` (written as it is), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"`. Or `insert`: lines put in a file that is there (below) |
 | `[holes.X]` | `source = "derived"` and `value`: a hole filled from the inputs |
+| `[[uses]]` | another generator planned into the same plan after this one's edits: `generator` (its id) and `with` (its inputs, templates over this generator's values). Its files, changes and holes join the plan, and it sees the files planned before it (`add-port` uses `port`, then `use-port`, which finds the port `port` just planned). A used generator that is missing, a `with` input it does not take, a chain deeper than four or a cycle is refused when the generator loads |
 | `context` | olifant's key (files a filler reads); kept for a later milestone |
 
-Keys that arrive later in milestone 2 (`[[uses]]`, `type = "list"`, `ast` queries,
+Keys that arrive later in milestone 2 (`type = "list"`, `ast` queries,
 `{= if =}`/`{= for =}`) are refused with a sentence that says so. A slip gets the
 word to write instead: `content` → `text`, `pascalCase(x)` → `{= x|pascal =}`, `{{ }}` → `{= =}`.
 
@@ -162,8 +163,9 @@ code already` and exits 3.
 ## The generators of the corpus
 
 The repository ships two small projects with generators you can read and copy, in
-`corpus/spellbook/`. `bistro` is Python (`command`, `query`, `port`); `bistro-rs` is Rust
-(`command`, `port`). Take bistro's `command` end to end:
+`corpus/spellbook/`. `bistro` is Python (`command`, `query`, `port`, and the two its fix uses:
+`use-port`, which inserts a port into a command and its test, and `add-port`, which uses `port`
+then `use-port`); `bistro-rs` is Rust (`command`, `port`). Take bistro's `command` end to end:
 
 ```
 $ spellbook new command --set command=cancel_table
@@ -437,6 +439,9 @@ Use a port the service has: use-port (2 files changed, 0 new, 0 holes)
 nothing written (--plan)
 ```
 
+The second fix, `--fix 2` (or `--fix "Add a port and use it"`), asks `port` as a new name and plans
+the `port` generator's four new files and the same wiring in one plan, `+` rows above `~` rows.
+
 Without `--plan` the two files are changed and `spellbook check` is clean; run it again and it says
 `nothing to do: the fix is already applied` (exit 3). Had the finding been `conn =
 sqlite3.connect(path)` (the `attribute` form of the match), that statement would become
@@ -637,7 +642,7 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 ## What is coming
 
 The rest of milestone 2 brings fixes in the editors (code actions, a diff preview, one undo),
-`[[uses]]` (a generator that plans another into the same plan), `missing` rules, owned regions (the
+`missing` rules, owned regions (the
 `pub mod` line a generator keeps), list inputs and `if`/`for` in templates, and packs of generators
 and rules shared between projects.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or

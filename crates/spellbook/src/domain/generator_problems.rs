@@ -24,13 +24,13 @@ impl fmt::Display for GeneratorProblem {
 }
 
 /// Keys olifant's generators have that arrive in a later milestone here.
-const LATER_KEYS: &[&str] = &["uses", "for", "ast", "missing", "fix"];
+const LATER_KEYS: &[&str] = &["for", "ast", "missing", "fix"];
 
 /// What to say about a key a table does not have: the right word when it is a known slip, a
 /// later milestone when it is olifant's, else the nearest known key or the list of them.
 ///
-/// Example: `content` gives "`content` is not a key; write `text`"; `uses` gives
-/// "`uses` arrives in milestone 2"; `promt` gives "`promt` is not a key; did you mean `prompt`?".
+/// Example: `content` gives "`content` is not a key; write `text`"; `ast` gives
+/// "`ast` arrives in milestone 2"; `promt` gives "`promt` is not a key; did you mean `prompt`?".
 pub fn unknown_key_text(key: &str, known: &[&str]) -> String {
     if key == "content" && known.contains(&"text") {
         return "`content` is not a key; write `text`".into();
@@ -111,8 +111,8 @@ mod tests {
             "`content` is not a key; write `text`"
         );
         assert_eq!(
-            unknown_key_text("uses", &["create"]),
-            "`uses` arrives in milestone 2"
+            unknown_key_text("ast", &["create"]),
+            "`ast` arrives in milestone 2"
         );
         assert_eq!(
             unknown_key_text("promt", &["prompt", "type"]),

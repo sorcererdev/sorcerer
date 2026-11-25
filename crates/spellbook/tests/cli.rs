@@ -453,7 +453,7 @@ fn the_fix_session_of_the_design_runs_end_to_end() {
     assert_eq!(code, 1, "{out}");
     assert!(
         out.contains(&format!(
-            "✗ {CLOSE_TABLE}:4  commands-use-ports — Commands and queries talk to ports, not the database (python-htmx: ports & adapters)  (fixes: Use a port the service has)\n"
+            "✗ {CLOSE_TABLE}:4  commands-use-ports — Commands and queries talk to ports, not the database (python-htmx: ports & adapters)  (fixes: Use a port the service has · Add a port and use it)\n"
         )),
         "{out}"
     );

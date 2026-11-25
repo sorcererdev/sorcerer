@@ -23,14 +23,18 @@ use crate::domain::plan::{
 use crate::domain::template::{Rendered, render};
 use crate::ports::anchors::Anchors;
 use crate::ports::clock::Clock;
+use crate::ports::generators::Generators;
 use crate::ports::grammars::Grammars;
 use crate::usecases::choices_for::{Resolved, resolve_inputs};
+use crate::usecases::planned_view::PlannedView;
 
 /// What planning reads: the project's files, its grammars and anchors, its fences and the clock.
 pub struct PlanDeps<'a> {
     pub view: &'a dyn CodebaseView,
     pub grammars: &'a dyn Grammars,
     pub anchors: &'a dyn Anchors,
+    /// Where a `[[uses]]` finds the generator it plans.
+    pub generators: &'a dyn Generators,
     pub fences: &'a Fences,
     pub clock: &'a dyn Clock,
 }
@@ -62,9 +66,6 @@ pub fn plan_generation(
             draft_edit(deps, generator, &values, drafts, number + 1, edit)
         })?;
     let drafts: Vec<Draft> = drafts.into_iter().map(Draft::finished).collect();
-    if has_inserts(generator) && drafts.iter().all(Draft::leaves_the_code_as_it_is) {
-        return Err(PlanStop::NothingToDo(Applied::Generation));
-    }
     let holes = drafts
         .iter()
         .try_fold(HoleBook::default(), |book, draft| {
@@ -72,15 +73,92 @@ pub fn plan_generation(
         })
         .map_err(PlanStop::Template)?
         .holes();
+    let own = (drafts.into_iter().map(|draft| draft.file).collect(), holes);
+    let (files, holes) = generator
+        .uses
+        .iter()
+        .try_fold(own, |so_far, used| with_used(deps, &values, so_far, used))?;
+    let nothing_new = files.iter().all(|file: &PlannedFile| {
+        matches!(file.status, FileStatus::Skipped | FileStatus::Unchanged)
+    });
+    if (has_inserts(generator) || !generator.uses.is_empty()) && nothing_new {
+        return Err(PlanStop::NothingToDo(Applied::Generation));
+    }
     let inputs = values.inputs();
     Ok(Plan {
         id: plan_id(&generator.id, &inputs, &deps.clock.now().to_rfc3339()),
         generator: generator.id.clone(),
         inputs,
-        files: drafts.into_iter().map(|draft| draft.file).collect(),
+        files,
         holes,
         fix: None,
     })
+}
+
+/// The plan so far with one `[[uses]]` planned after it, over a view of the project with the
+/// plan so far laid on it: the used plan's new files appended, a file it changes again kept as
+/// one change from the disk's text, its holes appended. A used generator with nothing to do adds
+/// nothing.
+fn with_used(
+    deps: &PlanDeps,
+    values: &Values,
+    (mut files, mut holes): (Vec<PlannedFile>, Vec<crate::domain::holes::Hole>),
+    used: &crate::domain::generator::Use,
+) -> Result<(Vec<PlannedFile>, Vec<crate::domain::holes::Hole>), PlanStop> {
+    let generator = match deps.generators.named(&used.generator) {
+        Some(Ok(generator)) => generator,
+        Some(Err(problem)) => return Err(PlanStop::Generator(problem.to_string())),
+        None => {
+            return Err(PlanStop::Generator(format!(
+                "the project has no generator `{}`",
+                used.generator
+            )));
+        }
+    };
+    let given = used
+        .with
+        .iter()
+        .map(|(name, template)| Ok((name.clone(), fill(template, &values.pairs())?)))
+        .collect::<Result<_, String>>()
+        .map(Given)
+        .map_err(PlanStop::Template)?;
+    let planned = files
+        .iter()
+        .filter(|file| matches!(file.status, FileStatus::New | FileStatus::Changed))
+        .map(|file| (file.path.clone(), file.text.clone()))
+        .collect();
+    let view = PlannedView::new(deps.view, planned);
+    let over_the_plan = PlanDeps {
+        view: &view,
+        grammars: deps.grammars,
+        anchors: deps.anchors,
+        generators: deps.generators,
+        fences: deps.fences,
+        clock: deps.clock,
+    };
+    let plan = match plan_generation(&over_the_plan, &generator, &given) {
+        Ok(plan) => plan,
+        Err(PlanStop::NothingToDo(_)) => return Ok((files, holes)),
+        Err(stop) => return Err(stop),
+    };
+    for file in plan.files {
+        match files.iter().position(|known| known.path == file.path) {
+            Some(at) if file.status == FileStatus::Changed => {
+                let known = &files[at];
+                files[at] = match known.status {
+                    FileStatus::New => PlannedFile::new_file(file.path, file.text),
+                    FileStatus::Changed => {
+                        PlannedFile::changed(file.path, known.before.clone(), file.text)
+                    }
+                    FileStatus::Skipped | FileStatus::Unchanged => file,
+                };
+            }
+            Some(_) => {}
+            None => files.push(file),
+        }
+    }
+    holes.extend(plan.holes);
+    Ok((files, holes))
 }
 
 /// One planned file and the holes it holds.
@@ -110,13 +188,6 @@ impl Draft {
             file: PlannedFile::changed(self.file.path, self.file.before, self.file.text),
             holes: self.holes,
         }
-    }
-
-    fn leaves_the_code_as_it_is(&self) -> bool {
-        matches!(
-            self.file.status,
-            FileStatus::Skipped | FileStatus::Unchanged
-        )
     }
 }
 

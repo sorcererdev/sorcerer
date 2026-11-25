@@ -57,6 +57,76 @@ pub fn generator_dirs(root: &Path) -> Vec<PathBuf> {
 
 /// One generator from its directory: the file read, its templates read, and every check run.
 pub fn load_generator(dir: &Path, languages: &Languages) -> Result<Generator, GeneratorProblem> {
+    let generator = load_alone(dir, languages)?;
+    let generators_dir = dir.parent().unwrap_or(dir);
+    uses_agree(
+        generators_dir,
+        languages,
+        &generator,
+        std::slice::from_ref(&generator.id),
+    )
+    .map_err(|why| GeneratorProblem {
+        generator: generator.id.clone(),
+        file: "generator.toml".into(),
+        why,
+    })?;
+    Ok(generator)
+}
+
+/// How deep `[[uses]]` may go: a generator, the ones it uses, and so on, four in a chain.
+const USES_DEPTH: usize = 4;
+
+/// Each `[[uses]]` names a generator of the project that loads, gives only inputs it takes, and
+/// leads to no cycle and no chain longer than four. `chain` is the generators that led here.
+fn uses_agree(
+    generators_dir: &Path,
+    languages: &Languages,
+    generator: &Generator,
+    chain: &[String],
+) -> Result<(), String> {
+    for (number, used) in generator.uses.iter().enumerate() {
+        let place = format!("[[uses]] {} of {}", number + 1, generator.id);
+        if chain.contains(&used.generator) {
+            return Err(format!(
+                "{place}: a cycle ({} → {})",
+                chain.join(" → "),
+                used.generator
+            ));
+        }
+        if chain.len() >= USES_DEPTH {
+            return Err(format!(
+                "{place}: [[uses]] go deeper than {USES_DEPTH} generators ({} → {})",
+                chain.join(" → "),
+                used.generator
+            ));
+        }
+        let dir = generators_dir.join(&used.generator);
+        if !dir.join("generator.toml").is_file() {
+            return Err(format!(
+                "{place}: the project has no generator `{}`",
+                used.generator
+            ));
+        }
+        let loaded =
+            load_alone(&dir, languages).map_err(|problem| format!("{place}: {problem}"))?;
+        if let Some(name) = used
+            .with
+            .keys()
+            .find(|name| !loaded.inputs.iter().any(|(input, _)| input == *name))
+        {
+            return Err(format!(
+                "{place}: `with` gives `{name}`, an input {} does not have",
+                used.generator
+            ));
+        }
+        let longer: Vec<String> = chain.iter().cloned().chain([loaded.id.clone()]).collect();
+        uses_agree(generators_dir, languages, &loaded, &longer)?;
+    }
+    Ok(())
+}
+
+/// A generator read and checked against itself, its `[[uses]]` not followed.
+fn load_alone(dir: &Path, languages: &Languages) -> Result<Generator, GeneratorProblem> {
     let id = dir
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

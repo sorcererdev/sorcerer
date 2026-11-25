@@ -26,6 +26,15 @@ replace   = [
   { enclosing = ["expression_statement", "return_statement"], text = "{= ? port_call: block | the same as {= finding =} through self.{= param =} =}" },
 ]
 
+[[rules.commands-use-ports.fixes]]
+generator = "add-port"
+label     = "Add a port and use it"
+with      = { app = "{= app =}", service = "{= service =}", kind = "{= kind =}", unit = "{= stem =}" }
+replace   = [
+  { enclosing = ["import_statement", "import_from_statement"], text = "" },
+  { enclosing = ["expression_statement", "return_statement"], text = "{= ? port_call: block | the same as {= finding =} through self.{= param =} =}" },
+]
+
 [rules.web-uses-commands]
 files    = "src/{app}/web/**.py"
 exclude  = ["**/*__test.py"]

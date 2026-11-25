@@ -80,6 +80,7 @@ impl Wired {
             view: &self.view,
             grammars: &self.grammars,
             anchors: &self.anchors,
+            generators: &self.generators,
             fences: &self.fences,
             clock: self.clock.as_ref(),
         }

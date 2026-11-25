@@ -1,0 +1,6 @@
+# `import sqlite3` in a command, the second fix: a new `clock` port (four files) and the command
+# and its test wired to it, in one plan.
+patch  = "sqlite3-import-in-cancel-booking.patch"
+at     = "src/bistro/booking/commands/cancel_booking.py:4"
+fix    = 2
+inputs = { port = "clock" }
