@@ -3,6 +3,7 @@
 pub mod allow;
 pub mod config;
 pub mod finding;
+pub mod fix;
 pub mod generator;
 pub mod generator_checks;
 pub mod generator_problems;

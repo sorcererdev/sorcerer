@@ -5,6 +5,9 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use std::collections::BTreeMap;
+
+use crate::domain::fix::{Fix, Replace};
 use crate::domain::generator_problems::unknown_key_text;
 use crate::domain::path_pattern::PathPattern;
 
@@ -61,6 +64,8 @@ pub struct Rule {
     pub severity: Severity,
     pub since: Option<String>,
     pub why: Option<String>,
+    /// The generators that answer a finding, best first; the first is the preferred one.
+    pub fixes: Vec<Fix>,
 }
 
 impl Rule {
@@ -75,10 +80,12 @@ impl Rule {
 }
 
 const RULE_KEYS: &[&str] = &[
-    "files", "exclude", "match", "query", "message", "severity", "since", "why",
+    "files", "exclude", "match", "query", "message", "severity", "since", "why", "fix", "fixes",
 ];
 const MATCH_KEYS: &[&str] = &["kind", "regex", "not", "any"];
-const LATER_RULE_KEYS: &[&str] = &["missing", "fix", "fixes"];
+const FIX_KEYS: &[&str] = &["generator", "label", "with", "replace"];
+const REPLACE_KEYS: &[&str] = &["enclosing", "text"];
+const LATER_RULE_KEYS: &[&str] = &["missing"];
 
 /// The rules in the text of a `rules.toml`, in file order; each problem names the rule and the key.
 ///
@@ -125,6 +132,7 @@ fn parse_rule(id: &str, value: &toml::Value) -> Result<Rule, String> {
             RuleBody::Query(query.as_str().ok_or("`query` is a string")?.to_string())
         }
     };
+    let fixes = fixes_of(table, &files)?;
     Ok(Rule {
         id: id.to_string(),
         files,
@@ -134,6 +142,7 @@ fn parse_rule(id: &str, value: &toml::Value) -> Result<Rule, String> {
         severity: severity_of(table)?,
         since: string_of(table, "since")?,
         why: string_of(table, "why")?,
+        fixes,
     })
 }
 
@@ -141,13 +150,104 @@ fn parse_rule(id: &str, value: &toml::Value) -> Result<Rule, String> {
 fn refuse_unknown_keys(table: &toml::Table, known: &[&str]) -> Result<(), String> {
     for key in table.keys() {
         if LATER_RULE_KEYS.contains(&key.as_str()) {
-            return Err(format!("`{key}` arrives in milestone 2"));
+            return Err(format!("`{key}` arrives in milestone 2b"));
         }
         if !known.contains(&key.as_str()) {
             return Err(unknown_key_text(key, known));
         }
     }
     Ok(())
+}
+
+/// The rule's fixes: `fix = "<generator>"` (one fix, labelled with the generator's name, whose
+/// `with` passes each slot of `files` on as the input of that name) or `[[fixes]]` tables.
+fn fixes_of(table: &toml::Table, files: &PathPattern) -> Result<Vec<Fix>, String> {
+    match (table.get("fix"), table.get("fixes")) {
+        (Some(_), Some(_)) => Err("write `fix` or `fixes`, not both".into()),
+        (None, None) => Ok(Vec::new()),
+        (Some(_), None) => {
+            let generator = string_of(table, "fix")?.unwrap_or_default();
+            Ok(vec![Fix {
+                generator,
+                label: None,
+                with: files
+                    .slots()
+                    .iter()
+                    .map(|slot| (slot.clone(), format!("{{= {slot} =}}")))
+                    .collect(),
+                replace: Vec::new(),
+            }])
+        }
+        (None, Some(list)) => list
+            .as_array()
+            .ok_or("`fixes` is a list of tables, `[[rules.<id>.fixes]]`")?
+            .iter()
+            .enumerate()
+            .map(|(index, item)| fix_of(item).map_err(|why| format!("fixes[{}]: {why}", index + 1)))
+            .collect(),
+    }
+}
+
+fn fix_of(value: &toml::Value) -> Result<Fix, String> {
+    let table = value
+        .as_table()
+        .ok_or("it is a table, `{ generator, label, with, replace }`")?;
+    refuse_unknown_keys(table, FIX_KEYS)?;
+    let generator = string_of(table, "generator")?
+        .ok_or("`generator` is missing: the generator that makes the fix")?;
+    let with = match table.get("with") {
+        None => BTreeMap::new(),
+        Some(with) => with
+            .as_table()
+            .ok_or("`with` is a table of input = template")?
+            .iter()
+            .map(|(name, value)| {
+                let text = value
+                    .as_str()
+                    .ok_or_else(|| format!("`with.{name}` is a string (a template)"))?;
+                Ok((name.clone(), text.to_string()))
+            })
+            .collect::<Result<_, String>>()?,
+    };
+    let replace = match table.get("replace") {
+        None => Vec::new(),
+        Some(list) => list
+            .as_array()
+            .ok_or("`replace` is a list of `{ enclosing, text }`")?
+            .iter()
+            .map(replace_of)
+            .collect::<Result<_, _>>()?,
+    };
+    Ok(Fix {
+        generator,
+        label: string_of(table, "label")?,
+        with,
+        replace,
+    })
+}
+
+fn replace_of(value: &toml::Value) -> Result<Replace, String> {
+    let table = value
+        .as_table()
+        .ok_or("each `replace` case is a table, `{ enclosing, text }`")?;
+    refuse_unknown_keys(table, REPLACE_KEYS)?;
+    let enclosing = match table.get("enclosing") {
+        Some(toml::Value::String(kind)) => vec![kind.clone()],
+        Some(toml::Value::Array(kinds)) => kinds
+            .iter()
+            .map(|kind| kind.as_str().map(String::from))
+            .collect::<Option<Vec<_>>>()
+            .ok_or("`enclosing` is a list of node kinds")?,
+        Some(_) => return Err("`enclosing` is a list of node kinds".into()),
+        None => {
+            return Err("`enclosing` is missing: the node kinds whose lines it replaces".into());
+        }
+    };
+    Ok(Replace {
+        enclosing,
+        text: string_of(table, "text")?
+            .ok_or("`text` is missing: what the lines become (\"\" deletes them)")?,
+    })
 }
 
 fn string_of(table: &toml::Table, key: &str) -> Result<Option<String>, String> {
@@ -285,14 +385,74 @@ severity = "error"
     }
 
     #[test]
-    fn missing_arrives_in_milestone_2() {
+    fn missing_arrives_in_milestone_2b() {
         let error = parse_rules(&format!("{ONE}\nmissing = \"x\"\n")).unwrap_err();
         assert_eq!(
             error,
-            "rule commands-use-ports: `missing` arrives in milestone 2"
+            "rule commands-use-ports: `missing` arrives in milestone 2b"
         );
-        let fixes = parse_rules("[rules.a]\nfiles = \"x\"\nmessage = \"m\"\nmatch = { kind = \"k\" }\n[[rules.a.fixes]]\ngenerator = \"g\"\n").unwrap_err();
-        assert_eq!(fixes, "rule a: `fixes` arrives in milestone 2");
+    }
+
+    #[test]
+    fn the_fix_shorthand_passes_the_slots_on() {
+        let rules = parse_rules(&format!("{ONE}fix = \"use-port\"\n")).unwrap();
+        let fix = &rules[0].fixes[0];
+        assert_eq!(fix.generator, "use-port");
+        assert_eq!(fix.label, None);
+        assert_eq!(fix.with.get("app").map(String::as_str), Some("{= app =}"));
+        assert_eq!(
+            fix.with.get("service").map(String::as_str),
+            Some("{= service =}")
+        );
+        assert!(fix.replace.is_empty());
+    }
+
+    #[test]
+    fn fixes_read_as_tables_best_first() {
+        let text = format!(
+            "{ONE}\n[[rules.commands-use-ports.fixes]]\ngenerator = \"use-port\"\nlabel = \"Use a port\"\nwith = {{ unit = \"{{= stem =}}\" }}\nreplace = [{{ enclosing = [\"import_statement\"], text = \"\" }}, {{ enclosing = \"call\", text = \"x\" }}]\n[[rules.commands-use-ports.fixes]]\ngenerator = \"add-port\"\n"
+        );
+        let rules = parse_rules(&text).unwrap();
+        let fixes = &rules[0].fixes;
+        assert_eq!(fixes.len(), 2);
+        assert_eq!(fixes[0].label.as_deref(), Some("Use a port"));
+        assert_eq!(
+            fixes[0].with.get("unit").map(String::as_str),
+            Some("{= stem =}")
+        );
+        assert_eq!(
+            fixes[0].replace,
+            vec![
+                Replace {
+                    enclosing: vec!["import_statement".into()],
+                    text: String::new()
+                },
+                Replace {
+                    enclosing: vec!["call".into()],
+                    text: "x".into()
+                },
+            ]
+        );
+        assert_eq!(fixes[1].generator, "add-port");
+    }
+
+    #[test]
+    fn fix_and_fixes_together_are_refused() {
+        let text =
+            format!("{ONE}fix = \"g\"\n[[rules.commands-use-ports.fixes]]\ngenerator = \"g\"\n");
+        assert_eq!(
+            parse_rules(&text).unwrap_err(),
+            "rule commands-use-ports: write `fix` or `fixes`, not both"
+        );
+    }
+
+    #[test]
+    fn a_fix_slip_is_named() {
+        let text = format!("{ONE}\n[[rules.commands-use-ports.fixes]]\ngenrator = \"g\"\n");
+        assert_eq!(
+            parse_rules(&text).unwrap_err(),
+            "rule commands-use-ports: fixes[1]: `genrator` is not a key; did you mean `generator`?"
+        );
     }
 
     #[test]

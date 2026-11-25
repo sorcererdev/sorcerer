@@ -1,0 +1,1 @@
+.sorcerer/spellbook/rules.toml: rule commands-use-ports: fix command: `with` gives `unit`, an input the generator does not have (its inputs: app, service, command)
