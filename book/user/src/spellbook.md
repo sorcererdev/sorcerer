@@ -15,7 +15,8 @@ What is here and what is coming (the five parts of spellbook):
 |---|---|
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
 | rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
-| owned regions (`pub mod` lines a generator keeps), insert edits, list inputs, `if`/`for` in templates | milestone 2 |
+| fixes (a rule names the generator that repairs a finding) and insert edits | here: `spellbook fix` on the command line; in the editors with the next parts of milestone 2 |
+| owned regions (`pub mod` lines a generator keeps), `[[uses]]`, list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
 
@@ -97,13 +98,56 @@ class {= Command =}:
 | `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (its values are `one_of` a query over the project's files, or a fixed list, `choices = ["command", "query"]`, whose `default` must be one of them; not both) or `text`; `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
 | `[query.X]` | `glob`, a template over the inputs before the one that uses it, and `value`: `"parent folder"`, `"stem"` or `"path"` of each match. In the glob `*` stays inside one folder and `**` crosses folders; a glob may name folders as well as files |
 | `[derive]` | names computed from the inputs, in order; each may use the ones before it |
-| `[[edits]]` | `create` (the path, a template), then `template` (a file under `templates/`) or `text` (written as it is), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"` |
+| `[[edits]]` | `create` (the path, a template), then `template` (a file under `templates/`) or `text` (written as it is), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"`. Or `insert`: lines put in a file that is there (below) |
 | `[holes.X]` | `source = "derived"` and `value`: a hole filled from the inputs |
 | `context` | olifant's key (files a filler reads); kept for a later milestone |
 
-Keys that arrive in milestone 2 (`insert` and `at` edits, `[[uses]]`, `type = "list"`, `ast`
-queries, `{= if =}`/`{= for =}`) are refused with a sentence that says so. A slip gets the
+Keys that arrive later in milestone 2 (`[[uses]]`, `type = "list"`, `ast` queries,
+`{= if =}`/`{= for =}`) are refused with a sentence that says so. A slip gets the
 word to write instead: `content` → `text`, `pascalCase(x)` → `{= x|pascal =}`, `{{ }}` → `{= =}`.
+
+### Insert edits
+
+An `insert` edit puts lines in a file that is there, where a phrase says:
+
+```toml
+[[edits]]
+insert = "{= module =}"
+at     = "end of parameters in {= Unit =}.__init__"
+text   = "{= param =}: {= Port =}"
+unless = { matches = "\\b{= param =}: {= Port =}\\b" }
+```
+
+| key | what it is |
+|---|---|
+| `insert` | the file to change, a template. Exactly one of `create`/`insert` per edit |
+| `at` | where the text goes: a phrase, or a list of phrases tried in order (the first that resolves wins) |
+| `text` / `template` | the lines to insert, rendered as a `create` body is (holes included), indented like what they go next to, in the file's own line ending |
+| `unless = { matches = REGEX }` | the edit is left out (`=`) when any line of the file matches the regex (a template, filled first). This is what makes running a generator or a fix twice a no-op |
+| `when = { found = PHRASE }` | the edit happens only when the phrase resolves in the file |
+| `on_missing` | when the file is not there or no phrase resolves: `"error"` (the default: the plan stops, naming the edit and the phrase) or `"skip"` |
+
+The phrases are `<position> <target>`: `start of`, `end of` (inside the target, before its first
+or after its last item), `before`, `after` (outside it).
+
+| target | `end of` means |
+|---|---|
+| `imports` | after the file's last top-level import (in a file with none, after its leading comments and docstring) |
+| `function NAME`, `class NAME` | after the last statement of the body, indented like it. `NAME` may be a method, `Class.method` (`Class::method` in Rust) |
+| `parameters in FUNCTION` | after the last parameter, with the list's own separator: on the line when the list is written on one line, on a line of its own when it is one per line |
+| `call NAME`, `call NAME in FUNCTION` | after the call's last argument, by the same rule; an empty `()` takes the text alone |
+| `marker TEXT`, `first line matching R`, `last line matching R` | `before` or `after` that line (any file, no grammar) |
+| `file` | `start of file` or `end of file` |
+
+A target found in several places (two `CloseTable(…)` calls) stops the plan and asks you to
+narrow it with `in FUNCTION`. A phrase with no `{= =}` is checked when the generator loads; one
+with a value is checked once filled. The structural targets read the queries every shipped
+language has (`imports.scm`, `tags.scm`, `textobjects.scm`), so a language you add gets them by
+having those queries.
+
+A plan shows a changed file as `~ path (+3 −1)`, and `--plan` prints its diff. A plan whose every
+insert is in place already and that writes nothing new says `nothing to do: every edit is in the
+code already` and exits 3.
 
 ### Templates
 
@@ -272,8 +316,10 @@ This rule names no severity, so it is an error.
 | `severity` | `hint`, `warn` or `error` (the default: a rule that names no severity is an error) |
 | `since`, `why` | free text for people: when the convention began and why it holds |
 
-`missing`, `fix` and `fixes` are keys of milestone 2 (a rule that says what to add, and a
-generator that repairs it): a rules file that has one says so and stops.
+| `fix`, `[[rules.ID.fixes]]` | the generators that repair a finding: see [Fixes](#fixes) |
+
+`missing` (a rule that says what to add) arrives in milestone 2b: a rules file that has it says so
+and stops.
 
 The short form is `{ kind, regex, not = { regex }, any = [ … ] }`. `kind` is the syntax node's kind
 in the language's grammar (`import_statement`, `call_expression`); `regex` must match the node's
@@ -286,16 +332,21 @@ files you name) and prints a row for each finding:
 
 ```
 $ spellbook check
-✗ src/bistro/booking/commands/close_table.py:2  commands-use-ports — Commands and queries talk to ports, not the database
+✗ src/bistro/booking/commands/close_table.py:4  commands-use-ports — Commands and queries talk to ports, not the database  (fixes: Use a port the service has)
 1 blocking finding
 ```
+
+A row ends with `(fixes: … · …)` when the rule has fixes.
 
 `!` is a warning, `·` a hint, `✗` an error. A rule is an error unless it says `severity = "warn"`
 or `"hint"`. The exit code is 0 when the conventions hold (hints and warnings do not fail), 1 when a
 finding is an error, and 2 when it could not run (the rules file has
 a mistake, which the message names). `--json` prints `{ "checked", "findings": [ … ] }`: each finding
 has `rule`, `file`, `line`, `severity`, `message` and a `fingerprint` (seven hex digits that stay the
-same when the code is moved or re-indented). `[spellbook] exclude` in `config.toml` lists files no
+same when the code is moved or re-indented), and, when its rule has fixes, `fixes`: `[{ "index",
+"label", "generator", "inputs", "missing" }]`, the inputs the finding settles and the ones still to
+give, so an agent can run the fix without reading the rules file (`report.json` does not keep
+them). `[spellbook] exclude` in `config.toml` lists files no
 rule sees.
 
 To let one place break a rule, say why in a comment on the line or the line above:
@@ -318,6 +369,100 @@ code), beside the marks of the holes in the file. Edit `rules.toml` and the next
 problem.
 
 The last check is kept in `.sorcerer/state/spellbook/report.json`.
+
+## Fixes
+
+A rule can name the generators that repair its findings, best first:
+
+```toml
+[[rules.commands-use-ports.fixes]]
+generator = "use-port"
+label     = "Use a port the service has"
+with      = { app = "{= app =}", service = "{= service =}", kind = "{= kind =}", unit = "{= stem =}" }
+replace   = [
+  { enclosing = ["import_statement", "import_from_statement"], text = "" },
+  { enclosing = ["expression_statement", "return_statement"], text = "{= ? port_call: block | the same as {= finding =} through self.{= param =} =}" },
+]
+```
+
+| key | what it is |
+|---|---|
+| `fix = "ID"` | the short form: one fix, labelled with the generator's `name`, whose `with` passes each slot of `files` on as the input of that name |
+| `generator` | a generator of the project |
+| `label` | what `check` and the editor show; a template over the same names as `with` |
+| `with` | the generator's inputs, each a template over the slots of `files` (`{= app =}`), `{= dir =}` (the file's folder), `{= stem =}` (its name without extension), `{= file =}` (its path) and `{= finding =}` (the found code, on one line). An input not in `with` is asked (an enum with one choice is taken) |
+| `replace` | cases tried in order: the first whose `enclosing` node kind is around the finding (the found node itself counts) has that node's whole lines replaced by `text`. An empty `text` deletes them; otherwise it is a template over the generator's inputs and derived names and `finding` (the code replaced), and may hold holes. No case matching stops the plan, naming the node's kind. Without `replace`, the found code stays |
+
+Write `fix` or `fixes`, not both. Each inline table sits on one line (TOML does not let an inline
+table span lines). A fix that names no generator of the project, gives an input the generator does
+not have, or uses a name in `with` that is neither a slot nor one of `dir`, `stem`, `file`,
+`finding` makes the rules file broken: `check` exits 2 naming it and `doctor` shows it.
+
+On bistro, with `import sqlite3` added to a generated command:
+
+```
+$ spellbook fix src/bistro/booking/commands/close_table.py:4
+spellbook: port: the port it takes (one of the service's ports/) (booking_repository, id_generator, table_repository)
+  give it with --set port=VALUE
+
+$ spellbook fix src/bistro/booking/commands/close_table.py:4 --set port=table_repository --plan
+Use a port the service has: use-port (2 files changed, 0 new, 0 holes)
+  ~ src/bistro/booking/commands/close_table.py        (+3 −2)
+  ~ src/bistro/booking/commands/close_table__test.py  (+2 −1)
+--- src/bistro/booking/commands/close_table.py
+@@ -3,5 +3,5 @@
+ from dataclasses import dataclass
+-import sqlite3
+ 
+ from bistro.shared.result import Ok
++from bistro.booking.ports.table_repository.table_repository import TableRepository
+ 
+@@ -26,4 +26,5 @@
+ class CloseTable:
+-    def __init__(self) -> None:
++    def __init__(self, table_repository: TableRepository) -> None:
+         """Takes the ports it uses; main.py passes their adapters."""
++        self.table_repository = table_repository
+ 
+--- src/bistro/booking/commands/close_table__test.py
+@@ -2,2 +2,3 @@
+ from bistro.shared.result import Ok
++from bistro.booking.ports.table_repository.in_memory_table_repository import InMemoryTableRepository
+ 
+@@ -5,3 +6,3 @@
+ def command() -> CloseTable:
+-    return CloseTable()
++    return CloseTable(table_repository=InMemoryTableRepository())
+ 
+nothing written (--plan)
+```
+
+Without `--plan` the two files are changed and `spellbook check` is clean; run it again and it says
+`nothing to do: the fix is already applied` (exit 3). Had the finding been `conn =
+sqlite3.connect(path)` (the `attribute` form of the match), that statement would become
+`raise NotImplementedError("hole port_call: the same as conn = sqlite3.connect(path) through
+self.table_repository")`, a hole like any other.
+
+`spellbook fix FILE:LINE` takes the finding on that line (`--rule ID` picks when two rules fire on
+it), `--fix N|LABEL` (the first fix when not given), `--set` for the inputs the finding does not
+settle, `--plan` and `--json` (the plan). The exit code is 0 when it was applied, 1 when the plan
+stopped (the finding is gone, no `replace` case fits, a phrase does not resolve) or a file was
+refused, 2 when an input is to give, and 3 when there is nothing to do.
+
+What keeps a fix safe:
+
+- **Planned before written.** The finding is found again in the file as it is now; every new and
+  changed file a language covers is parsed; a phrase that does not resolve stops the plan.
+- **The plan is the whole change.** `--plan` shows new files whole and changed files as hunks.
+- **Changed files land first, and only onto the text the plan saw.** A file edited since the plan
+  is refused and nothing is written. New files are never written over a file that appeared.
+- **Twice is a no-op.** Each insert has its `unless`, so the second run has nothing to do.
+- **Nothing runs by itself.** A fix is an offer: never on save, never from `check`. A finding still
+  has its other exit, `# spellbook:allow RULE — reason`.
+
+A fix never calls a model, never edits a file it did not show, and never touches `main.py` unless a
+generator's edit says so. In VS Code and Neovim, fixes arrive as code actions with the next parts of
+milestone 2.
 
 ## In Neovim
 
@@ -478,7 +623,7 @@ Besides the files you ask for by name, spellbook writes only its own state under
 
 | file | what it holds |
 |---|---|
-| `generations.jsonl` | one line per generation applied: its id, time, generator, inputs, files and holes (each line has `"version": 1`) |
+| `generations.jsonl` | one line per generation applied: its id, time, generator, inputs, files and holes, and for a fix `"fix": { "rule", "file", "line", "fingerprint", "index" }` and `"changed": [{ "path", "added", "removed" }]` (each line has `"version": 1`) |
 | `holes.json` | the open holes, `{"version": 1, "data": {"holes": [...]}}`, refreshed by `new` and `holes` |
 | `report.json` | the findings of the last check, `{"version": 1, "data": {"checked": …, "findings": [...]}}`: rewritten whole by `spellbook check`, a file at a time by the editor's server |
 
@@ -491,9 +636,10 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 
 ## What is coming
 
-Milestone 2 brings fixes (a rule that names the generator that repairs it), `missing` rules,
-owned regions (the `pub mod` line a generator keeps), insert edits, list inputs and `if`/`for` in
-templates, and packs of generators and rules shared between projects.
+The rest of milestone 2 brings fixes in the editors (code actions, a diff preview, one undo),
+`[[uses]]` (a generator that plans another into the same plan), `missing` rules, owned regions (the
+`pub mod` line a generator keeps), list inputs and `if`/`for` in templates, and packs of generators
+and rules shared between projects.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything
 until then, and the model parts stay optional.
