@@ -4,6 +4,9 @@
 
 - **Spellbook for VS Code:** the plan's title names the inputs taken without asking (an enum with
   one choice), such as `· app bistro, service booking (the only choices)`.
+- **conjure tells you what a step did.** After every step the editor shows one message, such as
+  `conjure: changed seat_party__test.py (1 line), seat_party.py (2 lines) · <goal>` or
+  `conjure: no change · <goal>`, so a change to a file you are not looking at is not missed.
 
 ## 0.2.0 — 2026-11-24
 

@@ -935,6 +935,7 @@ fn landed(replies: &[&str]) -> (TempDir, Served) {
     s.open("src/a.py");
     s.conjure_here("src/a.py", 5);
     s.apply_next_edit();
+    assert!(s.shown_message().starts_with("conjure: changed "));
     (dir, s)
 }
 
@@ -1597,6 +1598,7 @@ fn undo_empties_a_created_file_when_the_editor_cannot_delete() {
     s.open("src/a.py");
     s.conjure_here("src/a.py", 5);
     s.apply_next_edit();
+    assert!(s.shown_message().starts_with("conjure: changed "));
     let main = s.marks("src/a.py");
     s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
     let params = s.apply_next_edit();

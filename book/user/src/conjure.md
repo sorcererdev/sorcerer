@@ -135,6 +135,14 @@ that ended it (`kept`, `undone`, `replaced`), or `dropped` when nothing landed,
 `landed-in-part` (above) and `unanswered` when the editor closed with the change still marked;
 `conjure log` lists them.
 
+**Told after every step.** When a step ends, the editor shows one message, so a change to a file
+you are not looking at is not missed: `conjure: changed seat_party__test.py (1 line),
+seat_party.py (2 lines) · <goal>` (each file by its name, or its path from the root when two share
+a name; the lines are the ones changed). A step that changed nothing says `conjure: no change ·
+<goal>`, or, when the writer's goal is `nothing`, `conjure: no change · nothing left that I can see;
+add a test case or a comment that says what comes next`. A file refused or dropped is a warning
+instead (below).
+
 **No change.** When the writer finds nothing to do, a mark on the function's first line says
 `no change · <goal>`, with Try harder and Show why. It goes at your next edit or save.
 
