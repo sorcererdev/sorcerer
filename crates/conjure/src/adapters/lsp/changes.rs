@@ -441,6 +441,7 @@ impl Server {
         if conjured.change.files.is_empty() {
             let landed = landed_change(conjured, &[]);
             self.record(&landed.project, &landed.record, Choice::NoChange);
+            self.client.say(MessageType::INFO, &step_text(&landed));
             self.show(landed, ShownState::Recorded);
             return self.ended(progress);
         }
@@ -486,6 +487,7 @@ impl Server {
     fn confirm_landed(self: &Arc<Self>, mut landed: LandedChange, progress: WorkDone) {
         let not_as_sent = self.files_not_as_sent(&landed);
         if not_as_sent.is_empty() {
+            self.client.say(MessageType::INFO, &step_text(&landed));
             self.show(landed, ShownState::Open);
         } else if not_as_sent.len() == landed.files.len() {
             self.client
@@ -1028,6 +1030,50 @@ fn in_part_note(names: &[String]) -> String {
     format!(" · did not land as sent: {}, so no Undo", names.join(", "))
 }
 
+/// The one line the person is told after a step: what changed, or that nothing did.
+fn step_text(landed: &LandedChange) -> String {
+    let goal = landed.goal_text();
+    if landed.is_no_change() {
+        return no_change_text(&goal);
+    }
+    let files: Vec<(String, u32)> = landed
+        .files
+        .iter()
+        .map(|file| (file.relative_text(), file.lines_changed))
+        .collect();
+    changed_text(&files, &goal)
+}
+
+/// `conjure: changed seat_party__test.py (1 line), seat_party.py (2 lines) · add a test`.
+/// Each file is its name alone, or its path from the root when two changed files share a name.
+fn changed_text(files: &[(String, u32)], goal: &str) -> String {
+    let name_of = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
+    let shown: Vec<String> = files
+        .iter()
+        .map(|(path, lines)| {
+            let name = name_of(path);
+            let shared = files
+                .iter()
+                .filter(|(other, _)| name_of(other) == name)
+                .count()
+                > 1;
+            let name = if shared { path.clone() } else { name };
+            let unit = if *lines == 1 { "line" } else { "lines" };
+            format!("{name} ({lines} {unit})")
+        })
+        .collect();
+    format!("conjure: changed {} \u{b7} {goal}", shown.join(", "))
+}
+
+/// A step that changed nothing: the writer said `nothing`, or wrote what is already there.
+fn no_change_text(goal: &str) -> String {
+    if goal.eq_ignore_ascii_case("nothing") {
+        "conjure: no change \u{b7} nothing left that I can see; add a test case or a comment that says what comes next".into()
+    } else {
+        format!("conjure: no change \u{b7} {goal}")
+    }
+}
+
 fn landed_in_part_text(names: &[String]) -> String {
     format!(
         "conjure: the change did not land as sent in {}; the other files were changed, and conjure will not undo them",
@@ -1066,4 +1112,45 @@ fn not_created_text(paths: &[PathBuf]) -> String {
         "conjure: this editor cannot create files; not created: {}",
         paths.join(", ")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{changed_text, no_change_text};
+
+    #[test]
+    fn a_change_names_each_file_with_its_lines_and_the_goal() {
+        let files = vec![
+            ("tests/seat_party__test.py".to_string(), 1),
+            ("src/seat_party.py".to_string(), 2),
+        ];
+        assert_eq!(
+            changed_text(&files, "seat the party"),
+            "conjure: changed seat_party__test.py (1 line), seat_party.py (2 lines) \u{b7} seat the party"
+        );
+    }
+
+    #[test]
+    fn two_files_with_one_name_are_told_apart_by_their_paths() {
+        let files = vec![("a/mod.py".to_string(), 3), ("b/mod.py".to_string(), 1)];
+        assert_eq!(
+            changed_text(&files, "x"),
+            "conjure: changed a/mod.py (3 lines), b/mod.py (1 line) \u{b7} x"
+        );
+    }
+
+    #[test]
+    fn a_goal_of_nothing_says_what_to_do_next() {
+        let text = "conjure: no change \u{b7} nothing left that I can see; add a test case or a comment that says what comes next";
+        assert_eq!(no_change_text("nothing"), text);
+        assert_eq!(no_change_text("Nothing"), text);
+    }
+
+    #[test]
+    fn a_writer_that_wrote_what_is_there_gives_its_goal() {
+        assert_eq!(
+            no_change_text("total is already summed"),
+            "conjure: no change \u{b7} total is already summed"
+        );
+    }
 }
