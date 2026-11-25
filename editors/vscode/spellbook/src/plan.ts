@@ -1,5 +1,6 @@
 // The plan preview's words and where its placeholders are (no editor code, so node's test
 // runner covers it); planPreview.ts shows them.
+import type { Values } from './inputs';
 
 // One file of a plan: its path under the root (with `/`), whether it is written, its text.
 export interface PlannedFile {
@@ -48,13 +49,21 @@ export interface LineRange {
   end: number;
 }
 
-// planTitle is the preview's title: the generator, how many files it writes and how many holes
-// are left to fill (the derived ones are filled already).
-// Example: `spellbook: command · 2 files · 3 holes to fill`.
-export function planTitle(plan: Plan): string {
+// planTitle is the preview's title: the generator, how many files it writes, how many holes
+// are left to fill (the derived ones are filled already) and the inputs taken without asking,
+// so the person sees what was picked for them.
+// Example: `spellbook: command · 2 files · 3 holes to fill · app bistro, service booking (the only choices)`.
+export function planTitle(plan: Plan, taken: Values = {}): string {
   const files = newFiles(plan).length;
   const holes = plan.holes.filter(hole => hole.source === 'placeholder').length;
-  return `spellbook: ${plan.generator} · ${counted(files, 'file')} · ${counted(holes, 'hole')} to fill`;
+  return `spellbook: ${plan.generator} · ${counted(files, 'file')} · ${counted(holes, 'hole')} to fill${takenText(taken)}`;
+}
+
+// ` · app bistro (the only choice)`, or nothing when every input was asked or given.
+function takenText(taken: Values): string {
+  const names = Object.entries(taken).map(([name, value]) => `${name} ${value}`);
+  if (names.length === 0) return '';
+  return ` · ${names.join(', ')} (the only ${names.length === 1 ? 'choice' : 'choices'})`;
 }
 
 // fileItems is one pick item per planned file: `+ path` with its line count for a file written,

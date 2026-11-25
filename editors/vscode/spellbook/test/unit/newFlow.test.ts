@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Generator, Input } from '../../src/inputs';
+import type { Generator, Input, Values } from '../../src/inputs';
 import { type Asker, newFlow, type Server } from '../../src/newFlow';
 import type { Plan } from '../../src/plan';
 
@@ -35,17 +35,18 @@ function fakeServer(replies: Record<string, unknown>): Server & { calls: [string
 
 // An asker giving scripted answers (undefined: a cancel), recording what it was told and asked.
 function fakeAsker(answers: { generator?: string; choices?: (string | undefined)[]; texts?: (string | undefined)[]; plan?: 'apply' | 'cancel' }):
-  Asker & { said: [string, string][]; asked: string[] } {
+  Asker & { said: [string, string][]; asked: string[]; shown: Values[] } {
   const said: [string, string][] = [];
   const asked: string[] = [];
+  const shown: Values[] = [];
   const choices = [...(answers.choices ?? [])];
   const texts = [...(answers.texts ?? [])];
   return {
-    said, asked,
+    said, asked, shown,
     pickGenerator: async gs => gs.find(g => g.id === answers.generator),
     pickChoice: async (input: Input, items: string[]) => { asked.push(`${input.name}: ${items.join(',')}`); return choices.shift(); },
     askText: async (input: Input, prompt: string) => { asked.push(`${input.name}? ${prompt}`); return texts.shift(); },
-    showPlan: async () => answers.plan ?? 'apply',
+    showPlan: async (_plan, taken) => { shown.push(taken); return answers.plan ?? 'apply'; },
     say: (level, text) => { said.push([level, text]); },
   };
 }
@@ -71,8 +72,9 @@ test('the_full_path_runs_the_four_commands_with_inputs_as_an_object_of_text', as
     ['spellbook.plan', ['command', { app: 'bistro', service: 'booking', command: 'cancel_table' }]],
     ['spellbook.apply', ['p1']],
   ]);
-  // the one app is taken without asking
+  // the one app is taken without asking, and the plan says so
   assert.deepEqual(asker.asked, ['service: booking,web', 'command? The command']);
+  assert.deepEqual(asker.shown, [{ app: 'bistro' }]);
   assert.deepEqual(asker.said, []);
 });
 
@@ -81,6 +83,8 @@ test('a_given_generator_and_inputs_skip_their_questions', async () => {
   const asker = fakeAsker({ texts: ['x'] });
   await newFlow(server, asker, { generator: 'command', inputs: { service: 'web' } });
   assert.deepEqual(asker.asked, ['command? The command']);
+  // a given input was not taken, so only the app is named
+  assert.deepEqual(asker.shown, [{ app: 'bistro' }]);
   assert.deepEqual(server.calls.at(-2), ['spellbook.plan', ['command', { service: 'web', app: 'bistro', command: 'x' }]]);
 });
 

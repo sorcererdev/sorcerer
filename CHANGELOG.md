@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Spellbook for VS Code:** the plan's title names the inputs taken without asking (an enum with
+  one choice), such as `· app bistro, service booking (the only choices)`.
+
 ## 0.2.0 — 2026-11-24
 
 Spellbook joins scry and conjure.
