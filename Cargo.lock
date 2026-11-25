@@ -1727,6 +1727,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "similar 3.2.1",
  "sorcerer-core",
  "sorcerer-lsp",
  "tempfile",

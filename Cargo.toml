@@ -31,6 +31,7 @@ which = "7"
 dunce = "1.0.5"
 process-wrap = { version = "10.0.1", default-features = false, features = ["std", "process-group", "job-object"] }
 regex = "1"
+similar = "3"
 tempfile = "3"
 mockito = "1"
 lsp-server = "0.10"

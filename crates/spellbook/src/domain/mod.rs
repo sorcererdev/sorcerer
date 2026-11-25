@@ -1,6 +1,8 @@
 //! Data and rules: no I/O, nothing from `ports` or `adapters`.
 
 pub mod allow;
+pub mod anchor;
+pub mod change;
 pub mod config;
 pub mod finding;
 pub mod fix;

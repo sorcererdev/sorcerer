@@ -12,3 +12,10 @@ pub trait Grammars: Send + Sync {
     /// when no language covers the file. An error when the grammar cannot be had.
     fn for_path(&self, file: &Path) -> Result<Option<Arc<Loaded>>>;
 }
+
+/// A borrowed set of grammars is one too, so an adapter can own its grammars or borrow them.
+impl<T: Grammars + ?Sized> Grammars for &T {
+    fn for_path(&self, file: &Path) -> Result<Option<Arc<Loaded>>> {
+        (**self).for_path(file)
+    }
+}
