@@ -29,12 +29,26 @@ pub struct Finding {
 }
 
 /// What a rule found in one file, before the allow comments are read: the rule, the line the
-/// matched node starts on (from 1) and the node's text.
+/// matched node starts on (from 1), the node's text and where the node is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawFinding {
     pub rule: String,
     pub line: u32,
     pub node_text: String,
+    pub span: Span,
+}
+
+/// Where a node of a file is: its first and last rows (from 0, as the parser counts them) and its
+/// bytes (the end not included).
+///
+/// Example: `import sqlite3` alone on the file's fourth line is rows 3 to 3; when the file's first
+/// three lines take 40 bytes, its bytes are 40 to 54.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub start_row: usize,
+    pub end_row: usize,
+    pub start_byte: usize,
+    pub end_byte: usize,
 }
 
 /// Seven hex digits from the rule and the node's text with every run of whitespace as one

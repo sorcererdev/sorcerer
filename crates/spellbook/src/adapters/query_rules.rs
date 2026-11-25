@@ -10,7 +10,7 @@ use sorcerer_core::{Error, Result};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
 use crate::domain::allow::Comment;
-use crate::domain::finding::RawFinding;
+use crate::domain::finding::{RawFinding, Span};
 use crate::domain::rule::{Rule, RuleBody};
 use crate::domain::rule_query::query_text;
 use crate::ports::grammars::Grammars;
@@ -94,6 +94,7 @@ impl RuleRunner for QueryRules<'_> {
                             .utf8_text(text.as_bytes())
                             .unwrap_or_default()
                             .to_string(),
+                        span: span_of(hit.node),
                     });
                 }
             }
@@ -111,6 +112,37 @@ impl RuleRunner for QueryRules<'_> {
         let mut comments = Vec::new();
         collect_comments(tree.root_node(), text, &mut comments);
         Ok(comments)
+    }
+
+    fn enclosing(
+        &self,
+        file: &Path,
+        text: &str,
+        span: Span,
+        kinds: &[String],
+    ) -> Result<Option<Span>> {
+        let Some(loaded) = self.grammars.for_path(file)? else {
+            return Ok(None);
+        };
+        let Some(tree) = loaded.parse(text)? else {
+            return Ok(None);
+        };
+        let at = tree
+            .root_node()
+            .descendant_for_byte_range(span.start_byte, span.end_byte);
+        let found = std::iter::successors(at, tree_sitter::Node::parent)
+            .find(|node| kinds.iter().any(|kind| kind == node.kind()));
+        Ok(found.map(span_of))
+    }
+}
+
+/// Where the node is.
+fn span_of(node: tree_sitter::Node) -> Span {
+    Span {
+        start_row: node.start_position().row,
+        end_row: node.end_position().row,
+        start_byte: node.start_byte(),
+        end_byte: node.end_byte(),
     }
 }
 

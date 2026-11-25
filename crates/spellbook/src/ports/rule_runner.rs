@@ -5,7 +5,7 @@ use std::path::Path;
 use sorcerer_core::Result;
 
 use crate::domain::allow::Comment;
-use crate::domain::finding::RawFinding;
+use crate::domain::finding::{RawFinding, Span};
 use crate::domain::rule::Rule;
 
 pub trait RuleRunner: Send + Sync {
@@ -18,4 +18,17 @@ pub trait RuleRunner: Send + Sync {
     /// The comments the parser finds in the file's text, none when the file's language is not
     /// known or the text cannot be parsed.
     fn comments_in(&self, file: &Path, text: &str) -> Result<Vec<Comment>>;
+
+    /// The nearest node around `span` (the node at the span itself counts) whose kind is one of
+    /// `kinds`; `None` when there is none, or the file's language is not known.
+    ///
+    /// Example: for the span of `sqlite3.connect` in `conn = sqlite3.connect(path)`, the kinds
+    /// `["expression_statement"]` give the whole statement's span.
+    fn enclosing(
+        &self,
+        file: &Path,
+        text: &str,
+        span: Span,
+        kinds: &[String],
+    ) -> Result<Option<Span>>;
 }
