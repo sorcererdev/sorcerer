@@ -12,9 +12,11 @@ use spellbook::adapters::generator_dir::{GeneratorDirs, generator_named};
 use spellbook::adapters::json_holes::JsonHoles;
 use spellbook::adapters::jsonl_generation_store::JsonlGenerationStore;
 use spellbook::adapters::query_anchors::QueryAnchors;
+use spellbook::adapters::regions_toml::load_regions;
 use spellbook::domain::generator::Generator;
 use spellbook::domain::inputs::Given;
 use spellbook::domain::plan::{Plan, PlanStop};
+use spellbook::domain::region::DeclaredRegions;
 use spellbook::usecases::apply_plan::{AppliedGeneration, ApplyDeps, ChangesLanded, apply_plan};
 use spellbook::usecases::plan_generation::{PlanDeps, plan_generation};
 
@@ -28,6 +30,7 @@ pub struct PlanRig {
     pub generators: GeneratorDirs,
     pub fences: Fences,
     pub clock: FixedClock,
+    pub regions: DeclaredRegions,
 }
 
 impl PlanRig {
@@ -45,6 +48,7 @@ impl PlanRig {
             fences: Fences::for_project(&project).unwrap(),
             generators: GeneratorDirs::new(project.clone()),
             clock: FixedClock::at_noon(),
+            regions: load_regions(&project),
             project,
             view,
         }
@@ -58,6 +62,7 @@ impl PlanRig {
             generators: &self.generators,
             fences: &self.fences,
             clock: &self.clock,
+            regions: &self.regions,
         }
     }
 

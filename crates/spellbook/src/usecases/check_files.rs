@@ -11,12 +11,15 @@ use crate::domain::allow::{AllowComment, allow_comments, silencing};
 use crate::domain::finding::{
     ALLOW_WITHOUT_REASON, Finding, RawFinding, UNKNOWN_RULE, fingerprint,
 };
+use crate::domain::plan::plan_stop_text;
+use crate::domain::region::{REGIONS_FILE, Region};
 use crate::domain::report::sort_findings;
 use crate::domain::rule::{Rule, Severity};
 use crate::ports::clock::Clock;
 use crate::ports::grammars::Grammars;
 use crate::ports::report_store::ReportStore;
 use crate::ports::rule_runner::RuleRunner;
+use crate::usecases::sync_regions::region_findings;
 
 /// What checking reads and writes.
 pub struct CheckDeps<'a> {
@@ -28,6 +31,8 @@ pub struct CheckDeps<'a> {
     pub rules: &'a [Rule],
     /// `[spellbook] exclude`: globs of files no rule looks at.
     pub exclude: &'a [String],
+    /// The owned regions whose blocks are checked with the rules.
+    pub regions: &'a [Region],
 }
 
 /// Checks the given files (relative to the root) and keeps the report's findings for just
@@ -43,15 +48,31 @@ pub fn check_files(deps: &CheckDeps, files: &[PathBuf]) -> Result<Vec<Finding>> 
     Ok(found)
 }
 
-/// Every finding in the given files, nothing saved.
+/// Every finding in the given files, nothing saved: the rules' and the regions'.
 pub(super) fn findings_of_files(deps: &CheckDeps, files: &[PathBuf]) -> Result<Vec<Finding>> {
     let excluded = excluded_files(deps.exclude)?;
     let mut found = Vec::new();
     for file in files {
         found.extend(findings_of_file(deps, &excluded, file)?);
     }
+    let names: Vec<String> = files.iter().map(|file| forward_slashes(file)).collect();
+    found.extend(regions_out_of_step(deps, &names)?);
     sort_findings(&mut found);
     Ok(found)
+}
+
+/// The findings of the regions in these files; a region that cannot be kept stops the check
+/// as a broken `regions.toml` does.
+fn regions_out_of_step(deps: &CheckDeps, files: &[String]) -> Result<Vec<Finding>> {
+    if deps.regions.is_empty() {
+        return Ok(Vec::new());
+    }
+    region_findings(deps.view, deps.grammars, deps.regions, Some(files)).map_err(|stop| {
+        Error::Config {
+            file: PathBuf::from(REGIONS_FILE),
+            why: plan_stop_text(&stop),
+        }
+    })
 }
 
 fn excluded_files(globs: &[String]) -> Result<GlobSet> {

@@ -22,4 +22,14 @@ impl Grammars for CachedGrammars {
             .map(|language| self.languages.load(&language.name, &self.cache))
             .transpose()
     }
+
+    /// Read from the language's data: no grammar is loaded.
+    fn covers(&self, file: &Path) -> bool {
+        self.languages.for_path(file).is_some()
+    }
+
+    /// Read from the language's data: no grammar is loaded.
+    fn line_comment(&self, file: &Path) -> Option<String> {
+        self.languages.for_path(file)?.comment.clone()
+    }
 }

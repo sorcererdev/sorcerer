@@ -16,7 +16,9 @@ use crate::adapters::json_holes::JsonHoles;
 use crate::adapters::json_report::JsonReport;
 use crate::adapters::jsonl_generation_store::JsonlGenerationStore;
 use crate::adapters::query_anchors::QueryAnchors;
+use crate::adapters::regions_toml::load_regions;
 use crate::adapters::system_clock::SystemClock;
+use crate::domain::region::DeclaredRegions;
 use crate::ports::clock::Clock;
 use crate::usecases::apply_plan::ApplyDeps;
 use crate::usecases::open_holes::HolesDeps;
@@ -36,6 +38,8 @@ pub struct Wired {
     pub holes: JsonHoles,
     pub report: JsonReport,
     pub clock: Arc<dyn Clock>,
+    /// `regions.toml`, read when the wiring is made (once per command or server request).
+    pub regions: DeclaredRegions,
 }
 
 /// Builds the wiring for a project; the tests pass their own (vendored grammars, a fixed clock).
@@ -68,6 +72,7 @@ pub fn wired(project: Project, cache: GrammarCache, clock: Arc<dyn Clock>) -> Re
         generations: JsonlGenerationStore::for_project(&project)?,
         holes: JsonHoles::for_project(&project)?,
         report: JsonReport::for_project(&project)?,
+        regions: load_regions(&project),
         fences,
         clock,
         project,
@@ -83,6 +88,7 @@ impl Wired {
             generators: &self.generators,
             fences: &self.fences,
             clock: self.clock.as_ref(),
+            regions: &self.regions,
         }
     }
 

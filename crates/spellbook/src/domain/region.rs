@@ -64,6 +64,10 @@ pub struct RegionQuery {
     pub exclude: Vec<String>,
 }
 
+/// The project's regions as `regions.toml` declares them, or why it did not load. A plan keeps
+/// going without regions (and says why in a note); `sync` and `check` stop.
+pub type DeclaredRegions = Result<Vec<Region>, RegionsProblem>;
+
 /// Why `regions.toml` did not load: the sentence naming the region and the key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegionsProblem {

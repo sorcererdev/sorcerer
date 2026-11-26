@@ -10,6 +10,7 @@ pub mod jsonl_generation_store;
 pub mod lsp;
 pub mod query_anchors;
 pub mod query_rules;
+pub mod regions_toml;
 pub mod rules_toml;
 pub mod system_clock;
 pub mod wiring;
