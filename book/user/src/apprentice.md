@@ -62,9 +62,38 @@ a file you edited since is left alone and named) and *Show journal*. Review the 
 usual tools (gitsigns, the SCM view); saving every file it changed keeps the task, and its marks
 go. A task the server was running when it stopped is recorded `interrupted`.
 
-The editor clients: Neovim's is below; VS Code's comes later. Any other editor that speaks LSP
+The editor clients: Neovim's is below; VS Code's comes in a later part of the prototype. Any other editor that speaks LSP
 gets the marks, the code actions, the questions in a list, the edits and the notes (opened over
 the current window, and the diff as a file); grey suggested lines are a message there.
+
+## In Neovim
+
+Install [sorcerer.nvim](https://github.com/sorcererdev/sorcerer.nvim) and turn apprentice on:
+
+```lua
+require("sorcerer").setup({ apprentice = { enabled = true } })
+```
+
+The plugin starts `apprentice lsp` on every buffer under a project root, reporting each edit at
+once (`debounce_text_changes = 0`, so a task never writes over what you typed a moment ago and
+your edits reach the agent after its next tool call). It draws what the server sends only to it:
+grey suggested lines under a line (`SorcererGhost`; gone at your next edit of that line), the
+agent's notes in a vertical split beside your code, and *Show diff* as a scratch buffer of the
+text before beside the live one, both in diff mode. Marks are `vim.diagnostic`; the code actions
+are your code-action key's. The keys:
+
+| key | does |
+|---|---|
+| `<leader>ma` | `apprentice: do this` on the line, whatever its price |
+| `<leader>ms` | `apprentice: Stop this task` |
+| `<leader>md` | `apprentice: Show diff` |
+| `<leader>mz` | `apprentice: Undo this task` |
+| `<leader>mj` | `apprentice: Show journal` |
+| `<leader>mx` | `apprentice: Dismiss` |
+| `<leader>ml` | the four labels, to pick one |
+
+`require("sorcerer").status()` says `apprentice: <task> · <what it does> · <spent>` while a task
+runs. `:checkhealth sorcerer` checks that `apprentice` is found.
 
 ## What a task is
 
