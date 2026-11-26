@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response, ResponseError};
+use lsp_server::{Connection, ErrorCode, Message, Notification, Request, ResponseError};
 use lsp_types::{
     SaveOptions, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
     TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
@@ -10,6 +10,7 @@ use lsp_types::{
 use serde_json::{Value, json};
 
 use crate::client::{Abilities, Client};
+use crate::reply::Reply;
 use crate::uri::path_of;
 
 /// A product's language server: what it does when a document opens, closes or is saved, and
@@ -41,6 +42,13 @@ pub trait Product {
     fn saved(&mut self, path: &Path);
     /// A request from the editor, by method name. An unknown method is [`unknown_method`].
     fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError>;
+    /// A request the product may answer after this call returns, through `reply`: when its
+    /// answer waits on the editor's reply to a request of the server's own (an edit it asked
+    /// the editor to apply). The main loop goes on meanwhile. By default the request is
+    /// answered at once by [`Product::request`].
+    fn request_later(&mut self, method: &str, params: Value, reply: Reply) {
+        reply.send(self.request(method, params));
+    }
     /// The editor asked the server to shut down; nothing more will be asked of it.
     fn shutdown(&mut self);
 }
@@ -62,7 +70,8 @@ pub fn unknown_method(method: &str) -> ResponseError {
 /// 2. `make` builds the product with the client and the root (the first workspace folder,
 ///    else `rootUri`; `None` when the editor sent neither).
 /// 3. The loop: opens, closes and saves of `file:` documents go to the product (other URIs are
-///    dropped), and changes too when it tracks text, requests are answered by it, replies go to whatever waits for them, and
+///    dropped), and changes too when it tracks text, requests are answered by it (now, or later
+///    through a [`Reply`]), replies go to whatever waits for them, and
 ///    `shutdown` is passed on and answered.
 /// 4. The end: when the editor hung up without `exit`, the product is shut down too, and
 ///    every question still waiting for a reply is dropped.
@@ -181,19 +190,17 @@ fn workspace_root(params: &Value) -> Option<PathBuf> {
     path_of(&uri.parse().ok()?)
 }
 
-/// A request answered by the product; `shutdown` is passed on and answered with null.
+/// A request answered by the product, now or later; `shutdown` is passed on and answered with
+/// null.
 fn answer(connection: &Connection, product: &mut impl Product, request: Request) {
     let Request { id, method, params } = request;
-    let response = if method == "shutdown" {
+    let reply = Reply::new(id, connection.sender.clone());
+    if method == "shutdown" {
         product.shutdown();
-        Response::new_ok(id, Value::Null)
+        reply.send(Ok(Value::Null));
     } else {
-        Response {
-            id,
-            response_result: product.request(&method, params),
-        }
-    };
-    let _ = connection.sender.send(Message::Response(response));
+        product.request_later(&method, params, reply);
+    }
 }
 
 /// An open, a change, a close or a save of a file, passed to the product; the host keeps the
