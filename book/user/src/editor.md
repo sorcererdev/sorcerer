@@ -96,8 +96,8 @@ your PATH and its version.
 Conjure is off until you turn it on (`conjure = { enabled = true }` in `setup()`); install it with
 `sorcerer-conjure-installer` (the same line with `conjure` for `scry`) or `cargo install
 sorcerer-conjure`. sorcerer.nvim binds the keys itself: `<leader>mc` conjures here, `<leader>mu` undoes,
-`<leader>mt` tries harder, `<leader>mw` says why (and `<leader>mn` / `<leader>mk` are spellbook's
-`:Spellbook new` and `:Spellbook check`; see [Spellbook](spellbook.md#in-neovim)). Set `keys = false`, or
+`<leader>mt` tries harder, `<leader>mw` says why (and `<leader>mn` / `<leader>mf` / `<leader>mk` are spellbook's
+`:Spellbook new`, `:Spellbook fix` and `:Spellbook check`; see [Spellbook](spellbook.md#in-neovim)). Set `keys = false`, or
 one key to `false`, to bind none; a key you already mapped is left alone and listed by
 `:checkhealth sorcerer`. Neovim must find `scry` and `conjure` on the PATH it starts with
 (`~/.local/bin`); started from a launcher it often cannot, so give `cmd = { "/full/path/to/scry",

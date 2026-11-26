@@ -308,6 +308,19 @@ does not stop the language client answering the server's `workspace/applyEdit` m
 request is what the apply waits for. `finish` then says `fixedText` (`fix.ts`) and starts the hole
 session even in a changed file, which is unsaved by then.
 
+In sorcerer.nvim the fix is `lua/sorcerer/spellbook.lua` `M.fix(arg, ctx)`, registered as the
+client's `commands["spellbook.fix"]` in `M.attach` (`vim.lsp.start`'s `commands`), so a code action
+with that command runs in the editor and never goes to the server. It refuses a modified buffer
+(`dirty_text`), sets `fix.version` from `vim.lsp.util.buf_versions`, and runs the New chain
+(`ask_inputs` with `only = missing`, `make_plan` with the `fix` argument, `spellbook_plan.show`,
+`apply`). The apply is a plain `executeCommand`: the plugin registers no `workspace/applyEdit`
+handler and never blocks on a request, so Neovim's default handler lands the server's edit while the
+apply is pending and answers it (`util.apply_workspace_edit`: one undo step a buffer, buffers left
+modified; a `version: null` is `vim.NIL`, which that function accepts). `spellbook_plan.lua`
+(`M.lines`, `M.title`) draws `~ path (+a −r)` rows and each hunk with `DiffAdd`/`DiffDelete` line
+highlights. `keys.lua` binds `fix` to `M.fix_here`, which asks `vim.lsp.buf.code_action` for the
+first `spellbook.fix` quick fix on the line (`:Spellbook fix k=v` is the same with answers).
+
 ## A check
 
 `spellbook check` (`cli/check.rs`) and the server share one path:
