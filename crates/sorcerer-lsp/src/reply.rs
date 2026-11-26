@@ -10,7 +10,7 @@ use serde_json::Value;
 /// one dropped without an answer answers with an error, so the editor never waits forever.
 ///
 /// Example: a product lands a change with [`crate::Client::apply_edit`] and, in its reply
-/// callback, sends `reply.send(Ok(json!({ "changed": ["a.py"] })))`.
+/// callback, sends `reply.send(Ok(json!({ "changed": ["a.txt"] })))`.
 pub struct Reply {
     id: RequestId,
     sender: Option<Sender<Message>>,

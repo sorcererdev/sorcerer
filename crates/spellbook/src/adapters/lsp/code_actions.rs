@@ -121,7 +121,7 @@ fn fix_action(finding: &Finding, offer: FixOffer, preferred: bool) -> CodeAction
 /// the document's version when it runs the command (this server does not follow the text).
 ///
 /// Example: `{ generator: "use-port", inputs: { app: "bistro", … }, missing: ["port"], fix: {
-/// file: "src/bistro/booking/commands/close_table.py", line: 4, rule: "commands-use-ports",
+/// file: "src/bistro/booking/commands/close_table.txt", line: 4, rule: "commands-use-ports",
 /// index: 1, label: "Use a port the service has", version: null } }`.
 fn fix_argument(finding: &Finding, offer: FixOffer) -> Value {
     json!({

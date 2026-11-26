@@ -321,7 +321,7 @@ fn text_argument(arguments: &[Value], at: usize) -> Result<String, ResponseError
 /// root, with `/`), its line (from 1), its rule, which of the rule's fixes (from 1), and the
 /// document's version the editor knows.
 ///
-/// Example: `{ "file": "src/bistro/booking/commands/close_table.py", "line": 4, "rule":
+/// Example: `{ "file": "src/bistro/booking/commands/close_table.txt", "line": 4, "rule":
 /// "commands-use-ports", "index": 1, "version": 7 }`.
 #[derive(Debug, Deserialize)]
 struct FixArgument {
