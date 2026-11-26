@@ -8,7 +8,7 @@ use std::time::Duration;
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response, ResponseError};
 use lsp_types::{MessageType, ServerCapabilities};
 use serde_json::{Value, json};
-use sorcerer_lsp::{Answer, Applied, Client, Product, serve, serve::unknown_method, uri_of};
+use sorcerer_lsp::{Answer, Applied, Client, Product, Reply, serve, serve::unknown_method, uri_of};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -826,6 +826,82 @@ fn working_sends_each_place_with_its_line_from_zero_and_clears_with_an_empty_lis
             json!({ "units": [] }),
         ],
         "a clear with nothing shown says nothing"
+    );
+    editor.stop();
+}
+
+/// A product that answers `test/later` once the editor has applied an edit, and drops the
+/// reply to `test/drop`.
+struct Later(Recording);
+
+impl Product for Later {
+    fn capabilities() -> ServerCapabilities {
+        ServerCapabilities::default()
+    }
+    fn opened(&mut self, path: &Path) {
+        self.0.opened(path);
+    }
+    fn closed(&mut self, path: &Path) {
+        self.0.closed(path);
+    }
+    fn saved(&mut self, path: &Path) {
+        self.0.saved(path);
+    }
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
+        self.0.request(method, params)
+    }
+    fn request_later(&mut self, method: &str, params: Value, reply: Reply) {
+        match method {
+            "test/later" => self.0.client().apply_edit(
+                "later",
+                lsp_types::WorkspaceEdit::default(),
+                move |applied| reply.send(Ok(json!({ "applied": applied.applied }))),
+            ),
+            "test/drop" => drop(reply),
+            _ => reply.send(self.request(method, params)),
+        }
+    }
+    fn shutdown(&mut self) {
+        self.0.shutdown();
+    }
+}
+
+#[test]
+fn a_request_answered_later_waits_for_the_editors_reply() {
+    let editor = Editor::serving(json!({}), |seen| Later(Recording { seen }));
+    editor.request(2, "test/later", json!({}));
+    let asked = loop {
+        match editor.next(WAIT).expect("the edit") {
+            Message::Request(r) if r.method == "workspace/applyEdit" => break r,
+            Message::Response(r) if r.id == RequestId::from(2) => panic!("answered early"),
+            _ => {}
+        }
+    };
+    // the loop goes on while the answer waits
+    editor.request(3, "test/echo", json!("still here"));
+    assert_eq!(
+        editor.response(3).response_result.unwrap(),
+        json!("still here")
+    );
+    editor.reply(asked.id, Ok(json!({ "applied": true })));
+    assert_eq!(
+        editor.response(2).response_result.unwrap(),
+        json!({ "applied": true })
+    );
+    editor.request(4, "test/echo", json!(1));
+    assert_eq!(editor.response(4).response_result.unwrap(), json!(1));
+    editor.stop();
+}
+
+#[test]
+fn a_reply_dropped_without_an_answer_answers_with_an_error() {
+    let editor = Editor::serving(json!({}), |seen| Later(Recording { seen }));
+    editor.request(2, "test/drop", json!({}));
+    let error = editor.response(2).response_result.expect_err("an error");
+    assert!(
+        error.message.contains("without an answer"),
+        "{}",
+        error.message
     );
     editor.stop();
 }

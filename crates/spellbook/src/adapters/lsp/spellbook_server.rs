@@ -8,7 +8,7 @@ use lsp_server::{Connection, ResponseError};
 use lsp_types::ServerCapabilities;
 use serde_json::Value;
 use sorcerer_lsp::serve::unknown_method;
-use sorcerer_lsp::{Client, Product};
+use sorcerer_lsp::{Client, Product, Reply};
 
 use super::commands;
 use super::server_config::ServerConfig;
@@ -63,10 +63,19 @@ impl Product for SpellbookServer {
         self.server.republish(path);
     }
 
+    /// The requests answered at once; the commands go through [`Product::request_later`].
     fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
         match method {
-            "workspace/executeCommand" => self.server.execute(params),
+            "textDocument/codeAction" => self.server.code_actions(params),
             _ => Err(unknown_method(method)),
+        }
+    }
+
+    /// A command may wait for the editor (an apply whose changes the editor lands).
+    fn request_later(&mut self, method: &str, params: Value, reply: Reply) {
+        match method {
+            "workspace/executeCommand" => self.server.execute(params, reply),
+            _ => reply.send(self.request(method, params)),
         }
     }
 

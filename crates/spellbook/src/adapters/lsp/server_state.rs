@@ -11,8 +11,9 @@ use sorcerer_lsp::Client;
 
 use crate::adapters::wiring::wired;
 use crate::domain::config::spellbook_config;
+use crate::domain::finding::Finding;
 
-use super::diagnostics::file_diagnostics;
+use super::diagnostics::{FileDiagnostics, file_diagnostics};
 use super::plans::PlanCache;
 use super::project_paths::project_relative;
 use super::server_config::ServerConfig;
@@ -24,24 +25,31 @@ pub(super) struct Server {
     /// The directory the editor opened, as it sent it: the project is opened from here, and
     /// the paths the editor is told are joined to it.
     pub(super) root: PathBuf,
-    /// The files that have diagnostics published, by the path the editor names them with, so a
-    /// closed file is cleared.
-    pub(super) published: Mutex<HashMap<PathBuf, usize>>,
+    /// The files that have diagnostics published, by the path the editor names them with, and
+    /// the findings among them: a closed file is cleared, and a code action reads a line's
+    /// findings from here without checking again.
+    pub(super) published: Mutex<HashMap<PathBuf, Vec<Finding>>>,
     /// The plans made and not applied yet.
     pub(super) plans: Mutex<PlanCache>,
 }
 
 impl Server {
-    /// Replaces a file's marks in the editor (the file is relative to the root, with `/`), and
-    /// remembers it so closing the file clears them.
-    pub(super) fn publish(&self, file: &str, marks: Vec<lsp_types::Diagnostic>) {
-        self.publish_at(&self.root.join(file), marks);
+    /// Replaces a file's marks and findings in the editor (the file is relative to the root,
+    /// with `/`), and remembers them so closing the file clears them and a code action finds
+    /// the findings.
+    pub(super) fn publish(&self, file: &str, diagnostics: FileDiagnostics) {
+        self.publish_at(&self.root.join(file), diagnostics);
     }
 
     /// The same, for a path as the editor names it.
-    fn publish_at(&self, path: &Path, marks: Vec<lsp_types::Diagnostic>) {
-        lock(&self.published).insert(path.to_path_buf(), marks.len());
-        self.client.publish(path, marks);
+    fn publish_at(&self, path: &Path, diagnostics: FileDiagnostics) {
+        lock(&self.published).insert(path.to_path_buf(), diagnostics.findings.clone());
+        self.client.publish(path, diagnostics.all());
+    }
+
+    /// The findings published for a file, by the path the editor names it with.
+    pub(super) fn published_findings(&self, path: &Path) -> Vec<Finding> {
+        lock(&self.published).get(path).cloned().unwrap_or_default()
     }
 
     /// Publishes the marks of a file the editor opened or saved, from the file on disk. Nothing
@@ -72,7 +80,7 @@ impl Server {
                 &format!("spellbook: {problem}"),
             );
         }
-        self.publish_at(path, diagnostics.all());
+        self.publish_at(path, diagnostics);
     }
 
     /// Clears the marks of a file the editor closed.

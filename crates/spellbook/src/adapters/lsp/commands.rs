@@ -2,9 +2,12 @@
 //!
 //! - `spellbook.generators []`
 //! - `spellbook.choices [generator, inputs, input]`
-//! - `spellbook.plan [generator, inputs]`
-//! - `spellbook.apply [plan id]`: replies with `written`, `skipped`, `refused`, `holes`, `first`
-//!   (the first hole's file and line) and `stops`, the holes in the order to walk them
+//! - `spellbook.plan [generator, inputs, fix?]`: with `fix` (`{ file, line, rule, index,
+//!   version }`), the fix of that finding; a changed file comes with its `hunks`, `added` and
+//!   `removed`, and the plan with the `fix` it is
+//! - `spellbook.apply [plan id]`: replies with `changed`, `written`, `skipped`, `refused`,
+//!   `holes`, `first` (the first hole's file and line) and `stops`, the holes in the order to
+//!   walk them; a plan's changed files are landed by the editor first (`landing.rs`)
 //!
 //! A reply is JSON the plugin reads; a refusal the person must hear is `{ "stop": "<sentence>" }`
 //! in the reply. An error answers only a malformed or unknown command.
@@ -12,24 +15,34 @@
 use std::collections::BTreeMap;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use lsp_server::{ErrorCode, ResponseError};
-use lsp_types::{ExecuteCommandOptions, ExecuteCommandParams, ServerCapabilities};
+use lsp_types::{
+    CodeActionProviderCapability, ExecuteCommandOptions, ExecuteCommandParams, MessageType,
+    ServerCapabilities,
+};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sorcerer_core::domain::project::Project;
+use sorcerer_lsp::Reply;
 
-use super::diagnostics::file_diagnostics;
+use super::diagnostics::file_diagnostics_over;
+use super::landing::{CANNOT_EDIT, changed_since_text};
+use super::plans::KeptPlan;
 use super::{NOT_TRUSTED, Server, lock};
 use crate::adapters::wiring::{Wired, wired};
 use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 use crate::domain::inputs::{Given, InputStop, input_stop_text};
-use crate::domain::plan::{PlanStop, plan_stop_text};
+use crate::domain::plan::{Plan, PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
-use crate::ports::workspace::write_refused_text;
+use crate::ports::workspace::{WriteRefused, write_refused_text};
 use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::choices_for::choices_for;
 use crate::usecases::list_generators::list_generators;
+use crate::usecases::plan_fix::{FindingAt, plan_fix};
 use crate::usecases::plan_generation::plan_generation;
+use crate::usecases::planned_view::PlannedView;
 
 pub(super) const GENERATORS: &str = "spellbook.generators";
 pub(super) const CHOICES: &str = "spellbook.choices";
@@ -39,9 +52,10 @@ pub(super) const APPLY: &str = "spellbook.apply";
 /// What an apply of an unknown, expired or already applied plan is told.
 const PLAN_GONE: &str = "that plan is gone (plans last ten minutes); make it again";
 
-/// The four commands, and no code actions.
+/// The four commands, and code actions (a finding's fixes).
 pub(super) fn capabilities() -> ServerCapabilities {
     ServerCapabilities {
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         execute_command_provider: Some(ExecuteCommandOptions {
             commands: [GENERATORS, CHOICES, PLAN, APPLY]
                 .map(String::from)
@@ -53,29 +67,34 @@ pub(super) fn capabilities() -> ServerCapabilities {
 }
 
 impl Server {
-    /// Runs one of the commands. A refusal the person must hear (an untrusted project, a plan
-    /// that stopped) is a `stop` in the reply; an error answers only a malformed command.
-    pub(super) fn execute(&self, params: Value) -> Result<Value, ResponseError> {
-        let params: ExecuteCommandParams = serde_json::from_value(params).map_err(invalid)?;
+    /// Runs one of the commands and answers through `reply`: at once, or (an apply whose
+    /// changes the editor lands) once the editor has answered the edit. A refusal the person
+    /// must hear (an untrusted project, a plan that stopped) is a `stop` in the reply; an error
+    /// answers only a malformed command.
+    pub(super) fn execute(self: &Arc<Self>, params: Value, reply: Reply) {
+        let params: ExecuteCommandParams = match serde_json::from_value(params) {
+            Ok(params) => params,
+            Err(e) => return reply.send(Err(invalid(e))),
+        };
         let command = params.command.as_str();
         if ![GENERATORS, CHOICES, PLAN, APPLY].contains(&command) {
-            return Err(invalid(format!("no command {command}")));
+            return reply.send(Err(invalid(format!("no command {command}"))));
         }
         let wired = match self.wired_for_commands() {
             Ok(wired) => wired,
-            Err(sentence) => return Ok(stop(&sentence)),
+            Err(sentence) => return reply.send(Ok(stop(&sentence))),
         };
         let arguments = &params.arguments;
         match command {
-            GENERATORS => Ok(self.generators(&wired)),
-            CHOICES => self.choices(&wired, arguments),
-            PLAN => self.plan(&wired, arguments),
-            _ => self.apply(&wired, arguments),
+            GENERATORS => reply.send(Ok(self.generators(&wired))),
+            CHOICES => reply.send(self.choices(&wired, arguments)),
+            PLAN => reply.send(self.plan(&wired, arguments)),
+            _ => self.apply(&wired, arguments, reply),
         }
     }
 
     /// The project's adapters, or the sentence that says why spellbook cannot run in it.
-    fn wired_for_commands(&self) -> Result<Wired, String> {
+    pub(super) fn wired_for_commands(&self) -> Result<Wired, String> {
         let project: Project =
             (self.cfg.open)(&self.root).map_err(|e| format!("spellbook: {e:#}"))?;
         if !self.trusted(&project) {
@@ -120,57 +139,95 @@ impl Server {
         })
     }
 
-    /// `[generator, inputs]`: the plan, kept for its apply; nothing is written.
+    /// `[generator, inputs, fix?]`: the plan, kept for its apply; nothing is written. With a
+    /// `fix`, the plan is the fix of the finding it names (planned by the fix's own generator)
+    /// and keeps the document's version for the apply.
     fn plan(&self, wired: &Wired, arguments: &[Value]) -> Result<Value, ResponseError> {
         let name = text_argument(arguments, 0)?;
         let given = given_argument(arguments, 1);
-        let generator = match generator_named(wired, &name) {
-            Ok(generator) => generator,
-            Err(sentence) => return Ok(stop(&sentence)),
+        let fix = fix_argument(arguments, 2)?;
+        let planned = match &fix {
+            Some(fix) => planned_fix(wired, fix, &given),
+            None => planned_generation(wired, &name, &given),
         };
-        match plan_generation(&wired.plan_deps(), &generator, &given) {
+        Ok(match planned {
             Ok(plan) => {
                 let reply = json!(plan);
-                lock(&self.plans).keep(plan, self.cfg.clock.now());
-                Ok(reply)
+                let version = fix.and_then(|fix| fix.version);
+                lock(&self.plans).keep(KeptPlan { plan, version }, self.cfg.clock.now());
+                reply
             }
-            Err(why) => Ok(plan_stop_reply(&why)),
-        }
+            Err(stop_reply) => stop_reply,
+        })
     }
 
-    /// `[plan id]`: writes the plan's new files, marks each hole and opens the first one. A
-    /// plan is applied once.
-    fn apply(&self, wired: &Wired, arguments: &[Value]) -> Result<Value, ResponseError> {
-        let id = text_argument(arguments, 0)?;
+    /// `[plan id]`: lands the plan's changed files, writes its new files, marks each hole and
+    /// opens the first one. A plan is applied once. The changed files are landed by the editor
+    /// as one undoable edit when it can apply edits, and the rest waits for its answer;
+    /// otherwise they are written to disk, and the person is told so once.
+    fn apply(self: &Arc<Self>, wired: &Wired, arguments: &[Value], reply: Reply) {
+        let id = match text_argument(arguments, 0) {
+            Ok(id) => id,
+            Err(e) => return reply.send(Err(e)),
+        };
         let taken = lock(&self.plans).take(&id, self.cfg.clock.now());
-        let Some(plan) = taken else {
-            return Ok(stop(PLAN_GONE));
+        let Some(kept) = taken else {
+            return reply.send(Ok(stop(PLAN_GONE)));
         };
-        let applied = match apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet) {
+        if kept.plan.changed_files().is_empty() {
+            return reply.send(Ok(self.applied(wired, kept.plan, ChangesLanded::NotYet)));
+        }
+        if self.client.can_apply_edits() {
+            return self.land_in_the_editor(kept, reply);
+        }
+        self.client
+            .say_once("cannot-edit", MessageType::INFO, CANNOT_EDIT);
+        reply.send(Ok(self.applied(wired, kept.plan, ChangesLanded::NotYet)));
+    }
+
+    /// Applies the plan (its changed files already landed by the editor, or not yet), publishes
+    /// the marks of the changed and written files, opens the first hole, and says what was done.
+    pub(super) fn applied(&self, wired: &Wired, plan: Plan, landed: ChangesLanded) -> Value {
+        let applied = match apply_plan(&wired.apply_deps(), plan, landed) {
             Ok(applied) => applied,
-            Err(e) => return Ok(stop(&format!("spellbook: {e:#}"))),
+            Err(e) => return stop(&format!("spellbook: {e:#}")),
         };
-        let stops = self.mark_written_files(wired, &applied.written);
+        if let Some((_, WriteRefused::Changed)) = &applied.refused
+            && applied.changed.is_empty()
+        {
+            return stop(&changed_since_text(&applied.plan));
+        }
+        let stops = self.mark_files(wired, &applied);
         if let Some(first) = stops.first() {
             self.client.show_document(
                 &self.root.join(first["file"].as_str().unwrap_or_default()),
                 serde_json::from_value(first["range"].clone()).ok(),
             );
         }
-        Ok(applied_reply(&applied, stops))
+        applied_reply(&applied, stops)
     }
 
-    /// Publishes the hole marks of each written file; returns the holes as tab stops, the files
-    /// in the order they were written and each file's holes by line then column.
-    fn mark_written_files(&self, wired: &Wired, written: &[String]) -> Vec<Value> {
+    /// Publishes the marks and findings of each changed then written file, the changed ones
+    /// read as the plan left them; returns the holes as tab stops, the files in that order and
+    /// each file's holes by line then column.
+    fn mark_files(&self, wired: &Wired, applied: &AppliedGeneration) -> Vec<Value> {
+        let planned_view = PlannedView::new(&wired.view, changed_texts(&applied.plan));
         let mut stops = Vec::new();
-        for file in written {
-            let mut diagnostics = file_diagnostics(wired, Path::new(file));
+        for file in applied.changed.iter().chain(&applied.written) {
+            let mut diagnostics = file_diagnostics_over(wired, &planned_view, Path::new(file));
             stops.append(&mut diagnostics.stops);
-            self.publish(file, diagnostics.all());
+            self.publish(file, diagnostics);
         }
         stops
     }
+}
+
+/// The text the plan leaves in each changed file, by path.
+fn changed_texts(plan: &Plan) -> BTreeMap<String, String> {
+    plan.changed_files()
+        .into_iter()
+        .map(|file| (file.path.clone(), file.text.clone()))
+        .collect()
 }
 
 /// What apply did, as the plugin reads it.
@@ -180,6 +237,7 @@ fn applied_reply(applied: &AppliedGeneration, stops: Vec<Value>) -> Value {
         .as_ref()
         .map(|(path, why)| json!({ "path": path, "why": write_refused_text(why) }));
     json!({
+        "changed": applied.changed,
         "written": applied.written,
         "skipped": applied.skipped,
         "refused": refused,
@@ -195,6 +253,27 @@ fn first_of(stops: &[Value]) -> Value {
         let line = stop["range"]["start"]["line"].as_u64().unwrap_or(0) + 1;
         json!({ "file": stop["file"], "line": line })
     })
+}
+
+/// A generator's plan, or the stop to reply with.
+fn planned_generation(wired: &Wired, name: &str, given: &Given) -> Result<Plan, Value> {
+    let generator = generator_named(wired, name).map_err(|sentence| stop(&sentence))?;
+    plan_generation(&wired.plan_deps(), &generator, given).map_err(|why| plan_stop_reply(&why))
+}
+
+/// A fix's plan, or the stop to reply with (the rules that do not load, a finding gone, a fix
+/// already applied).
+fn planned_fix(wired: &Wired, fix: &FixArgument, given: &Given) -> Result<Plan, Value> {
+    let checking = wired
+        .checking()
+        .map_err(|problem| stop(&format!("spellbook: {problem}")))?;
+    let at = FindingAt {
+        file: fix.file.clone(),
+        line: fix.line,
+        rule: fix.rule.clone(),
+        index: fix.index,
+    };
+    plan_fix(&checking.fix_deps(), &at, given).map_err(|why| plan_stop_reply(&why))
 }
 
 fn generator_named(
@@ -226,7 +305,7 @@ fn input_stop_reply(why: &InputStop) -> Value {
     })
 }
 
-fn stop(sentence: &str) -> Value {
+pub(super) fn stop(sentence: &str) -> Value {
     json!({ "stop": sentence })
 }
 
@@ -236,6 +315,32 @@ fn text_argument(arguments: &[Value], at: usize) -> Result<String, ResponseError
         .and_then(Value::as_str)
         .map(String::from)
         .ok_or_else(|| invalid(format!("argument {} should be text", at + 1)))
+}
+
+/// The finding a fix answers, as `plan`'s third argument names it: its file (relative to the
+/// root, with `/`), its line (from 1), its rule, which of the rule's fixes (from 1), and the
+/// document's version the editor knows.
+///
+/// Example: `{ "file": "src/bistro/booking/commands/close_table.txt", "line": 4, "rule":
+/// "commands-use-ports", "index": 1, "version": 7 }`.
+#[derive(Debug, Deserialize)]
+struct FixArgument {
+    file: String,
+    line: u32,
+    rule: Option<String>,
+    index: usize,
+    version: Option<i32>,
+}
+
+/// The fix argument; none when it is left out, null, or an empty Lua table.
+fn fix_argument(arguments: &[Value], at: usize) -> Result<Option<FixArgument>, ResponseError> {
+    match arguments.get(at) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(items)) if items.is_empty() => Ok(None),
+        Some(fix) => serde_json::from_value(fix.clone())
+            .map(Some)
+            .map_err(|e| invalid(format!("argument {} should be the fix: {e}", at + 1))),
+    }
 }
 
 /// The inputs given so far: an object of text. An empty Lua table arrives as an empty list,

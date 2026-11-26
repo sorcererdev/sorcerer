@@ -466,8 +466,16 @@ What keeps a fix safe:
   has its other exit, `# spellbook:allow RULE — reason`.
 
 A fix never calls a model, never edits a file it did not show, and never touches `main.py` unless a
-generator's edit says so. In VS Code and Neovim, fixes arrive as code actions with the next parts of
-milestone 2.
+generator's edit says so.
+
+In an editor, the language server (`spellbook lsp`) offers each fix as a quick fix on the finding's
+line, `spellbook: Use a port the service has` first (preferred) and `spellbook: Add a port and use
+it` after. Applied from the editor, the changed files land as one edit you can undo in each file
+(they are left unsaved, for you to look at and save), then the new files are written. If you typed
+in the file since the plan, nothing is applied and you are told `close_table.py changed since the
+plan; nothing was applied: fix again`. An editor that cannot apply edits gets the changed files
+written to disk, and is told so once. The VS Code and Neovim commands that run a quick fix (its
+inputs, the plan with a diff, the keys) arrive with the next parts of milestone 2.
 
 ## In Neovim
 
@@ -641,7 +649,7 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 
 ## What is coming
 
-The rest of milestone 2 brings fixes in the editors (code actions, a diff preview, one undo),
+The rest of milestone 2 brings the editors' side of fixes (the fix command, a diff preview, the keys),
 `missing` rules, owned regions (the
 `pub mod` line a generator keeps), list inputs and `if`/`for` in templates, and packs of generators
 and rules shared between projects.

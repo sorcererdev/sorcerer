@@ -3,12 +3,15 @@
 #![allow(dead_code)]
 
 mod bistro_fixtures;
+mod fix_fixtures;
 mod fixed_clock;
 mod plan_rig;
 mod project_fixtures;
 
 #[allow(unused_imports)]
 pub use bistro_fixtures::*;
+#[allow(unused_imports)]
+pub use fix_fixtures::*;
 #[allow(unused_imports)]
 pub use fixed_clock::*;
 #[allow(unused_imports)]

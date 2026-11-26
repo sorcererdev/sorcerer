@@ -2,8 +2,6 @@
 
 mod support;
 
-use std::path::Path;
-
 use spellbook::adapters::query_rules::QueryRules;
 use spellbook::adapters::rules_toml::load_rules;
 use spellbook::domain::inputs::Given;
@@ -13,58 +11,8 @@ use spellbook::usecases::fixes_for::fixes_for;
 use spellbook::usecases::plan_fix::{FindingAt, FixDeps, plan_fix};
 use support::*;
 
-const CLOSE_TABLE: &str = r#""""Close a table for the night."""
-
-from dataclasses import dataclass
-import sqlite3
-
-from bistro.shared.result import Ok
-
-
-@dataclass(frozen=True)
-class CloseTableInput:
-    table_id: str
-
-
-class CloseTable:
-    def __init__(self) -> None:
-        """Takes the ports it uses; main.py passes their adapters."""
-
-    def handle(self, input: CloseTableInput) -> Ok[None]:
-        conn = sqlite3.connect("bistro.db")
-        return Ok(None)
-"#;
-
-const CLOSE_TABLE_TEST: &str = r#"from bistro.booking.commands.close_table import CloseTable, CloseTableInput
-from bistro.shared.result import Ok
-
-
-def command() -> CloseTable:
-    return CloseTable()
-
-
-def test_close_table_succeeds() -> None:
-    close_table = command()
-    assert close_table.handle(CloseTableInput(table_id="1")) == Ok(None)
-"#;
-
-const MODULE: &str = "src/bistro/booking/commands/close_table.py";
-const TEST: &str = "src/bistro/booking/commands/close_table__test.py";
-
-fn bistro_with_the_fix() -> tempfile::TempDir {
-    let dir = bistro_project();
-    use_corpus_rules(dir.path(), "bistro");
-    let generator_dir = dir.path().join(".sorcerer/spellbook/generators/use-port");
-    std::fs::create_dir_all(&generator_dir).unwrap();
-    copy_tree(
-        &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../corpus/spellbook/bistro/spellbook/generators/use-port"),
-        &generator_dir,
-    );
-    write_file(dir.path(), MODULE, CLOSE_TABLE);
-    write_file(dir.path(), TEST, CLOSE_TABLE_TEST);
-    dir
-}
+const MODULE: &str = CLOSE_TABLE_PATH;
+const TEST: &str = CLOSE_TABLE_TEST_PATH;
 
 fn port(name: &str) -> Given {
     Given(

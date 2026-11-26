@@ -1,4 +1,5 @@
-//! The plans made and not applied yet, kept ten minutes.
+//! The plans made and not applied yet, kept ten minutes, each with the version of the document
+//! a fix was planned against.
 
 use std::collections::HashMap;
 
@@ -9,23 +10,31 @@ use crate::domain::plan::Plan;
 /// How long a plan waits for its apply.
 const KEPT: i64 = 10;
 
+/// A plan waiting for its apply, and for a fix the version of the fix's document the editor
+/// knew when it asked for the plan (the edit that lands the fix carries it, so the editor
+/// refuses a buffer that moved on).
+pub(super) struct KeptPlan {
+    pub(super) plan: Plan,
+    pub(super) version: Option<i32>,
+}
+
 /// Plans by id, with when each was made.
 #[derive(Default)]
 pub(super) struct PlanCache {
-    made: HashMap<String, (DateTime<Utc>, Plan)>,
+    made: HashMap<String, (DateTime<Utc>, KeptPlan)>,
 }
 
 impl PlanCache {
     /// Keeps a plan from `now`; plans older than ten minutes are dropped.
-    pub(super) fn keep(&mut self, plan: Plan, now: DateTime<Utc>) {
+    pub(super) fn keep(&mut self, kept: KeptPlan, now: DateTime<Utc>) {
         self.drop_expired(now);
-        self.made.insert(plan.id.clone(), (now, plan));
+        self.made.insert(kept.plan.id.clone(), (now, kept));
     }
 
     /// Takes the plan out: a plan is applied once. `None` for an unknown or expired id.
-    pub(super) fn take(&mut self, id: &str, now: DateTime<Utc>) -> Option<Plan> {
+    pub(super) fn take(&mut self, id: &str, now: DateTime<Utc>) -> Option<KeptPlan> {
         self.drop_expired(now);
-        self.made.remove(id).map(|(_, plan)| plan)
+        self.made.remove(id).map(|(_, kept)| kept)
     }
 
     fn drop_expired(&mut self, now: DateTime<Utc>) {
@@ -40,14 +49,17 @@ mod tests {
 
     use super::*;
 
-    fn plan(id: &str) -> Plan {
-        Plan {
-            id: id.into(),
-            generator: "g".into(),
-            inputs: BTreeMap::new(),
-            files: Vec::new(),
-            holes: Vec::new(),
-            fix: None,
+    fn plan(id: &str) -> KeptPlan {
+        KeptPlan {
+            version: None,
+            plan: Plan {
+                id: id.into(),
+                generator: "g".into(),
+                inputs: BTreeMap::new(),
+                files: Vec::new(),
+                holes: Vec::new(),
+                fix: None,
+            },
         }
     }
 
