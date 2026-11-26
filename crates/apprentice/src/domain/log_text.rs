@@ -145,7 +145,7 @@ mod tests {
         let mut task = TaskRecord::started(
             "t1",
             "Refuse late cancellations. Two hours before.",
-            "src/cancel_booking.py",
+            "src/cancel_booking.txt",
             31,
             DateTime::from_timestamp(0, 0).unwrap(),
         );

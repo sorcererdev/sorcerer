@@ -1,5 +1,5 @@
 //! The status line of a running task, derived from what the agent does, never written by it:
-//! `apprentice: refuse late cancellations · reading booking.py · $0.12`.
+//! `apprentice: refuse late cancellations · reading booking.txt · $0.12`.
 
 use std::path::Path;
 
@@ -8,8 +8,8 @@ use serde_json::Value;
 use crate::domain::log_text::usd;
 use crate::domain::mediums::TOOL_PREFIX;
 
-/// What a tool call is doing, in a few words: `reading booking.py`, `searching Slot`, `running
-/// pytest`, `writing cancel_booking.py`, `asking you`. A subagent's call is said as
+/// What a tool call is doing, in a few words: `reading booking.txt`, `searching Slot`, `running
+/// pytest`, `writing cancel_booking.txt`, `asking you`. A subagent's call is said as
 /// `subagent: reading …`. Paths are named by their file name; `root` is cut from absolute ones.
 ///
 /// Example: `Bash` with `{"command": "uv run pytest -q"}` is `running uv`.
@@ -62,8 +62,8 @@ fn file_name_of(path: &str, root: &Path) -> String {
 
 /// The status line: the task's title, what it does now, and what it has spent.
 ///
-/// Example: `status_text("refuse late cancellations", "reading booking.py", 0.12)` is
-/// `refuse late cancellations · reading booking.py · $0.12`.
+/// Example: `status_text("refuse late cancellations", "reading booking.txt", 0.12)` is
+/// `refuse late cancellations · reading booking.txt · $0.12`.
 pub fn status_text(title: &str, activity: &str, spent_usd: f64) -> String {
     format!("{title} · {activity} · {}", usd(spent_usd))
 }
@@ -80,8 +80,8 @@ mod tests {
         let cases = [
             (
                 "Read",
-                json!({ "file_path": "/p/src/booking.py" }),
-                "reading booking.py",
+                json!({ "file_path": "/p/src/booking.txt" }),
+                "reading booking.txt",
             ),
             ("Grep", json!({ "pattern": "Slot" }), "searching Slot"),
             ("Bash", json!({ "command": "make test" }), "running make"),
@@ -111,8 +111,8 @@ mod tests {
     #[test]
     fn the_line_has_the_title_the_activity_and_the_cost() {
         assert_eq!(
-            status_text("refuse late cancellations", "reading booking.py", 0.12),
-            "refuse late cancellations · reading booking.py · $0.12"
+            status_text("refuse late cancellations", "reading booking.txt", 0.12),
+            "refuse late cancellations · reading booking.txt · $0.12"
         );
     }
 }

@@ -7,3 +7,4 @@
 - [Scry in your editor](editor.md)
 - [Conjure](conjure.md)
 - [Spellbook](spellbook.md)
+- [Apprentice](apprentice.md)

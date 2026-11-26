@@ -1,7 +1,7 @@
 //! Which commands the agent may run without asking: the ones whose first words the person
 //! allowed *always for this project*. A command that chains others (`&&`, `;`, `|`, a
-//! redirect, a subshell) is never allowed by its first words, so `uv run pytest && rm -rf x`
-//! is asked about however `uv run pytest` was allowed.
+//! redirect, a subshell) is never allowed by its first words, so `just test && rm -rf x`
+//! is asked about however `just test` was allowed.
 
 use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::versioned::Versioned;
@@ -23,8 +23,8 @@ impl CommandPrefixes {
     /// Whether the command may run unasked: it chains nothing and its words begin with an
     /// allowed prefix's words.
     ///
-    /// Example: with `uv run pytest` allowed, `uv run pytest -q tests` runs unasked, `uv run
-    /// python x` and `uv run pytest; rm x` are asked about.
+    /// Example: with `just test` allowed, `just test -q tests` runs unasked, `uv run
+    /// python x` and `just test; rm x` are asked about.
     pub fn allows(&self, command: &str) -> bool {
         if chains_commands(command) {
             return false;
@@ -50,7 +50,7 @@ impl CommandPrefixes {
 /// the first that is an option or names a path. `None` for a command that chains others: such a
 /// command can be allowed once, never always.
 ///
-/// Example: `uv run pytest tests/test_x.py -q` remembers `uv run pytest`.
+/// Example: `just test tests/test_x.txt -q` remembers `just test`.
 pub fn prefix_of(command: &str) -> Option<String> {
     if chains_commands(command) {
         return None;
@@ -75,20 +75,20 @@ mod tests {
 
     #[test]
     fn an_allowed_prefix_lets_its_commands_run() {
-        let prefixes = CommandPrefixes::default().with("uv run pytest");
-        assert!(prefixes.allows("uv run pytest"));
-        assert!(prefixes.allows("uv run pytest -q tests"));
-        assert!(!prefixes.allows("uv run python x"));
-        assert!(!prefixes.allows("uv run pytest; rm -rf x"));
-        assert!(!prefixes.allows("uv run pytest && rm -rf x"));
-        assert!(!prefixes.allows("uv run pytest > out"));
+        let prefixes = CommandPrefixes::default().with("just test");
+        assert!(prefixes.allows("just test"));
+        assert!(prefixes.allows("just test -q tests"));
+        assert!(!prefixes.allows("just lint x"));
+        assert!(!prefixes.allows("just test; rm -rf x"));
+        assert!(!prefixes.allows("just test && rm -rf x"));
+        assert!(!prefixes.allows("just test > out"));
     }
 
     #[test]
     fn the_remembered_prefix_stops_at_an_option_or_a_path() {
         assert_eq!(
-            prefix_of("uv run pytest tests/test_x.py -q").as_deref(),
-            Some("uv run pytest")
+            prefix_of("just test tests/test_x.txt -q").as_deref(),
+            Some("just test")
         );
         assert_eq!(prefix_of("make test").as_deref(), Some("make test"));
         assert_eq!(prefix_of("ls -la").as_deref(), Some("ls"));

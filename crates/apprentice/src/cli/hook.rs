@@ -12,9 +12,11 @@ use crate::adapters::helper_way::HelperWay;
 use crate::adapters::hooks::hook_output;
 
 pub(super) fn hook(event: &str, env: &dyn Env, out: &mut dyn Write) -> Result<i32> {
-    let mut ignored = String::new();
-    let _ = std::io::stdin().read_to_string(&mut ignored);
     if let Some(way) = HelperWay::from_env(env) {
+        // the hook's JSON is read away (the task is in the environment); only an agent's hook
+        // has an input that ends
+        let mut ignored = String::new();
+        let _ = std::io::stdin().read_to_string(&mut ignored);
         let output = hook_output(event, &way);
         if !output.is_empty() {
             writeln!(out, "{output}")?;
