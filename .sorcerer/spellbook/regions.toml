@@ -9,8 +9,8 @@
 #   crates/scry/src/usecases/review_change/mod.rs   mixes `pub mod` and `mod`
 #   crates/*/tests/support/mod.rs            also holds `#[allow]` re-exports
 #
-# A mod.rs with files and folders has two regions; the folders' block sits at the end of the
-# file (`init_at`), so `sync --init` does not put one block inside the other.
+# A mod.rs with files and folders has two regions, so two blocks: `sync --init` puts the
+# second after the first, never inside it.
 
 [regions.domain-modules]
 file    = "crates/*/src/domain/mod.rs"
@@ -35,7 +35,7 @@ file    = "crates/*/src/adapters/mod.rs"
 exclude = ["crates/sorcerer-models/src/adapters/mod.rs"]
 query   = { glob = "{= dir =}/*/mod.rs" }
 item    = "pub mod {= parent =};"
-init_at = ["end of file"]
+init_at = ["after last line matching ^pub mod ", "end of imports"]
 
 [regions.platform-modules]
 file    = "crates/*/src/adapters/platform/mod.rs"
@@ -54,7 +54,7 @@ init_at = ["after last line matching ^pub mod ", "end of imports"]
 file    = "crates/conjure/src/usecases/mod.rs"
 query   = { glob = "{= dir =}/*/mod.rs" }
 item    = "pub mod {= parent =};"
-init_at = ["end of file"]
+init_at = ["after last line matching ^pub mod ", "end of imports"]
 
 [regions.cli-modules]
 file    = "crates/*/src/cli/mod.rs"

@@ -241,8 +241,7 @@ The repository keeps the same conventions as spellbook data, in `.sorcerer/spell
   `conjure/src/adapters/lsp/mod.rs` (`pub(crate) mod` mixed with `mod`),
   `scry/src/usecases/mod.rs` and `scry/src/usecases/review_change/mod.rs` (public and private
   mixed), and every `tests/support/mod.rs` (`#[allow]` re-exports). A mod.rs with files and
-  folders has two regions, the folders' block last (`init_at = "end of file"`), because
-  `sync --init` of a second region after the last `pub mod` would nest it inside the first.
+  folders has two regions, so two blocks; `sync --init` of the second puts it just after the first.
 
 CI runs `spellbook check` and `spellbook sync --check` on ubuntu beside the scripts; `spellbook doctor` shows the rules and
 generators, and the project needs no trust.

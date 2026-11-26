@@ -17,7 +17,8 @@ use crate::domain::finding::{
 };
 use crate::domain::plan::{FileStatus, Plan, PlanStop, PlannedFile, plan_id};
 use crate::domain::region::{
-    Block, Markers, Region, RegionInstance, adopt, find_block, splice, with_markers_at,
+    Block, Markers, Region, RegionInstance, adopt, find_block, first_lost_line,
+    outside_every_block, splice, with_markers_at,
 };
 use crate::domain::rule::Severity;
 use crate::ports::anchors::Anchors;
@@ -323,7 +324,7 @@ impl Keeper<'_> {
                 let name = instance.region.name.as_str();
                 let state = match self.state_of(instance, &text)? {
                     State::NotSetUp if *mode == SyncMode::Init(name.to_string()) => {
-                        let (after, items) = self.set_up(instance, &text)?;
+                        let (after, items) = self.set_up(instance, instances, &text)?;
                         set_up = Some(items);
                         State::Stale { open_row: 0, after }
                     }
@@ -352,6 +353,7 @@ impl Keeper<'_> {
             if rewritten.is_empty() {
                 continue;
             }
+            self.refuse_a_lost_line(file, instances, &before, &text, &rewritten.join(", "))?;
             self.refuse_a_new_parse_error(file, &before, &text, &rewritten.join(", "))?;
             let mut changed = PlannedFile::changed(file.clone(), before, text);
             changed.region = Some(rewritten.join(", "));
@@ -430,21 +432,65 @@ impl Keeper<'_> {
     }
 
     /// The text with the region set up: the markers at the first `init_at` phrase that
-    /// resolves, the hand-written lines matching an item moved into the block, the block
-    /// filled. Returns the text and how many items the block holds.
-    fn set_up(&self, instance: &RegionInstance, text: &str) -> Result<(String, u32), PlanStop> {
+    /// resolves (moved to just after another region's block when the phrase lands inside
+    /// it), the hand-written lines outside every block that match an item moved into the
+    /// block, the block filled. `in_file` are all the regions laid on this file. Returns the
+    /// text and how many items the block holds.
+    fn set_up(
+        &self,
+        instance: &RegionInstance,
+        in_file: &[RegionInstance],
+        text: &str,
+    ) -> Result<(String, u32), PlanStop> {
         let comment = self.comment_for(instance)?;
         let (markers, items) = self.block_of(instance, &comment)?;
         let (row, indent) = self.init_place(instance, text)?;
+        let row = outside_every_block(row, &self.blocks_in_file(in_file, text)?);
         let marked = with_markers_at(text, row, &indent, &markers);
-        let adopted = adopt(
-            &marked,
-            &self.block_in(instance, &marked, &comment)?,
-            &items,
-        );
+        let adopted = adopt(&marked, &self.blocks_in_file(in_file, &marked)?, &items);
         let block = self.block_in(instance, &adopted, &comment)?;
         let count = u32::try_from(items.len()).unwrap_or(u32::MAX);
         Ok((splice(&adopted, &block, &markers, &items), count))
+    }
+
+    /// The blocks of the given regions that a text has (a region not set up, or with broken
+    /// markers, has none here: the plan says so for that region).
+    fn blocks_in_file(
+        &self,
+        in_file: &[RegionInstance],
+        text: &str,
+    ) -> Result<Vec<Block>, PlanStop> {
+        let mut blocks = Vec::new();
+        for instance in in_file {
+            let comment = self.comment_for(instance)?;
+            if let Ok(Some(block)) = find_block(text, &instance.region.name, &comment) {
+                blocks.push(block);
+            }
+        }
+        Ok(blocks)
+    }
+
+    /// A rewrite that removes a line which was neither a block's item nor adopted into a
+    /// block stops the plan, naming the line: whatever went wrong, a sync never loses code.
+    fn refuse_a_lost_line(
+        &self,
+        file: &str,
+        in_file: &[RegionInstance],
+        before: &str,
+        after: &str,
+        regions: &str,
+    ) -> Result<(), PlanStop> {
+        let blocks_before = self.blocks_in_file(in_file, before)?;
+        let blocks_after = self.blocks_in_file(in_file, after)?;
+        match first_lost_line(before, &blocks_before, after, &blocks_after) {
+            None => Ok(()),
+            Some(lost) => Err(PlanStop::RegionWouldLoseLine {
+                regions: regions.into(),
+                file: file.into(),
+                line: u32::try_from(lost.row + 1).unwrap_or(u32::MAX),
+                text: lost.text,
+            }),
+        }
     }
 
     fn block_in(

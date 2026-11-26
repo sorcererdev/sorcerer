@@ -64,14 +64,15 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   `added`, `removed`; `before` is what the apply checks the disk against; `region` and `set_up` when an
   owned region rewrote it), `FileStatus::{New,
   Skipped, Changed, Unchanged}`, `PlanStop` (with `FindingGone`, `NoReplaceCase`, `Anchor`,
-  `NothingToDo(Applied)`, `RegionBroken`, `RegionsDoNotLoad`, `RegionNotThere`, `Region`) and `plan_stop_text`, `relative_path` (lexical: no absolute path, no `..` out),
+  `NothingToDo(Applied)`, `RegionBroken`, `RegionWouldLoseLine`, `RegionsDoNotLoad`, `RegionNotThere`, `Region`) and `plan_stop_text`, `relative_path` (lexical: no absolute path, no `..` out),
   `plan_id` (eight hex digits of `fnv64_hex` over the generator, the inputs and the time).
 - `region.rs`: owned regions. `Region { name, file: PathPattern, exclude, query: RegionQuery { glob,
   exclude }, item, init_at, comment, severity }`, `REGIONS_FILE`, `RegionsProblem`, `DeclaredRegions`,
   `parse_regions(text)`; `RegionInstance` (`Region::instance_in(file)`, `query_glob`, `query_excludes`,
   `items`, `opening_marker`, `closing_marker`); and the text work, all on plain strings: `find_block`
   (`Block { open_row, close_row, indent }` or `BrokenMarkers { row, why }`), `splice`, `Markers`,
-  `with_markers_at`, `adopt`. See [A sync, end to end](#a-sync-end-to-end).
+  `with_markers_at`, `outside_every_block`, `adopt`, `first_lost_line` (`LostLine`). See
+  [A sync, end to end](#a-sync-end-to-end).
 - `record.rs`: `GenerationRecord` (a line of `generations.jsonl`; a fix adds `fix: RecordedFix`
   and `changed: Vec<ChangedFile>`, whose `region` names the owned region that rewrote the file), `OpenHole` and `HolesFile`
   (`holes.json`, a core `Versioned` at version 1), `record_of`, `open_holes_of`.
@@ -237,10 +238,14 @@ and the parse check and the `init_at` phrases go through the ports that exist.
    `Stale`.
 4. **Init.** Under `SyncMode::Init(name)` a `NotSetUp` instance of that region is set up
    (`Keeper::set_up`): the first `init_at` phrase the `Anchors` port resolves to whole lines
-   (`Place::Lines`), `with_markers_at` there, `adopt` (a line outside the new block that is exactly an item
-   is removed, so a hand-written list moves in instead of being declared twice), then `splice`.
+   (`Place::Lines`), moved past any block of the file's other regions it lands in
+   (`outside_every_block` over `Keeper::blocks_in_file`), `with_markers_at` there, `adopt` (a line
+   outside every block that is exactly an item is removed, so a hand-written list moves in instead of
+   being declared twice; another region's items stay), then `splice`.
 5. **The plan.** `Keeper::keep_all` goes file by file (two regions in one file are kept one after the
-   other on the same text); a file whose text changed is parsed again (`refuse_a_new_parse_error`:
+   other on the same text); a file whose text changed must keep every line but a block's items and the
+   lines adopted (`refuse_a_lost_line` over `first_lost_line`: else `PlanStop::RegionWouldLoseLine`
+   naming the line, which also catches a block nested in another), and is parsed again (`refuse_a_new_parse_error`:
    only a new error stops) and becomes `PlannedFile::changed(path, before, after)` with `region` (the
    names) and, for `--init`, `set_up` (the item count). Regions not set up are collected per region into
    `Plan.notes` (`not_set_up_text`); a broken pair is `PlanStop::RegionBroken`, which stops the whole
