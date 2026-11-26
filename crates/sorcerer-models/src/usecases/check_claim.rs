@@ -329,25 +329,32 @@ impl CitedFile {
 
 /// The unit called `name`: the exact qualified name (the earliest of
 /// several), or a bare name that is the last part of exactly one qualified
-/// name. A model may join a method with `.` or `::` whatever its language
-/// does, so the two separators are read alike.
+/// name. A model may join a method to its type with any separator, whatever
+/// its language uses, so names are compared by their words alone.
 ///
 /// Example: with units `Jev::new` and `Jev::ask_raw`, the names
 /// `Jev.ask_raw`, `Jev::ask_raw` and `ask_raw` all find `Jev::ask_raw`.
 fn unit_named<'u>(units: &'u [Unit], name: &str) -> Option<&'u Unit> {
-    let plain = |name: &str| name.replace("::", ".");
-    let name = plain(name);
-    if let Some(exact) = units.iter().find(|unit| plain(&unit.name) == name) {
+    let name = words_of(name);
+    if let Some(exact) = units.iter().find(|unit| words_of(&unit.name) == name) {
         return Some(exact);
     }
     let ending_in_name: Vec<&Unit> = units
         .iter()
-        .filter(|unit| plain(&unit.name).ends_with(&format!(".{name}")))
+        .filter(|unit| words_of(&unit.name).ends_with(&name))
         .collect();
     match ending_in_name.as_slice() {
         [only] => Some(only),
         _ => None,
     }
+}
+
+/// A name's words: what is left between the characters that join them (`Jev::ask_raw` and
+/// `Jev.ask_raw` are both `["Jev", "ask_raw"]`).
+fn words_of(name: &str) -> Vec<&str> {
+    name.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .collect()
 }
 
 /// What the guards see as evidence: the first three citations, each
@@ -448,5 +455,15 @@ mod tests {
             Some(3)
         );
         assert!(unit_named(&units, "Other.ask_raw").is_none());
+        // a language joining with something else entirely is read the same way
+        let slashed = [unit("Order/cancel", 7)];
+        assert_eq!(
+            unit_named(&slashed, "Order.cancel").map(|u| u.span.start),
+            Some(7)
+        );
+        assert_eq!(
+            unit_named(&slashed, "cancel").map(|u| u.span.start),
+            Some(7)
+        );
     }
 }

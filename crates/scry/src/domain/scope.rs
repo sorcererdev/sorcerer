@@ -99,15 +99,29 @@ pub fn header_of(lines: &[&str], units: &[Unit], unit: &Unit) -> Option<String> 
         .iter()
         .filter(|m| m.name != unit.name && m.span.contains(&unit.span) && m.span != unit.span)
         .min_by_key(|m| m.span.end - m.span.start)?;
-    let line = def_line(lines, outer)?.trim();
+    let line = def_line(lines, units, outer)?.trim();
     (!line.is_empty()).then(|| line.to_string())
+}
+
+/// The unit's own name: its name without the name of the unit around it and whatever the
+/// language joins the two with (`cancel` in `Order.cancel` or `Order::cancel`).
+fn own_name<'u>(units: &[Unit], u: &'u Unit) -> &'u str {
+    let parent = units
+        .iter()
+        .filter(|m| m.name != u.name && m.span.contains(&u.span) && m.span != u.span)
+        .min_by_key(|m| m.span.end - m.span.start);
+    parent
+        .and_then(|parent| u.name.strip_prefix(parent.name.as_str()))
+        .map(|rest| rest.trim_start_matches(|c: char| !(c.is_alphanumeric() || c == '_')))
+        .filter(|own| !own.is_empty())
+        .unwrap_or(&u.name)
 }
 
 /// The unit's definition line: the first line of its span, before its body,
 /// that holds its own name (so a decorator above it is passed over); else
 /// the span's first line.
-fn def_line<'t>(lines: &[&'t str], u: &Unit) -> Option<&'t str> {
-    let own = u.name.rsplit(['.', ':']).next().unwrap_or(&u.name);
+fn def_line<'t>(lines: &[&'t str], units: &[Unit], u: &Unit) -> Option<&'t str> {
+    let own = own_name(units, u);
     let last = u.body.map_or(u.span.end, |b| b.start.max(u.span.start));
     let at = |n: u32| lines.get(n.checked_sub(1)? as usize).copied();
     (u.span.start..=last)
