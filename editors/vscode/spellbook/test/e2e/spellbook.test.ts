@@ -149,4 +149,39 @@ describe('spellbook', () => {
     editor.selection = new vscode.Selection(0, 0, 0, 0);
     await until('the session ended', () => (api.holeStatus() === undefined ? true : undefined));
   });
+
+  it('Fix previews the change as a diff, applies it through the editor, and one undo takes it back', async () => {
+    const said: [string, string][] = [];
+    const asked: string[] = [];
+    api.useAsker({
+      pickChoice: async (input: { name: string }, items: string[]) => { asked.push(input.name); return items[0]; },
+      say: (level: string, text: string) => { said.push([level, text]); },
+    });
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(PLANTED));
+    const editor = await vscode.window.showTextDocument(doc);
+    const row = rowOf(doc, 'import sqlite3');
+    editor.selection = new vscode.Selection(row, 0, row, 0);
+    const before = doc.getText();
+    const done = vscode.commands.executeCommand('spellbook.fixHere');
+    // the changed file shows as VS Code's diff: its text on disk against the plan
+    await until('the diff of the plan', () => vscode.window.tabGroups.all.flatMap(g => g.tabs)
+      .find(t => t.input instanceof vscode.TabInputTextDiff && t.input.modified.scheme === 'spellbook-plan'), 60_000)
+      .catch(err => { throw new Error(`${String(err)}\nsaid: ${JSON.stringify(said)}`); });
+    await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+    await done;
+    assert.deepEqual(said, []);
+    assert.deepEqual(asked, ['port']);
+    await until('the fix landed in the editor', () => (doc.getText().includes('import sqlite3') ? undefined : true), 30_000);
+    assert.ok(doc.isDirty, 'the change is in the editor, unsaved');
+    assert.equal(readFileSync(PLANTED, 'utf8').replace(/\r\n/g, '\n'), before.replace(/\r\n/g, '\n'), 'nothing is saved');
+    // `undo` acts on the focused window; a test window without the keyboard (a locked screen)
+    // ignores it, and the by-hand walk covers that step
+    if (!vscode.window.state.focused) {
+      console.log('the window has no keyboard focus: the undo step is left to the by-hand walk');
+      return;
+    }
+    await vscode.window.showTextDocument(doc);
+    await vscode.commands.executeCommand('undo');
+    await until('the undo', () => (doc.getText() === before ? true : undefined), 5000);
+  });
 });

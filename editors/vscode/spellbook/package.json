@@ -59,6 +59,10 @@
       {
         "command": "spellbook.check",
         "title": "Spellbook: Check"
+      },
+      {
+        "command": "spellbook.fixHere",
+        "title": "Spellbook: Fix"
       }
     ],
     "keybindings": [
@@ -70,6 +74,11 @@
       {
         "command": "spellbook.check",
         "key": "ctrl+m k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "spellbook.fixHere",
+        "key": "ctrl+m f",
         "when": "editorTextFocus"
       }
     ]

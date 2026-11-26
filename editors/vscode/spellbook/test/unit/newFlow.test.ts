@@ -35,18 +35,19 @@ function fakeServer(replies: Record<string, unknown>): Server & { calls: [string
 
 // An asker giving scripted answers (undefined: a cancel), recording what it was told and asked.
 function fakeAsker(answers: { generator?: string; choices?: (string | undefined)[]; texts?: (string | undefined)[]; plan?: 'apply' | 'cancel' }):
-  Asker & { said: [string, string][]; asked: string[]; shown: Values[] } {
+  Asker & { said: [string, string][]; asked: string[]; shown: Values[]; settled: (Values | undefined)[] } {
   const said: [string, string][] = [];
   const asked: string[] = [];
   const shown: Values[] = [];
+  const settled: (Values | undefined)[] = [];
   const choices = [...(answers.choices ?? [])];
   const texts = [...(answers.texts ?? [])];
   return {
-    said, asked, shown,
+    said, asked, shown, settled,
     pickGenerator: async gs => gs.find(g => g.id === answers.generator),
     pickChoice: async (input: Input, items: string[]) => { asked.push(`${input.name}: ${items.join(',')}`); return choices.shift(); },
     askText: async (input: Input, prompt: string) => { asked.push(`${input.name}? ${prompt}`); return texts.shift(); },
-    showPlan: async (_plan, taken) => { shown.push(taken); return answers.plan ?? 'apply'; },
+    showPlan: async (_plan, taken, given) => { shown.push(taken); settled.push(given); return answers.plan ?? 'apply'; },
     say: (level, text) => { said.push([level, text]); },
   };
 }
@@ -149,4 +150,52 @@ test('a_failed_request_is_said_as_an_error', async () => {
   const asker = fakeAsker({});
   assert.equal(await newFlow(bistro({ 'spellbook.generators': new Error('the server stopped') }), asker), undefined);
   assert.deepEqual(asker.said, [['error', 'spellbook: spellbook.generators failed: the server stopped']]);
+});
+
+const usePort: Generator = {
+  id: 'use-port', name: 'Use a port', summary: 'Use a port the service has',
+  inputs: [
+    { name: 'app', type: 'enum', prompt: 'The app' },
+    { name: 'unit', type: 'ident', prompt: 'The unit' },
+    { name: 'port', type: 'enum', prompt: 'The port it takes' },
+    { name: 'note', type: 'text', prompt: 'A note', optional: true },
+  ],
+};
+const fix = { file: 'src/a/close_table.py', line: 4, rule: 'commands-use-ports', index: 1, label: 'Use a port the service has', version: 7 };
+const fixPlan = { id: 'f1', generator: 'use-port', files: [], holes: [], fix: { rule: fix.rule, file: fix.file, line: 4, fingerprint: 'x', index: 1, label: fix.label } };
+
+function fixing() {
+  return bistro({
+    'spellbook.generators': [command, usePort],
+    'spellbook.choices': () => ({ choices: ['booking_repository', 'table_repository'] }),
+    'spellbook.plan': fixPlan,
+  });
+}
+
+test('a_fix_asks_only_what_is_missing_and_plans_with_the_fix_and_the_version', async () => {
+  const server = fixing();
+  const asker = fakeAsker({ choices: ['table_repository'] });
+  const given = { generator: 'use-port', inputs: { app: 'bistro', unit: 'close_table' }, missing: ['port'], fix };
+  assert.deepEqual(await newFlow(server, asker, given), applied);
+  assert.deepEqual(asker.asked, ['port: booking_repository,table_repository']);
+  const plans = server.calls.filter(c => c[0] === 'spellbook.plan');
+  assert.deepEqual(plans, [['spellbook.plan', ['use-port',
+    { app: 'bistro', unit: 'close_table', port: 'table_repository' },
+    { file: fix.file, line: 4, rule: fix.rule, index: 1, version: 7 }]]]);
+  // the inputs the finding settled are named with the plan
+  assert.deepEqual(asker.settled, [{ app: 'bistro', unit: 'close_table' }]);
+});
+
+test('a_fix_with_nothing_missing_asks_nothing_and_leaves_optional_inputs_out', async () => {
+  const asker = fakeAsker({});
+  const given = { generator: 'use-port', inputs: { app: 'bistro', unit: 'u', port: 'p' }, missing: [], fix };
+  await newFlow(fixing(), asker, given);
+  assert.deepEqual(asker.asked, []);
+});
+
+test('a_cancelled_fix_question_plans_nothing', async () => {
+  const server = fixing();
+  const asker = fakeAsker({ choices: [undefined] });
+  assert.equal(await newFlow(server, asker, { generator: 'use-port', inputs: {}, missing: ['port'], fix }), undefined);
+  assert.ok(!server.calls.some(c => c[0] === 'spellbook.plan'));
 });

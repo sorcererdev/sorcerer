@@ -2,6 +2,7 @@
 // the Server runs spellbook's four commands, the Asker asks the person. extension.ts wires the
 // Server to the folder's `spellbook lsp` and asker.ts makes the Asker of VS Code's pickers.
 import { answerValue, choiceItems, type Generator, type Input, nextInput, promptText, retryInput, type StopReply, takenWithoutAsking, type Values } from './inputs';
+import { type FixRef, fixRequest } from './fix';
 import type { Hole, Plan } from './plan';
 
 // The server: runs one of spellbook's commands and gives its reply (a rejected promise for a
@@ -15,7 +16,7 @@ export interface Asker {
   pickGenerator(generators: Generator[]): Promise<Generator | undefined>;
   pickChoice(input: Input, items: string[]): Promise<string | undefined>;
   askText(input: Input, prompt: string): Promise<string | undefined>;
-  showPlan(plan: Plan, taken: Values): Promise<'apply' | 'cancel'>;
+  showPlan(plan: Plan, taken: Values, settled?: Values): Promise<'apply' | 'cancel'>;
   say(level: 'info' | 'warn' | 'error', text: string): void;
 }
 
@@ -29,10 +30,11 @@ export interface Stop {
   range: { start: { line: number; character: number }; end: { line: number; character: number } };
 }
 
-// What `spellbook.apply` did: the files written and skipped, a file it refused to write, the
+// What `spellbook.apply` did: the files changed (in the editor, unsaved), the files written and skipped, a file it refused to write, the
 // plan's holes, the first hole (line from 1) and every hole as a stop (absent from an older
 // server).
 export interface ApplyReply {
+  changed?: string[];
   written: string[];
   skipped: string[];
   refused: null | { path: string; why: string };
@@ -43,9 +45,13 @@ export interface ApplyReply {
 
 // What the flow was given up front (a keybinding's args, a test): the generator's id and some
 // inputs; each skips its question.
+// A fix (the code action's) also gives the inputs still to ask (`missing`: nothing else is
+// asked) and the finding with the buffer's version.
 export interface Given {
   generator?: string;
   inputs?: Values;
+  missing?: string[];
+  fix?: FixRef & { version: number };
 }
 
 // Thrown once the person has been told why the flow ends (a stop, a failed request).
@@ -58,14 +64,17 @@ class Ended extends Error {}
 // 3. the plan (`spellbook.plan`), asking a named input once more if the plan stops for it;
 // 4. the plan shown, with the inputs taken without asking; Apply runs `spellbook.apply` and a
 //    refused file is said.
+// A given fix is the same chain with its own inputs: only the `missing` ones are asked, the plan
+// gets the finding and the buffer's version, and the title names what the finding settled.
 // Example: given { generator: 'command', inputs: { service: 'booking' } } asks only `command`.
 export async function newFlow(server: Server, asker: Asker, given: Given = {}): Promise<ApplyReply | undefined> {
   const talk = new Talk(server, asker);
   try {
     const generator = await chosenGenerator(talk, given.generator);
-    const values = generator && await answeredInputs(talk, generator, { ...given.inputs });
-    const plan = generator && values && await madePlan(talk, generator, values);
-    if (!plan || await asker.showPlan(plan, talk.taken) !== 'apply') return undefined;
+    const settled = { ...given.inputs };
+    const values = generator && await answeredInputs(talk, generator, { ...given.inputs }, given.fix && given.missing);
+    const plan = generator && values && await madePlan(talk, generator, values, given.fix);
+    if (!plan || await asker.showPlan(plan, talk.taken, given.fix ? settled : undefined) !== 'apply') return undefined;
     return await applied(talk, plan);
   } catch (err) {
     if (err instanceof Ended) return undefined;
@@ -108,10 +117,11 @@ async function chosenGenerator(talk: Talk, named: string | undefined): Promise<G
 }
 
 // answeredInputs asks each input with no value yet, in order; undefined when the person
-// cancels. A skipped optional input gets no value.
-async function answeredInputs(talk: Talk, generator: Generator, values: Values): Promise<Values | undefined> {
-  const skipped = new Set<string>();
-  for (let input = nextInput(generator, values); input; input = nextInput(generator, values, skipped)) {
+// cancels. A skipped optional input gets no value. With `only`, the inputs not named there are
+// left alone (a fix asks what its finding does not settle).
+async function answeredInputs(talk: Talk, generator: Generator, values: Values, only?: string[]): Promise<Values | undefined> {
+  const skipped = new Set<string>(only ? generator.inputs.map(input => input.name).filter(name => !only.includes(name)) : []);
+  for (let input = nextInput(generator, values, skipped); input; input = nextInput(generator, values, skipped)) {
     const value = await valueOf(talk, generator, input, values);
     if (value === undefined) return undefined;
     if (value === '') skipped.add(input.name);
@@ -140,15 +150,16 @@ async function asked(talk: Talk, input: Input, choices: string[] | undefined): P
 
 // madePlan is the plan; a stop that names an input says why, asks that input once more and
 // plans again; a second stop is said and ends.
-async function madePlan(talk: Talk, generator: Generator, values: Values, retried = false): Promise<Plan | undefined> {
-  const reply = await talk.reply<Plan | StopReply>('spellbook.plan', [generator.id, values], true);
+async function madePlan(talk: Talk, generator: Generator, values: Values, fix?: Given['fix'], retried = false): Promise<Plan | undefined> {
+  const args = fix ? [generator.id, values, fixRequest(fix, fix.version)] : [generator.id, values];
+  const reply = await talk.reply<Plan | StopReply>('spellbook.plan', args, true);
   if (!isStop(reply)) return reply;
   const input = retryInput(generator, reply, retried);
   if (!input) talk.end('warn', reply.stop);
   talk.asker.say('warn', reply.stop);
   const value = await asked(talk, input, reply.choices && reply.choices.length > 0 ? reply.choices : undefined);
   if (!value) return undefined;
-  return madePlan(talk, generator, { ...values, [input.name]: value }, true);
+  return madePlan(talk, generator, { ...values, [input.name]: value }, fix, true);
 }
 
 async function applied(talk: Talk, plan: Plan): Promise<ApplyReply> {
