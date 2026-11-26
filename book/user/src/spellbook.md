@@ -602,7 +602,7 @@ init_at = ["after last line matching ^pub mod ", "end of imports"]
 | `exclude` | path patterns `file` may match but the region leaves alone (`src/*/ports/mod.rs`, which `ports` keeps) |
 | `query` | `{ glob = "…", exclude = ["…"] }`: what to list. Each file the glob matches is one item. `*` stays inside one folder and `**` crosses folders. Required |
 | `item` | the line written for each match, a template. Lines are trimmed, empty ones dropped, each kept once, sorted. Required |
-| `init_at` | where `sync --init` puts the markers: a phrase, or a list tried in order, as an insert's `at` (`end of imports`, `after last line matching ^pub mod `, `start of file`). Default `end of imports` |
+| `init_at` | where `sync --init` puts the markers: a phrase, or a list tried in order, as an insert's `at` (`end of imports`, `after last line matching ^pub mod `, `start of file`). Default `end of imports`. A phrase that lands inside another region's block (its last `pub mod` is that block's last item) puts the markers just after that block, so two regions in one file sit one after the other, never one inside the other |
 | `comment` | the marker lines' comment syntax, for a file no language covers (a `Cargo.toml`); a file a language covers takes the language's `comment` and may not set it |
 | `severity` | of the `region-stale` finding: `error` (the default), `warn` or `hint` |
 
@@ -745,7 +745,12 @@ generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doct
 ### The rules
 
 - **Only between the markers.** A region changes the lines from its opening marker to its closing marker
-  and nothing else; `--init` adds the two lines at `init_at` and removes only lines equal to an item.
+  and nothing else; `--init` adds the two lines at `init_at` and removes only lines outside every block
+  that equal an item (they are adopted into the new block).
+- **Never a lost line.** A plan that would remove any other line (a hand-written line, another region's
+  markers) stops before writing, naming the file, the line and its text (`src/booking/parts/mod.rs:6:
+  syncing region part-files would lose this line (…), which no block adopts; nothing was written`). A file whose blocks are nested (one
+  region's markers inside another's) stops this way: move the inner block out by hand.
 - **Whole block, from the files.** Sorted (by bytes, so every platform sorts alike), each line once,
   rendered from the files on disk: a second `sync` says `regions up to date`, and `check` after `sync`
   is clean.

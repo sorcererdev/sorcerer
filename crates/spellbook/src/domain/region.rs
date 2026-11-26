@@ -526,19 +526,100 @@ pub fn with_markers_at(text: &str, row: usize, indent: &str, markers: &Markers) 
     lines.concat()
 }
 
-/// The text without the lines outside the block whose trimmed text is one of the items: on
-/// `sync --init`, a list written by hand moves into the block instead of being declared twice.
+/// The row new markers go before so that they sit inside no block: a row inside a block
+/// (after its opening marker, up to its closing marker) becomes the row just after the block's
+/// closing marker; any other row stays. `init_at` phrases know lines, not blocks, and the last
+/// line matching a pattern is often the last item of a block set up already.
+///
+/// Example: with a block on rows 2 to 5, row 4 becomes 6, and rows 2 and 6 stay as they are.
+pub fn outside_every_block(row: usize, blocks: &[Block]) -> usize {
+    match blocks
+        .iter()
+        .find(|block| block.open_row < row && row <= block.close_row)
+    {
+        Some(block) => outside_every_block(block.close_row + 1, blocks),
+        None => row,
+    }
+}
+
+/// The text without the lines outside every block whose trimmed text is one of the items: on
+/// `sync --init`, a list written by hand moves into the new block instead of being declared
+/// twice. `blocks` are every block in the text, the new one among them; a line inside any of
+/// them belongs to its region and stays.
 ///
 /// Example: `item a;\n<block>\n` with the item `item a;` loses its first line.
-pub fn adopt(text: &str, block: &Block, items: &[String]) -> String {
+pub fn adopt(text: &str, blocks: &[Block], items: &[String]) -> String {
     text.split_inclusive('\n')
         .enumerate()
         .filter(|(row, line)| {
-            let inside = (block.open_row..=block.close_row).contains(row);
+            let inside = blocks
+                .iter()
+                .any(|block| (block.open_row..=block.close_row).contains(row));
             inside || !items.iter().any(|item| item == line.trim())
         })
         .map(|(_, line)| line)
         .collect()
+}
+
+/// A line a rewrite would lose: its row (from 0) in the text before, and its text, trimmed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LostLine {
+    pub row: usize,
+    pub text: String,
+}
+
+/// The first line of `before` that `after` no longer has, when the only lines a sync may
+/// remove are a block's items (its region owns them) and the hand-written lines it adopts (a
+/// line outside the blocks before whose text is inside a block after). Lines are compared
+/// trimmed, so an adopted line may take the block's indentation; a line written twice must be
+/// there twice, unless a block holds it now. Every marker line is kept, so a block that would
+/// swallow another region's block loses that block's markers and is refused.
+///
+/// Example: before `a\n// spellbook:region m\nx\n// spellbook:end m\nb\n` (the block on rows
+/// 1 to 3), an after without `x` loses nothing, one without `b` loses row 4 (`b`).
+pub fn first_lost_line(
+    before: &str,
+    blocks_before: &[Block],
+    after: &str,
+    blocks_after: &[Block],
+) -> Option<LostLine> {
+    let owned = |blocks: &[Block], row: usize| {
+        let a_marker = blocks
+            .iter()
+            .any(|block| row == block.open_row || row == block.close_row);
+        let inside = blocks
+            .iter()
+            .any(|block| block.open_row < row && row < block.close_row);
+        inside && !a_marker
+    };
+    let held_by_a_block: Vec<&str> = after
+        .lines()
+        .enumerate()
+        .filter(|(row, _)| owned(blocks_after, *row))
+        .map(|(_, line)| line.trim())
+        .collect();
+    let mut left: BTreeMap<&str, usize> = BTreeMap::new();
+    for line in after.lines() {
+        *left.entry(line.trim()).or_default() += 1;
+    }
+    before
+        .lines()
+        .enumerate()
+        .filter(|(row, _)| !owned(blocks_before, *row))
+        .find_map(|(row, line)| {
+            let text = line.trim();
+            let still_there = match left.get_mut(text) {
+                Some(count) if *count > 0 => {
+                    *count -= 1;
+                    true
+                }
+                _ => held_by_a_block.contains(&text),
+            };
+            (!still_there).then(|| LostLine {
+                row,
+                text: text.to_string(),
+            })
+        })
 }
 
 #[cfg(test)]
@@ -734,7 +815,11 @@ init_at = ["after last line matching ^item ", "start of file"]
             "//! doc\n\nitem a;\n// spellbook:region modules (from x)\n// spellbook:end modules\n"
         );
         let block = find_block(&marked, "modules", "//").unwrap().unwrap();
-        let adopted = adopt(&marked, &block, &["item a;".to_string()]);
+        let adopted = adopt(
+            &marked,
+            std::slice::from_ref(&block),
+            &["item a;".to_string()],
+        );
         assert_eq!(
             adopted,
             "//! doc\n\n// spellbook:region modules (from x)\n// spellbook:end modules\n"
@@ -750,6 +835,68 @@ init_at = ["after last line matching ^item ", "start of file"]
         assert_eq!(
             with_markers_at("a", 1, "", &markers("#")),
             "a\n# spellbook:region modules (from x)\n# spellbook:end modules\n"
+        );
+    }
+
+    fn block(open_row: usize, close_row: usize) -> Block {
+        Block {
+            open_row,
+            close_row,
+            indent: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_row_inside_a_block_moves_past_its_closing_marker() {
+        let blocks = [block(2, 5), block(6, 8)];
+        assert_eq!(outside_every_block(4, &blocks), 6);
+        assert_eq!(outside_every_block(5, &blocks), 6);
+        assert_eq!(outside_every_block(7, &blocks), 9);
+        assert_eq!(outside_every_block(2, &blocks), 2);
+        assert_eq!(outside_every_block(1, &blocks), 1);
+    }
+
+    #[test]
+    fn adopting_leaves_the_lines_of_other_blocks_alone() {
+        let text = "item a;\n# region n\nitem a;\n# end n\n# region m\n# end m\n";
+        let adopted = adopt(text, &[block(1, 3), block(4, 5)], &["item a;".into()]);
+        assert_eq!(
+            adopted,
+            "# region n\nitem a;\n# end n\n# region m\n# end m\n"
+        );
+    }
+
+    #[test]
+    fn a_line_outside_the_blocks_must_survive_or_be_adopted() {
+        let before = "a\n# region m\nx\n# end m\nb\nitem c;\n";
+        let blocks = [block(1, 3)];
+        let no_x = "a\n# region m\n# end m\nb\nitem c;\n";
+        assert_eq!(first_lost_line(before, &blocks, no_x, &[block(1, 2)]), None);
+        let adopted = "a\n# region m\n  item c;\n# end m\nb\n";
+        assert_eq!(
+            first_lost_line(before, &blocks, adopted, &[block(1, 3)]),
+            None
+        );
+        let no_b = "a\n# region m\nx\n# end m\nitem c;\n";
+        assert_eq!(
+            first_lost_line(before, &blocks, no_b, &[block(1, 3)]),
+            Some(LostLine {
+                row: 4,
+                text: "b".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_block_that_swallows_another_loses_its_markers() {
+        let before = "# region m\nx\n# region n\ny\n# end n\n# end m\n";
+        let after = "# region m\nx\n# end m\n";
+        assert_eq!(
+            first_lost_line(before, &[block(0, 5), block(2, 4)], after, &[block(0, 2)]),
+            Some(LostLine {
+                row: 2,
+                text: "# region n".into()
+            })
         );
     }
 }
