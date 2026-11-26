@@ -905,3 +905,26 @@ fn a_reply_dropped_without_an_answer_answers_with_an_error() {
     );
     editor.stop();
 }
+
+#[test]
+fn a_sorcerer_notification_reaches_only_an_editor_that_handles_it() {
+    let plain = Editor::plain();
+    assert!(
+        !plain
+            .client()
+            .notify_sorcerer("sorcerer/ghost", json!({ "lines": [] }))
+    );
+    assert!(notifications(&plain, "sorcerer/ghost").is_empty());
+    plain.stop();
+    let editor = Editor::with_options(json!({ "handles": ["sorcerer/ghost", "other/thing"] }));
+    let client = editor.client();
+    assert!(client.handles("sorcerer/ghost"));
+    assert!(!client.handles("other/thing"));
+    assert!(client.notify_sorcerer("sorcerer/ghost", json!({ "lines": ["x"] })));
+    assert!(!client.notify_sorcerer("sorcerer/note", json!({})));
+    assert_eq!(
+        notifications(&editor, "sorcerer/ghost"),
+        [json!({ "lines": ["x"] })]
+    );
+    editor.stop();
+}

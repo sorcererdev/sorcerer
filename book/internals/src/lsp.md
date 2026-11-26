@@ -11,7 +11,7 @@ It is synchronous like the rest of the workspace: `lsp-server` gives a connectio
 channels, and `lsp-types` the message types (its `Uri`, which `uri.rs` turns into paths
 through the `url` crate). There is no async runtime.
 
-## The five files
+## The files
 
 | file | holds |
 |---|---|
@@ -20,6 +20,9 @@ through the `url` crate). There is no async runtime.
 | `src/jobs.rs` | `Jobs`, work to run after a delay, one waiting job per key |
 | `src/reply.rs` | `Reply`, the answer to one request, which a product may send after the call that got it returned |
 | `src/uri.rs` | `path_of` and `uri_of`: only `file:` URIs are files |
+| `src/line_edits.rs` | `LineEdit` and `line_edits` (a new text as the fewest whole-line edits, over the `similar` crate), `same_text`, `in_base_line_endings`, `keep_unterminated_last_line`, `first_changed_line`, `lines_changed` |
+| `src/landing.rs` | landing a change: `Snapshot` and `OpenDocument` (the open documents when it was asked for), `FileChange`, `NewFiles`, `workspace_edit`, `moved_on`, `versioned_text_now`, `Undoing` and `undo_edit` |
+| `src/undo_plan.rs` | taking one landed file back: `TakenBack`, `FileDeletion`, `Undo`, `FileUndo`, `undo_of` |
 
 ## What the host owns
 
@@ -60,6 +63,19 @@ through the `url` crate). There is no async runtime.
   (`Client::replied`). A reply never received leaves its handler waiting, and nothing blocks
   on it. `workspace/applyEdit` goes the same way.
 
+- **Landing an edit**, for a product that writes (conjure, apprentice). `landing::workspace_edit`
+  turns a change's files (`FileChange`: the path relative to the root, new or not, the text
+  before and after, the `LineEdit`s) into one `WorkspaceEdit`: each open file a
+  `TextDocumentEdit` at the version in the `Snapshot` taken when the change was asked for, a file
+  not open with no version, a new file a `CreateFile` (`ignoreIfExists`) and an insert, or left
+  out under `NewFiles::LeftOut`. `landing::moved_on` is the check before sending: an open file at
+  another version, a file not open then but open now (or on disk) with other text, a new file
+  that is there now. `undo_plan::undo_of` plans one file's undo from its text now
+  (`versioned_text_now`: the editor's, else the disk's): back to its text before when it is still
+  the after-text, nothing when it is already back, refused (`FileUndo::Edited`) when the person
+  edited it; `landing::undo_edit` sends the undoings as one edit. The products keep what is
+  theirs: which files a change touches, its record, its marks.
+
 ## The client's senders
 
 `Client` is `Clone + Send + Sync`; every clone speaks over the same connection, from any
@@ -77,6 +93,12 @@ thread.
   `drawsWorking: true` (`Abilities::draws_working`, read in `serve::abilities_of`); to any other
   both calls do nothing. `clear_working` sends the empty list only when something is shown. The
   clients clear it themselves when the server exits.
+- `notify_sorcerer(method, params) -> bool`: a `sorcerer/…` notification of the product's own
+  (apprentice's `sorcerer/ghost`, `sorcerer/note`, `sorcerer/showDiff`), sent only to an editor
+  whose `initializationOptions.handles` lists the method (`Abilities::handles`, read in
+  `serve::abilities_of`); it answers whether it was sent, so the product falls back to a
+  standard message (`say`, `show_document`) for any other editor. `handles(method)` asks the
+  same without sending.
 - `say(kind, text)`: `window/showMessage`, every time (an answer to what the person just did).
 - `say_once(key, kind, text)`: `window/showMessage`, at most once per key for the life of the
   server; answers whether it was sent.
