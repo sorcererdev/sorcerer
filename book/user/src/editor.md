@@ -23,7 +23,9 @@ You edit `cancel.rs` and save.
 - **Nothing to say**: nothing. No "all clear", no count.
 - **You edit the unit again**: the finding moves with its unit and, from your next save until
   the next review ends, says `(the code changed since this review)` on its last line (its
-  code becomes `bug-stale`). The review then raises it again or resolves it. Undo your change
+  code becomes `bug-stale`). The next review of that unit is shown the finding and judges it
+  on the new code: it resolves it, or, when the problem is still there, keeps it on the new
+  code, no longer marked stale. Undo your change
   so the unit is again what you committed, and the finding is resolved at the next save, with
   no model call. Redo the change and the next save reviews it again, so the finding returns.
 
@@ -157,7 +159,7 @@ the lightbulb, or `ctrl+m c/u/t/w` for conjure's) offers:
 
 ## What it says unprompted
 
-Three messages, each rare. Everything else goes to the editor's log for the server and to the
+Four messages, each rare. Everything else goes to the editor's log for the server and to the
 run log (`scry log`).
 
 - **The day's budget is spent**, once a local day: `scry: today's budget ($3.00) is spent.
@@ -165,6 +167,10 @@ run log (`scry log`).
 - **Scry cannot run** (no `JEV_API_KEY`, no provider), once a session, at the first save
   that had something to review: `scry is not reviewing: <reason>. Run "scry doctor".`
 - **The trust question**, once a session (below).
+- **A pass was skipped** after its review call, because Jev could not answer one of its
+  questions (scry does not judge on a guess): `scry: a pass was skipped: Jev did not answer;
+  nothing it found was stored, and its units are sent again at the next save`. The status line
+  ends with `skipped, see "scry log"`, and the run log holds the review's whole reply.
 
 A review call that fails (a model error, a timeout) ends the status line with `review failed,
 see "scry log"` and shows no message.

@@ -10,7 +10,9 @@ use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::config::DecideConfig;
 use sorcerer_core::ports::ledger::Ledger;
-use sorcerer_models::adapters::jev::{Jev, jev_answers, jev_body, question_key};
+use sorcerer_models::adapters::jev::{
+    Jev, jev_answers, jev_body, question_key, requests_jev_takes,
+};
 use sorcerer_models::adapters::recorded_decider::RecordedDecider;
 use sorcerer_models::domain::decide::{Answer, Confidence, Question, Shape, UnsureAnswer};
 use sorcerer_models::ports::decider::Decider;
@@ -228,4 +230,60 @@ fn recorded_decider_answers_by_key_and_misses_loudly() {
     let w = r.ask(&[q], &Cancel::default()).unwrap();
     assert_eq!(w[0].answer, Answer::Yes(Confidence::Known(0.75)));
     assert!(r.ask(&[noul("b", &[])], &Cancel::default()).is_err());
+}
+
+#[test]
+fn a_batch_jev_refuses_whole_is_split_into_requests_it_takes() {
+    let same_about = |stored: &str| noul("same", &[("finding A", "new"), ("finding B", stored)]);
+    // one request per kind; a context name with two texts needs a request of its own
+    assert_eq!(
+        requests_jev_takes(&[same_about("one"), same_about("two"), noul("nitpick", &[])]),
+        vec![vec![0, 2], vec![1]]
+    );
+    assert_eq!(
+        requests_jev_takes(&[
+            noul("a", &[("code", "c")]),
+            noul("b", &[("code", "other")]),
+            noul("c", &[("code", "c")]),
+        ]),
+        vec![vec![0, 2], vec![1]]
+    );
+    assert!(requests_jev_takes(&[]).is_empty());
+}
+
+#[test]
+fn two_questions_of_one_kind_are_asked_in_two_requests_and_answered_in_order() {
+    let mut s = mockito::Server::new();
+    let first = s
+        .mock("POST", "/v1/systemone")
+        .match_body(mockito::Matcher::PartialJson(
+            json!({"state": {"finding B": "one"}}),
+        ))
+        .with_body(r#"{"answers": {"same": {"type": "noul", "noul": 0.9}}}"#)
+        .expect(1)
+        .create();
+    let second = s
+        .mock("POST", "/v1/systemone")
+        .match_body(mockito::Matcher::PartialJson(
+            json!({"state": {"finding B": "two"}}),
+        ))
+        .with_body(r#"{"answers": {"same": {"type": "noul", "noul": 0.2}}}"#)
+        .expect(1)
+        .create();
+    let d = tempfile::TempDir::new().unwrap();
+    let ledger = JsonlLedger::at(d.path().join("l.jsonl"));
+    let w = jev(&s.url(), Some(Arc::new(ledger.clone())))
+        .ask(
+            &[
+                noul("same", &[("finding A", "new"), ("finding B", "one")]),
+                noul("same", &[("finding A", "new"), ("finding B", "two")]),
+            ],
+            &Cancel::default(),
+        )
+        .unwrap();
+    first.assert();
+    second.assert();
+    assert_eq!(w[0].answer, Answer::Yes(Confidence::Known(0.9)));
+    assert!(matches!(w[1].answer, Answer::No(_)));
+    assert_eq!(ledger.read().unwrap().errands.len(), 2);
 }

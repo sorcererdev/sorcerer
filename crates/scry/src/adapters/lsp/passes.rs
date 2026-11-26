@@ -163,7 +163,7 @@ impl<W: Wiring + 'static> Server<W> {
         if let Some(why) = &failure {
             self.log_error(why);
         }
-        self.end_line(&pass, failure.is_some());
+        self.end_line(&pass, failure.is_some().then_some(REVIEW_FAILED));
         self.finish(&pass);
     }
 
@@ -232,7 +232,10 @@ impl<W: Wiring + 'static> Server<W> {
     ///    day's `budget_per_day`), telling the progress line what each call is sent and
     ///    republishing whatever the pass stores;
     /// 4. republishes, ends the progress line, says when the day's budget is spent, and keeps
-    ///    a run log when it made a call or failed.
+    ///    a run log when it made a call or failed;
+    /// 5. a pass the engine skipped after a paid call (Jev did not answer) keeps its run log
+    ///    and says so in the editor: what the call answered is not stored, and its units are
+    ///    sent again at the next save.
     fn review(self: &Arc<Self>, pass: &RunningPass) -> anyhow::Result<()> {
         let project = (self.cfg.open)(&self.root)?;
         let files: Vec<PathBuf> = pass
@@ -268,7 +271,8 @@ impl<W: Wiring + 'static> Server<W> {
         let report = match outcome {
             Ok(ReviewOutcome::Ran(report)) => report,
             Ok(ReviewOutcome::Skipped(why)) => {
-                self.client.log(&skipped_text(&why));
+                let text = skipped_run_text(&files, &lock(&run_log), &why);
+                self.skipped(pass, &project, now, &why, &text);
                 return Ok(());
             }
             Err(e) => {
@@ -278,7 +282,8 @@ impl<W: Wiring + 'static> Server<W> {
         };
         self.after_review(pass, &config, &report);
         if pass.made_a_call() || !report.failures.is_empty() {
-            let text = run_text(&files, &lock(&run_log), &report);
+            let overtaken = pass.overtaken.load(Ordering::SeqCst);
+            let text = run_text(&files, &lock(&run_log), &report, overtaken);
             self.keep_run_log(&project, now, &text);
         }
         Ok(())
@@ -344,7 +349,7 @@ impl<W: Wiring + 'static> Server<W> {
             self.publish_open();
         }
         let failed = !report.failures.is_empty() && !pass.overtaken.load(Ordering::SeqCst);
-        self.end_line(pass, failed);
+        self.end_line(pass, failed.then_some(REVIEW_FAILED));
         // `looked_at` counts units in calls that answered: a pass whose cap is below one
         // call's estimate, or whose calls fail, sends nothing that answers and is not repeated
         let continues = report.capped > 0 && !report.day_spent && report.looked_at > 0;
@@ -361,6 +366,27 @@ impl<W: Wiring + 'static> Server<W> {
                 MessageType::WARNING,
                 &day_spent_text(config.budget_per_day),
             );
+        }
+    }
+
+    /// The engine skipped the pass, for the reason `why`; `run_log` is the pass's run log.
+    /// Logged always; when the pass had made a paid call, its run log is kept, its progress
+    /// line ends saying so, and the editor shows why, so a review that was paid for is never
+    /// dropped unseen.
+    fn skipped(
+        &self,
+        pass: &RunningPass,
+        project: &Project,
+        now: chrono::DateTime<chrono::Utc>,
+        why: &str,
+        run_log: &str,
+    ) {
+        let said = skipped_text(why);
+        self.client.log(&said);
+        if pass.made_a_call() {
+            self.keep_run_log(project, now, run_log);
+            self.end_line(pass, Some(PASS_SKIPPED));
+            self.client.say(MessageType::WARNING, &said);
         }
     }
 
@@ -425,12 +451,12 @@ impl<W: Wiring + 'static> Server<W> {
     }
 
     /// Ends the pass's progress line if it began, once what the pass asked to publish is
-    /// published, saying the review failed when it did.
-    fn end_line(&self, pass: &RunningPass, failed: bool) {
+    /// published, with `message` when the pass did not end well (`REVIEW_FAILED`).
+    fn end_line(&self, pass: &RunningPass, message: Option<&'static str>) {
         if let Some(line) = lock(&pass.line).take() {
             self.client.clear_working();
             self.publish(Publish::After(Box::new(move || {
-                line.end(failed.then_some(REVIEW_FAILED));
+                line.end(message);
             })));
         }
     }
@@ -486,6 +512,9 @@ fn editor_request(files: Vec<PathBuf>, config: &ScryConfig) -> ReviewRequest {
 /// How a progress line ends when a review call failed.
 const REVIEW_FAILED: &str = "review failed, see \"scry log\"";
 
+/// How a progress line ends when the engine skipped a pass after its review call.
+const PASS_SKIPPED: &str = "skipped, see \"scry log\"";
+
 /// What the editor writes after a unit's first line while it is reviewed.
 const REVIEWING_INLINE: &str = "\u{27f3} scry: reviewing\u{2026}";
 
@@ -505,10 +534,6 @@ fn cannot_run_text(reason: &str) -> String {
     format!("scry is not reviewing: {reason}. Run \"scry doctor\".")
 }
 
-fn skipped_text(why: &str) -> String {
-    format!("scry: a pass was skipped: {why}")
-}
-
 /// What a panic carried, as text.
 fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
     let what = panic
@@ -519,15 +544,37 @@ fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
     format!("it panicked: {what}")
 }
 
-/// The run log of an editor's pass: what was saved, what the engine logged, and the result.
-fn run_text(files: &[PathBuf], engine_log: &str, report: &ReviewReport) -> String {
+/// The run log of an editor's pass: what was saved, what the engine logged, whether a save
+/// overtook its review call, and the result.
+fn run_text(files: &[PathBuf], engine_log: &str, report: &ReviewReport, overtaken: bool) -> String {
+    let overtaken = if overtaken { OVERTAKEN_TEXT } else { "" };
     format!(
-        "{}{engine_log}\n{RESULT}{} looked at, {} new, {}, {} failed (editor)\n",
+        "{}{engine_log}\n{overtaken}{RESULT}{} looked at, {} new, {}, {} failed (editor)\n",
         head_text(files),
         count(report.looked_at, "unit"),
         count(report.new.len(), "finding"),
         usd(report.spent),
         count(report.failures.len(), "call"),
+    )
+}
+
+/// What the editor is told of a skipped pass: `scry: a pass was skipped: Jev did not
+/// answer; …`.
+fn skipped_text(why: &str) -> String {
+    format!("scry: a pass was skipped: {why}; {SKIPPED_CONSEQUENCE}")
+}
+
+const SKIPPED_CONSEQUENCE: &str =
+    "nothing it found was stored, and its units are sent again at the next save";
+
+/// The line a pass's run log has when a save overtook its review call.
+const OVERTAKEN_TEXT: &str = "- overtaken: a save changed every unit the review call was sent, so the call was cancelled; the next pass reviews the saved code\n\n";
+
+/// The run log of an editor's pass the engine skipped after its review calls.
+fn skipped_run_text(files: &[PathBuf], engine_log: &str, why: &str) -> String {
+    format!(
+        "{}{engine_log}\n- skipped: {why}; {SKIPPED_CONSEQUENCE}\n\n{RESULT}skipped: {why} (editor)\n",
+        head_text(files)
     )
 }
 

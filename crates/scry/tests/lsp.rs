@@ -27,7 +27,8 @@ use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::uri_of;
-use support::{Doubles, FixedClock, StubReviewer, commit, git_project, write};
+use sorcerer_models::domain::decide::Answer;
+use support::{Doubles, FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
 const ORDERS: &str = "def cancel(order):\n    return order.cancel()\n\n\ndef place(order):\n    return order.place()\n";
@@ -68,6 +69,8 @@ struct Setup {
     trust_dir: Option<PathBuf>,
     /// The claim checker, when not the doubles' (which says right).
     checker: Option<Box<dyn ClaimChecker + Send>>,
+    /// Jev's stand-in, when not the doubles' (which says a certain no).
+    decider: Option<StubDecider>,
 }
 
 impl Default for Setup {
@@ -84,6 +87,7 @@ impl Default for Setup {
             }),
             trust_dir: None,
             checker: None,
+            decider: None,
         }
     }
 }
@@ -121,6 +125,9 @@ fn served_with(dir: &Path, reviewer: StubReviewer, setup: Setup) -> Served {
     let mut doubles = Doubles::new(dir, reviewer);
     if let Some(checker) = setup.checker {
         doubles.checker = checker;
+    }
+    if let Some(decider) = setup.decider {
+        doubles.decider = decider;
     }
     let doubles = Arc::new(doubles);
     let trust_home = TempDir::new().unwrap();
@@ -983,6 +990,17 @@ fn an_overtaking_save_cancels_the_review_call() {
         "{:?}",
         asks[1].units
     );
+    // the overtaken pass's run log says why it stopped and that the next pass follows
+    let deadline = Instant::now() + WAIT;
+    while run_logs(dir.path()).len() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let logs = run_logs(dir.path());
+    assert!(
+        logs.iter()
+            .any(|log| log.contains("- overtaken: a save changed every unit")),
+        "{logs:?}"
+    );
     s.stop();
 }
 
@@ -1112,6 +1130,54 @@ fn a_failed_review_ends_the_line_with_the_log_hint() {
     assert!(
         notifications(&said, "window/showMessage").is_empty(),
         "{said:?}"
+    );
+    s.stop();
+}
+
+/// The run logs the project's passes kept, oldest first.
+fn run_logs(dir: &Path) -> Vec<String> {
+    let runs = dir.join(".sorcerer/state/scry/runs");
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&runs)
+        .map(|entries| entries.map(|e| e.unwrap().path()).collect())
+        .unwrap_or_default();
+    paths.sort();
+    paths
+        .iter()
+        .map(|p| std::fs::read_to_string(p).unwrap())
+        .collect()
+}
+
+/// The user's trial of 2026-11-26: Jev did not answer after a paid review call, the engine
+/// skipped the pass, and the editor kept no run log and said nothing a user would see.
+#[test]
+fn a_pass_skipped_after_its_review_call_keeps_its_run_log_and_says_so() {
+    let dir = changed_project();
+    let setup = Setup {
+        decider: Some(StubDecider::new().on("nitpick", |_| true, Answer::Unsure)),
+        ..with_progress()
+    };
+    let s = served_with(dir.path(), bug_reviewer(), setup);
+    s.save(&orders(&dir));
+    let said = s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"),
+    );
+    let Some(Message::Notification(said)) = said else {
+        panic!("no message")
+    };
+    assert_eq!(
+        said.params["message"],
+        "scry: a pass was skipped: Jev did not answer; nothing it found was stored, and its units are sent again at the next save"
+    );
+    let end = s.progress("end", WAIT).unwrap();
+    assert_eq!(end["message"], "skipped, see \"scry log\"");
+    let logs = run_logs(dir.path());
+    assert_eq!(logs.len(), 1);
+    assert!(logs[0].contains("cancel ignores now"), "{}", logs[0]);
+    assert!(
+        logs[0].contains("**Result:** skipped: Jev did not answer (editor)"),
+        "{}",
+        logs[0]
     );
     s.stop();
 }

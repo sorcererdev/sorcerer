@@ -374,7 +374,8 @@ by saving it and making the report (`Pass::report`). The steps, in
 4. **Judge.** `Pass::judge` per raw finding: a cited rule `Steering::lookup` does not find
    is dropped (`with_cited_rule_looked_up`; the finding stays; the log says `cited "x": no rule has that id`); `place` with the finding's own file's units (`units_now`); an
    `elsewhere` finding is stored with no question (`add_elsewhere`). Otherwise `candidates` go to Jev in one
-   `ask` batch of `same_problem` questions and the first at P ≥ `SAME_THRESHOLD` wins
+   `ask` batch of `same_problem` questions (the Jev adapter sends one request per question of the
+   batch, as Jev takes one question of a kind per request; see the models chapter) and the first at P ≥ `SAME_THRESHOLD` wins
    (`same_problem_as_stored`); `WhatToDo::given` (over `match_stored`) says merge (`Pass::merge`), drop, or add as new. A new finding gets the `nitpick`
    question (`add_unverified_or_withheld`, over `ask_nitpick`, which returns a `NitpickAnswer`): confidence at or past `confidence_threshold` is `unverified`, else `withheld`, with
    `asked_on`. A merge into a finding stored by an earlier pass replaces its place,
@@ -387,7 +388,11 @@ by saving it and making the report (`Pass::report`). The steps, in
    with nothing written (`Halt::JevDidNotAnswer`).
 5. **Remember.** The reply's `open` answers count only for ids that call was shown in its
    `ask.open` (a mistyped or invented id is ignored). Those it said *no longer holds* (open or
-   unverified) are `resolved` (`resolve_what_no_longer_holds`); those it said *still holds* go into `still_hold`.
+   unverified) are `resolved` (`resolve_what_no_longer_holds`); those it said *still holds* go into `still_hold`,
+   and one whose unit the reviewer saw at code other than the finding's moves to that code
+   (`move_what_still_holds`, over `unit_reviewed_at_other_code` and `placing::moved_to`: the same
+   distance from the unit's first line, the unit's start and fingerprint now), so the editor no
+   longer marks it stale; the Remember section says `<id> still holds on its unit's new code`.
    `Pass::drop_new_findings_in_changed_units` (over `units_changed_since_sent`, which reads each sent file's units again, giving `ChangedUnits`): a unit
    whose fingerprint is not what was sent keeps none of the pass's new findings. When the pass
    is `whole` (nothing capped, no failure), an open or unverified finding from before the pass
@@ -645,7 +650,14 @@ overtaking check).
   through the publisher's queue (`Publish::After`) so it ends after the pass's findings show, with `review failed, see "scry log"` when a call failed and no save cancelled
   it on purpose; when `ReviewReport::day_spent`, `say_once("day-<local date>", …)` the day's
   message with `budget_per_day`. A run log is written (`write_run`) only when the pass made a
-  call or failed, so `scry log` is not filled with empty saves. A clean save says nothing.
+  call or failed, so `scry log` is not filled with empty saves; an overtaken pass's log says so
+  (`OVERTAKEN_TEXT`) above its result. A clean save says nothing.
+- **The engine skips the pass** (`ReviewOutcome::Skipped`: Jev did not answer): `skipped` logs
+  `skipped_text` always; when the pass made a call it also keeps the run log
+  (`skipped_run_text`, result `skipped: <why> (editor)`), ends the progress line with
+  `skipped, see "scry log"` (`PASS_SKIPPED`) and says the text as a warning, so a paid review
+  is never dropped unseen. Nothing is stored, so the units are not marked reviewed and the next
+  save sends them again.
 - **The wiring fails** (no Jev key, no provider): `cannot_run` logs it always, and says
   `scry is not reviewing: <reason>. Run "scry doctor".` once a session (`say_once("cannot-run")`)
   when `scope_of` the saved files has a unit to review.

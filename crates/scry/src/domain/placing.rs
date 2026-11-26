@@ -4,9 +4,9 @@
 //! A finding follows its unit: it keeps its distance from the unit's first line, and it is
 //! stale when the unit's code is no longer what was reviewed.
 
-use sorcerer_core::domain::unit::Unit;
+use sorcerer_core::domain::unit::{Span, Unit};
 
-use crate::domain::finding::Finding;
+use crate::domain::finding::{Finding, Place};
 
 /// A finding's line in the file as it is now (1-based), and whether its unit changed since
 /// it was reviewed.
@@ -46,6 +46,28 @@ pub fn placed(f: &Finding, units_now: &[Unit], line_count: u32) -> Option<Placed
     })
 }
 
+/// The finding's place moved to `unit` as it is now: the same distance from the unit's first
+/// line (kept inside the unit), at the unit's start and fingerprint now. Used when the
+/// reviewer, shown the finding on the unit's new code, said it still holds: the finding is
+/// then about this code, and no longer stale.
+///
+/// Example: a finding on lines 12-13 of a unit that started on line 10 at fingerprint
+/// 0e41bd1, whose unit now starts on line 14 at fingerprint 7c2a9f0, moves to lines 16-17,
+/// unit start 14, fingerprint 7c2a9f0.
+pub fn moved_to(f: &Finding, unit: &Unit) -> Place {
+    let start = line_in(f, unit);
+    let length = f.place.lines.end.saturating_sub(f.place.lines.start);
+    Place {
+        lines: Span {
+            start,
+            end: (start + length).min(unit.span.end).max(start),
+        },
+        unit_start: Some(unit.span.start),
+        fingerprint: Some(unit.fingerprint),
+        ..f.place.clone()
+    }
+}
+
 /// The unit of this name: the one at the stored fingerprint, else the first.
 fn its_unit<'a>(f: &Finding, name: &str, units_now: &'a [Unit]) -> Option<&'a Unit> {
     let named = || units_now.iter().filter(|u| u.name == name);
@@ -71,7 +93,7 @@ mod tests {
     use sorcerer_core::domain::unit::{Span, UnitKind};
 
     use super::*;
-    use crate::domain::finding::{FindingId, Place, Scores, Status};
+    use crate::domain::finding::{FindingId, Scores, Status};
 
     const REVIEWED: &str = "0123abc";
     const CHANGED: &str = "fedc987";
@@ -193,5 +215,23 @@ mod tests {
         let f = finding(None, 30, None);
         assert_eq!(placed(&f, &[], 12).unwrap().line, 12);
         assert_eq!(placed(&f, &[], 0).unwrap().line, 1);
+    }
+
+    #[test]
+    fn a_finding_moved_to_its_units_new_code_is_no_longer_stale() {
+        let mut f = finding(Some("f"), 12, Some(10));
+        f.place.lines.end = 13;
+        let now = unit("f", 14, 30, CHANGED);
+        let place = moved_to(&f, &now);
+        assert_eq!(
+            (place.lines, place.unit_start, place.fingerprint),
+            (
+                Span { start: 16, end: 17 },
+                Some(14),
+                Fingerprint::parse(CHANGED)
+            )
+        );
+        let moved = Finding { place, ..f };
+        assert!(!placed(&moved, &[now], 40).unwrap().stale);
     }
 }

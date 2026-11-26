@@ -1703,6 +1703,7 @@ dependencies = [
  "globset",
  "lsp-server",
  "lsp-types",
+ "mockito",
  "serde",
  "serde_json",
  "sorcerer-core",

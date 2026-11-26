@@ -20,11 +20,13 @@ use std::path::{Path, PathBuf};
 use sorcerer_core::domain::fingerprint::Fingerprint;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Unit;
+use sorcerer_core::ports::view::CodebaseView;
 
 use super::ask::ReviewResults;
 use super::{Pass, SentUnit, ids_of};
 use crate::domain::finding::{Finding, FindingId, Place, Status};
 use crate::domain::log_text::section;
+use crate::domain::placing::moved_to;
 use crate::domain::scope::Scope;
 
 /// The units the user edited while the pass was looking at them: their
@@ -76,10 +78,13 @@ impl Pass<'_, '_> {
     /// 1. findings the reviewer said no longer hold are resolved;
     /// 2. new findings in units the user edited during the review are
     ///    dropped (they are about code that is no longer there);
-    /// 3. only when every unit was reviewed: a stored finding in a unit
+    /// 3. findings the reviewer said still hold, on a unit whose code
+    ///    changed since they were made, move to the code it saw, so they are
+    ///    no longer shown as stale;
+    /// 4. only when every unit was reviewed: a stored finding in a unit
     ///    whose code changed, which the reviewer neither raised again nor
     ///    said still holds, was fixed, and is resolved;
-    /// 4. all of it is logged, with the findings `sweep_gone` found gone and
+    /// 5. all of it is logged, with the findings `sweep_gone` found gone and
     ///    those `sweep_put_back` resolved.
     ///
     /// Example: `cancel` had an open finding "returns None". You changed
@@ -93,16 +98,20 @@ impl Pass<'_, '_> {
     ) {
         let resolved = self.resolve_what_no_longer_holds(&review.no_longer_hold);
         let changed = self.drop_new_findings_in_changed_units(&review.answered);
+        let still_as_sent = changed.not_changed(&review.answered);
+        let moved = self.move_what_still_holds(&review.still_hold, &still_as_sent);
         let not_found_again = if review.every_unit_was_reviewed() {
-            let still_as_sent = changed.not_changed(&review.answered);
             NotFoundAgain::Resolved(self.resolve_not_found_again(&still_as_sent, review))
         } else {
             NotFoundAgain::NotChecked
         };
         self.log(&remember_text(
-            &resolved,
-            gone,
-            put_back,
+            &Remembered {
+                resolved: &resolved,
+                gone,
+                put_back,
+                moved: &moved,
+            },
             &changed,
             &not_found_again,
         ));
@@ -120,6 +129,34 @@ impl Pass<'_, '_> {
             .collect();
         self.close_for_changed_code(&ids, Status::Resolved);
         ids
+    }
+
+    /// Moves each finding the reviewer said still holds to its unit's code
+    /// as the reviewer saw it, when that code is not the code the finding
+    /// was made on (see `moved_to`). The units given are the ones the
+    /// reviewer saw, unchanged since. Returns the ids moved.
+    ///
+    /// Example: a bug on `cancel` was made at fingerprint 0e41bd1. You
+    /// edit `cancel` without fixing it, and the reviewer, shown the bug on
+    /// the new code (7c2a9f0), says it still holds: the bug now sits on
+    /// `cancel` at 7c2a9f0, and the editor no longer marks it stale.
+    fn move_what_still_holds(
+        &mut self,
+        still_hold: &HashSet<String>,
+        still_as_sent: &[&SentUnit],
+    ) -> Vec<FindingId> {
+        let mut moved = Vec::new();
+        for f in &mut self.working_copy.findings {
+            if !still_hold.contains(&f.id.0) {
+                continue;
+            }
+            let Some(unit) = unit_reviewed_at_other_code(f, still_as_sent, self.deps.view) else {
+                continue;
+            };
+            f.place = moved_to(f, &unit);
+            moved.push(f.id.clone());
+        }
+        moved
     }
 
     /// Resolves the findings that were fixed: see `was_fixed`. The units
@@ -351,6 +388,26 @@ impl Pass<'_, '_> {
     }
 }
 
+/// The finding's unit as the reviewer saw it (one of `still_as_sent`, as
+/// the file has it now), when that is not the code the finding was made on.
+fn unit_reviewed_at_other_code(
+    f: &Finding,
+    still_as_sent: &[&SentUnit],
+    view: &dyn CodebaseView,
+) -> Option<Unit> {
+    let name = f.place.unit.as_deref()?;
+    let sent = still_as_sent
+        .iter()
+        .find(|u| u.file == f.place.file && u.unit == name)?;
+    if f.place.fingerprint == Some(sent.fingerprint) {
+        return None;
+    }
+    view.units(&sent.file)
+        .ok()?
+        .into_iter()
+        .find(|u| u.name == sent.unit && u.fingerprint == sent.fingerprint)
+}
+
 /// Whether the finding was raised on its unit at a fingerprint other than
 /// `at`. A finding stored with no fingerprint cannot tell, and says no.
 fn reviewed_at_other(f: &Finding, at: Fingerprint) -> bool {
@@ -363,31 +420,49 @@ fn is_open_or_unverified(f: &Finding) -> bool {
 
 // The run log's text for what the pass remembers.
 
-/// The Remember section: resolved, gone, dropped, and what not being
-/// found again settled.
+/// What `remember` settled, by finding id, for the run log.
+struct Remembered<'a> {
+    resolved: &'a [FindingId],
+    gone: &'a [FindingId],
+    put_back: &'a [FindingId],
+    moved: &'a [FindingId],
+}
+
+/// The Remember section: resolved, gone, moved, dropped, and what not
+/// being found again settled.
 fn remember_text(
-    resolved: &[FindingId],
-    gone: &[FindingId],
-    put_back: &[FindingId],
+    remembered: &Remembered,
     changed: &ChangedUnits,
     not_found_again: &NotFoundAgain,
 ) -> String {
+    let Remembered {
+        resolved,
+        gone,
+        put_back,
+        moved,
+    } = remembered;
     let mut text = section("Remember");
-    for id in resolved {
+    for id in *resolved {
         text.push_str(&format!(
             "- {} resolved: the reviewer said it no longer holds\n",
             id.0
         ));
     }
-    for id in gone {
+    for id in *gone {
         text.push_str(&format!(
             "- {} gone: its unit or file is no longer there\n",
             id.0
         ));
     }
-    for id in put_back {
+    for id in *put_back {
         text.push_str(&format!(
             "- {} resolved: its unit is back to the code at the base\n",
+            id.0
+        ));
+    }
+    for id in *moved {
+        text.push_str(&format!(
+            "- {} still holds on its unit's new code: it moves there\n",
             id.0
         ));
     }
