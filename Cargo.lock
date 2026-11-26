@@ -1674,6 +1674,7 @@ dependencies = [
  "lsp-types",
  "serde",
  "serde_json",
+ "similar 3.2.1",
  "tempfile",
  "url",
 ]
