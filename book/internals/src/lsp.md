@@ -3,20 +3,22 @@
 `crates/sorcerer-lsp` is everything about being a language server that is not about one
 product. Scry's server (`scry lsp`) is the first product on it; conjure's server is next, and
 uses what the host added for it (the open documents' text, `apply_edit`); spellbook's server (`spellbook lsp`) plugs
-in the same way, with no change to the host (`tracks_text` false, execute commands, `publish`,
-`show_document`). No scry type appears in the crate.
+in the same way (`tracks_text` false, execute commands, code actions, `publish`, `show_document`,
+`apply_edit`), and added one thing: a request answered later, through a `Reply`, so `spellbook.apply`
+can wait for the editor to land a fix. No scry type appears in the crate.
 
 It is synchronous like the rest of the workspace: `lsp-server` gives a connection as two
 channels, and `lsp-types` the message types (its `Uri`, which `uri.rs` turns into paths
 through the `url` crate). There is no async runtime.
 
-## The four files
+## The five files
 
 | file | holds |
 |---|---|
 | `src/serve.rs` | `Product`, the trait a product implements; `serve`, the handshake and the main loop; `unknown_method` |
 | `src/client.rs` | `Client`, what a product says to the editor; `WorkDone`, a progress line; `Answer`, the reply to a question; `Applied`, the reply to an edit |
 | `src/jobs.rs` | `Jobs`, work to run after a delay, one waiting job per key |
+| `src/reply.rs` | `Reply`, the answer to one request, which a product may send after the call that got it returned |
 | `src/uri.rs` | `path_of` and `uri_of`: only `file:` URIs are files |
 
 ## What the host owns
@@ -41,8 +43,13 @@ through the `url` crate). There is no async runtime.
 - **The open set.** `didOpen` and `didClose` update it before the product hears of them, so
   `Client::is_open` and `Client::open_paths` already agree when `Product::opened` runs.
   Notifications about documents that are not files (`untitled:`, `fugitive://`) are dropped.
-- **Requests.** Each goes to `Product::request` by method name; a product answers a method it
-  does not serve with `unknown_method` (`-32601`). `shutdown` calls `Product::shutdown` and is
+- **Requests.** Each goes to `Product::request_later(method, params, reply)`, whose default
+  answers at once with `Product::request` by method name; a product answers a method it
+  does not serve with `unknown_method` (`-32601`). A product that must wait for the editor
+  before it can answer (spellbook's apply, which waits for `workspace/applyEdit`'s reply)
+  overrides `request_later`, keeps the `Reply` (it is `Send`) and calls `Reply::send` from the
+  callback; the main loop goes on meanwhile. A `Reply` is sent once; one dropped unanswered
+  answers with an error (`-32603`), so the editor never waits forever. `shutdown` calls `Product::shutdown` and is
   answered with null; `exit` ends `serve`. So does the editor hanging up (stdin EOF): `serve` then calls
   `Product::shutdown` itself, so a running pass stops. Either way `Client::forget_waiting` drops
   every callback still waiting for a reply, because a callback that holds a `Client` keeps the
@@ -119,9 +126,10 @@ impl Product for Mine {
 serve(Connection::stdio().0, |client, _root| Mine { client })
 ```
 
-Two methods have defaults a product may leave alone: `tracks_text()` (false; read once at the
-handshake, like `capabilities`) and `changed(path, version, text)` (nothing; called after each
-change of an open document, only when `tracks_text` is true). A product that lands edits asks
+Three methods have defaults a product may leave alone: `tracks_text()` (false; read once at the
+handshake, like `capabilities`), `changed(path, version, text)` (nothing; called after each
+change of an open document, only when `tracks_text` is true) and `request_later(method, params,
+reply)` (answers at once with `request`). A product that lands edits asks
 `can_apply_edits`, `can_create_files` and `can_delete_files` before it offers to.
 
 Conjure (`crates/conjure/src/adapters/lsp/`, [Conjure](conjure.md#the-server)) is the product that

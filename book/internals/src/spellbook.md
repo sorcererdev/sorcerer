@@ -170,8 +170,8 @@ one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `fix.rs`, `holes.rs`,
 
 `apply_plan` then lands changed files first through `Workspace::write_changed` (refused, with
 nothing written, when the disk no longer has `before`), writes the new files, appends the record
-and the holes. The server (Part B) will land changed files itself as one `WorkspaceEdit` and call
-`apply_plan` with `ChangesLanded::ByTheEditor`.
+and the holes. The server lands changed files itself as one `WorkspaceEdit` and calls
+`apply_plan` with `ChangesLanded::ByTheEditor` ([A fix in the editor](#a-fix-in-the-editor)).
 
 ### Why an `Anchors` port
 
@@ -194,7 +194,9 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
 - `server_config.rs`: `ServerConfig { open, cache, trust, clock }` (`live(env)`; tests give the
   vendored grammars and a clock they move; there is no `wire`, spellbook has no writer).
   `server_state.rs`: `Server` (`publish`, `republish`, `closed`, `trusted`) and `NOT_TRUSTED`.
-- `commands.rs`: the four commands, all through `workspace/executeCommand`. Each opens the project
+- `commands.rs`: the four commands, all through `workspace/executeCommand`, which the product
+  takes through `Product::request_later` so an apply can answer once the editor has landed its
+  changes (`Server::execute(params, reply)`). Each opens the project
   afresh (config edits need no restart), refuses an untrusted one with a `{ "stop": … }` reply,
   and builds `Wired` (`wiring::wired`):
 
@@ -202,18 +204,25 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
   |---|---|---|
   | `spellbook.generators` | none | `[GeneratorSummary]` (a broken generator is left out and logged) |
   | `spellbook.choices` | generator, inputs so far, input | `{ choices }` or `{ stop }` |
-  | `spellbook.plan` | generator, inputs | the `Plan` as JSON (`id`, `files[{path,status,text,lines}]`, `holes[{name,kind,instruction,source,places[{file,line,text,edges}]}]`), or `{ stop }` (a missing input adds `input` and `choices`) |
-  | `spellbook.apply` | plan id | `{ written, skipped, refused: null or {path, why}, holes, first: null or {file, line}, stops: [{ file, name, kind, instruction, range }] }`, or `{ stop }` for a plan that is gone |
+  | `spellbook.plan` | generator, inputs, and for a fix `{ file, line, rule, index, version }` | the `Plan` as JSON (`id`, `files[{path,status,text,lines}]`, `holes[{name,kind,instruction,source,places[{file,line,text,edges}]}]`; a changed file has `status: "changed"`, `hunks[{header,from,to,lines}]`, `added`, `removed`, `changes`; a fix's plan has `fix{rule,file,line,fingerprint,index,label}`), or `{ stop }` (a missing input adds `input` and `choices`; a finding gone and a fix already applied are stops) |
+  | `spellbook.apply` | plan id | `{ changed, written, skipped, refused: null or {path, why}, holes, first: null or {file, line}, stops: [{ file, name, kind, instruction, range }] }`, or `{ stop }` for a plan that is gone or a changed file that moved on (`close_table.py changed since the plan; nothing was applied: fix again`) |
 
   A hole's location is `file` everywhere (it is `HolePlace::file`, and `holes.json`'s key);
   `path` is a planned or written file.
-- `plans.rs`: `PlanCache`, the plans made and not applied, dropped after ten minutes by the
-  clock; `take` removes the plan, so a plan is applied once.
+- `plans.rs`: `PlanCache`, the plans made and not applied (`KeptPlan { plan, version }`, the
+  version of a fix's document the editor gave), dropped after ten minutes by the clock; `take`
+  removes the plan, so a plan is applied once.
+- `code_actions.rs`: `Server::code_actions`, a finding's fixes as quick fixes (below).
+- `landing.rs`: `Server::land_in_the_editor`, a plan's changed files as one `workspace/applyEdit`
+  (`workspace_edit`, `text_edit`), and `changed_since_text` (below).
 - `marks.rs` (`hole_mark(hole, row)`: the placeholder's span (the whole line when the row no longer holds it), Information, source `spellbook`, code `hole`, message
   `<name> (<kind>): <instruction>`, `data` the generation id), `diagnostics.rs`
   (`file_diagnostics`: `open_holes` for one file, so the same `still_open` search as the command
-  line, plus the file's findings; it returns `FileDiagnostics { marks, findings, rules_problem }`
-  and `all()` joins them, since the host's `publish` replaces a file's whole list),
+  line, plus the file's findings; it returns `FileDiagnostics { marks, stops, findings,
+  rules_problem }` and `all()` joins the marks and the findings' marks, since the host's
+  `publish` replaces a file's whole list; `file_diagnostics_over` reads the text through another
+  `CodebaseView`, which an apply uses for the files the editor has not saved yet). `Server::publish`
+  keeps each published file's `Finding`s in `published`, which the code actions read,
   `findings.rs` (`finding_mark`: the whole line, Hint, Warning or Error, source `spellbook`, the rule
   id as its code), `project_paths.rs` (`project_relative`: which editor paths are the project's).
 
@@ -221,8 +230,8 @@ After an apply the server publishes each written file's marks and asks the edito
 first file with its first hole's placeholder selected (`Client::show_document`). The span comes
 from `placeholder_span` (`domain/open_hole_places.rs`, the same match `still_open` makes, as a
 byte range); `file_diagnostics` (`adapters/lsp/diagnostics.rs`) reads the file once and builds
-both the marks and `stops`, and `mark_written_files` (`commands.rs`) joins the files' stops in
-written order. `stops` are the session's tab stops, each hole by line then column, ranges in
+both the marks and `stops`, and `mark_files` (`commands.rs`) joins the files' stops, changed files
+first, then written ones in written order. `stops` are the session's tab stops, each hole by line then column, ranges in
 protocol positions (0-based, UTF-16); `first` stays for older plugins. Clients never search text
 for a placeholder. Spellbook does not know conjure ran: it
 sees the placeholders gone on the next save. The editor side is sorcerer.nvim's
@@ -238,6 +247,34 @@ a rule finding (source `spellbook`, code the rule id) and a conjure mark (code `
 `source` and `code` alone (`signs.lua`, `place_marks`), and `:Spellbook check` reads
 `spellbook check --json` (`findings[{rule,file,line,severity,message}]`, exit 0/1, 2 = could not
 run) into the quickfix list (`M.check`): those fields are part of the contract.
+
+### A fix in the editor
+
+The server offers a fix; the editor runs it through the same `plan` and `apply` as `new`.
+
+1. **The offer.** `textDocument/codeAction` (`code_actions.rs`) reads the findings published for
+   the file (`Server::published_findings`, no new check) on the range's lines, and for each one
+   `fixes_for` gives the rule's fixes. Each becomes a `CodeAction { title: "spellbook: <label>",
+   kind: quickfix, isPreferred: true on the very first, diagnostics: [the finding's mark], command:
+   { command: "spellbook.fix", arguments: [{ generator, inputs, missing, fix: { file, line, rule,
+   index, label, version: null } }] } }`. An untrusted or switched-off project, rules that do not
+   load, or `context.only` without a quick-fix kind give `[]`. `spellbook.fix` is not in
+   `executeCommandProvider`: it is the editor's own command, which asks for `missing`, sets
+   `version` to the document's version, and enters the `new` chain at the plan.
+2. **The plan.** `spellbook.plan [generator, inputs, fix]` calls `plan_fix` (the fix's own
+   generator plans; `generator` only names it) and keeps the plan with `fix.version`.
+3. **The landing.** `spellbook.apply` on a plan with changed files, for an editor that can apply
+   edits (`Client::can_apply_edits`), sends one `workspace/applyEdit` labelled `spellbook:
+   <label>`: a `TextDocumentEdit` per changed file, whose edits are the file's `changes` (whole
+   lines, so column 0, except past an open last line, `text_edit`), the fix's file carrying
+   the kept version and the others none. The apply is answered only in the edit's reply
+   callback: applied, `Server::applied` runs `apply_plan(…, ChangesLanded::ByTheEditor)` (new
+   files, record, holes), publishes the changed files' marks read through a `PlannedView` of
+   their planned text (the editor has not saved them) and the written files' from the disk,
+   opens the first hole, and replies as for `new` plus `changed`; refused, it replies
+   `{ stop: changed_since_text }` and nothing is written. An editor that cannot apply edits gets
+   the command line's path (`ChangesLanded::NotYet`, `write_changed`), said once with
+   `spellbook: your editor cannot apply edits; changed files were written to disk`.
 
 The VS Code side is `editors/vscode/spellbook/`, the same contract in TypeScript.
 `src/newFlow.ts` (`newFlow`) is the story over two seams, a `Server` and an `Asker`: the four
