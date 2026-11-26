@@ -15,7 +15,7 @@ What is here and what is coming (the five parts of spellbook):
 |---|---|
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
 | rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
-| fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line and, in VS Code, the quick fix and `ctrl+m f` (Neovim next) |
+| fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line and, in VS Code and Neovim, the quick fix and the fix key (`ctrl+m f`, `<leader>mf`) |
 | owned regions (`pub mod` lines a generator keeps), list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
@@ -474,8 +474,7 @@ it` after. Applied from the editor, the changed files land as one edit you can u
 (they are left unsaved, for you to look at and save), then the new files are written. If you typed
 in the file since the plan, nothing is applied and you are told `close_table.py changed since the
 plan; nothing was applied: fix again`. An editor that cannot apply edits gets the changed files
-written to disk, and is told so once. See [Fixes in VS Code](#fixes-in-vs-code); the Neovim commands arrive
-with the next part of milestone 2.
+written to disk, and is told so once. See [Fixes in VS Code](#fixes-in-vs-code) and [Fixes in Neovim](#fixes-in-neovim).
 
 ## In Neovim
 
@@ -487,7 +486,7 @@ and turn it on, which the plugin keeps off until you ask:
 require("sorcerer").setup({ spellbook = { enabled = true } })
 ```
 
-The plugin binds `<leader>mn` to `:Spellbook new` and `<leader>mk` to `:Spellbook check` (and
+The plugin binds `<leader>mn` to `:Spellbook new`, `<leader>mf` to `:Spellbook fix` and `<leader>mk` to `:Spellbook check` (and
 conjure's `<leader>mc/u/t/w` when conjure is on; see [Conjure](conjure.md)). `keys = false`
 binds none; a key you already mapped is skipped and listed by `:checkhealth sorcerer`.
 `:Spellbook check` runs `spellbook check --json` in the project root and fills the quickfix list with the findings
@@ -552,6 +551,24 @@ An untrusted project (one whose own config sets a provider `runner` or `url`, or
 own) gets no marks, and says `spellbook: this project is not trusted; run "spellbook trust" in it`
 once a session when you open or save a file; every command answers the same sentence. The command line trusts the directory you run it in, as scry's does: `spellbook check` in a cloned repository builds that repository's own grammar first.
 `:checkhealth sorcerer` has a spellbook section when it is enabled.
+
+### Fixes in Neovim
+
+`vim.lsp.buf.code_action()` on a finding's line lists `spellbook: Use a port the service has`
+(preferred) and `spellbook: Add a port and use it`. `<leader>mf` runs the first one without the
+menu, and `:Spellbook fix [input=value…]` is the command form (the `input=value` words answer inputs
+the finding does not settle). A modified buffer is refused: `spellbook: save close_table.py first; a
+fix is planned against the file on disk`. Otherwise it asks only what the finding leaves open (with
+`vim.ui.select` or `vim.ui.input`), then shows the plan in the same float as `:Spellbook new`,
+titled `spellbook: fix commands-use-ports · Use a port the service has · 2 files changed · app
+bistro, unit close_table (from the finding)`. A changed file is `~ path (+3 −1)` and its hunks
+follow, `+` lines in `DiffAdd` and `-` lines in `DiffDelete`; a new file is `+ path` with its text,
+as in `new`. `<CR>` applies. The changed files land through the server's own `workspace/applyEdit`
+(Neovim's default handler): one `u` in each buffer takes the fix back, and the buffers stay
+modified until you save them (`:wa`); the new files are written, and the end line says
+`spellbook: fixed commands-use-ports in close_table.py · changed 2 files · wrote 4 files`, with
+`· 2 holes, marked; ]d walks them` after a fix that leaves holes (a hole session starts as after
+`new`). Typing in the file since the plan applies nothing and says so.
 
 ## In VS Code
 
