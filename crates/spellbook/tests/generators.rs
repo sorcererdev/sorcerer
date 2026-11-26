@@ -5,7 +5,7 @@ mod support;
 use sorcerer_core::domain::facts::parse_errors_of;
 use sorcerer_core::domain::language::Language;
 use spellbook::adapters::generator_dir::{generator_named, generators_in, load_generator};
-use spellbook::domain::generator::{EditBody, HoleSource, InputKind, OnExists};
+use spellbook::domain::generator::{Edit, EditBody, HoleSource, InputKind, OnExists};
 use spellbook::domain::holes_table::{holes_table, placeholder};
 use support::*;
 
@@ -126,9 +126,13 @@ fn the_bistro_command_generator_loads() {
         }
     );
     assert_eq!(generator.edits.len(), 3);
-    assert_eq!(generator.edits[0].body, EditBody::Text(String::new()));
-    assert_eq!(generator.edits[0].on_exists, OnExists::Skip);
-    assert_eq!(generator.edits[1].on_exists, OnExists::Error);
+    assert_eq!(generator.edits[0].body(), &EditBody::Text(String::new()));
+    let on_exists = |edit: &Edit| match edit {
+        Edit::Create { on_exists, .. } => Some(*on_exists),
+        Edit::Insert { .. } => None,
+    };
+    assert_eq!(on_exists(&generator.edits[0]), Some(OnExists::Skip));
+    assert_eq!(on_exists(&generator.edits[1]), Some(OnExists::Error));
     assert_eq!(
         generator.holes["purpose"],
         HoleSource::Derived {
@@ -186,13 +190,58 @@ fn a_list_input_arrives_in_milestone_2() {
     );
 }
 
+/// The command generator with one more edit after its first.
+fn with_insert(edit: &str) -> String {
+    toml_problem(
+        "on_exists = \"skip\"",
+        &format!("on_exists = \"skip\"\n\n[[edits]]\n{edit}"),
+    )
+}
+
 #[test]
-fn an_insert_edit_arrives_in_milestone_2() {
-    let why = toml_problem(
+fn an_insert_edit_says_what_it_lacks_or_mixes() {
+    let both = toml_problem(
         "on_exists = \"skip\"",
         "on_exists = \"skip\"\ninsert = \"x\"",
     );
-    assert!(why.contains("`insert` arrives in milestone 2"), "{why}");
+    assert!(both.contains("give create or insert, not both"), "{both}");
+    let no_at = with_insert("insert = \"x\"\ntext = \"y\"");
+    assert!(
+        no_at.contains("at is missing: where the lines go"),
+        "{no_at}"
+    );
+    let on_exists =
+        with_insert("insert = \"x\"\nat = \"end of imports\"\ntext = \"y\"\non_exists = \"skip\"");
+    assert!(
+        on_exists.contains("`on_exists` does not go with insert"),
+        "{on_exists}"
+    );
+    let at_in_create = with_insert("create = \"x\"\nat = \"end of imports\"\ntext = \"y\"");
+    assert!(
+        at_in_create.contains("`at` does not go with create"),
+        "{at_in_create}"
+    );
+}
+
+#[test]
+fn an_insert_phrase_and_its_unless_are_checked_at_load() {
+    let phrase = with_insert("insert = \"x\"\nat = \"end of cases in update\"\ntext = \"y\"");
+    assert!(
+        phrase.contains("[[edits]] 2 at: `end of cases in update`: unknown target"),
+        "{phrase}"
+    );
+    let unless = with_insert(
+        "insert = \"x\"\nat = \"end of imports\"\ntext = \"y\"\nunless = { matches = \"({= command =}\" }",
+    );
+    assert!(
+        unless.contains("[[edits]] 2 unless: the regex `({= command =}` does not compile"),
+        "{unless}"
+    );
+    let name = with_insert("insert = \"x\"\nat = \"end of imports\"\ntext = \"{= nope =}\"");
+    assert!(
+        name.contains("[[edits]] 2 text: `nope` is not an input"),
+        "{name}"
+    );
 }
 
 #[test]

@@ -58,6 +58,25 @@ struct LoadCase {
     check: Option<String>,
 }
 
+/// A `fix` case: a patch over the base plants a finding, then one of its fixes is planned and
+/// applied with the case's inputs.
+#[derive(Deserialize)]
+struct FixCase {
+    patch: String,
+    /// The finding, `FILE:LINE`.
+    at: String,
+    #[serde(default = "first_fix")]
+    fix: usize,
+    #[serde(default)]
+    inputs: BTreeMap<String, String>,
+    #[serde(default)]
+    holes: Vec<ExpectedHole>,
+}
+
+fn first_fix() -> usize {
+    1
+}
+
 /// A `check` case: a patch over the base, then every file checked.
 #[derive(Deserialize)]
 struct CheckCase {
@@ -249,6 +268,74 @@ fn rules_sentence(root: &Path, id: &str, check: Option<&str>) -> String {
     match check_files(&checking.deps(), &[PathBuf::from(file)]) {
         Ok(_) => panic!("load/{id}: the rules ran; the mistake is gone"),
         Err(e) => e.to_string(),
+    }
+}
+
+/// Runs one `fix` case: every file it changed or wrote against `expected/fix/<id>/`, the open
+/// holes against the case's list.
+fn run_fix_case(dir: &Path, corpus: &CorpusFile, id: &str) {
+    use spellbook::domain::inputs::Given;
+    use spellbook::usecases::apply_plan::{ChangesLanded, apply_plan};
+    use spellbook::usecases::plan_fix::{FindingAt, plan_fix};
+
+    let cases = dir.join("cases/fix");
+    let case: FixCase = read_toml(&cases.join(format!("{id}.toml")));
+    let project = project_of(dir, corpus);
+    git_apply(project.path(), &cases.join(&case.patch));
+    let (file, line) = case.at.rsplit_once(':').expect("at is FILE:LINE");
+    let at = FindingAt {
+        file: file.into(),
+        line: line.parse().expect("a line number"),
+        rule: None,
+        index: case.fix,
+    };
+    let wired = wired_at(project.path());
+    let checking = wired.checking().unwrap();
+    let plan = plan_fix(&checking.fix_deps(), &at, &Given(case.inputs.clone()))
+        .unwrap_or_else(|stop| panic!("fix/{id}: {}", plan_stop_text(&stop)));
+    let applied = apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet).unwrap();
+    assert_eq!(applied.refused, None, "fix/{id}");
+    let expected_dir = dir.join("expected/fix").join(id);
+    for path in applied.changed.iter().chain(&applied.written) {
+        let got = std::fs::read_to_string(project.path().join(path)).unwrap();
+        let expected_path = expected_dir.join(path);
+        if blessing() {
+            std::fs::create_dir_all(expected_path.parent().unwrap()).unwrap();
+            std::fs::write(&expected_path, &got).unwrap();
+            continue;
+        }
+        let expected = std::fs::read_to_string(&expected_path)
+            .unwrap_or_else(|e| panic!("{}: {e}", expected_path.display()));
+        assert_eq!(
+            unix_newlines(&got),
+            unix_newlines(&expected),
+            "fix/{id}: {path}"
+        );
+    }
+    let holes = open_places(&PlanRig::new(project.path()));
+    if blessing() {
+        println!("# fix/{id}");
+        for hole in &holes {
+            println!(
+                "[[holes]]\nname = {:?}\nkind = {:?}\nfile = {:?}\nline = {}\n",
+                hole.name, hole.kind, hole.file, hole.line
+            );
+        }
+        return;
+    }
+    let mut want = case.holes;
+    want.sort();
+    assert_eq!(holes, want, "fix/{id}: the open holes");
+}
+
+#[test]
+fn bistro_holds_its_fix_cases() {
+    let dir = corpus_dir("bistro");
+    let corpus: CorpusFile = read_toml(&dir.join("corpus.toml"));
+    let ids = case_ids(&dir, "fix", "toml");
+    assert!(!ids.is_empty(), "bistro has no fix cases");
+    for id in ids {
+        run_fix_case(&dir, &corpus, &id);
     }
 }
 

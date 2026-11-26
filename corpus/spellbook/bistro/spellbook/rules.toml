@@ -1,7 +1,7 @@
 # The conventions of bistro, checked by `spellbook check` and on save in the editor. Silence one place
 # with a comment on the line or the line above:
 #   # spellbook:allow commands-use-ports — migration, tracked in issue 12
-# (ported from olifant's python-htmx pack; its `fixes` come in milestone 2)
+# (ported from olifant's python-htmx pack)
 # A rule is an error unless it says `severity = "warn"` or `"hint"`.
 
 # Commands and queries reach data through ports: sqlite3 belongs in an
@@ -17,6 +17,24 @@ match    = { any = [
 message  = "Commands and queries talk to ports, not the database (python-htmx: ports & adapters)"
 
 # The usual answer first: a port the service already has.
+[[rules.commands-use-ports.fixes]]
+generator = "use-port"
+label     = "Use a port the service has"
+with      = { app = "{= app =}", service = "{= service =}", kind = "{= kind =}", unit = "{= stem =}" }
+replace   = [
+  { enclosing = ["import_statement", "import_from_statement"], text = "" },
+  { enclosing = ["expression_statement", "return_statement"], text = "{= ? port_call: block | the same as {= finding =} through self.{= param =} =}" },
+]
+
+[[rules.commands-use-ports.fixes]]
+generator = "add-port"
+label     = "Add a port and use it"
+with      = { app = "{= app =}", service = "{= service =}", kind = "{= kind =}", unit = "{= stem =}" }
+replace   = [
+  { enclosing = ["import_statement", "import_from_statement"], text = "" },
+  { enclosing = ["expression_statement", "return_statement"], text = "{= ? port_call: block | the same as {= finding =} through self.{= param =} =}" },
+]
+
 [rules.web-uses-commands]
 files    = "src/{app}/web/**.py"
 exclude  = ["**/*__test.py"]

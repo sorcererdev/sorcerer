@@ -7,6 +7,7 @@ use crate::adapters::wiring::Wired;
 use crate::domain::config::spellbook_config;
 use crate::domain::rule::Rule;
 use crate::usecases::check_files::CheckDeps;
+use crate::usecases::plan_fix::FixDeps;
 
 pub struct Checking<'w> {
     wired: &'w Wired,
@@ -31,6 +32,16 @@ impl Wired {
 }
 
 impl Checking<'_> {
+    /// What planning a fix reads: the plan's deps, these rules and their runner, the generators.
+    pub fn fix_deps(&self) -> FixDeps<'_> {
+        FixDeps {
+            plan: self.wired.plan_deps(),
+            runner: &self.runner,
+            rules: &self.rules,
+            generators: &self.wired.generators,
+        }
+    }
+
     pub fn deps(&self) -> CheckDeps<'_> {
         CheckDeps {
             view: &self.wired.view,

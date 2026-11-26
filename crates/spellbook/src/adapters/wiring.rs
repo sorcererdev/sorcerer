@@ -15,9 +15,10 @@ use crate::adapters::generator_dir::GeneratorDirs;
 use crate::adapters::json_holes::JsonHoles;
 use crate::adapters::json_report::JsonReport;
 use crate::adapters::jsonl_generation_store::JsonlGenerationStore;
+use crate::adapters::query_anchors::QueryAnchors;
 use crate::adapters::system_clock::SystemClock;
 use crate::ports::clock::Clock;
-use crate::usecases::apply_generation::ApplyDeps;
+use crate::usecases::apply_plan::ApplyDeps;
 use crate::usecases::open_holes::HolesDeps;
 use crate::usecases::plan_generation::PlanDeps;
 
@@ -27,6 +28,8 @@ pub struct Wired {
     pub view: FilesView,
     pub generators: GeneratorDirs,
     pub grammars: CachedGrammars,
+    /// Where an `insert` edit's phrase points, over the same grammars.
+    pub anchors: QueryAnchors<CachedGrammars>,
     pub fences: Fences,
     pub workspace: DiskWorkspace,
     pub generations: JsonlGenerationStore,
@@ -50,6 +53,10 @@ pub fn wired(project: Project, cache: GrammarCache, clock: Arc<dyn Clock>) -> Re
     Ok(Wired {
         view: FilesView::new(project.clone(), cache.clone()),
         generators: GeneratorDirs::new(project.clone()),
+        anchors: QueryAnchors::new(CachedGrammars {
+            languages: project.languages.clone(),
+            cache: cache.clone(),
+        }),
         grammars: CachedGrammars {
             languages: project.languages.clone(),
             cache,
@@ -72,6 +79,8 @@ impl Wired {
         PlanDeps {
             view: &self.view,
             grammars: &self.grammars,
+            anchors: &self.anchors,
+            generators: &self.generators,
             fences: &self.fences,
             clock: self.clock.as_ref(),
         }

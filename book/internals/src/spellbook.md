@@ -15,7 +15,7 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `config.rs`: `SpellbookConfig { enabled, exclude }`, `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
   the server (`republish`, `wired_for_commands`).
 - `generator.rs`: the types (`Generator`, `Input`/`InputKind`, `Query`/`QueryValue`,
-  `Edit`/`EditBody`/`OnExists`, `HoleSource`) and `read_generator(id, text, templates)`, which
+  `Edit::{Create, Insert}`/`EditBody`/`OnExists`/`OnMissing`, `HoleSource`, `Use`) and `read_generator(id, text, templates)`, which
   reads `generator.toml` key by key with errors naming the place (`[inputs.app] type: …`). The
   workspace's `toml` sorts a table's keys, so the order of `[inputs.X]` headers and `[derive]`
   lines (which is the order inputs are asked and names derived) is read from the text with a
@@ -30,7 +30,22 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   without resolving earlier inputs, and `one_of` and `choices` together are refused by `read_generator`); every edit's template exists; paths, derives and derived holes use known names and no
   holes; every template parses as a template (core's `pieces`) and uses known names; a hole
   has one kind and one plain instruction; a placeholder hole's kind is in the generator
-  language's `[holes]`.
+  language's `[holes]`; an insert's phrases with no `{= =}` parse (`Anchor::parse`), its `unless`
+  compiles once filled with stand-in values (`inserts_are_well_formed`).
+- `fix.rs`: `Fix { generator, label, with, replace }`, `Replace { enclosing, text }`,
+  `FixBuiltins` (the slots `files` bound, `dir`, `stem`, `file`, `finding`), `fix_inputs`,
+  `fix_label`, `check_fix` (with `FixGenerator::{Absent, Broken, Takes}`: the load-time check of
+  a fix against the project's generators), `finding_for_instruction` (one line, no quotes or
+  backslashes, 60 characters) and `with_instructions_filled` (the values inside a `replace`
+  hole's instruction filled before rendering, since `pieces` cannot nest `{= =}`).
+- `anchor.rs`: `Anchor::parse` (olifant's `<position> <target>` phrases: `Position`, `Target`),
+  `Resolution::{At(Place), Missing, Several, Refused}`, `Place::{Lines, InLine}`,
+  `resolve_in_text` (the targets that need no grammar: `marker`, `line matching`, `file`),
+  `resolution_text` and `anchor_text` for the sentences.
+- `change.rs`: `TextChange` (whole lines, rows from 0), `apply_changes` (bottom up, refusing
+  overlaps), `change_at` (a rendered text placed at a `Place`, indented, in the file's line
+  ending), `changes_between` and `hunks` (both over `similar`), `added_and_removed`,
+  `with_line_ending`.
 - `holes_table.rs`: `holes_table(language)` reads `[holes]` strictly from `Language.rest`;
   `placeholder(language, kind, name, instruction)` fills a kind's template with core's `fill`.
 - `inputs.rs`: `Given` (what was typed), `Values` (inputs then derived names, in order, as
@@ -44,10 +59,14 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `holes.rs`: `Hole { name, kind, instruction, source: HoleOrigin, places }`,
   `HolePlace { file, line, text }`, and `HoleBook`, which gathers one generation's holes file by
   file (one hole per name, every place).
-- `plan.rs`: `Plan { id, generator, inputs, files, holes }`, `PlannedFile`, `FileStatus`,
-  `PlanStop` and `plan_stop_text`, `relative_path` (lexical: no absolute path, no `..` out),
+- `plan.rs`: `Plan { id, generator, inputs, files, holes, fix }`, `FixOrigin`, `PlannedFile`
+  (`new_file`, `left`, `changed(path, before, after)`, which works out `changes`, `hunks`,
+  `added`, `removed`; `before` is what the apply checks the disk against), `FileStatus::{New,
+  Skipped, Changed, Unchanged}`, `PlanStop` (with `FindingGone`, `NoReplaceCase`, `Anchor`,
+  `NothingToDo(Applied)`) and `plan_stop_text`, `relative_path` (lexical: no absolute path, no `..` out),
   `plan_id` (eight hex digits of `fnv64_hex` over the generator, the inputs and the time).
-- `record.rs`: `GenerationRecord` (a line of `generations.jsonl`), `OpenHole` and `HolesFile`
+- `record.rs`: `GenerationRecord` (a line of `generations.jsonl`; a fix adds `fix: RecordedFix`
+  and `changed: Vec<ChangedFile>`), `OpenHole` and `HolesFile`
   (`holes.json`, a core `Versioned` at version 1), `record_of`, `open_holes_of`.
 - `open_hole_places.rs`: `still_open(hole, text)`: a placeholder carrying `hole <name>:` is
   found by that text anywhere, nearest the recorded line first; a short one (`todo_field`) as a
@@ -58,38 +77,49 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   `exclude`, compiled to an anchored `regex` (`*` one name, `**` any folders, `**.ext` = `**/*.ext`,
   `{slot}` a lazy `[^/]+?` capture).
 - `rule.rs`: `Rule`, `RuleBody::{Match(MatchForm), Query(String)}`, `Severity` (a rule that names none is `Error`; `warn` and `hint` are written out), `parse_rules(text)`
-  (strict keys; `missing`/`fix`/`fixes` say "arrives in milestone 2"; both `match` and `query` is
-  refused; every regex is compiled once to catch a bad one early). `rule_query.rs`: `query_text`, the
+  (strict keys; `fix` or `[[fixes]]` read into `Rule.fixes`, both together refused; `missing` says
+  "arrives in milestone 2b"; both `match` and `query` is refused; every regex is compiled once to catch a bad one early). `rule_query.rs`: `query_text`, the
   short form written as tree-sitter query text (`@finding`, `#match?`, `#not-match?`, backslash and
   quote escaped).
-- `finding.rs` (`Finding`, `RawFinding`, `fingerprint`: seven hex digits of `fnv64_hex` over the
+- `finding.rs` (`Finding`, whose `node_text` is not serialized; `RawFinding` with the node's `kind`
+  and `Span` (rows and bytes); `fingerprint`: seven hex digits of `fnv64_hex` over the
   rule and the node text with whitespace collapsed), `allow.rs` (`allow_comments`, `silencing`),
   `report.rs` (`ReportFile`, `with_files_replaced`, `sort_findings`; `report.json` is a core
   `Versioned` at version 1).
 
 `ports/`: `generators.rs` (`Generators`: `all`, `named`), `grammars.rs` (`Grammars::for_path`:
-the loaded language of a path, or none), `workspace.rs` (`Workspace::write_new`, `WriteRefused`),
-`generation_store.rs`, `holes_store.rs`, `clock.rs`, `rule_runner.rs` (`RuleRunner::findings_in`), `report_store.rs`.
+the loaded language of a path, or none), `workspace.rs` (`Workspace::write_new`,
+`Workspace::write_changed(path, before, after)`, `WriteRefused` with `Changed`),
+`generation_store.rs`, `holes_store.rs`, `clock.rs`, `rule_runner.rs` (`RuleRunner::findings_in`,
+`RuleRunner::enclosing(file, text, span, kinds)`: the nearest node of those kinds around a
+finding), `anchors.rs` (`Anchors::resolve(file, text, anchor)`), `report_store.rs`.
 
 `usecases/`: `list_generators.rs` (`GeneratorSummary`, also the editor's picker reply),
-`choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`,
-`plan_generation`), `apply_generation.rs` (`ApplyDeps`, `apply_generation`,
-`AppliedGeneration`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, `check_files`), `check_project.rs`
+`choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`, which
+carries `anchors`, and `plan_generation`, whose `Insert` places an insert edit and whose `with_used` plans each
+`[[uses]]` over a `PlannedView`), `planned_view.rs` (`PlannedView`: a `CodebaseView` that answers
+`exists`, `text` and `glob` with the plan so far laid over the project and passes every other
+question on), `fixes_for.rs`
+(`FixOffer`, `fixes_for`), `plan_fix.rs` (`FixDeps`, `FindingAt`, `plan_fix`), `apply_plan.rs`
+(`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, `check_files`), `check_project.rs`
 (`check_project`).
 
 `adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
-`load_generator`, `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
+`load_generator`, which follows `[[uses]]` with `uses_agree`: each used generator there and
+loading, its `with` names its inputs, no cycle, at most four in a chain; `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
 `Languages::for_path` and `Languages::load`), `disk_workspace.rs`, `jsonl_generation_store.rs`,
 `json_holes.rs` (core's `Store` at `spellbook/holes.json`), `json_report.rs` (the same at
-`spellbook/report.json`), `rules_toml.rs` (`load_rules`, `RULES_FILE`), `query_rules.rs` (`QueryRules`,
-the `RuleRunner` over tree-sitter), `checking.rs` (`Wired::checking()`: the rules read fresh, the settings
-and the runner, then `Checking::deps()`), `system_clock.rs`, `wiring.rs` (`Wired`, `live`, `wired`, and
+`spellbook/report.json`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every
+rule's fixes against `generator_named`), `query_rules.rs` (`QueryRules`, the `RuleRunner` over
+tree-sitter), `query_anchors.rs` (`QueryAnchors<G>`, the `Anchors` port over a language's
+`imports.scm`, `tags.scm` and `textobjects.scm`), `checking.rs` (`Wired::checking()`: the rules
+read fresh, the settings and the runner, then `Checking::deps()` and `Checking::fix_deps()`), `system_clock.rs`, `wiring.rs` (`Wired`, `live`, `wired`, and
 `plan_deps`/`apply_deps`/`holes_deps`).
 
 `adapters/lsp/`: the server, below.
 
 `cli/`: `arguments.rs`, `file_arguments.rs` (`relative_to_root`: `check`/`holes` file arguments made project-relative), `run_cli.rs` (`main`, `main_with(args, cwd, env, wire, out, err)`),
-one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
+one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `fix.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
 `format.rs` (`columns`), `console.rs`.
 
 ## One generation, end to end
@@ -107,13 +137,49 @@ one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `holes.rs`, `check.rs
    Every new file a language covers is parsed (`parse_errors_of`); an error line is
    `PlanStop::DoesNotParse` naming the template. Then the holes are gathered (`HoleBook`) and
    the id made. Nothing is written.
-4. `apply_generation` writes each new file through `Workspace::write_new` (`DiskWorkspace`
+4. `apply_plan` writes each new file through `Workspace::write_new` (`DiskWorkspace`
    refuses with `Fences::allows`, which follows links, and opens with `create_new`, so a file
    that appeared since the plan is never overwritten), stops at the first refusal, appends the
    record for what was written, and adds the placeholder places to `holes.json`.
 5. `open_holes` re-reads each saved place and keeps it at its current line while
    `still_open` finds it; `holes.json` is rewritten with what is still open. A hole whose file is
    missing is kept (a stash or branch switch may bring it back) but not listed.
+
+## A fix, end to end
+
+`cli/fix.rs::fix` parses `FILE:LINE`, reads the rules (`Wired::checking`) and calls
+`usecases/plan_fix.rs::plan_fix(Checking::fix_deps(), FindingAt, given)`:
+
+1. The file is read as it is now and the rules that look at it run again
+   (`RuleRunner::findings_in`); the finding on the line is taken, or the plan stops with
+   `FindingGone`. A gone finding whose fix's generator has nothing left to do
+   (`plan_generation` says `NothingToDo`) is `NothingToDo(Applied::Fix)`: the fix was applied.
+2. The fix is picked (`--fix`, from 1), its `with` filled from the finding (`FixBuiltins::of`,
+   `fix_inputs`) and the person's `--set` laid over it.
+3. `plan_generation` plans the generator. Its inserts are placed by `Insert::land_in`: the file as
+   planned so far (or read now), `when` and `unless` checked, the first `at` phrase that resolves
+   through the `Anchors` port, the body rendered with the file's language's placeholders and
+   placed by `change_at`, the holes counted on the file's lines, a new parse error refused.
+4. `replacement` asks `RuleRunner::enclosing` for the first `replace` case's node kind around the
+   finding; that node's whole lines become the rendered `text` (`finding` there is the replaced
+   code; `with_instructions_filled` first), indented like the node.
+5. `with_replacement` moves the replacement past the generator's changes above it in the same
+   file (an overlap stops the plan) and rebuilds the file with `PlannedFile::changed`, so the
+   file's `changes` are always against the text on disk.
+6. The replaced file must still parse.
+
+`apply_plan` then lands changed files first through `Workspace::write_changed` (refused, with
+nothing written, when the disk no longer has `before`), writes the new files, appends the record
+and the holes. The server (Part B) will land changed files itself as one `WorkspaceEdit` and call
+`apply_plan` with `ChangesLanded::ByTheEditor`.
+
+### Why an `Anchors` port
+
+The use cases never parse. A phrase like `end of parameters in CloseTable.__init__` is resolved by
+`adapters/query_anchors.rs` with the queries every shipped language already has: `tags.scm` names
+definitions and calls, `textobjects.scm` gives a body's statements, `imports.scm` the imports.
+A list's separator is read from the list itself (the text between its last two items), so no
+language is named. `Class.method` splits on the language's `unit_separator`.
 
 ## The server
 
@@ -234,14 +300,19 @@ the loader; `check.rs` the use cases on a copy of each base (a planted break, th
 four commands, the marks on open, save and close, trust); `generators.rs` covers `[holes]` and the
 loader's sentences; `plan.rs` inputs, rendering and planning; `apply.rs` writing, the records and the
 open holes (a link out of the project made with core's `link_to`); `cli.rs` each command through
-`main_with` with a wiring that uses the vendored grammars and a fixed clock.
+`main_with` with a wiring that uses the vendored grammars and a fixed clock (the fix session of the
+design end to end, `the_fix_session_of_the_design_runs_end_to_end`); `anchors.rs` each phrase over
+command-shaped files (one-line and one-per-line lists, a call narrowed with `in`); `fix.rs`
+`fixes_for` and `plan_fix` + `apply_plan` with `use-port` (on the import, on a `sqlite3.connect`
+statement with its hole, and a second run that has nothing to do). `use_corpus_rules` copies the
+corpus's generators with its rules, since the rules' fixes name them.
 
 `corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust); each also has `cases/check/<id>.{toml,patch}` (a planted break, every file checked, `expected/check/<id>.json` the findings) and a `rules.toml` among its `spellbook/` files. A
 corpus is a base copied from another corpus plus a `spellbook/` folder that becomes
 `.sorcerer/spellbook/`; its cases are `cases/new/<id>.toml` (a generator and inputs; every written
 file is compared with `expected/new/<id>/<path>` after `\r\n` becomes `\n`, and the open holes, one a
 place, with the case's `[[holes]]`), `cases/holes/<id>.{toml,patch}` (a `new`, then a `git apply`
-of the person's edit) and `cases/load/<id>/` (an overlay with one mistake, and `expected.txt`: the
+of the person's edit), `cases/fix/<id>.{toml,patch}` (a planted finding, then `plan_fix` and `apply_plan` with the case's fix and inputs; every changed or written file is compared with `expected/fix/<id>/<path>`, and the open holes with the case's `[[holes]]`) and `cases/load/<id>/` (an overlay with one mistake, and `expected.txt`: the
 sentence, from the generator's load error or, for a path the plan refuses, the plan's stop). To add a
 case, write its toml, run the corpus test with `SPELLBOOK_BLESS=1 … -- --nocapture` (it writes
 `expected/` and prints the holes), read every file written, paste the holes in, and run it again

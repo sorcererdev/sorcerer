@@ -47,6 +47,7 @@ mod tests {
             inputs: BTreeMap::new(),
             files: Vec::new(),
             holes: Vec::new(),
+            fix: None,
         }
     }
 

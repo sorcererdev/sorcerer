@@ -8,7 +8,11 @@ use std::collections::BTreeMap;
 use sorcerer_core::domain::language::Languages;
 use sorcerer_core::domain::templates::{Piece, pieces};
 
-use crate::domain::generator::{EditBody, Generator, HoleSource, InputKind};
+use regex::Regex;
+use sorcerer_core::domain::templates::fill;
+
+use crate::domain::anchor::Anchor;
+use crate::domain::generator::{Edit, EditBody, Generator, HoleSource, InputKind};
 use crate::domain::generator_problems::function_style_text;
 use crate::domain::holes_table::{holes_table, missing_kind_text};
 
@@ -32,6 +36,7 @@ pub fn check_generator(generator: &Generator, languages: &Languages) -> Result<(
     in_generator_file(enums_name_queries_over_earlier_inputs(generator))?;
     in_generator_file(edit_templates_exist(generator))?;
     in_generator_file(names_and_values_are_plain(generator))?;
+    in_generator_file(inserts_are_well_formed(generator))?;
     templates_are_well_formed(generator)?;
     holes_agree(generator, languages)
 }
@@ -79,7 +84,7 @@ fn enums_name_queries_over_earlier_inputs(generator: &Generator) -> Result<(), S
 
 fn edit_templates_exist(generator: &Generator) -> Result<(), String> {
     for (number, edit) in generator.edits.iter().enumerate() {
-        if let EditBody::Template(template) = &edit.body
+        if let EditBody::Template(template) = edit.body()
             && !generator.templates.contains_key(template)
         {
             return Err(format!(
@@ -99,17 +104,85 @@ fn names_and_values_are_plain(generator: &Generator) -> Result<(), String> {
         .edits
         .iter()
         .enumerate()
-        .map(|(number, edit)| (format!("[[edits]] {} create", number + 1), &edit.create));
+        .flat_map(|(number, edit)| insert_templates(number, edit));
     let derives = generator
         .derive
         .iter()
-        .map(|(name, template)| (format!("[derive] {name}"), template));
+        .map(|(name, template)| (format!("[derive] {name}"), template.clone()));
     let holes = generator.holes.iter().map(|(name, source)| match source {
-        HoleSource::Derived { value } => (format!("[holes.{name}] value"), value),
+        HoleSource::Derived { value } => (format!("[holes.{name}] value"), value.clone()),
     });
     for (place, template) in paths.chain(derives).chain(holes) {
-        for used in value_names(template, &place)? {
+        for used in value_names(&template, &place)? {
             refuse_unknown_name(used, &known, &place)?;
+        }
+    }
+    Ok(())
+}
+
+/// An edit's templates of values, each with where it is: the path, and an insert's phrases,
+/// `unless` and `when`.
+fn insert_templates(number: usize, edit: &Edit) -> Vec<(String, String)> {
+    let place = |key: &str| format!("[[edits]] {} {key}", number + 1);
+    let mut found = vec![(place(edit.word()), edit.path().to_string())];
+    if let Edit::Insert {
+        at, unless, when, ..
+    } = edit
+    {
+        found.extend(at.iter().map(|phrase| (place("at"), phrase.clone())));
+        found.extend(unless.iter().map(|regex| (place("unless"), regex.clone())));
+        found.extend(when.iter().map(|phrase| (place("when"), phrase.clone())));
+    }
+    found
+}
+
+/// Each insert's phrases read (those with no `{= =}` now, the rest once filled at plan time),
+/// its `unless` compiles once filled with stand-in values, and its text uses only known names.
+fn inserts_are_well_formed(generator: &Generator) -> Result<(), String> {
+    let known = known_names(generator);
+    let stand_ins: Vec<(&str, &str)> = known.iter().map(|name| (*name, "x")).collect();
+    for (number, edit) in generator.edits.iter().enumerate() {
+        let Edit::Insert {
+            at,
+            body,
+            unless,
+            when,
+            ..
+        } = edit
+        else {
+            continue;
+        };
+        let place = |key: &str| format!("[[edits]] {} {key}", number + 1);
+        for (key, phrase) in at
+            .iter()
+            .map(|p| ("at", p))
+            .chain(when.iter().map(|p| ("when", p)))
+        {
+            if !phrase.contains("{=") {
+                Anchor::parse(phrase).map_err(|why| format!("{}: {why}", place(key)))?;
+            }
+        }
+        if let Some(regex) = unless {
+            let filled =
+                fill(regex, &stand_ins).map_err(|why| format!("{}: {why}", place("unless")))?;
+            Regex::new(&filled).map_err(|e| {
+                let why = e
+                    .to_string()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    "{}: the regex `{regex}` does not compile ({why})",
+                    place("unless")
+                )
+            })?;
+        }
+        if let EditBody::Text(text) = body {
+            for piece in pieces(text).map_err(|why| format!("{}: {why}", place("text")))? {
+                if let Piece::Value { name, .. } = piece {
+                    refuse_unknown_name(name, &known, &place("text"))?;
+                }
+            }
         }
     }
     Ok(())

@@ -1,5 +1,6 @@
 //! The seams a use case talks through.
 
+pub mod anchors;
 pub mod clock;
 pub mod generation_store;
 pub mod generators;

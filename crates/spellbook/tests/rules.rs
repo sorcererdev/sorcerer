@@ -112,3 +112,62 @@ fn no_rules_file_means_no_rules_and_a_bad_one_names_itself() {
         ".sorcerer/spellbook/rules.toml: rule a: `message` is missing: the sentence a finding says"
     );
 }
+
+#[test]
+fn a_finding_carries_its_span_and_the_runner_finds_the_node_around_it() {
+    use spellbook::adapters::query_rules::QueryRules;
+    use spellbook::ports::rule_runner::RuleRunner;
+    use std::path::Path;
+
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    let wired = wired_at(dir.path());
+    let rules = load_rules(&wired.project).unwrap();
+    let commands: Vec<&spellbook::domain::rule::Rule> = rules
+        .iter()
+        .filter(|rule| rule.id == "commands-use-ports")
+        .collect();
+    let runner = QueryRules::new(&wired.grammars);
+    let file = Path::new("src/bistro/booking/commands/close_table.py");
+    let text = "\"\"\"Close a table.\"\"\"\n\nimport sqlite3\n\n\ndef handle(path):\n    conn = sqlite3.connect(path)\n    return conn\n";
+    let found = runner.findings_in(file, text, &commands).unwrap();
+    let import = found.iter().find(|f| f.line == 3).unwrap();
+    assert_eq!(
+        &text[import.span.start_byte..import.span.end_byte],
+        "import sqlite3"
+    );
+    assert_eq!((import.span.start_row, import.span.end_row), (2, 2));
+    let kinds = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    let itself = runner
+        .enclosing(
+            file,
+            text,
+            import.span,
+            &kinds(&["import_statement", "import_from_statement"]),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(itself, import.span);
+
+    let call = found.iter().find(|f| f.line == 7).unwrap();
+    assert_eq!(call.node_text, "sqlite3.connect");
+    let statement = runner
+        .enclosing(
+            file,
+            text,
+            call.span,
+            &kinds(&["expression_statement", "return_statement"]),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        &text[statement.start_byte..statement.end_byte],
+        "conn = sqlite3.connect(path)"
+    );
+    assert_eq!(
+        runner
+            .enclosing(file, text, call.span, &kinds(&["class_definition"]))
+            .unwrap(),
+        None
+    );
+}

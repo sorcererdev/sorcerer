@@ -1,0 +1,1 @@
+.sorcerer/spellbook/rules.toml: rule commands-use-ports: fix command: `with` uses `servce`, which is not a slot of `files` or one of dir, stem, file, finding

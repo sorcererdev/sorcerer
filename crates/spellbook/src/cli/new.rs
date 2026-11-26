@@ -12,7 +12,7 @@ use crate::domain::inputs::Given;
 use crate::domain::plan::{FileStatus, Plan, PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
 use crate::ports::workspace::write_refused_text;
-use crate::usecases::apply_generation::{AppliedGeneration, apply_generation};
+use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::plan_generation::plan_generation;
 
 use super::format::{columns, count};
@@ -42,7 +42,7 @@ pub(super) fn new(
         print_planned(&plan, request.json, out)?;
         return Ok(0);
     }
-    let applied = apply_generation(&wired.apply_deps(), plan)?;
+    let applied = apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet)?;
     print_applied(&applied, request.json, out, err)
 }
 
@@ -183,13 +183,18 @@ fn summary_text(plan: &Plan, written: &[String]) -> String {
     let file_rows: Vec<Vec<String>> = plan
         .files
         .iter()
-        .filter(|file| file.status == FileStatus::Skipped || written.contains(&file.path))
+        .filter(|file| file.status != FileStatus::New || written.contains(&file.path))
         .map(|file| match file.status {
             FileStatus::New => vec![
                 format!("+ {}", file.path),
                 format!("({} lines)", file.lines),
             ],
+            FileStatus::Changed => vec![
+                format!("~ {}", file.path),
+                format!("(+{} \u{2212}{})", file.added, file.removed),
+            ],
             FileStatus::Skipped => vec![format!("= {}", file.path), "(exists, skipped)".into()],
+            FileStatus::Unchanged => vec![format!("= {}", file.path), "(unchanged)".into()],
         })
         .collect();
     text.push_str(&columns("  ", &file_rows));
@@ -204,7 +209,7 @@ fn summary_text(plan: &Plan, written: &[String]) -> String {
     text
 }
 
-fn hole_row(hole: &Hole) -> Vec<String> {
+pub(super) fn hole_row(hole: &Hole) -> Vec<String> {
     let place = &hole.places[0];
     vec![
         hole.name.clone(),

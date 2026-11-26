@@ -8,13 +8,14 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use spellbook::adapters::cached_grammars::CachedGrammars;
 use spellbook::adapters::disk_workspace::DiskWorkspace;
-use spellbook::adapters::generator_dir::generator_named;
+use spellbook::adapters::generator_dir::{GeneratorDirs, generator_named};
 use spellbook::adapters::json_holes::JsonHoles;
 use spellbook::adapters::jsonl_generation_store::JsonlGenerationStore;
+use spellbook::adapters::query_anchors::QueryAnchors;
 use spellbook::domain::generator::Generator;
 use spellbook::domain::inputs::Given;
 use spellbook::domain::plan::{Plan, PlanStop};
-use spellbook::usecases::apply_generation::{AppliedGeneration, ApplyDeps, apply_generation};
+use spellbook::usecases::apply_plan::{AppliedGeneration, ApplyDeps, ChangesLanded, apply_plan};
 use spellbook::usecases::plan_generation::{PlanDeps, plan_generation};
 
 use super::{FixedClock, project_with_vendored_grammars, test_cache};
@@ -23,6 +24,8 @@ pub struct PlanRig {
     pub project: Arc<Project>,
     pub view: FilesView,
     pub grammars: CachedGrammars,
+    pub anchors: QueryAnchors<CachedGrammars>,
+    pub generators: GeneratorDirs,
     pub fences: Fences,
     pub clock: FixedClock,
 }
@@ -35,7 +38,12 @@ impl PlanRig {
                 languages: project.languages.clone(),
                 cache: test_cache(),
             },
+            anchors: QueryAnchors::new(CachedGrammars {
+                languages: project.languages.clone(),
+                cache: test_cache(),
+            }),
             fences: Fences::for_project(&project).unwrap(),
+            generators: GeneratorDirs::new(project.clone()),
             clock: FixedClock::at_noon(),
             project,
             view,
@@ -46,6 +54,8 @@ impl PlanRig {
         PlanDeps {
             view: &self.view,
             grammars: &self.grammars,
+            anchors: &self.anchors,
+            generators: &self.generators,
             fences: &self.fences,
             clock: &self.clock,
         }
@@ -95,6 +105,6 @@ impl PlanRig {
             holes: &rig.holes,
             clock: &self.clock,
         };
-        apply_generation(&deps, plan).unwrap()
+        apply_plan(&deps, plan, ChangesLanded::NotYet).unwrap()
     }
 }

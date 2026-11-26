@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::fnv::fnv64_hex;
 
+use crate::domain::change::{Hunk, TextChange, added_and_removed, changes_between, hunks};
 use crate::domain::holes::{Hole, HoleOrigin};
 use crate::domain::inputs::{InputStop, input_stop_text};
 
@@ -19,6 +20,20 @@ pub struct Plan {
     pub files: Vec<PlannedFile>,
     /// Every hole, derived ones included, in the order they first appear.
     pub holes: Vec<Hole>,
+    /// The finding this plan fixes, when it is a fix.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<FixOrigin>,
+}
+
+/// The finding a fix answers, and which of its rule's fixes it is (from 1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FixOrigin {
+    pub rule: String,
+    pub file: String,
+    pub line: u32,
+    pub fingerprint: String,
+    pub index: usize,
+    pub label: String,
 }
 
 impl Plan {
@@ -45,6 +60,14 @@ impl Plan {
             .filter(|file| file.status == FileStatus::New)
             .collect()
     }
+
+    /// The files the plan changes.
+    pub fn changed_files(&self) -> Vec<&PlannedFile> {
+        self.files
+            .iter()
+            .filter(|file| file.status == FileStatus::Changed)
+            .collect()
+    }
 }
 
 /// One file of a plan.
@@ -53,9 +76,86 @@ pub struct PlannedFile {
     /// Relative to the root, with `/`.
     pub path: String,
     pub status: FileStatus,
-    /// The text to write; empty for a skipped file.
+    /// The text to write (for a changed file, its text after the plan); empty for a skipped file.
     pub text: String,
     pub lines: u32,
+    /// For a changed file: the changes against `before`, whole lines, and the diff to show.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<TextChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hunks: Vec<Hunk>,
+    /// For a changed file: its text when the plan was made, which it must still have when the
+    /// plan is applied.
+    #[serde(skip)]
+    pub before: String,
+    /// For a changed file: how many lines the plan adds and removes.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub added: u32,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub removed: u32,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
+impl PlannedFile {
+    /// A file the plan writes new.
+    pub fn new_file(path: String, text: String) -> PlannedFile {
+        PlannedFile {
+            lines: line_count(&text),
+            path,
+            status: FileStatus::New,
+            text,
+            changes: Vec::new(),
+            hunks: Vec::new(),
+            before: String::new(),
+            added: 0,
+            removed: 0,
+        }
+    }
+
+    /// A file that is there, changed from `before` to `after`: its changes and diff worked out.
+    /// The same text both times is a file left unchanged.
+    pub fn changed(path: String, before: String, after: String) -> PlannedFile {
+        if before == after {
+            return PlannedFile::left(path, FileStatus::Unchanged);
+        }
+        let hunks = hunks(&before, &after);
+        let (added, removed) = added_and_removed(&hunks);
+        PlannedFile {
+            lines: line_count(&after),
+            changes: changes_between(&before, &after),
+            hunks,
+            added: u32::try_from(added).unwrap_or(u32::MAX),
+            removed: u32::try_from(removed).unwrap_or(u32::MAX),
+            path,
+            status: FileStatus::Changed,
+            text: after,
+            before,
+        }
+    }
+
+    /// Whether the plan leaves this file as it is: skipped, or every edit to it in place already.
+    pub fn leaves_the_code_as_it_is(&self) -> bool {
+        matches!(self.status, FileStatus::Skipped | FileStatus::Unchanged)
+    }
+
+    /// A file the plan leaves as it is: skipped (there already) or unchanged (every insert's
+    /// `unless` holds).
+    pub fn left(path: String, status: FileStatus) -> PlannedFile {
+        PlannedFile {
+            path,
+            status,
+            text: String::new(),
+            lines: 0,
+            changes: Vec::new(),
+            hunks: Vec::new(),
+            before: String::new(),
+            added: 0,
+            removed: 0,
+        }
+    }
 }
 
 /// Whether a planned file is written.
@@ -65,6 +165,17 @@ pub enum FileStatus {
     New,
     /// It is there already and the edit says `on_exists = "skip"`.
     Skipped,
+    /// It is there and the plan changes some of its lines.
+    Changed,
+    /// It is there and every edit to it is in place already (its `unless` holds).
+    Unchanged,
+}
+
+/// What a plan with nothing to do was: a fix, or a generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Applied {
+    Fix,
+    Generation,
 }
 
 /// Why a plan stopped before anything was written.
@@ -90,6 +201,24 @@ pub enum PlanStop {
         hole: String,
     },
     Template(String),
+    /// The finding a fix answers is no longer on that line.
+    FindingGone {
+        file: String,
+        line: u32,
+        rule: String,
+    },
+    /// The fix's `replace` names no node kind around the finding.
+    NoReplaceCase {
+        kind: String,
+    },
+    /// An insert's file is not there, or none of its phrases resolves.
+    Anchor {
+        edit: String,
+        file: String,
+        why: String,
+    },
+    /// Every edit is in place already and nothing is new.
+    NothingToDo(Applied),
 }
 
 /// The stop as one sentence.
@@ -112,6 +241,19 @@ pub fn plan_stop_text(stop: &PlanStop) -> String {
         }
         PlanStop::NoLanguageForHole { path, hole } => {
             format!("no language covers {path}, so its hole {hole} has no placeholder")
+        }
+        PlanStop::FindingGone { file, line, rule } => format!(
+            "{file}:{line} has no {rule} finding any more; nothing to fix (run `spellbook check`)"
+        ),
+        PlanStop::NoReplaceCase { kind } => format!(
+            "the finding is a `{kind}`, and no `replace` case of the fix names a node around it; nothing was written"
+        ),
+        PlanStop::Anchor { edit, file, why } => {
+            format!("{edit} ({file}): {why}; nothing was written")
+        }
+        PlanStop::NothingToDo(Applied::Fix) => "nothing to do: the fix is already applied".into(),
+        PlanStop::NothingToDo(Applied::Generation) => {
+            "nothing to do: every edit is in the code already".into()
         }
     }
 }

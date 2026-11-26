@@ -28,6 +28,7 @@ thiserror.workspace = true
 anyhow.workspace = true
 globset.workspace = true
 regex.workspace = true
+similar.workspace = true
 tree-sitter.workspace = true
 lsp-server.workspace = true
 lsp-types.workspace = true

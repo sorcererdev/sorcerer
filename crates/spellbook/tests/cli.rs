@@ -344,11 +344,15 @@ fn check_with_no_findings_holds_and_with_no_rules_says_so() {
 }
 
 #[test]
-fn check_json_equals_the_report() {
+fn check_json_is_the_report_with_each_findings_fixes() {
     let dir = bistro_with_a_sqlite_command();
     let (code, out, _) = run(dir.path(), &["check", "--json"]);
     assert_eq!(code, 1);
-    let printed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let mut printed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    // The fixes are offered as the rules are now, so report.json does not keep them.
+    for finding in printed["findings"].as_array_mut().unwrap() {
+        finding.as_object_mut().unwrap().remove("fixes");
+    }
     let saved =
         std::fs::read_to_string(dir.path().join(".sorcerer/state/spellbook/report.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
@@ -418,4 +422,86 @@ fn doctor_names_the_rules_file_and_the_report() {
         out.contains("rules        FAIL  .sorcerer/spellbook/rules.toml: rule a:"),
         "{out}"
     );
+}
+
+const CLOSE_TABLE: &str = "src/bistro/booking/commands/close_table.py";
+
+/// Bistro with its rules and generators, a `close_table` command made by `new`, and
+/// `import sqlite3` added by hand on line 4.
+fn bistro_with_sqlite_in_close_table() -> tempfile::TempDir {
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    let (code, _, err) = run(
+        dir.path(),
+        &["new", "command", "--set", "command=close_table"],
+    );
+    assert_eq!(code, 0, "{err}");
+    let path = dir.path().join(CLOSE_TABLE);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut lines: Vec<&str> = text.lines().collect();
+    lines.insert(3, "import sqlite3");
+    std::fs::write(&path, format!("{}\n", lines.join("\n"))).unwrap();
+    dir
+}
+
+#[test]
+fn the_fix_session_of_the_design_runs_end_to_end() {
+    let dir = bistro_with_sqlite_in_close_table();
+    let at = format!("{CLOSE_TABLE}:4");
+
+    let (code, out, _) = run(dir.path(), &["check"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains(&format!(
+            "✗ {CLOSE_TABLE}:4  commands-use-ports — Commands and queries talk to ports, not the database (python-htmx: ports & adapters)  (fixes: Use a port the service has · Add a port and use it)\n"
+        )),
+        "{out}"
+    );
+    let (code, json, _) = run(dir.path(), &["check", "--json"]);
+    assert_eq!(code, 1);
+    assert!(
+        json.contains("\"missing\": [\n            \"port\"\n          ]"),
+        "{json}"
+    );
+
+    let (code, _, err) = run(dir.path(), &["fix", &at]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("table_repository"), "{err}");
+    assert!(err.contains("give it with --set port=VALUE"), "{err}");
+
+    let (code, out, err) = run(
+        dir.path(),
+        &["fix", &at, "--set", "port=table_repository", "--plan"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.starts_with("Use a port the service has: use-port (2 files changed, 0 new, 0 holes)\n"),
+        "{out}"
+    );
+    assert!(out.contains(&format!("  ~ {CLOSE_TABLE}  ")), "{out}");
+    assert!(out.contains(&format!("--- {CLOSE_TABLE}\n@@ ")), "{out}");
+    assert!(out.contains("-import sqlite3\n"), "{out}");
+    assert!(
+        out.contains("+    return CloseTable(table_repository=InMemoryTableRepository())\n"),
+        "{out}"
+    );
+    assert!(out.ends_with("nothing written (--plan)\n"), "{out}");
+    assert!(
+        std::fs::read_to_string(dir.path().join(CLOSE_TABLE))
+            .unwrap()
+            .contains("import sqlite3")
+    );
+
+    let (code, out, err) = run(dir.path(), &["fix", &at, "--set", "port=table_repository"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.ends_with("applied: 2 files changed, 0 written\n"),
+        "{out}"
+    );
+    let (_, out, _) = run(dir.path(), &["check", CLOSE_TABLE]);
+    assert!(!out.contains("commands-use-ports"), "{out}");
+
+    let (code, out, err) = run(dir.path(), &["fix", &at, "--set", "port=table_repository"]);
+    assert_eq!(code, 3, "{out}{err}");
+    assert_eq!(out, "nothing to do: the fix is already applied\n");
 }

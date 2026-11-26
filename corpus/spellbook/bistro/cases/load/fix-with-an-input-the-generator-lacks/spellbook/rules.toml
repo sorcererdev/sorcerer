@@ -1,0 +1,10 @@
+[rules.commands-use-ports]
+files    = "src/{app}/{service}/{kind}/*.py"
+exclude  = ["**/__init__.py", "**/*__test.py"]
+match    = { kind = "import_statement", regex = "sqlite3" }
+message  = "Commands and queries talk to ports, not the database (python-htmx: ports & adapters)"
+
+[[rules.commands-use-ports.fixes]]
+generator = "command"
+label     = "Make a command"
+with      = { service = "{= service =}", unit = "{= stem =}" }

@@ -51,6 +51,13 @@ impl PathPattern {
         &self.text
     }
 
+    /// The names of its `{slot}`s, in the pattern's order.
+    ///
+    /// Example: `src/{app}/{service}/*.txt` has the slots `app` and `service`.
+    pub fn slots(&self) -> &[String] {
+        &self.slots
+    }
+
     /// Whether the path matches, and the value each `{slot}` took when it does.
     ///
     /// Example: `src/{app}/main.txt` on `src/bistro/main.txt` is `Some({"app": "bistro"})`.

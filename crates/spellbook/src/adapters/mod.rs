@@ -8,6 +8,7 @@ pub mod json_holes;
 pub mod json_report;
 pub mod jsonl_generation_store;
 pub mod lsp;
+pub mod query_anchors;
 pub mod query_rules;
 pub mod rules_toml;
 pub mod system_clock;
