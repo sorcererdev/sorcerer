@@ -74,11 +74,21 @@ fn path_patterns_over_every_files_line_in_both_corpora() {
     ));
 
     let rust = parse_rules(&corpus_rules("bistro-rs")).unwrap();
-    assert_eq!(rust.len(), 1);
-    let panics = &rust[0];
+    assert_eq!(rust.len(), 2);
+    let rust_by_id = |id: &str| rust.iter().find(|rule| rule.id == id).unwrap();
+    let panics = rust_by_id("commands-no-panic");
     assert!(applies(panics, "src/booking/commands/create_booking.rs"));
     assert!(!applies(panics, "src/booking/commands/mod.rs"));
     assert!(!applies(panics, "src/booking/queries/get_day_schedule.rs"));
+    let ports = rust_by_id("commands-use-ports");
+    assert!(applies(ports, "src/booking/commands/create_booking.rs"));
+    assert!(applies(ports, "src/booking/queries/get_day_schedule.rs"));
+    assert!(!applies(ports, "src/booking/commands/mod.rs"));
+    assert!(!applies(ports, "src/web/bookings/routes.rs"));
+    assert!(!applies(
+        ports,
+        "src/booking/ports/booking_repository/file.rs"
+    ));
 }
 
 #[test]
