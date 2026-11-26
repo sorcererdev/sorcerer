@@ -120,8 +120,8 @@ theme's `editorCodeLens.foreground` colour, italic, so a theme can change it).
 
 **Spellbook** (`sorcererdev.spellbook`) installs the same way, from the Marketplace (Open VSX for
 forks), and so does its program (`sorcerer-spellbook-installer`, or `cargo install
-sorcerer-spellbook`). `ctrl+m n` is **Spellbook: New** and `ctrl+m k`
-**Spellbook: Check**; see [Spellbook](spellbook.md#in-vs-code).
+sorcerer-spellbook`). `ctrl+m n` is **Spellbook: New**, `ctrl+m k`
+**Spellbook: Check** and `ctrl+m f` **Spellbook: Fix** (the finding's fix on the cursor's line); see [Spellbook](spellbook.md#in-vs-code).
 
 With no `scry` in any of those places, it offers:
 

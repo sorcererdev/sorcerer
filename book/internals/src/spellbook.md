@@ -293,6 +293,21 @@ files (the server shows those). `holeMarks.ts` draws the hole look from the mark
 `code` (`marks.ts`, `holeRanges`). Both clients read `stops`, `first`, the hole mark's
 `source`/`code` and the check JSON: the contract.
 
+A fix runs through the same chain. `fixCommand.ts` registers `spellbook.fix` (the code action's
+command: the editor, not the server, runs it) and `spellbook.fixHere` (`ctrl+m f`, which asks
+`vscode.executeCodeActionProvider` for the cursor's line and runs the first `spellbook.fix`
+action, `fix.ts` `preferredFix`). `fixHere` refuses a dirty buffer (`dirtyText`), then calls
+`flowIn` (`newCommand.ts`) with a `Given` that carries the action's `generator`, `inputs`,
+`missing` and `fix` with the document's `version` filled in (the action has `version: null`):
+`newFlow` asks only the `missing` inputs and sends `spellbook.plan [generator, inputs, fix]`
+(`fix.ts` `fixRequest`). `planPreview.ts` shows a `changed` file as `vscode.diff` of a
+`spellbook-plan-before` document (its text on disk, read under the folder) against the
+`spellbook-plan` one; `plan.ts` (`planTitle`, `fileItems`) words the `~ path (+a −r)` rows and the
+`fix ... · 2 files changed` title. The apply is `client.sendRequest(ExecuteCommandRequest)`, which
+does not stop the language client answering the server's `workspace/applyEdit` meanwhile: that
+request is what the apply waits for. `finish` then says `fixedText` (`fix.ts`) and starts the hole
+session even in a changed file, which is unsaved by then.
+
 ## A check
 
 `spellbook check` (`cli/check.rs`) and the server share one path:

@@ -9,6 +9,7 @@ on **Apply**, writes the files. The opened file's holes become VS Code's own sni
 placeholders: the first is selected, typing replaces it, `Tab` and `Shift+Tab` move between them,
 and the status bar says which hole you are in and what it wants. **Spellbook: Check** runs the
 project's rules (`.sorcerer/spellbook/rules.toml`) over the whole folder into Problems.
+On a finding's line the lightbulb offers its **fix** (`ctrl+m f` runs the first): the plan shows with a diff for each changed file, and Apply changes the open files in the editor (`ctrl+z` takes it back).
 
 The extension is thin: it starts `spellbook lsp` for each workspace folder and asks it. Spellbook
 calls no model; the extension holds no key. A hole's line offers **Conjure here** when the Conjure
@@ -20,6 +21,7 @@ extension (`sorcererdev.conjure`) is installed.
 |---|---|
 | `ctrl+m n` | **Spellbook: New** |
 | `ctrl+m k` | **Spellbook: Check** |
+| `ctrl+m f` | **Spellbook: Fix**: the finding's fix on the cursor's line |
 | `ctrl+m c` | **Conjure here**, on a hole too (from the Conjure extension) |
 
 They are the Neovim plugin's `<leader>m` keys, and work while the cursor is in an editor (in the

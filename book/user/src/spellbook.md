@@ -15,7 +15,7 @@ What is here and what is coming (the five parts of spellbook):
 |---|---|
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
 | rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
-| fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line; in the editors with the next parts of milestone 2 |
+| fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line and, in VS Code, the quick fix and `ctrl+m f` (Neovim next) |
 | owned regions (`pub mod` lines a generator keeps), list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
@@ -474,8 +474,8 @@ it` after. Applied from the editor, the changed files land as one edit you can u
 (they are left unsaved, for you to look at and save), then the new files are written. If you typed
 in the file since the plan, nothing is applied and you are told `close_table.py changed since the
 plan; nothing was applied: fix again`. An editor that cannot apply edits gets the changed files
-written to disk, and is told so once. The VS Code and Neovim commands that run a quick fix (its
-inputs, the plan with a diff, the keys) arrive with the next parts of milestone 2.
+written to disk, and is told so once. See [Fixes in VS Code](#fixes-in-vs-code); the Neovim commands arrive
+with the next part of milestone 2.
 
 ## In Neovim
 
@@ -628,6 +628,21 @@ way. `spellbook doctor` is the command line's; the extension has no doctor of it
 | `spellbook.path` | `""` | the `spellbook` binary, from your user settings only (not in Restricted Mode) |
 | `spellbook.conjureHoles` | `false` | after **Spellbook: New**, run conjure on the first hole (needs the Conjure extension) |
 | `spellbook.holeSession` | `true` | after **Spellbook: New**, the opened file's holes as snippet placeholders; off: only marked |
+
+### Fixes in VS Code
+
+On a finding's line the lightbulb (or `ctrl+.`) offers `spellbook: Use a port the service has`
+(preferred) and `spellbook: Add a port and use it`; `ctrl+m f` (**Spellbook: Fix**) runs the
+preferred one without the menu. A buffer with unsaved changes is refused:
+`spellbook: save close_table.py first; a fix is planned against the file on disk`. Otherwise it
+asks only what the finding does not settle (a quick pick, `Esc` cancels), then shows the plan under
+a title such as `spellbook: fix commands-use-ports · Use a port the service has · 2 files changed
+· 0 holes to fill · app bistro, unit close_table (from the finding)`. A changed file is `~ path
+(+3 −1)`; moving onto it opens VS Code's diff view (the file on disk against the plan, read only);
+a new file is `+ path` and opens as in New. **Apply** changes the open files in the editor (one
+`ctrl+z` per file takes the fix back; they stay unsaved until you save) and writes the new ones;
+the status bar says `spellbook: fixed commands-use-ports in close_table.py · changed 2 files`, and
+`· wrote 4 files · 2 holes, marked` when the fix leaves holes (a hole session starts as after New).
 
 ## The files it writes
 
