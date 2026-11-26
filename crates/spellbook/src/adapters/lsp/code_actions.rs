@@ -128,7 +128,8 @@ fn fix_action(finding: &Finding, offer: FixOffer, preferred: bool) -> CodeAction
 
 /// The argument of `spellbook.fix`: the generator, the inputs the finding settles, the inputs
 /// still to ask, and the finding the fix answers. `version` is left for the editor to fill with
-/// the document's version when it runs the command (this server does not follow the text).
+/// the document's version when it runs the command (a sync's plan takes the versions the server
+/// was last told instead).
 ///
 /// Example: `{ generator: "use-port", inputs: { app: "bistro", … }, missing: ["port"], fix: {
 /// file: "src/bistro/booking/commands/close_table.txt", line: 4, rule: "commands-use-ports",

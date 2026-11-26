@@ -286,9 +286,10 @@ doctor loads no grammar.
 root at initialize) serves `adapters/lsp/` through the host's `Product` trait
 (`sorcerer-lsp/src/serve.rs`), the way conjure's does and without conjure's writer.
 
-- `spellbook_server.rs`: `serve` and the product (`SpellbookServer`); `tracks_text` is false:
-  the marks come from the disk, so a placeholder replaced and **saved** loses its mark, not on
-  each keystroke. `opened` calls `Server::republish`, `saved` calls `Server::saved` (which
+- `spellbook_server.rs`: `serve` and the product (`SpellbookServer`); `tracks_text` is true (full
+  sync), so the host keeps each open document's text and version (`Client::text_of`) for the
+  regions' sync, but the product does nothing on a change: the marks come from the disk, so a
+  placeholder replaced and **saved** loses its mark, not on each keystroke. `opened` calls `Server::republish`, `saved` calls `Server::saved` (which
   forgets the file's landing text first, syncs the regions, then republishes the file and every
   other open region file; see "Regions in the editor" below); `closed` publishes an empty list for a file it
   published for. One exception to "from the disk": a file a fix is landing in, or has landed
@@ -439,27 +440,30 @@ file a region's `instances` name, since a file written or deleted makes another 
 fresh). `sync_on_save` (`adapters/lsp/sync_on_save.rs`) reads as its steps:
 
 1. `wired_for_commands`: nothing in an untrusted or switched-off project.
-2. `sync_planned(wired, Refresh)`: `plan_sync` over a `PlannedView` of `Server::landing_texts`, so a
-   region file a sync or a fix landed in and the person has not saved is planned from the buffer's
-   text, not the disk's: a second save sends no second edit, and an edit is never made against text
-   the buffer no longer has.
+2. `sync_planned(wired, Refresh)`: `plan_sync` over a `PlannedView` of `Server::landing_texts`
+   overlaid with `open_documents` (each open file the disk still holds, with the text and version
+   the editor last reported), so an open region file is planned from what its buffer holds,
+   unsaved changes included, and a landed edit is not planned twice. It returns an `EditorSync {
+   plan, versions }`: the version of each open file the plan read.
 3. A `PlanStop` (broken markers, a `regions.toml` that does not load) is `say_once` with
    `plan_stop_text`; an empty plan says nothing.
 4. `[spellbook] sync_on_save = false` (`spellbook_config`): `say_once` `spellbook: N region(s) out of
    date; run spellbook sync`, and the blocks are left for their findings, which the republishing of
    step 6 shows on open region files.
-5. `open_and_closed` splits the plan: a file the editor has open (`Client::is_open`, and only for an
-   editor that `can_apply_edits`) goes to `land_in_open_files`, one `send_edit` labelled
-   `spellbook: sync region NAME` with no version (the server does not track text); the answer
-   `applied` records the sync (`apply_plan(…, ByTheEditor)`, a `generations.jsonl` line whose
-   generator is `sync`), says `spellbook: synced region NAME in FILE (+a −r)` per file and
-   republishes from the landed text; a refusal (`send_edit` already forgot the landing and
-   republished from the disk) says `… was not synced (the editor refused the edit); run spellbook
-   sync`. The rest goes to `write_to_disk`: `apply_plan(…, NotYet)`, `write_changed` onto the text the
-   plan saw, the same line per file.
+5. `split_sync(plan, versions)` gives a `SyncSplit`: a file the editor has open with a version
+   (and only for an editor that `can_apply_edits`) goes to `land_in_open_files`, one `send_edit`
+   labelled `spellbook: sync region NAME` with each document tied to that version, so the editor
+   refuses a buffer that moved on; the answer `applied` records the sync (`record_landed_sync`,
+   `apply_plan(…, ByTheEditor)`, a `generations.jsonl` line whose generator is `sync`), says
+   `spellbook: synced region NAME in FILE (+a −r)` per file and republishes from the landed text;
+   a refusal (`send_edit` already forgot the landing and republished from the disk) says `… was
+   not synced (the editor refused the edit); run spellbook sync`. A file not open goes to
+   `write_region_files`: `apply_plan(…, NotYet)`, `write_changed` onto the text the plan saw, the
+   same line per file. An open file with no version known is never edited through the editor: it
+   is said not synced and keeps its `region-stale` finding (`left_stale`).
 6. `saved` republishes, as above.
 
-`Server::send_edit(plan, version, answered)` (`landing.rs`) is the one sender of a plan as an edit:
+`Server::send_edit(plan, versions, answered)` (`landing.rs`) is the one sender of a plan as an edit:
 it remembers the landing texts, sends `workspace/applyEdit` labelled by `edit_label` (`spellbook:
 <fix label>`, `spellbook: <generator>`, or for a sync `spellbook: sync region NAME`, the names from
 `region_names`), forgets the landing on a refusal, and runs `answered(server, plan, applied)` on the
@@ -470,7 +474,11 @@ The quick fix: `code_actions.rs::offers_for` gives a finding with a `region` the
 region NAME` and `region-not-set-up` `spellbook: Set up region NAME`, each a `spellbook.fix` with
 `generator: "sync"`, `inputs { region, file[, mode: init] }` and `missing: []`. `commands.rs::plan`
 sends the generator `sync` (`SYNC_GENERATOR`, `usecases/sync_regions.rs`) to `Server::planned_sync`,
-which picks `SyncMode` from the inputs and calls `sync_planned`; its apply is any plan's.
+which picks `SyncMode` from the inputs and calls `sync_planned`, keeping the plan with its versions
+(`KeptPlan { plan, versions }`; a fix's plan keeps the fix's document version the same way). Its
+apply is `apply_sync`, the same `split_sync` as a save: the files not open are written to disk at
+once, the open ones land as one edit tied to the versions the plan read, and the reply (`changed`,
+no holes) waits for the editor's answer; a refused edit is a stop naming the file.
 
 The clients learn one word. VS Code: `plan.ts` words a file with `region` as `~ path · region NAME:
 +a −r` (`set up, N items` with `set_up`) and a sync's title (`spellbook: sync · 1 file changed`);

@@ -281,7 +281,7 @@ const COMMANDS: [&str; 4] = [
 ];
 
 #[test]
-fn the_handshake_announces_the_four_commands_code_actions_and_no_change_sync() {
+fn the_handshake_announces_the_four_commands_code_actions_and_full_text_sync() {
     let dir = bistro_project();
     let s = served(dir.path());
     let caps = s.handshake.borrow()["capabilities"].clone();
@@ -291,9 +291,8 @@ fn the_handshake_announces_the_four_commands_code_actions_and_no_change_sync() {
     let mut wanted: Vec<String> = COMMANDS.map(String::from).to_vec();
     wanted.sort();
     assert_eq!(commands, wanted);
-    // no text sync of changes: open and close and save only
-    let change = &caps["textDocumentSync"]["change"];
-    assert!(change.is_null() || *change == json!(0), "{change}");
+    // the whole text of each change, so an open region file's version and text are known
+    assert_eq!(caps["textDocumentSync"]["change"], json!(1));
     assert_eq!(caps["textDocumentSync"]["openClose"], json!(true));
     assert_eq!(caps["codeActionProvider"], json!(true));
     s.stop();
@@ -1504,9 +1503,10 @@ fn a_save_lands_the_sync_of_an_open_region_file_as_an_edit_the_editor_can_undo()
     assert_eq!(asked.params["label"], "spellbook: sync region modules");
     let documents = asked.params["edit"]["documentChanges"].as_array().unwrap();
     assert_eq!(documents.len(), 1);
+    // tied to the version the editor reported at open
     assert_eq!(
         documents[0]["textDocument"],
-        json!({ "uri": s.uri(COMMANDS_MOD), "version": null })
+        json!({ "uri": s.uri(COMMANDS_MOD), "version": 1 })
     );
     let landed = with_edits_made(&before, documents[0]["edits"].as_array().unwrap());
     assert!(
@@ -1514,6 +1514,12 @@ fn a_save_lands_the_sync_of_an_open_region_file_as_an_edit_the_editor_can_undo()
         "{landed}"
     );
     s.reply(asked.id, json!({ "applied": true }));
+    // the editor reports the buffer it changed, as editors do after an edit
+    s.notify(
+        "textDocument/didChange",
+        json!({ "textDocument": { "uri": s.uri(COMMANDS_MOD), "version": 2 },
+                "contentChanges": [{ "text": landed }] }),
+    );
     assert_eq!(next_said(&s), SYNCED_NOTICE);
     // the buffer is the person's to save: the disk is not touched
     assert_eq!(on_disk(dir.path(), COMMANDS_MOD), before);
@@ -1661,13 +1667,8 @@ fn a_region_not_set_up_offers_to_set_it_up() {
 }
 
 #[test]
-fn plan_sync_is_the_refresh_with_region_rows_and_hunks_and_its_apply_lands_in_the_editor() {
+fn plan_sync_is_the_refresh_with_region_rows_and_hunks() {
     let dir = bistro_rs_with_regions();
-    write_file(
-        dir.path(),
-        ".sorcerer/config.toml",
-        "[spellbook]\nsync_on_save = false\n",
-    );
     write_close_table(dir.path());
     let s = served_editing(dir.path());
     // a quick fix sends its finding too; a sync plan does not need it
@@ -1689,13 +1690,80 @@ fn plan_sync_is_the_refresh_with_region_rows_and_hunks_and_its_apply_lands_in_th
     );
     let rows = files[0]["hunks"][0]["lines"].as_array().unwrap();
     assert!(rows.contains(&json!("+pub mod close_table;")), "{rows:?}");
+    s.stop();
+}
+
+const QUERIES_MOD: &str = "src/booking/queries/mod.rs";
+
+#[test]
+fn a_syncs_apply_writes_closed_files_to_disk_and_lands_open_ones_tied_to_their_version() {
+    let dir = bistro_rs_with_regions();
+    write_file(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[spellbook]\nsync_on_save = false\n",
+    );
+    write_close_table(dir.path());
+    std::fs::remove_file(dir.path().join("src/booking/queries/get_day_schedule.rs")).unwrap();
+    let s = served_editing(dir.path());
+    s.open(COMMANDS_MOD);
+    s.marks(COMMANDS_MOD);
+    let commands_before = on_disk(dir.path(), COMMANDS_MOD);
+    let plan = s.command("spellbook.plan", json!(["sync", {}]));
+    assert_eq!(
+        paths_with_status(&plan, "changed"),
+        [COMMANDS_MOD, QUERIES_MOD]
+    );
     let id = apply_asked(&s, &plan);
     let asked = edit_asked(&s);
-    assert_eq!(asked.params["label"], "spellbook: sync region modules");
+    // the closed file is on disk already; the open one only in the edit, with its version
+    assert!(!on_disk(dir.path(), QUERIES_MOD).contains("get_day_schedule"));
+    let documents = asked.params["edit"]["documentChanges"].as_array().unwrap();
+    assert_eq!(
+        documents
+            .iter()
+            .map(|d| d["textDocument"].clone())
+            .collect::<Vec<_>>(),
+        [json!({ "uri": s.uri(COMMANDS_MOD), "version": 1 })]
+    );
     s.reply(asked.id, json!({ "applied": true }));
     let reply = s.response(id).response_result.unwrap();
-    assert_eq!(reply["changed"], json!([COMMANDS_MOD]));
+    assert_eq!(reply["changed"], json!([QUERIES_MOD, COMMANDS_MOD]));
     assert_eq!(reply["stops"], json!([]));
+    assert_eq!(on_disk(dir.path(), COMMANDS_MOD), commands_before);
+    s.stop();
+}
+
+#[test]
+fn a_save_syncs_an_open_file_over_its_unsaved_text_tied_to_the_version_last_reported() {
+    let dir = bistro_rs_with_regions();
+    let s = served_editing(dir.path());
+    s.open(COMMANDS_MOD);
+    s.marks(COMMANDS_MOD);
+    // the person types above the block and does not save
+    let typed = format!(
+        "// a note, not saved\n{}",
+        on_disk(dir.path(), COMMANDS_MOD)
+    );
+    s.notify(
+        "textDocument/didChange",
+        json!({ "textDocument": { "uri": s.uri(COMMANDS_MOD), "version": 5 },
+                "contentChanges": [{ "text": typed }] }),
+    );
+    write_close_table(dir.path());
+    s.save(CLOSE_TABLE_RS);
+    let asked = edit_asked(&s);
+    let document = &asked.params["edit"]["documentChanges"][0];
+    assert_eq!(
+        document["textDocument"],
+        json!({ "uri": s.uri(COMMANDS_MOD), "version": 5 })
+    );
+    let landed = with_edits_made(&typed, document["edits"].as_array().unwrap());
+    assert!(landed.starts_with("// a note, not saved\n"), "{landed}");
+    assert!(
+        landed.contains("pub mod close_table;\npub mod create_booking;\n"),
+        "{landed}"
+    );
     s.stop();
 }
 

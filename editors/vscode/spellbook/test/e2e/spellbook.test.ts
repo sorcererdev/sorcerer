@@ -1,5 +1,5 @@
 import * as assert from 'node:assert/strict';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 
@@ -211,7 +211,7 @@ describe('spellbook', () => {
     await until('the undo', () => (doc.getText() === before ? true : undefined), 5000);
   });
 
-  it('a save syncs the owned region: on disk when its file is closed, as an edit in the buffer when open', async () => {
+  it('the owned region: a save and Spellbook: Sync write a closed file to disk; an open one gets an edit tied to its version', async () => {
     // the region set up as the corpus has it; its block is stale (cancel_table.py was written since)
     copyFileSync(process.env.SPELLBOOK_E2E_REGION_FILE!, EXPORTS);
     const saved = async (name: string) => {
@@ -229,11 +229,28 @@ describe('spellbook', () => {
     }, 30_000);
     assert.match(readFileSync(EXPORTS, 'utf8'), /from \.cancel_table import CancelTable/);
 
+    // Spellbook: Sync after a file is deleted outside the editor: the closed region file is
+    // written to disk, not opened in a buffer
+    const said: [string, string][] = [];
+    api.useAsker({ say: (level: string, text: string) => { said.push([level, text]); } });
+    rmSync(join(COMMANDS, 'seat_walk_in.py'));
+    const syncing = vscode.commands.executeCommand('spellbook.sync');
+    await until('the diff of the sync', () => (previewOpen() ? true : undefined), 60_000)
+      .catch(err => { throw new Error(`${String(err)}\nsaid: ${JSON.stringify(said)}`); });
+    await applyPlan(syncing, said);
+    assert.deepEqual(said, []);
+    assert.ok(!readFileSync(EXPORTS, 'utf8').includes('seat_walk_in'), 'the sync is on disk');
+    assert.ok(!vscode.workspace.textDocuments.some(d => d.uri.fsPath === EXPORTS && d.isDirty), 'no buffer holds it');
+
+    // open, with unsaved text of the person's own: the save's sync lands in the buffer, tied to
+    // its version, and keeps that text
     const exports = await vscode.workspace.openTextDocument(vscode.Uri.file(EXPORTS));
-    await vscode.window.showTextDocument(exports, { preview: false });
+    const shown = await vscode.window.showTextDocument(exports, { preview: false });
+    await shown.edit(edit => edit.insert(new vscode.Position(0, 0), '# a note, not saved\n'));
     const onDisk = readFileSync(EXPORTS, 'utf8');
     await saved('seat_bar.py');
     await until('the sync landed in the open buffer', () => (exports.getText().includes('from .seat_bar import SeatBar') ? true : undefined), 30_000);
+    assert.ok(exports.getText().startsWith('# a note, not saved'), 'the unsaved text is kept');
     assert.ok(exports.isDirty, 'the buffer is the person\'s to save');
     assert.equal(readFileSync(EXPORTS, 'utf8'), onDisk, 'the disk is not touched');
   });

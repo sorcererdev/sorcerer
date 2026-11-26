@@ -46,10 +46,12 @@ impl Product for SpellbookServer {
         commands::capabilities()
     }
 
-    /// The marks come from the disk: a hole's mark goes when the file is saved with its
-    /// placeholder replaced, not while the person types.
+    /// The open documents' text and version are kept (full sync), so a region file the editor
+    /// has open is synced against what the buffer holds and its edit is tied to the buffer's
+    /// version. The marks still come from the disk: a hole's mark goes when the file is saved with
+    /// its placeholder replaced, not while the person types.
     fn tracks_text() -> bool {
-        false
+        true
     }
 
     fn opened(&mut self, path: &Path) {

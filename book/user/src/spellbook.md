@@ -766,8 +766,10 @@ generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doct
 1. **On save.** Write `src/booking/commands/close_table.rs` by hand and save it: the server
    refreshes every region and `commands/mod.rs` gains `pub mod close_table;`. When `mod.rs` is open
    in the editor the change lands in its buffer as one edit labelled `spellbook: sync region
-   modules` (one `u` / `ctrl+z` takes it back; the buffer is left unsaved for you to see); when it
-   is not open it is written to disk, so `cargo test` sees it at once. Each file synced is said:
+   modules` (one `u` / `ctrl+z` takes it back; the buffer is left unsaved for you to see), made
+   over what the buffer holds, your unsaved lines included, and tied to the buffer's version, so
+   an editor whose buffer moved on refuses it; when it is not open it is written to disk, so
+   `cargo test` sees it at once. Each file synced is said:
    `spellbook: synced region modules in src/booking/commands/mod.rs (+1 −0)` (Neovim's message
    line, VS Code's status bar). A buffer the sync landed in and you have not saved is read as the
    sync left it, so a second save does not send the same lines again. Nothing else is touched, and
@@ -790,7 +792,9 @@ generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doct
    lands it through the editor.
 4. **Spellbook: Sync** (`ctrl+m s`; Neovim `:Spellbook sync`, `<leader>ms`) runs the whole refresh
    the same way: the plan with every stale region, then Apply; nothing to do says `spellbook:
-   regions up to date`. In Neovim a region file with unsaved changes of your own is refused by
+   regions up to date`. Apply (here and from the quick fix) follows the same split as a save: a
+   region file open in the editor changes in its buffer, tied to its version; one not open is
+   written to disk. In Neovim a region file with unsaved changes of your own is refused by
    name first. It is New entered at the plan with the generator `sync`: nothing is asked, and no
    hole session follows.
 

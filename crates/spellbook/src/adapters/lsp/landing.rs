@@ -1,7 +1,8 @@
 //! A plan's changed files landed by the editor: one `workspace/applyEdit` the person can undo
-//! (one step per document), tied to the document version the editor gave for the fix. Only
+//! (one step per document), each document tied to the version the plan was made against. Only
 //! when the editor says it applied the edit are the new files written and the plan recorded.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -30,7 +31,7 @@ impl Server {
     /// the marks published and the first hole opened; refused (the document moved on), nothing
     /// is written and the person is told to fix again.
     pub(super) fn land_in_the_editor(self: &Arc<Self>, kept: KeptPlan, reply: Reply) {
-        self.send_edit(kept.plan, kept.version, move |server, plan, applied| {
+        self.send_edit(kept.plan, kept.versions, move |server, plan, applied| {
             let said = if !applied {
                 stop(&changed_since_text(&plan))
             } else {
@@ -43,17 +44,17 @@ impl Server {
         });
     }
 
-    /// Sends the plan's changed files as one edit the editor may undo, the fix's own file tied to
-    /// `version`. Until the editor answers, and after a yes until each file is saved, the files'
+    /// Sends the plan's changed files as one edit the editor may undo, each document tied to its
+    /// version in `versions` (a file without one carries none). Until the editor answers, and after a yes until each file is saved, the files'
     /// marks are read from the planned text; a no puts them back to the disk's. `answered` runs
     /// with the plan and whether the editor applied it.
     pub(super) fn send_edit(
         self: &Arc<Self>,
         plan: Plan,
-        version: Option<i32>,
+        versions: BTreeMap<String, i32>,
         answered: impl FnOnce(&Arc<Server>, Plan, bool) + Send + 'static,
     ) {
-        let edit = workspace_edit(&self.root, &plan, version);
+        let edit = workspace_edit(&self.root, &plan, &versions);
         let label = edit_label(&plan);
         self.remember_landing(&plan);
         let server = Arc::clone(self);
@@ -102,17 +103,16 @@ impl Server {
 }
 
 /// The edit that lands a plan's changed files: one document edit per file, in the plan's order.
-/// The fix's own file carries the version the editor gave, so the editor refuses it if the
-/// person typed since; the other files carry none.
-fn workspace_edit(root: &Path, plan: &Plan, version: Option<i32>) -> WorkspaceEdit {
-    let fixed_file = plan.fix.as_ref().map(|fix| fix.file.as_str());
+/// A file with a version (a fix's own file, an open region file of a sync) carries it, so the
+/// editor refuses it if the person typed since; the other files carry none.
+fn workspace_edit(root: &Path, plan: &Plan, versions: &BTreeMap<String, i32>) -> WorkspaceEdit {
     let documents = plan
         .changed_files()
         .into_iter()
         .map(|file| TextDocumentEdit {
             text_document: OptionalVersionedTextDocumentIdentifier {
                 uri: uri_of(&root.join(&file.path)),
-                version: version.filter(|_| fixed_file == Some(file.path.as_str())),
+                version: versions.get(&file.path).copied(),
             },
             edits: text_edits(file).into_iter().map(OneOf::Left).collect(),
         })
