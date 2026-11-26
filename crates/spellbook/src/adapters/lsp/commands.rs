@@ -2,7 +2,9 @@
 //!
 //! - `spellbook.generators []`
 //! - `spellbook.choices [generator, inputs, input]`
-//! - `spellbook.plan [generator, inputs]`
+//! - `spellbook.plan [generator, inputs, fix?]`: with `fix` (`{ file, line, rule, index,
+//!   version }`), the fix of that finding; a changed file comes with its `hunks`, `added` and
+//!   `removed`, and the plan with the `fix` it is
 //! - `spellbook.apply [plan id]`: replies with `written`, `skipped`, `refused`, `holes`, `first`
 //!   (the first hole's file and line) and `stops`, the holes in the order to walk them
 //!
@@ -17,20 +19,23 @@ use lsp_server::{ErrorCode, ResponseError};
 use lsp_types::{
     CodeActionProviderCapability, ExecuteCommandOptions, ExecuteCommandParams, ServerCapabilities,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sorcerer_core::domain::project::Project;
 
 use super::diagnostics::file_diagnostics;
+use super::plans::KeptPlan;
 use super::{NOT_TRUSTED, Server, lock};
 use crate::adapters::wiring::{Wired, wired};
 use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 use crate::domain::inputs::{Given, InputStop, input_stop_text};
-use crate::domain::plan::{PlanStop, plan_stop_text};
+use crate::domain::plan::{Plan, PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
 use crate::ports::workspace::write_refused_text;
 use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::choices_for::choices_for;
 use crate::usecases::list_generators::list_generators;
+use crate::usecases::plan_fix::{FindingAt, plan_fix};
 use crate::usecases::plan_generation::plan_generation;
 
 pub(super) const GENERATORS: &str = "spellbook.generators";
@@ -123,22 +128,26 @@ impl Server {
         })
     }
 
-    /// `[generator, inputs]`: the plan, kept for its apply; nothing is written.
+    /// `[generator, inputs, fix?]`: the plan, kept for its apply; nothing is written. With a
+    /// `fix`, the plan is the fix of the finding it names (planned by the fix's own generator)
+    /// and keeps the document's version for the apply.
     fn plan(&self, wired: &Wired, arguments: &[Value]) -> Result<Value, ResponseError> {
         let name = text_argument(arguments, 0)?;
         let given = given_argument(arguments, 1);
-        let generator = match generator_named(wired, &name) {
-            Ok(generator) => generator,
-            Err(sentence) => return Ok(stop(&sentence)),
+        let fix = fix_argument(arguments, 2)?;
+        let planned = match &fix {
+            Some(fix) => planned_fix(wired, fix, &given),
+            None => planned_generation(wired, &name, &given),
         };
-        match plan_generation(&wired.plan_deps(), &generator, &given) {
+        Ok(match planned {
             Ok(plan) => {
                 let reply = json!(plan);
-                lock(&self.plans).keep(plan, self.cfg.clock.now());
-                Ok(reply)
+                let version = fix.and_then(|fix| fix.version);
+                lock(&self.plans).keep(KeptPlan { plan, version }, self.cfg.clock.now());
+                reply
             }
-            Err(why) => Ok(plan_stop_reply(&why)),
-        }
+            Err(stop_reply) => stop_reply,
+        })
     }
 
     /// `[plan id]`: writes the plan's new files, marks each hole and opens the first one. A
@@ -146,7 +155,7 @@ impl Server {
     fn apply(&self, wired: &Wired, arguments: &[Value]) -> Result<Value, ResponseError> {
         let id = text_argument(arguments, 0)?;
         let taken = lock(&self.plans).take(&id, self.cfg.clock.now());
-        let Some(plan) = taken else {
+        let Some(KeptPlan { plan, .. }) = taken else {
             return Ok(stop(PLAN_GONE));
         };
         let applied = match apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet) {
@@ -200,6 +209,27 @@ fn first_of(stops: &[Value]) -> Value {
     })
 }
 
+/// A generator's plan, or the stop to reply with.
+fn planned_generation(wired: &Wired, name: &str, given: &Given) -> Result<Plan, Value> {
+    let generator = generator_named(wired, name).map_err(|sentence| stop(&sentence))?;
+    plan_generation(&wired.plan_deps(), &generator, given).map_err(|why| plan_stop_reply(&why))
+}
+
+/// A fix's plan, or the stop to reply with (the rules that do not load, a finding gone, a fix
+/// already applied).
+fn planned_fix(wired: &Wired, fix: &FixArgument, given: &Given) -> Result<Plan, Value> {
+    let checking = wired
+        .checking()
+        .map_err(|problem| stop(&format!("spellbook: {problem}")))?;
+    let at = FindingAt {
+        file: fix.file.clone(),
+        line: fix.line,
+        rule: fix.rule.clone(),
+        index: fix.index,
+    };
+    plan_fix(&checking.fix_deps(), &at, given).map_err(|why| plan_stop_reply(&why))
+}
+
 fn generator_named(
     wired: &Wired,
     name: &str,
@@ -239,6 +269,32 @@ fn text_argument(arguments: &[Value], at: usize) -> Result<String, ResponseError
         .and_then(Value::as_str)
         .map(String::from)
         .ok_or_else(|| invalid(format!("argument {} should be text", at + 1)))
+}
+
+/// The finding a fix answers, as `plan`'s third argument names it: its file (relative to the
+/// root, with `/`), its line (from 1), its rule, which of the rule's fixes (from 1), and the
+/// document's version the editor knows.
+///
+/// Example: `{ "file": "src/bistro/booking/commands/close_table.py", "line": 4, "rule":
+/// "commands-use-ports", "index": 1, "version": 7 }`.
+#[derive(Debug, Deserialize)]
+struct FixArgument {
+    file: String,
+    line: u32,
+    rule: Option<String>,
+    index: usize,
+    version: Option<i32>,
+}
+
+/// The fix argument; none when it is left out, null, or an empty Lua table.
+fn fix_argument(arguments: &[Value], at: usize) -> Result<Option<FixArgument>, ResponseError> {
+    match arguments.get(at) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(items)) if items.is_empty() => Ok(None),
+        Some(fix) => serde_json::from_value(fix.clone())
+            .map(Some)
+            .map_err(|e| invalid(format!("argument {} should be the fix: {e}", at + 1))),
+    }
 }
 
 /// The inputs given so far: an object of text. An empty Lua table arrives as an empty list,

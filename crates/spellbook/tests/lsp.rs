@@ -19,8 +19,8 @@ use sorcerer_lsp::uri_of;
 use spellbook::adapters::lsp::{ServerConfig, serve};
 use spellbook::ports::clock::Clock;
 use support::{
-    CLOSE_TABLE_PATH, bistro_project, bistro_with_the_fix, test_cache, use_corpus_rules,
-    vendored_project, write_file,
+    CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH, bistro_project, bistro_with_the_fix, test_cache,
+    use_corpus_rules, vendored_project, write_file,
 };
 use tempfile::TempDir;
 
@@ -960,5 +960,121 @@ fn an_untrusted_project_offers_no_fixes() {
     let s = served(dir.path());
     s.open(CLOSE_TABLE_PATH);
     assert!(code_actions(&s, CLOSE_TABLE_PATH, 3).is_empty());
+    s.stop();
+}
+
+// ---- M2a Part B2: a fix planned ----
+
+/// The use-port fix of the finding on `close_table.py:4`, as the editor sends it to `plan`.
+fn use_port_fix(version: Value) -> Value {
+    json!({ "file": CLOSE_TABLE_PATH, "line": 4, "rule": "commands-use-ports", "index": 1,
+            "version": version })
+}
+
+fn use_port_inputs() -> Value {
+    json!({ "app": "bistro", "service": "booking", "kind": "commands", "unit": "close_table",
+            "port": "table_repository" })
+}
+
+fn plan_use_port(s: &Served, version: Value) -> Value {
+    s.command(
+        "spellbook.plan",
+        json!(["use-port", use_port_inputs(), use_port_fix(version)]),
+    )
+}
+
+#[test]
+fn plan_with_a_fix_shows_the_changed_files_and_writes_nothing() {
+    let dir = bistro_with_the_fix();
+    let before = std::fs::read_to_string(dir.path().join(CLOSE_TABLE_PATH)).unwrap();
+    let s = served(dir.path());
+    let reply = plan_use_port(&s, json!(1));
+    let files = reply["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{reply}"));
+    let rows: Vec<(&str, &str)> = files
+        .iter()
+        .map(|f| (f["path"].as_str().unwrap(), f["status"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (CLOSE_TABLE_PATH, "changed"),
+            (CLOSE_TABLE_TEST_PATH, "changed")
+        ]
+    );
+    let module = &files[0];
+    assert!(module["added"].as_u64().unwrap() > 0, "{module}");
+    assert!(module["removed"].as_u64().unwrap() > 0, "{module}");
+    let hunk = &module["hunks"][0];
+    assert!(hunk["from"].as_u64().unwrap() >= 1, "{hunk}");
+    assert!(hunk["to"].as_u64().unwrap() >= hunk["from"].as_u64().unwrap());
+    assert!(
+        hunk["lines"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("-import sqlite3")),
+        "{hunk}"
+    );
+    assert_eq!(reply["fix"]["rule"], "commands-use-ports");
+    assert_eq!(reply["fix"]["label"], "Use a port the service has");
+    assert_eq!(reply["fix"]["file"], CLOSE_TABLE_PATH);
+    assert_eq!(reply["fix"]["line"], 4);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(CLOSE_TABLE_PATH)).unwrap(),
+        before
+    );
+    s.stop();
+}
+
+#[test]
+fn plan_with_a_fix_whose_finding_is_gone_is_a_stop() {
+    let dir = bistro_with_the_fix();
+    let s = served(dir.path());
+    let reply = s.command(
+        "spellbook.plan",
+        json!(["use-port", use_port_inputs(),
+               { "file": CLOSE_TABLE_PATH, "line": 1, "rule": "commands-use-ports",
+                 "index": 1 }]),
+    );
+    assert_eq!(
+        reply,
+        json!({ "stop": format!(
+            "{CLOSE_TABLE_PATH}:1 has no commands-use-ports finding any more; nothing to fix (run `spellbook check`)"
+        ) })
+    );
+    s.stop();
+}
+
+#[test]
+fn plan_with_a_fix_already_applied_has_nothing_to_do() {
+    let dir = bistro_with_the_fix();
+    let s = served(dir.path());
+    let reply = plan_use_port(&s, Value::Null);
+    for file in reply["files"].as_array().unwrap() {
+        write_file(
+            dir.path(),
+            file["path"].as_str().unwrap(),
+            file["text"].as_str().unwrap(),
+        );
+    }
+    assert_eq!(
+        plan_use_port(&s, Value::Null),
+        json!({ "stop": "nothing to do: the fix is already applied" })
+    );
+    s.stop();
+}
+
+#[test]
+fn a_malformed_fix_argument_is_refused() {
+    let dir = bistro_with_the_fix();
+    let s = served(dir.path());
+    let id = s.request(
+        "workspace/executeCommand",
+        json!({ "command": "spellbook.plan",
+                "arguments": ["use-port", use_port_inputs(), { "file": CLOSE_TABLE_PATH }] }),
+    );
+    let error = s.response(id).response_result.expect_err("an error");
+    assert!(error.message.contains("fix"), "{}", error.message);
     s.stop();
 }

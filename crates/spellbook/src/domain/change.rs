@@ -81,11 +81,18 @@ pub fn change_at(text: &str, place: &Place, lines: &str) -> TextChange {
     }
 }
 
-/// One hunk of a line diff: its `@@ -a,b +c,d @@` header and its lines, each starting with ` `
-/// (unchanged), `-` (removed) or `+` (added), without the line ending.
+/// One hunk of a line diff: its `@@ -a,b +c,d @@` header, the lines of the file as it is now
+/// that it covers (`from` and `to`, from 1, both included; `to` is `from - 1` when it covers
+/// none, an insertion into an empty file), and its lines, each starting with ` ` (unchanged),
+/// `-` (removed) or `+` (added), without the line ending.
+///
+/// Example: `a\nb\nc\n` to `a\nB\nc\n` is `{ header: "@@ -1,3 +1,3 @@", from: 1, to: 3, lines:
+/// [" a", "-b", "+B", " c"] }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Hunk {
     pub header: String,
+    pub from: usize,
+    pub to: usize,
     pub lines: Vec<String>,
 }
 
@@ -154,6 +161,8 @@ pub fn hunks(old: &str, new: &str) -> Vec<Hunk> {
         .iter_hunks()
         .map(|hunk| Hunk {
             header: hunk.header().to_string(),
+            from: hunk.ops().first().map_or(0, |op| op.old_range().start) + 1,
+            to: hunk.ops().last().map_or(0, |op| op.old_range().end),
             lines: hunk
                 .iter_changes()
                 .map(|change| {
@@ -356,9 +365,12 @@ mod tests {
         let found = hunks("a\nb\nc\nd\ne\n", "a\nB\nc\nd\ne\n");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].header, "@@ -1,3 +1,3 @@");
+        assert_eq!((found[0].from, found[0].to), (1, 3));
         assert_eq!(found[0].lines, vec![" a", "-b", "+B", " c"]);
         assert_eq!(added_and_removed(&found), (1, 1));
         let crlf = hunks("a\r\nb\r\n", "a\r\nc\r\n");
         assert_eq!(crlf[0].lines, vec![" a", "-b", "+c"]);
+        let into_empty = hunks("", "a\n");
+        assert_eq!((into_empty[0].from, into_empty[0].to), (1, 0));
     }
 }
