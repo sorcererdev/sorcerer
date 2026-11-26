@@ -11,9 +11,11 @@
 
 pub mod client;
 pub mod jobs;
+pub mod landing;
 pub mod line_edits;
 pub mod reply;
 pub mod serve;
+pub mod undo_plan;
 pub mod uri;
 
 pub use client::{Answer, Applied, Client, WorkDone};
