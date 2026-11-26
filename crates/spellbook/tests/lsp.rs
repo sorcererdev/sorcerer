@@ -1323,3 +1323,41 @@ fn a_file_edited_on_disk_after_the_plan_stops_the_apply() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
     s.stop();
 }
+
+// ---- M2a Part B4: a hole in a changed file ----
+
+#[test]
+fn a_hole_the_fix_leaves_in_a_changed_file_is_marked_and_shown_before_the_save() {
+    let dir = bistro_with_the_fix();
+    let s = served_editing(dir.path());
+    let text = std::fs::read_to_string(dir.path().join(CLOSE_TABLE_PATH)).unwrap();
+    let connect_line = text
+        .lines()
+        .position(|line| line.contains("sqlite3.connect"))
+        .unwrap()
+        + 1;
+    let plan = s.command(
+        "spellbook.plan",
+        json!(["use-port", use_port_inputs(),
+               { "file": CLOSE_TABLE_PATH, "line": connect_line, "rule": "commands-use-ports",
+                 "index": 1, "version": 2 }]),
+    );
+    assert_eq!(plan["holes"].as_array().map(Vec::len), Some(1), "{plan}");
+    let id = apply_asked(&s, &plan);
+    let asked = edit_asked(&s);
+    s.reply(asked.id, json!({ "applied": true }));
+    let reply = s.response(id).response_result.unwrap();
+    let stops = reply["stops"].as_array().unwrap();
+    assert_eq!(stops.len(), 1, "{reply}");
+    assert_eq!(stops[0]["file"], CLOSE_TABLE_PATH);
+    let range: lsp_types::Range = serde_json::from_value(stops[0]["range"].clone()).unwrap();
+    let planned = planned_text(&plan, CLOSE_TABLE_PATH);
+    assert!(slice_of(&planned, &range).contains("hole"), "{reply}");
+    assert_eq!(s.shown_document()["selection"], stops[0]["range"]);
+    let marks = s.marks(CLOSE_TABLE_PATH);
+    assert_eq!(
+        marks.iter().filter(|mark| code_of(mark) == "hole").count(),
+        1
+    );
+    s.stop();
+}
