@@ -196,7 +196,7 @@ or directive the `tree-sitter` crate would silently ignore (only `#eq?`, `#match
 `#any-of?` and their `#not-` forms are evaluated).
 
 `units_of(loaded, text)` parses the text (`Loaded::parse`, which `facts_of` uses too) and runs
-every query file over it (`Captured::by_queries`); then `one_per_node`, `widened_span` and
+every query file over it once (`Captures::of`, below; `Captured::from` reads the matches); then `one_per_node`, `widened_span` and
 `named_units` apply the rules below, in that order. The rules:
 
 1. **A definition** is a capture named `definition.<kind>`, for a kind in `UNIT_KINDS`
@@ -211,12 +211,35 @@ every query file over it (`Captured::by_queries`); then `one_per_node`, `widened
    `Order::new`).
 4. **Its kind** comes from the capture's suffix. A `function` inside a class, impl or type
    is a `Method`.
+5. **Its body** is what `textobjects.scm` captures as `@function.inner` or `@class.inner`
+   inside it and no smaller definition holds (`Captures::body_of`): Python's block, Rust's
+   items between the braces. A definition with nothing in its body (`fn f() {}`) has none.
 
 A Rust impl is a unit named by its type (`queries/impls.scm`), so methods of a trait impl
 are still `Type::method`. `unit_at(units, line)` gives the innermost unit holding a line. When the parser has lost a unit, `unit_or_broken_region_at`
 (`domain/broken_region.rs`) falls back to the innermost ERROR node holding the line, as a `Unit`
 of kind `BrokenRegion`; scry does not use it, conjure does (through `CodebaseView`).
 Units are nested: a changed method also changes its class.
+
+## Captures: the only way core looks at a tree
+
+`domain/captures.rs`. The engine never names a grammar's node kinds or fields, and never a
+language (`scripts/no-language-names` and the `no-*-in-the-engine` rules of
+`.sorcerer/spellbook/rules.toml` refuse it). Everything it needs from a tree is a capture the
+language's queries write. `Captures::of(loaded, tree, text)` runs every query file once and keeps
+each match; `nodes(names)`, `is(name, node)`, `named(capture, text)` (with the match's `@name`)
+read them, and three helpers answer the questions products ask:
+
+| helper | answers | from |
+|---|---|---|
+| `body_of(definition)` | the definition's own body | `@function.inner`/`@class.inner` inside it that no smaller `@function.outer`/`@class.outer` holds |
+| `body_items(definition)` | the body's items, comments out | the same, a block whose children are `@statement.outer` opened into them, `@comment.outer` dropped |
+| `own(name, definition)` | a capture that belongs to the definition (its `@parameters`) | the same ownership rule |
+| `list_items(list)` | a bracketed list's items | `@parameter.inner` whose parent is the list |
+
+The table of capture names, and which query file writes each, is the module's doc comment;
+`book/user` lists them for a person adding a language. A language without a capture gets
+nothing from the feature that reads it (no comments, no anchors), never a guess.
 
 ## Fingerprints
 
@@ -239,10 +262,10 @@ they are (the second `Order` impl with the second), and says `Same`, `Changed`, 
 `domain/facts.rs`. `facts_of(loaded, text, unit)` tells what the code says about a unit without a
 model: the lines of parse errors inside it, the lines of comments saying `TODO` or `FIXME`,
 and whether its body is empty (absent, or only comments and placeholders). All of it is
-decided by node kinds tree-sitter grammars share: a kind containing `comment`, the
-placeholders in `EMPTY_BODY_KINDS` (`pass_statement`, `ellipsis`), and a `macro_invocation`
-of `todo` or `unimplemented`. No language is named. Scry v1 does not use facts; conjure
-does.
+read from captures: comments are `@comment.outer`, a placeholder is what the language's
+`placeholders.scm` captures as `@placeholder` (Python's `pass` and `...`, Rust's `todo!()` and
+`unimplemented!()`), and the body is the unit's definition's `Captures::body_items`. No language
+or node kind is named. Scry v1 does not use facts; conjure does.
 
 `parse_errors_of(loaded, text)` is the same parse-error reading over the whole file: the lines
 (from 1) of every error or missing node, each once, in order, and an empty list when the parser

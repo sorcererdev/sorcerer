@@ -100,8 +100,8 @@ each kind from the language file:
 ```toml
 [holes]
 # One template per kind, filled with the hole's {= name =} and {= instruction =}. Python ships
-# these four; Rust ships ident = "todo_{= name =}", type = "()", and todo!("hole …") for
-# expr and block.
+# these four; Rust ships ident = "todo_{= name =}", type = "()", todo!("hole …") for expr and
+# block, and stmt = "todo!(\"hole …\");" for a statement among others.
 ident = "todo_{= name =}"
 type  = "object"
 expr  = "None  # hole {= name =}: {= instruction =}"
@@ -109,7 +109,8 @@ block = "raise NotImplementedError(\"hole {= name =}: {= instruction =}\")"
 ```
 
 Every placeholder must parse where its kind belongs (`ident` and `type` in a declaration,
-`block` as a body, `expr` as a value), because spellbook parses every file it plans before it
+`block` as a body, `expr` as a value, `stmt` as one statement among others: what a fix's
+`replace` text writes where a statement was), because spellbook parses every file it plans before it
 writes it. `expr` and `block` should carry `hole {= name =}:` in the code: that is how
 `spellbook holes` finds them again, anywhere in the file. A generator that uses a kind the
 language does not have is refused with the kinds it has; a value that is not text is an error
@@ -117,6 +118,37 @@ naming the language and the kind.
 
 A project's own `[holes]` (in `.sorcerer/languages/<name>/language.toml`) replaces the shipped
 table whole, as any table does, so it restates every kind its generators use.
+
+### What anchors and fixes read
+
+An `insert` edit's phrase (`end of parameters in CloseTable.__init__`) and a fix find their place
+through the language's query captures, never by the language's name or its grammar's node names.
+A language gets each target by having the captures below; one it lacks makes that target say
+what is missing instead of guessing.
+
+| capture | query file | what it marks | used by |
+|---|---|---|---|
+| `@import.path` | `imports.scm` | what an import names | `imports` |
+| `@definition.function`, `@definition.method`, `@definition.class` (and any `@definition.<kind>` around them), with `@name` | `tags.scm` | definitions by name | `function NAME`, `class NAME`, `Class.method` |
+| `@reference.call` with `@name` | `tags.scm` (Rust adds `calls.scm`) | calls; a struct literal counts as a call of its type | `call NAME` |
+| `@function.inner`, `@class.inner`, `@statement.outer` | `textobjects.scm` | a body, and a block's statements | `start of`/`end of` a function or class |
+| `@parameter.inner` | `textobjects.scm` | one item of a list | `parameters in`, `call` |
+| `@comment.outer` | `textobjects.scm` | a comment (left out of bodies and lists; allow comments are read from it) | all |
+| `@parameters`, `@arguments` | `lists.scm` | a definition's parameter list, a call's argument list | `parameters in`, `call` |
+| `@docstring` | `docstrings.scm` | a string documenting the file (Python) | `imports` in a file without any |
+| `@placeholder` | `placeholders.scm` | a statement that does nothing yet (`pass`, `todo!()`) | core's facts: an empty body |
+
+And one key, for what the code cannot show:
+
+```toml
+# The separator a list of one item, or of none, takes when an item goes in (a longer list shows
+# its own, between its last two items).
+[syntax]
+list_separator = ","
+```
+
+The shipped `lists.scm`, `docstrings.scm`, `placeholders.scm` and Rust's `calls.scm` are
+sorcerer's own and short; start from them for a new language.
 
 ## Changing a shipped language
 
@@ -136,4 +168,11 @@ widened by the `@function.outer` and `@class.outer` captures of a `textobjects.s
 the language has one. Predicates `#eq?`, `#not-eq?`, `#match?`, `#not-match?`, `#any-of?`
 and `#not-any-of?` are supported; a pattern using any other predicate or directive is an
 error naming it, so remove such patterns from a copied file. `imports.scm` is compiled the same
-way, and only conjure reads it.
+way and read by conjure (related files) and spellbook (`end of imports`); the other captures
+spellbook reads are in [What anchors and fixes read](#what-anchors-and-fixes-read).
+
+Sorcerer's code reaches every language this way, through the captures and the language file,
+and never names one, a grammar's node kinds or fields, or a tool (formatter, linter, test runner,
+package manager). Sorcerer's own `scripts/no-language-names` and the `no-*-in-the-engine` rules
+in its `.sorcerer/spellbook/rules.toml` check that on every change, so a language you add needs
+no code.

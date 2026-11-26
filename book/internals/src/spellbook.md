@@ -111,8 +111,8 @@ loading, its `with` names its inputs, no cycle, at most four in a chain; `Genera
 `json_holes.rs` (core's `Store` at `spellbook/holes.json`), `json_report.rs` (the same at
 `spellbook/report.json`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every
 rule's fixes against `generator_named`), `query_rules.rs` (`QueryRules`, the `RuleRunner` over
-tree-sitter), `query_anchors.rs` (`QueryAnchors<G>`, the `Anchors` port over a language's
-`imports.scm`, `tags.scm` and `textobjects.scm`), `checking.rs` (`Wired::checking()`: the rules
+tree-sitter), `query_anchors.rs` (`QueryAnchors<G>`, the `Anchors` port over a language's query captures,
+read through core's `Captures`), `checking.rs` (`Wired::checking()`: the rules
 read fresh, the settings and the runner, then `Checking::deps()` and `Checking::fix_deps()`), `system_clock.rs`, `wiring.rs` (`Wired`, `live`, `wired`, and
 `plan_deps`/`apply_deps`/`holes_deps`).
 
@@ -176,10 +176,21 @@ and the holes. The server lands changed files itself as one `WorkspaceEdit` and 
 ### Why an `Anchors` port
 
 The use cases never parse. A phrase like `end of parameters in CloseTable.__init__` is resolved by
-`adapters/query_anchors.rs` with the queries every shipped language already has: `tags.scm` names
-definitions and calls, `textobjects.scm` gives a body's statements, `imports.scm` the imports.
-A list's separator is read from the list itself (the text between its last two items), so no
-language is named. `Class.method` splits on the language's `unit_separator`.
+`adapters/query_anchors.rs` (`Parsed`, built once per file with `Captures::of`), and only through
+captures, so the adapter names no language, node kind or grammar field:
+
+| target | `Parsed` method | captures it reads |
+|---|---|---|
+| `imports` | `imports`, `top_level_imports`, `row_after_the_preamble` | `@import.path` (`imports.scm`); a top-level statement that is a `@function.outer`/`@class.outer` holds its imports inside; the preamble is the leading `@comment.outer`s and `@docstring` (`docstrings.scm`) |
+| `function NAME`, `class NAME` | `the_one`, `definitions`, `in_definition` | `@definition.<kind>` with `@name` from every query file (Rust's `definition.impl` from `impls.scm` holds `Type::method`); the body is `Captures::body_items` |
+| `parameters in F` | `parameters` | the function's own `@parameters` (`lists.scm`; not Rust's generics), items `@parameter.inner` |
+| `call NAME [in F]` | `call`, `arguments_of`, `callee_text` | `@reference.call` with `@name` from every file (Rust's `calls.scm` adds `Type::new(…)` and struct literals), the call's child `@arguments` |
+
+A list's separator is read from the list itself (the text between its last two items); a list of
+one or none takes the language's `[syntax] list_separator` (`domain/language_syntax.rs`), and a
+language without it refuses the place with a sentence. An empty list's place is after its first
+child, the opening token. `Class.method` splits on the language's `unit_separator`. `row_after`
+counts a node that holds its own line ending (Rust's `//!` comment) as ending on its line.
 
 ## The server
 
@@ -189,8 +200,15 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
 
 - `spellbook_server.rs`: `serve` and the product (`SpellbookServer`); `tracks_text` is false:
   the marks come from the disk, so a placeholder replaced and **saved** loses its mark, not on
-  each keystroke. `opened` and `saved` call `Server::republish`; `closed` publishes an empty
-  list for a file it published for.
+  each keystroke. `opened` calls `Server::republish`, `saved` calls `Server::saved` (which
+  forgets the file's landing text first); `closed` publishes an empty list for a file it
+  published for. One exception to "from the disk": a file a fix is landing in, or has landed
+  in and the person has not saved, is marked over the plan's text (`Server::landing`, filled by
+  `remember_landing` in `landing.rs` before the `workspace/applyEdit`, read by
+  `diagnostics_now`). Applying a fix makes the editor open a changed file it had not opened, and
+  that `opened` would otherwise publish the old disk text's marks over the planned ones. Saving
+  or closing the file forgets it; a refused edit forgets it and republishes the open files from
+  the disk (`forget_refused_landing`).
 - `server_config.rs`: `ServerConfig { open, cache, trust, clock }` (`live(env)`; tests give the
   vendored grammars and a clock they move; there is no `wire`, spellbook has no writer).
   `server_state.rs`: `Server` (`publish`, `republish`, `closed`, `trusted`) and `NOT_TRUSTED`.
