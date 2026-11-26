@@ -1,11 +1,12 @@
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
-import { LanguageClient, type LanguageClientOptions, type ServerOptions } from 'vscode-languageclient/node';
+import { LanguageClient, type LanguageClientOptions, type ServerOptions, ShowMessageNotification } from 'vscode-languageclient/node';
 import { candidates, find, isExecutable } from './binary';
 import { registerCheck } from './checkCommand';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
 import { holeDecoration, placeholderLook, registerHoleMarks } from './holeMarks';
 import { holeStatus } from './holeSession';
+import { messagePlace } from './messages';
 import { type AskerOverrides, registerNew } from './newCommand';
 import { type OfferEnding, remembered } from './offer';
 import { PlanPreviews } from './planPreview';
@@ -56,9 +57,22 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder): void {
   };
   const lc = new LanguageClient('spellbook', 'Spellbook', server, options);
   clients.set(key, lc);
-  lc.start().catch(err => {
+  lc.start().then(() => showMessagesInPlace(lc)).catch(err => {
     clients.delete(key);
     void vscode.window.showErrorMessage(`spellbook did not start in ${folder.name}: ${String(err)}`);
+  });
+}
+
+// showMessagesInPlace takes over the server's `window/showMessage` from the language client: the
+// line a save's sync says for each region file goes to the status bar (a save is not a moment
+// for a notification); every other message is shown at its level, as the client would.
+function showMessagesInPlace(lc: LanguageClient): void {
+  lc.onNotification(ShowMessageNotification.type, ({ type, message }) => {
+    const place = messagePlace(type, message);
+    if (place === 'status') vscode.window.setStatusBarMessage(message, 10_000);
+    else if (place === 'error') void vscode.window.showErrorMessage(message);
+    else if (place === 'warning') void vscode.window.showWarningMessage(message);
+    else void vscode.window.showInformationMessage(message);
   });
 }
 
