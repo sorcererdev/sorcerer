@@ -18,7 +18,10 @@ use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_lsp::uri_of;
 use spellbook::adapters::lsp::{ServerConfig, serve};
 use spellbook::ports::clock::Clock;
-use support::{bistro_project, test_cache, use_corpus_rules, vendored_project, write_file};
+use support::{
+    CLOSE_TABLE_PATH, bistro_project, bistro_with_the_fix, test_cache, use_corpus_rules,
+    vendored_project, write_file,
+};
 use tempfile::TempDir;
 
 /// How long a test waits for something the server must send.
@@ -261,7 +264,7 @@ const COMMANDS: [&str; 4] = [
 ];
 
 #[test]
-fn the_handshake_announces_the_four_commands_and_no_change_sync() {
+fn the_handshake_announces_the_four_commands_code_actions_and_no_change_sync() {
     let dir = bistro_project();
     let s = served(dir.path());
     let caps = s.handshake.borrow()["capabilities"].clone();
@@ -275,7 +278,7 @@ fn the_handshake_announces_the_four_commands_and_no_change_sync() {
     let change = &caps["textDocumentSync"]["change"];
     assert!(change.is_null() || *change == json!(0), "{change}");
     assert_eq!(caps["textDocumentSync"]["openClose"], json!(true));
-    assert!(caps.get("codeActionProvider").is_none());
+    assert_eq!(caps["codeActionProvider"], json!(true));
     s.stop();
 }
 
@@ -859,5 +862,103 @@ fn a_broken_rules_file_is_said_once_and_findings_are_left_out() {
             .contains("rule a: `message` is missing"),
         "{note:?}"
     );
+    s.stop();
+}
+
+// ---- M2a Part B1: a finding's fixes as code actions ----
+
+/// The code actions the server offers on one line (from 0) of a file.
+fn code_actions(s: &Served, relative: &str, row: u32) -> Vec<Value> {
+    let id = s.request(
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": s.uri(relative) },
+            "range": { "start": { "line": row, "character": 0 },
+                       "end": { "line": row, "character": 0 } },
+            "context": { "diagnostics": [] },
+        }),
+    );
+    let reply = s.response(id).response_result.expect("a reply");
+    serde_json::from_value(reply).unwrap_or_default()
+}
+
+/// The fix fixture served, the command file opened and its findings published.
+fn served_with_the_finding(dir: &Path) -> Served {
+    let s = served(dir);
+    s.open(CLOSE_TABLE_PATH);
+    s.marks(CLOSE_TABLE_PATH);
+    s
+}
+
+#[test]
+fn a_finding_offers_its_fixes_as_quick_fixes_the_first_preferred() {
+    let dir = bistro_with_the_fix();
+    let s = served_with_the_finding(dir.path());
+    let actions = code_actions(&s, CLOSE_TABLE_PATH, 3);
+    let titles: Vec<&str> = actions
+        .iter()
+        .map(|action| action["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "spellbook: Use a port the service has",
+            "spellbook: Add a port and use it"
+        ]
+    );
+    let first = &actions[0];
+    assert_eq!(first["kind"], "quickfix");
+    assert_eq!(first["isPreferred"], true);
+    assert_ne!(actions[1]["isPreferred"], true);
+    assert_eq!(first["diagnostics"][0]["code"], "commands-use-ports");
+    assert_eq!(first["diagnostics"][0]["range"]["start"]["line"], 3);
+    assert_eq!(first["command"]["command"], "spellbook.fix");
+    assert_eq!(
+        first["command"]["arguments"],
+        json!([{
+            "generator": "use-port",
+            "inputs": { "app": "bistro", "service": "booking", "kind": "commands",
+                        "unit": "close_table" },
+            "missing": ["port"],
+            "fix": { "file": CLOSE_TABLE_PATH, "line": 4, "rule": "commands-use-ports",
+                     "index": 1, "label": "Use a port the service has", "version": null },
+        }])
+    );
+    assert_eq!(actions[1]["command"]["arguments"][0]["fix"]["index"], 2);
+    s.stop();
+}
+
+#[test]
+fn a_line_without_a_finding_has_no_actions() {
+    let dir = bistro_with_the_fix();
+    let s = served_with_the_finding(dir.path());
+    assert!(code_actions(&s, CLOSE_TABLE_PATH, 0).is_empty());
+    s.stop();
+}
+
+#[test]
+fn only_other_kinds_asked_for_gets_no_quick_fixes() {
+    let dir = bistro_with_the_fix();
+    let s = served_with_the_finding(dir.path());
+    let id = s.request(
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": s.uri(CLOSE_TABLE_PATH) },
+            "range": { "start": { "line": 3, "character": 0 },
+                       "end": { "line": 3, "character": 0 } },
+            "context": { "diagnostics": [], "only": ["refactor"] },
+        }),
+    );
+    assert_eq!(s.response(id).response_result.unwrap(), json!([]));
+    s.stop();
+}
+
+#[test]
+fn an_untrusted_project_offers_no_fixes() {
+    let dir = bistro_with_the_fix();
+    write_file(dir.path(), ".sorcerer/config.toml", RUNNER);
+    let s = served(dir.path());
+    s.open(CLOSE_TABLE_PATH);
+    assert!(code_actions(&s, CLOSE_TABLE_PATH, 3).is_empty());
     s.stop();
 }

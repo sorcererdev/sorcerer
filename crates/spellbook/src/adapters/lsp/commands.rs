@@ -14,7 +14,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use lsp_server::{ErrorCode, ResponseError};
-use lsp_types::{ExecuteCommandOptions, ExecuteCommandParams, ServerCapabilities};
+use lsp_types::{
+    CodeActionProviderCapability, ExecuteCommandOptions, ExecuteCommandParams, ServerCapabilities,
+};
 use serde_json::{Value, json};
 use sorcerer_core::domain::project::Project;
 
@@ -39,9 +41,10 @@ pub(super) const APPLY: &str = "spellbook.apply";
 /// What an apply of an unknown, expired or already applied plan is told.
 const PLAN_GONE: &str = "that plan is gone (plans last ten minutes); make it again";
 
-/// The four commands, and no code actions.
+/// The four commands, and code actions (a finding's fixes).
 pub(super) fn capabilities() -> ServerCapabilities {
     ServerCapabilities {
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         execute_command_provider: Some(ExecuteCommandOptions {
             commands: [GENERATORS, CHOICES, PLAN, APPLY]
                 .map(String::from)
@@ -75,7 +78,7 @@ impl Server {
     }
 
     /// The project's adapters, or the sentence that says why spellbook cannot run in it.
-    fn wired_for_commands(&self) -> Result<Wired, String> {
+    pub(super) fn wired_for_commands(&self) -> Result<Wired, String> {
         let project: Project =
             (self.cfg.open)(&self.root).map_err(|e| format!("spellbook: {e:#}"))?;
         if !self.trusted(&project) {
@@ -167,7 +170,7 @@ impl Server {
         for file in written {
             let mut diagnostics = file_diagnostics(wired, Path::new(file));
             stops.append(&mut diagnostics.stops);
-            self.publish(file, diagnostics.all());
+            self.publish(file, diagnostics);
         }
         stops
     }

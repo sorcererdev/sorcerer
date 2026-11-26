@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use super::findings::finding_mark;
 use super::marks::hole_mark;
 use crate::adapters::wiring::Wired;
+use crate::domain::finding::Finding;
 use crate::domain::record::OpenHole;
 use crate::usecases::check_files::check_files;
 use crate::usecases::open_holes::open_holes;
@@ -20,7 +21,8 @@ pub(super) struct FileDiagnostics {
     /// The open holes as a session's tab stops, in the order a person walks them (line, then
     /// column); see [`hole_stops`].
     pub(super) stops: Vec<Value>,
-    pub(super) findings: Vec<Diagnostic>,
+    /// The rules' findings in the file, as the code actions read them back.
+    pub(super) findings: Vec<Finding>,
     /// Why the rules could not run (the rules file's problem), when they could not.
     pub(super) rules_problem: Option<String>,
 }
@@ -29,7 +31,7 @@ impl FileDiagnostics {
     /// The marks then the findings, as one list.
     pub(super) fn all(self) -> Vec<Diagnostic> {
         let mut all = self.marks;
-        all.extend(self.findings);
+        all.extend(self.findings.iter().map(finding_mark));
         all
     }
 }
@@ -61,11 +63,10 @@ pub(super) fn file_diagnostics(wired: &Wired, file: &Path) -> FileDiagnostics {
     }
 }
 
-/// The findings in a file as marks, or the sentence that says why the rules could not run.
-fn findings_in(wired: &Wired, files: &[PathBuf]) -> Result<Vec<Diagnostic>, String> {
+/// The findings in a file, or the sentence that says why the rules could not run.
+fn findings_in(wired: &Wired, files: &[PathBuf]) -> Result<Vec<Finding>, String> {
     let checking = wired.checking()?;
-    let found = check_files(&checking.deps(), files).map_err(|e| e.to_string())?;
-    Ok(found.iter().map(finding_mark).collect())
+    check_files(&checking.deps(), files).map_err(|e| e.to_string())
 }
 
 /// The holes as tab stops: each with its file, name, kind, instruction and the range of its

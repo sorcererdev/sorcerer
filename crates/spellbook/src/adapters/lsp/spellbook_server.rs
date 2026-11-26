@@ -66,6 +66,7 @@ impl Product for SpellbookServer {
     fn request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError> {
         match method {
             "workspace/executeCommand" => self.server.execute(params),
+            "textDocument/codeAction" => self.server.code_actions(params),
             _ => Err(unknown_method(method)),
         }
     }
