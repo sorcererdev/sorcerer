@@ -250,7 +250,7 @@ fn replace_of(value: &toml::Value) -> Result<Replace, String> {
     })
 }
 
-fn string_of(table: &toml::Table, key: &str) -> Result<Option<String>, String> {
+pub(crate) fn string_of(table: &toml::Table, key: &str) -> Result<Option<String>, String> {
     match table.get(key) {
         None => Ok(None),
         Some(value) => value
@@ -260,13 +260,13 @@ fn string_of(table: &toml::Table, key: &str) -> Result<Option<String>, String> {
     }
 }
 
-fn pattern_of(table: &toml::Table, key: &str) -> Result<Option<PathPattern>, String> {
+pub(crate) fn pattern_of(table: &toml::Table, key: &str) -> Result<Option<PathPattern>, String> {
     string_of(table, key)?
         .map(|text| PathPattern::parse(&text).map_err(|why| format!("{key}: {why}")))
         .transpose()
 }
 
-fn patterns_of(table: &toml::Table, key: &str) -> Result<Vec<PathPattern>, String> {
+pub(crate) fn patterns_of(table: &toml::Table, key: &str) -> Result<Vec<PathPattern>, String> {
     let Some(value) = table.get(key) else {
         return Ok(Vec::new());
     };
@@ -283,7 +283,7 @@ fn patterns_of(table: &toml::Table, key: &str) -> Result<Vec<PathPattern>, Strin
         .collect()
 }
 
-fn severity_of(table: &toml::Table) -> Result<Severity, String> {
+pub(crate) fn severity_of(table: &toml::Table) -> Result<Severity, String> {
     match string_of(table, "severity")?.as_deref() {
         None | Some("error") => Ok(Severity::Error),
         Some("warn") => Ok(Severity::Warn),

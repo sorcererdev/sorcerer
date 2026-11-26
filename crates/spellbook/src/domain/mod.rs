@@ -17,6 +17,7 @@ pub mod open_hole_places;
 pub mod path_pattern;
 pub mod plan;
 pub mod record;
+pub mod region;
 pub mod report;
 pub mod rule;
 pub mod rule_query;
