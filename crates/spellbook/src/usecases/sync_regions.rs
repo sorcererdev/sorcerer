@@ -25,6 +25,10 @@ use crate::ports::grammars::Grammars;
 use crate::usecases::plan_generation::PlanDeps;
 use crate::usecases::planned_view::PlannedView;
 
+/// The name a sync goes by where a generator's would: in its plan, its record, the fix a
+/// region's finding offers, and the editor's `spellbook.plan`.
+pub const SYNC_GENERATOR: &str = "sync";
+
 /// What `spellbook sync` does: refresh every region, or also set one up in the files it
 /// matches that have no markers for it yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,8 +80,8 @@ pub fn plan_sync(deps: &PlanDeps, mode: &SyncMode) -> Result<SyncPlan, PlanStop>
     Ok(SyncPlan {
         blocks: kept.blocks,
         plan: Plan {
-            id: plan_id("sync", &inputs, &deps.clock.now().to_rfc3339()),
-            generator: "sync".into(),
+            id: plan_id(SYNC_GENERATOR, &inputs, &deps.clock.now().to_rfc3339()),
+            generator: SYNC_GENERATOR.into(),
             inputs,
             files: kept.files,
             holes: Vec::new(),

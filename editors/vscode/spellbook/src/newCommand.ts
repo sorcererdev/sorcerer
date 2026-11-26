@@ -5,14 +5,16 @@ import { endText, stopsInFile } from './holes';
 import { startHoleSession } from './holeSession';
 import { type ApplyReply, type Asker, type Given, newFlow, type Server, type Stop } from './newFlow';
 import { registerFix } from './fixCommand';
+import { registerSync } from './syncCommand';
 import { BEFORE_SCHEME, PLAN_SCHEME, PlanPreviews } from './planPreview';
 import type { LanguageClient } from 'vscode-languageclient/node';
 
 // The end-to-end tests answer the questions themselves: what they replace of the real Asker.
 export type AskerOverrides = Partial<Asker>;
 
-// registerNew makes Spellbook: New (`spellbook.new`, `ctrl+m n`) and the provider of the plan's
-// preview documents. The command takes an optional `{ generator, inputs }` (a keybinding's
+// registerNew makes Spellbook: New (`spellbook.new`, `ctrl+m n`), the commands that run its flow
+// from a later step (a finding's fix, Spellbook: Sync) and the provider of the plan's preview
+// documents. The command takes an optional `{ generator, inputs }` (a keybinding's
 // args) that skips those questions. It returns the hook that swaps parts of the Asker.
 export function registerNew(context: vscode.ExtensionContext, clientFor: (folder: vscode.WorkspaceFolder) => LanguageClient | undefined,
   previews: PlanPreviews): (overrides: AskerOverrides) => void {
@@ -23,6 +25,7 @@ export function registerNew(context: vscode.ExtensionContext, clientFor: (folder
     vscode.commands.registerCommand('spellbook.new', (given?: Given) => newHere(clientFor, askerFor(previews, () => overrides), given)),
   );
   registerFix(context, clientFor, askerFor(previews, () => overrides));
+  registerSync(context, clientFor, askerFor(previews, () => overrides));
   return next => { overrides = next; };
 }
 

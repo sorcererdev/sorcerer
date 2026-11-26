@@ -98,8 +98,8 @@ your PATH and its version.
 Conjure is off until you turn it on (`conjure = { enabled = true }` in `setup()`); install it with
 `sorcerer-conjure-installer` (the same line with `conjure` for `scry`) or `cargo install
 sorcerer-conjure`. sorcerer.nvim binds the keys itself: `<leader>mc` conjures here, `<leader>mu` undoes,
-`<leader>mt` tries harder, `<leader>mw` says why (and `<leader>mn` / `<leader>mf` / `<leader>mk` are spellbook's
-`:Spellbook new`, `:Spellbook fix` and `:Spellbook check`; see [Spellbook](spellbook.md#in-neovim)). Set `keys = false`, or
+`<leader>mt` tries harder, `<leader>mw` says why (and `<leader>mn` / `<leader>mf` / `<leader>mk` / `<leader>ms` are spellbook's
+`:Spellbook new`, `:Spellbook fix`, `:Spellbook check` and `:Spellbook sync`; see [Spellbook](spellbook.md#in-neovim)). Set `keys = false`, or
 one key to `false`, to bind none; a key you already mapped is left alone and listed by
 `:checkhealth sorcerer`. Neovim must find `scry` and `conjure` on the PATH it starts with
 (`~/.local/bin`); started from a launcher it often cannot, so give `cmd = { "/full/path/to/scry",
@@ -123,7 +123,8 @@ theme's `editorCodeLens.foreground` colour, italic, so a theme can change it).
 **Spellbook** (`sorcererdev.spellbook`) installs the same way, from the Marketplace (Open VSX for
 forks), and so does its program (`sorcerer-spellbook-installer`, or `cargo install
 sorcerer-spellbook`). `ctrl+m n` is **Spellbook: New**, `ctrl+m k`
-**Spellbook: Check** and `ctrl+m f` **Spellbook: Fix** (the finding's fix on the cursor's line); see [Spellbook](spellbook.md#in-vs-code).
+**Spellbook: Check**, `ctrl+m f` **Spellbook: Fix** (the finding's fix on the cursor's line) and `ctrl+m s`
+**Spellbook: Sync** (the owned regions refreshed; a save refreshes them too); see [Spellbook](spellbook.md#in-vs-code).
 
 With no `scry` in any of those places, it offers:
 

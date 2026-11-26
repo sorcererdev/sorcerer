@@ -11,6 +11,14 @@ and the status bar says which hole you are in and what it wants. **Spellbook: Ch
 project's rules (`.sorcerer/spellbook/rules.toml`) over the whole folder into Problems.
 On a finding's line the lightbulb offers its **fix** (`ctrl+m f` runs the first): the plan shows with a diff for each changed file, and Apply changes the open files in the editor (`ctrl+z` takes it back).
 
+**Owned regions** (`.sorcerer/spellbook/regions.toml`) are kept as you save: write or delete a
+file a region lists and save, and the region's block is refreshed, in the editor when its file is
+open (unsaved, one `ctrl+z` takes it back), on disk when it is not; the status bar says
+`spellbook: synced region modules in src/booking/commands/mod.rs (+1 −0)`. With
+`[spellbook] sync_on_save = false` in `.sorcerer/config.toml` a stale block is a `region-stale`
+problem instead, whose quick fix is **Sync region NAME**. **Spellbook: Sync** refreshes every
+region the same way: the plan, then Apply.
+
 The extension is thin: it starts `spellbook lsp` for each workspace folder and asks it. Spellbook
 calls no model; the extension holds no key. A hole's line offers **Conjure here** when the Conjure
 extension (`sorcererdev.conjure`) is installed.
@@ -22,6 +30,7 @@ extension (`sorcererdev.conjure`) is installed.
 | `ctrl+m n` | **Spellbook: New** |
 | `ctrl+m k` | **Spellbook: Check** |
 | `ctrl+m f` | **Spellbook: Fix**: the finding's fix on the cursor's line |
+| `ctrl+m s` | **Spellbook: Sync**: refresh the owned regions |
 | `ctrl+m c` | **Conjure here**, on a hole too (from the Conjure extension) |
 
 They are the Neovim plugin's `<leader>m` keys, and work while the cursor is in an editor (in the
@@ -86,7 +95,7 @@ run "spellbook trust" in it`. Run `spellbook trust` in a terminal in the project
 ## Development
 
 `npm ci`, then `npm run lint`, `npm run test:unit`, `npm run build`. `npm run test:e2e` downloads
-a VS Code and runs Check, New and the hole session against the real `spellbook lsp` on spellbook's
+a VS Code and runs Check, New, the hole session, a fix and a save's sync against the real `spellbook lsp` on spellbook's
 bistro corpus (build it first: `cargo build -p sorcerer-spellbook`, or point
 `SPELLBOOK_E2E_BINARY` at one). `src/binary.ts`, `src/download.ts` and `src/offer.ts` are copies
 of scry's extension's, by product name; CI fails when they drift. Press F5 to run the extension.

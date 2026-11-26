@@ -15,9 +15,10 @@ use sorcerer_lsp::path_of;
 use super::Server;
 use super::commands::invalid;
 use super::findings::finding_mark;
+use crate::adapters::checking::Checking;
 use crate::adapters::wiring::Wired;
 use crate::domain::finding::Finding;
-use crate::usecases::fixes_for::{FixOffer, fixes_for};
+use crate::usecases::fixes_for::{FixOffer, fixes_for, region_fix_offer};
 
 /// The client command a fix's action runs.
 pub(super) const FIX: &str = "spellbook.fix";
@@ -29,7 +30,8 @@ impl Server {
     /// load), or when no finding there has a fix.
     ///
     /// Example: on `import sqlite3` in bistro's `close_table.py`, two actions, `spellbook: Use a
-    /// port the service has` (preferred) and `spellbook: Add a port and use it`.
+    /// port the service has` (preferred) and `spellbook: Add a port and use it`; on the opening
+    /// marker of a stale region, `spellbook: Sync region modules`.
     pub(super) fn code_actions(&self, params: Value) -> Result<Value, ResponseError> {
         let params: CodeActionParams = serde_json::from_value(params).map_err(invalid)?;
         if !quick_fixes_wanted(&params) {
@@ -79,25 +81,33 @@ fn fix_actions(wired: &Wired, findings: &[Finding]) -> Vec<CodeActionOrCommand> 
     findings
         .iter()
         .flat_map(|finding| {
-            let Some(rule) = checking.rules.iter().find(|rule| rule.id == finding.rule) else {
-                return Vec::new();
-            };
-            fixes_for(
-                &wired.view,
-                &wired.generators,
-                rule,
-                &finding.file,
-                &finding.node_text,
-            )
-            .into_iter()
-            .map(|offer| (finding.clone(), offer))
-            .collect()
+            offers_for(wired, &checking, finding)
+                .into_iter()
+                .map(|offer| (finding.clone(), offer))
+                .collect::<Vec<_>>()
         })
         .enumerate()
         .map(|(at, (finding, offer))| {
             CodeActionOrCommand::CodeAction(fix_action(&finding, offer, at == 0))
         })
         .collect()
+}
+
+/// A finding's fixes: a region's built-in sync, or its rule's own.
+fn offers_for(wired: &Wired, checking: &Checking, finding: &Finding) -> Vec<FixOffer> {
+    if finding.region.is_some() {
+        return region_fix_offer(finding).into_iter().collect();
+    }
+    let Some(rule) = checking.rules.iter().find(|rule| rule.id == finding.rule) else {
+        return Vec::new();
+    };
+    fixes_for(
+        &wired.view,
+        &wired.generators,
+        rule,
+        &finding.file,
+        &finding.node_text,
+    )
 }
 
 /// One fix as a quick fix whose command carries what the editor needs to plan it.
@@ -118,7 +128,8 @@ fn fix_action(finding: &Finding, offer: FixOffer, preferred: bool) -> CodeAction
 
 /// The argument of `spellbook.fix`: the generator, the inputs the finding settles, the inputs
 /// still to ask, and the finding the fix answers. `version` is left for the editor to fill with
-/// the document's version when it runs the command (this server does not follow the text).
+/// the document's version when it runs the command (a sync's plan takes the versions the server
+/// was last told instead).
 ///
 /// Example: `{ generator: "use-port", inputs: { app: "bistro", … }, missing: ["port"], fix: {
 /// file: "src/bistro/booking/commands/close_table.txt", line: 4, rule: "commands-use-ports",

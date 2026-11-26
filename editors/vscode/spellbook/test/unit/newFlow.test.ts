@@ -199,3 +199,27 @@ test('a_cancelled_fix_question_plans_nothing', async () => {
   assert.equal(await newFlow(server, asker, { generator: 'use-port', inputs: {}, missing: ['port'], fix }), undefined);
   assert.ok(!server.calls.some(c => c[0] === 'spellbook.plan'));
 });
+
+const syncPlan: Plan = {
+  id: 's1', generator: 'sync', holes: [],
+  files: [{ path: 'src/booking/commands/mod.rs', status: 'changed', text: 'x', lines: 5, added: 1, region: 'modules' }],
+};
+
+test('a_sync_goes_straight_to_the_plan_asking_nothing', async () => {
+  const server = fakeServer({ 'spellbook.plan': syncPlan, 'spellbook.apply': { ...applied, changed: ['src/booking/commands/mod.rs'], written: [], first: null } });
+  const asker = fakeAsker({});
+  const reply = await newFlow(server, asker, { generator: 'sync', inputs: { region: 'modules', file: 'src/booking/commands/mod.rs' }, missing: [] });
+  assert.deepEqual(server.calls.map(([name]) => name), ['spellbook.plan', 'spellbook.apply']);
+  assert.deepEqual(server.calls[0][1], ['sync', { region: 'modules', file: 'src/booking/commands/mod.rs' }]);
+  assert.deepEqual(asker.asked, []);
+  assert.deepEqual(reply?.changed, ['src/booking/commands/mod.rs']);
+});
+
+test('a_sync_with_nothing_to_do_says_the_regions_are_up_to_date_and_applies_nothing', async () => {
+  const server = fakeServer({ 'spellbook.plan': { ...syncPlan, files: [] } });
+  const asker = fakeAsker({});
+  assert.equal(await newFlow(server, asker, { generator: 'sync', inputs: {} }), undefined);
+  assert.deepEqual(asker.said, [['info', 'spellbook: regions up to date']]);
+  assert.deepEqual(asker.shown, []);
+  assert.deepEqual(server.calls.map(([name]) => name), ['spellbook.plan']);
+});

@@ -16,7 +16,7 @@ What is here and what is coming (the five parts of spellbook):
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
 | rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
 | fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line and, in VS Code and Neovim, the quick fix and the fix key (`ctrl+m f`, `<leader>mf`) |
-| owned regions (a list such as a folder's `pub mod` lines, kept between two markers) | here: `.sorcerer/spellbook/regions.toml`, `spellbook sync`, and `region-stale` findings in `check`; in the editor, sync on save and **Spellbook: Sync** come next |
+| owned regions (a list such as a folder's `pub mod` lines, kept between two markers) | here: `.sorcerer/spellbook/regions.toml`, `spellbook sync`, `region-stale` findings in `check`, and in the editor sync on save, the quick fix and **Spellbook: Sync** |
 | list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
@@ -761,8 +761,45 @@ generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doct
 - **What sync never does.** It never removes or creates a file (a deleted file only loses its line),
   never touches a fenced path, never calls a model, and never writes a file that changed since the plan.
 
-In the editor, `check`'s findings show on save as any rule's do; sync on save (`[spellbook]
-sync_on_save`), the quick fix and **Spellbook: Sync** arrive with the editors' side of regions.
+### In the editor
+
+1. **On save.** Write `src/booking/commands/close_table.rs` by hand and save it: the server
+   refreshes every region and `commands/mod.rs` gains `pub mod close_table;`. When `mod.rs` is open
+   in the editor the change lands in its buffer as one edit labelled `spellbook: sync region
+   modules` (one `u` / `ctrl+z` takes it back; the buffer is left unsaved for you to see), made
+   over what the buffer holds, your unsaved lines included, and tied to the buffer's version, so
+   an editor whose buffer moved on refuses it; when it is not open it is written to disk, so
+   `cargo test` sees it at once. Each file synced is said:
+   `spellbook: synced region modules in src/booking/commands/mod.rs (+1 −0)` (Neovim's message
+   line, VS Code's status bar). A buffer the sync landed in and you have not saved is read as the
+   sync left it, so a second save does not send the same lines again. Nothing else is touched, and
+   an untrusted project syncs nothing. An editor that refuses the edit is told
+   `spellbook: region modules in src/booking/commands/mod.rs was not synced (the editor refused the
+   edit); run spellbook sync`, and the block keeps its finding.
+2. **Sync on save off.** `[spellbook] sync_on_save = false` in `.sorcerer/config.toml` (the
+   project's choice, not the editor's) leaves the block as it is: an open region file shows
+   `region-stale` on its opening marker, an error squiggle like a rule's, `region modules is out
+   of date (+1 −0)`, and the editor is told once `spellbook: 1 region out of date; run spellbook
+   sync`. The same finding shows when the drift came from outside the editor (a `git checkout`, a
+   file deleted in a terminal) as soon as you open or save the region file. Broken markers or a
+   `regions.toml` that does not load stop the sync on save, said once with the command line's
+   sentence.
+3. **The quick fix.** `region-stale`'s lightbulb (or `ctrl+m f`, `<leader>mf`) offers
+   `spellbook: Sync region modules`, preferred; `region-not-set-up` (line 1 of a matching file
+   without markers) offers `spellbook: Set up region modules`, which is `sync --init modules`.
+   Either shows the plan as a fix's is shown, `~ src/booking/commands/mod.rs (region modules: +1
+   −0)` with its diff (VS Code's diff view; Neovim's float with `DiffAdd`/`DiffDelete`), and Apply
+   lands it through the editor.
+4. **Spellbook: Sync** (`ctrl+m s`; Neovim `:Spellbook sync`, `<leader>ms`) runs the whole refresh
+   the same way: the plan with every stale region, then Apply; nothing to do says `spellbook:
+   regions up to date`. Apply (here and from the quick fix) follows the same split as a save: a
+   region file open in the editor changes in its buffer, tied to its version; one not open is
+   written to disk. In Neovim a region file with unsaved changes of your own is refused by
+   name first. It is New entered at the plan with the generator `sync`: nothing is asked, and no
+   hole session follows.
+
+A `new` or a fix planned in the editor shows its region rows the same way, `~ path (region NAME:
++a −r)`, beside its own files.
 
 ## In Neovim
 
@@ -774,7 +811,7 @@ and turn it on, which the plugin keeps off until you ask:
 require("sorcerer").setup({ spellbook = { enabled = true } })
 ```
 
-The plugin binds `<leader>mn` to `:Spellbook new`, `<leader>mf` to `:Spellbook fix` and `<leader>mk` to `:Spellbook check` (and
+The plugin binds `<leader>mn` to `:Spellbook new`, `<leader>mf` to `:Spellbook fix`, `<leader>mk` to `:Spellbook check` and `<leader>ms` to `:Spellbook sync` (and
 conjure's `<leader>mc/u/t/w` when conjure is on; see [Conjure](conjure.md)). `keys = false`
 binds none; a key you already mapped is skipped and listed by `:checkhealth sorcerer`.
 `:Spellbook check` runs `spellbook check --json` in the project root and fills the quickfix list with the findings
@@ -804,7 +841,8 @@ display back (`conjure.sign` for the star).
    (`app`, `service`) offers what the project holds now (a `choices` list offers its values), and an enum with one choice takes it
    without asking; an `ident` or `text` input is typed. An optional input offers `(skip)`, or an
    empty answer.
-3. **Read the plan** in a float: each file as `+ path (N lines)` or `= path (exists, skipped)`,
+3. **Read the plan** in a float: each file as `+ path (N lines)`, `= path (exists, skipped)` or,
+   for a region the plan refreshes, `~ path (region modules: +1 −0)`,
    how many holes there are to fill, then each new file's text coloured as its
    language (the tree-sitter parser you have for it; a language with none stays plain), each
    placeholder underlined (`SorcererHolePlaceholder`). Nothing is written yet. `<CR>` applies; `q` or `<Esc>` cancels. If the
@@ -969,9 +1007,7 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 
 ## What is coming
 
-The rest of milestone 2 brings the editors' side of fixes (the fix command, a diff preview, the keys),
-`missing` rules, the editors' side of owned regions (sync on save, the quick fix, **Spellbook: Sync**),
-check adoption (a baseline of today's findings, `check --since`, severity overrides), list inputs and
+The rest of milestone 2 brings `missing` rules, check adoption (a baseline of today's findings, `check --since`, severity overrides), list inputs and
 `if`/`for` in templates, and packs of generators and rules shared between projects.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything

@@ -3,7 +3,7 @@
 // Server to the folder's `spellbook lsp` and asker.ts makes the Asker of VS Code's pickers.
 import { answerValue, choiceItems, type Generator, type Input, nextInput, promptText, retryInput, type StopReply, takenWithoutAsking, type Values } from './inputs';
 import { type FixRef, fixRequest } from './fix';
-import type { Hole, Plan } from './plan';
+import { type Hole, type Plan, SYNC, syncedText } from './plan';
 
 // The server: runs one of spellbook's commands and gives its reply (a rejected promise for a
 // failed request).
@@ -66,6 +66,8 @@ class Ended extends Error {}
 //    refused file is said.
 // A given fix is the same chain with its own inputs: only the `missing` ones are asked, the plan
 // gets the finding and the buffer's version, and the title names what the finding settled.
+// The generator `sync` (Spellbook: Sync, a region's quick fix) is the server's own: nothing is
+// asked, and a sync with nothing to do says the regions are up to date and ends.
 // Example: given { generator: 'command', inputs: { service: 'booking' } } asks only `command`.
 export async function newFlow(server: Server, asker: Asker, given: Given = {}): Promise<ApplyReply | undefined> {
   const talk = new Talk(server, asker);
@@ -74,6 +76,10 @@ export async function newFlow(server: Server, asker: Asker, given: Given = {}): 
     const settled = { ...given.inputs };
     const values = generator && await answeredInputs(talk, generator, { ...given.inputs }, given.fix && given.missing);
     const plan = generator && values && await madePlan(talk, generator, values, given.fix);
+    if (plan && nothingToSync(plan)) {
+      asker.say('info', syncedText(0, plan.notes));
+      return undefined;
+    }
     if (!plan || await asker.showPlan(plan, talk.taken, given.fix ? settled : undefined) !== 'apply') return undefined;
     return await applied(talk, plan);
   } catch (err) {
@@ -110,6 +116,7 @@ class Talk {
 }
 
 async function chosenGenerator(talk: Talk, named: string | undefined): Promise<Generator | undefined> {
+  if (named === SYNC) return SYNC_GENERATOR;
   const generators = await talk.reply<Generator[]>('spellbook.generators', []);
   if (named) return generators.find(g => g.id === named) ?? talk.end('warn', `spellbook: no generator named ${named}`);
   if (generators.length === 0) talk.end('warn', 'spellbook: this project has no generators');
@@ -166,6 +173,14 @@ async function applied(talk: Talk, plan: Plan): Promise<ApplyReply> {
   const reply = await talk.reply<ApplyReply>('spellbook.apply', [plan.id]);
   if (reply.refused) talk.asker.say('warn', refusedText(reply.refused));
   return reply;
+}
+
+// The sync, as the flow walks it: the server knows it by name, and it takes no input the person
+// is asked (a quick fix's region and file are given).
+const SYNC_GENERATOR: Generator = { id: SYNC, name: 'Sync', summary: 'refresh the owned regions', inputs: [] };
+
+function nothingToSync(plan: Plan): boolean {
+  return plan.generator === SYNC && plan.files.length === 0;
 }
 
 function isStop(reply: unknown): reply is StopReply {

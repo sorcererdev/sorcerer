@@ -8,6 +8,7 @@ const ROOT = resolve(__dirname, '../../..');
 const REPO = resolve(ROOT, '../../..');
 const TARGET = join(REPO, 'target', 'debug');
 const EXE = process.platform === 'win32' ? '.exe' : '';
+const REGION_FILE = join(REPO, 'corpus', 'spellbook', 'bistro', 'base', 'src', 'bistro', 'booking', 'commands', '__init__.py');
 
 // The end-to-end run: VS Code on spellbook's bistro corpus (conjure's bistro base with the
 // corpus's generators and rules as .sorcerer/spellbook/, and the planted sqlite3 import), with
@@ -44,7 +45,8 @@ async function run(base: string, spellbook: string): Promise<void> {
     // a name short enough for the socket VS Code puts in the user data directory
     launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
       `--user-data-dir=${join(base, 'ud')}`],
-    extensionTestsEnv: { SPELLBOOK_E2E_WS: ws, ...dirs },
+    // the corpus's commands/__init__.py with its region markers, for the sync-on-save case
+    extensionTestsEnv: { SPELLBOOK_E2E_WS: ws, SPELLBOOK_E2E_REGION_FILE: REGION_FILE, ...dirs },
   });
 }
 

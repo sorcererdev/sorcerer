@@ -11,6 +11,7 @@
 //! - `code_actions.rs`: a finding's fixes as quick fixes.
 //! - `plans.rs`: the plans made and not yet applied.
 //! - `landing.rs`: a plan's changed files landed by the editor as one undoable edit.
+//! - `sync_on_save.rs`: the owned regions synced after a save, in the editor or on disk.
 //! - `marks.rs`, `findings.rs` and `diagnostics.rs`: a hole and a finding as diagnostics, and the
 //!   diagnostics of one file (the marks and the findings published together).
 //! - `project_paths.rs`: which editor paths are the project's.
@@ -26,6 +27,7 @@ mod project_paths;
 mod server_config;
 mod server_state;
 mod spellbook_server;
+mod sync_on_save;
 
 pub use server_config::{OpenProject, ServerConfig};
 use server_state::{NOT_TRUSTED, Server, lock};

@@ -1,7 +1,9 @@
-//! The plans made and not applied yet, kept ten minutes, each with the version of the document
-//! a fix was planned against.
+//! The plans made and not applied yet, kept ten minutes, each with the versions of the open
+//! documents it was planned against.
 
 use std::collections::HashMap;
+
+use std::collections::BTreeMap;
 
 use chrono::{DateTime, Duration, Utc};
 
@@ -10,12 +12,13 @@ use crate::domain::plan::Plan;
 /// How long a plan waits for its apply.
 const KEPT: i64 = 10;
 
-/// A plan waiting for its apply, and for a fix the version of the fix's document the editor
-/// knew when it asked for the plan (the edit that lands the fix carries it, so the editor
-/// refuses a buffer that moved on).
+/// A plan waiting for its apply, and the version of each open document it was planned against,
+/// by its path in the plan: a fix's document (the version the editor gave), or every open region
+/// file of a sync (the versions the editor last reported). The edit that lands the plan carries
+/// them, so the editor refuses a buffer that moved on.
 pub(super) struct KeptPlan {
     pub(super) plan: Plan,
-    pub(super) version: Option<i32>,
+    pub(super) versions: BTreeMap<String, i32>,
 }
 
 /// Plans by id, with when each was made.
@@ -45,13 +48,11 @@ impl PlanCache {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
 
     fn plan(id: &str) -> KeptPlan {
         KeptPlan {
-            version: None,
+            versions: BTreeMap::new(),
             plan: Plan {
                 id: id.into(),
                 generator: "g".into(),

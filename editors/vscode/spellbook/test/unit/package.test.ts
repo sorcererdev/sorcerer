@@ -45,7 +45,7 @@ test('conjure_on_the_first_hole_is_off_unless_asked', () => {
 
 test('check_is_ctrl_m_k_in_an_editor_only', () => {
   assert.deepEqual(keys()['spellbook.check'], { command: 'spellbook.check', key: 'ctrl+m k', when: 'editorTextFocus' });
-  assert.deepEqual(manifest.contributes.commands.map((c: { command: string }) => c.command), ['spellbook.new', 'spellbook.check', 'spellbook.fixHere']);
+  assert.deepEqual(manifest.contributes.commands.map((c: { command: string }) => c.command), ['spellbook.new', 'spellbook.check', 'spellbook.fixHere', 'spellbook.sync']);
 });
 
 test('the_hole_session_is_on_unless_turned_off', () => {
@@ -55,4 +55,8 @@ test('the_hole_session_is_on_unless_turned_off', () => {
 
 test('fix_here_is_ctrl_m_f_in_an_editor_only', () => {
   assert.deepEqual(keys()['spellbook.fixHere'], { command: 'spellbook.fixHere', key: 'ctrl+m f', when: 'editorTextFocus' });
+});
+
+test('sync_is_ctrl_m_s_in_an_editor_only', () => {
+  assert.deepEqual(keys()['spellbook.sync'], { command: 'spellbook.sync', key: 'ctrl+m s', when: 'editorTextFocus' });
 });
