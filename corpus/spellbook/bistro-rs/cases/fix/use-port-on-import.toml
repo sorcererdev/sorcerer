@@ -1,0 +1,12 @@
+# `use std::fs;` in a command: use-port swaps it for the booking port, kept in the struct, taken by
+# new, set in the struct literal, and passed (a hole) by the test's helper.
+patch  = "fs-import-in-seat-walk-in.patch"
+at     = "src/booking/commands/seat_walk_in.rs:3"
+fix    = 1
+inputs = { port = "booking_repository" }
+
+[[holes]]
+name = "fake"
+kind = "expr"
+file = "src/booking/commands/seat_walk_in.rs"
+line = 46

@@ -10,3 +10,24 @@ files    = "src/{service}/commands/*.rs"
 exclude  = ["**/mod.rs"]
 match    = { kind = "macro_invocation", regex = "^(panic|unreachable|unimplemented)!" }
 message  = "A command returns its failure instead of panicking"
+
+# Commands and queries reach data through ports: the file system belongs in an adapter
+# (ports/PORT/file.rs), which main.rs chooses.
+[rules.commands-use-ports]
+files    = "src/{service}/{kind}/*.rs"
+exclude  = ["**/mod.rs", "src/web/**"]
+match    = { any = [
+  { kind = "use_declaration", regex = "\\bstd::(fs\\b|\\{[^}]*\\bfs\\b)" },
+  { kind = "scoped_identifier", regex = "^(std::)?fs::\\w+$" },
+] }
+message  = "Commands and queries talk to ports, not the file system (ports & adapters)"
+
+# A port the service already has: the `use` goes, a statement becomes a hole saying what it did.
+[[rules.commands-use-ports.fixes]]
+generator = "use-port"
+label     = "Use a port the service has"
+with      = { service = "{= service =}", kind = "{= kind =}", unit = "{= stem =}" }
+replace   = [
+  { enclosing = ["use_declaration"], text = "" },
+  { enclosing = ["expression_statement", "let_declaration"], text = "{= ? port_call: stmt | the same as {= finding =} through self.{= param =} =}" },
+]

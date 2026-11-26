@@ -1,0 +1,1 @@
+[[edits]] 4 insert (src/booking/commands/create_booking.rs): `end of parameters in CreateBooking.new`: no function `CreateBooking.new` in create_booking.rs; nothing was written

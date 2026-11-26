@@ -7,7 +7,7 @@ runs them. It costs nothing, calls no model, touches no network and runs in CI.
 | corpus | language | generators | tests |
 |---|---|---|---|
 | [`bistro/`](bistro/README.md) | Python | `command`, `query`, `port` | `bistro_holds_its_cases`, `bistro_check_cases_find_what_was_planted`, `bistro_load_mistakes_say_what_is_wrong` |
-| [`bistro-rs/`](bistro-rs/README.md) | Rust | `command`, `port` | `bistro_rs_holds_its_cases`, `bistro_rs_check_cases_find_what_was_planted` |
+| [`bistro-rs/`](bistro-rs/README.md) | Rust | `command`, `port`, `use-port` | `bistro_rs_holds_its_cases`, `bistro_rs_check_cases_find_what_was_planted`, `bistro_rs_holds_its_fix_cases`, `bistro_rs_load_mistakes_say_what_is_wrong` |
 
 ## What a corpus holds
 
