@@ -9,15 +9,8 @@ use spellbook::usecases::sync_regions::{SyncMode, SyncPlan, plan_sync, region_fi
 use support::*;
 use tempfile::TempDir;
 
-/// bistro-rs's base with the corpus's generators, rules and regions in `.sorcerer/spellbook/`.
 fn bistro_rs() -> TempDir {
-    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    let project = tempfile::tempdir().unwrap();
-    copy_tree(&corpus.join("scry/bistro-rs/base"), project.path());
-    let spellbook = project.path().join(".sorcerer/spellbook");
-    std::fs::create_dir_all(&spellbook).unwrap();
-    copy_tree(&corpus.join("spellbook/bistro-rs/spellbook"), &spellbook);
-    project
+    bistro_rs_project()
 }
 
 fn sync(root: &Path, mode: SyncMode) -> SyncPlan {

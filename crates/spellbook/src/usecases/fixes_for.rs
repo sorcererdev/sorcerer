@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use sorcerer_core::ports::view::CodebaseView;
 
+use crate::domain::finding::{Finding, REGION_NOT_SET_UP, REGION_STALE};
 use crate::domain::fix::{FixBuiltins, fix_inputs, fix_label};
 use crate::domain::generator::Generator;
 use crate::domain::inputs::{Given, InputStop};
@@ -56,6 +57,36 @@ pub fn fixes_for(
             })
         })
         .collect()
+}
+
+/// The fix a region's finding offers, built in: `sync` with the region and the file (and
+/// `mode = init` for a region not set up). A broken marker pair offers none: it is fixed by
+/// hand.
+///
+/// Example: `region-stale` on `src/booking/queries/mod.rs` offers `{ index: 1, label: "Sync
+/// region modules", generator: "sync", inputs: { region: "modules", file:
+/// "src/booking/queries/mod.rs" }, missing: [] }`.
+pub fn region_fix_offer(finding: &Finding) -> Option<FixOffer> {
+    let region = &finding.region.as_ref()?.region;
+    let mut inputs = BTreeMap::from([
+        ("region".to_string(), region.clone()),
+        ("file".to_string(), finding.file.clone()),
+    ]);
+    let label = match finding.rule.as_str() {
+        REGION_STALE => format!("Sync region {region}"),
+        REGION_NOT_SET_UP => {
+            inputs.insert("mode".into(), "init".into());
+            format!("Set up region {region}")
+        }
+        _ => return None,
+    };
+    Some(FixOffer {
+        index: 1,
+        label,
+        generator: "sync".into(),
+        inputs,
+        missing: Vec::new(),
+    })
 }
 
 /// The inputs still to ask after the given ones, in the generator's order: each input the

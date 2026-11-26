@@ -13,7 +13,7 @@ use crate::domain::finding::Finding;
 use crate::domain::rule::{Rule, Severity};
 use crate::usecases::check_files::check_files;
 use crate::usecases::check_project::check_project;
-use crate::usecases::fixes_for::{FixOffer, fixes_for};
+use crate::usecases::fixes_for::{FixOffer, fixes_for, region_fix_offer};
 
 use super::format::count;
 
@@ -73,8 +73,11 @@ struct FindingWithFixes<'f> {
     fixes: &'f Vec<FixOffer>,
 }
 
-/// The fixes of the finding's rule, filled from the finding.
+/// The fixes of the finding's rule, filled from the finding; a region's finding offers `sync`.
 fn offers_for(wired: &Wired, rules: &[Rule], finding: &Finding) -> Vec<FixOffer> {
+    if finding.region.is_some() {
+        return region_fix_offer(finding).into_iter().collect();
+    }
     match rules.iter().find(|rule| rule.id == finding.rule) {
         Some(rule) if !rule.fixes.is_empty() => fixes_for(
             &wired.view,
@@ -114,7 +117,7 @@ fn check_text(found: &[Finding], offers: &[Vec<FixOffer>], no_rules: bool) -> St
             count(found.len(), "finding", "findings")
         ));
     }
-    if no_rules {
+    if no_rules && !found.iter().any(|finding| finding.region.is_some()) {
         text.push_str("this project has no rules yet: add .sorcerer/spellbook/rules.toml\n");
     }
     text

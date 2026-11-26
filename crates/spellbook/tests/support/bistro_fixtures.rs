@@ -72,3 +72,15 @@ pub fn copy_tree(from: &Path, to: &Path) {
         }
     }
 }
+
+/// A fresh copy of scry's bistro-rs base with spellbook's bistro-rs corpus (generators, rules,
+/// regions) as its `.sorcerer/spellbook/`; no region is set up yet.
+pub fn bistro_rs_project() -> TempDir {
+    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(&corpus.join("scry/bistro-rs/base"), dir.path());
+    let spellbook = dir.path().join(".sorcerer/spellbook");
+    std::fs::create_dir_all(&spellbook).unwrap();
+    copy_tree(&corpus.join("spellbook/bistro-rs/spellbook"), &spellbook);
+    dir
+}

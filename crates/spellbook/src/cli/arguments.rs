@@ -71,6 +71,22 @@ pub(super) enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Refresh the owned regions (the lists spellbook keeps between their markers) from the
+    /// files on disk
+    Sync {
+        /// Set up the region NAME in every file it matches that has no markers for it yet
+        #[arg(long, value_name = "NAME")]
+        init: Option<String>,
+        /// Write nothing; exit 1 when a region is out of date or not set up (for hooks and CI)
+        #[arg(long)]
+        check: bool,
+        /// Show the refresh, write nothing
+        #[arg(long)]
+        plan: bool,
+        /// Print the plan (or what was applied) as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Whether spellbook can run here: generators, languages and their holes, conjure, trust,
     /// the records
     Doctor,
