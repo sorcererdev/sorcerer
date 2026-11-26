@@ -1,0 +1,52 @@
+[package]
+name = "sorcerer-apprentice"
+description = "Apprentice: a coding agent whose whole interface is your editor (prototype, not published)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not on crates.io and not in a release until the subscription question is asked (ruling Q1,
+# 2026-11-26).
+publish = false
+
+[lib]
+name = "apprentice"
+
+[[bin]]
+name = "apprentice"
+path = "src/main.rs"
+
+# The fake `claude` the harness tests run: a program, so it runs on every platform. It reads a
+# script, speaks stream-json, and really runs the MCP server and the hooks it is given.
+[[bin]]
+name = "apprentice-fake-claude"
+path = "tests/support/fake_claude.rs"
+test = false
+doc = false
+
+[dependencies]
+sorcerer-core.workspace = true
+sorcerer-models.workspace = true
+sorcerer-lsp.workspace = true
+clap = { version = "4", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+similar.workspace = true
+tree-sitter.workspace = true
+lsp-server.workspace = true
+lsp-types.workspace = true
+crossbeam-channel.workspace = true
+which.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.dist]
+dist = false

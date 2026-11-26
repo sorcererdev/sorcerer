@@ -1,0 +1,53 @@
+//! Where apprentice keeps its state: `.sorcerer/state/apprentice/`, which core's state
+//! directory keeps out of git.
+
+use std::path::PathBuf;
+
+use sorcerer_core::Result;
+use sorcerer_core::domain::project::Project;
+
+/// The files under `.sorcerer/state/apprentice/`.
+#[derive(Debug, Clone)]
+pub struct StateFiles {
+    pub dir: PathBuf,
+}
+
+impl StateFiles {
+    /// The project's apprentice state directory (made, with the state directory's
+    /// `.gitignore`, when it is not there).
+    pub fn for_project(project: &Project) -> Result<StateFiles> {
+        Ok(StateFiles {
+            dir: project.state_dir()?.join("apprentice"),
+        })
+    }
+
+    /// `tasks.jsonl`: one line per change of a task's state.
+    pub fn tasks(&self) -> PathBuf {
+        self.dir.join("tasks.jsonl")
+    }
+
+    /// `tasks/`: each task's journal and before-texts.
+    pub fn task_dirs(&self) -> PathBuf {
+        self.dir.join("tasks")
+    }
+
+    /// `notes/`: the agent's notes.
+    pub fn notes(&self) -> PathBuf {
+        self.dir.join("notes")
+    }
+
+    /// `permissions.json`: the commands allowed always.
+    pub fn permissions(&self) -> PathBuf {
+        self.dir.join("permissions.json")
+    }
+
+    /// `regions.json`: each region Jev looked at, and its answer.
+    pub fn regions(&self) -> PathBuf {
+        self.dir.join("regions.json")
+    }
+
+    /// `labels.jsonl`: the person's labels of regions.
+    pub fn labels(&self) -> PathBuf {
+        self.dir.join("labels.jsonl")
+    }
+}

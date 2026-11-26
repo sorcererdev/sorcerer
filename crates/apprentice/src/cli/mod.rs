@@ -1,0 +1,20 @@
+//! The command line. `apprentice FILE:LINE "instruction"` runs one task from the terminal (its
+//! changes written to the disk); the editor's server is the product. `apprentice mcp` and
+//! `apprentice hook` are the helpers a task's agent runs; `cost`, `log`, `doctor` and `trust`
+//! are as in the other products.
+
+mod arguments;
+mod console;
+mod cost;
+mod doctor;
+mod format;
+mod hook;
+mod log;
+mod mcp;
+mod run;
+mod run_cli;
+mod trust;
+
+use arguments::RunArgs;
+pub use doctor::{DoctorRow, doctor_rows};
+pub use run_cli::{Wiring, main, main_with};
