@@ -330,7 +330,10 @@ fn a_dismissed_region_goes_and_a_label_is_a_line_of_the_corpus() {
     );
     s.run_action(FILE, 5, "apprentice: Dismiss");
     state_holds(&project, &s, "labels.jsonl", r#""how":"dismiss""#);
-    assert!(!s.titles(FILE, 5).contains(&"apprentice: Dismiss".to_string()));
+    assert!(
+        !s.titles(FILE, 5)
+            .contains(&"apprentice: Dismiss".to_string())
+    );
     let labels = project.state("labels.jsonl");
     assert_eq!(labels.lines().count(), 2, "{labels}");
     assert!(

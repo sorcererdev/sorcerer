@@ -14,6 +14,58 @@ release carries it yet (the question of running it on a subscription is being as
 cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice
 ```
 
+## In your editor
+
+The server is `apprentice lsp`, one per project. It works on two clocks:
+
+- **Idle** (one and a half seconds after you stop typing): what you changed since its last look
+  is cut into *regions* (a changed comment, a paragraph of a file no language covers, a
+  function whose body does nothing yet, or a bare hunk of code) and each new one is asked of
+  Jev: is it a question, a claim, an instruction or an aside, and is it addressed to a reader?
+  Only a clear answer (0.70 for both) counts; anything else is nothing and shows nothing. A body
+  that does nothing yet is an instruction without asking. Jev is cheap, not free: it has its own
+  cap (`triage_per_day`). Without `JEV_API_KEY` only the empty bodies are offered.
+- **Save**: each question in the saved file is answered by one read-only research call (one to
+  three sentences, the code cited as `path:line`, Read, Grep and Glob only), and each claim is
+  checked by the claim checker scry uses (haiku, Jev's guards, sonnet when they doubt).
+
+What you see, in the margin (diagnostics of source `apprentice`):
+
+| region | the mark | its code actions |
+|---|---|---|
+| a question | `apprentice: <the answer>`, its cost and time; the cited code on hover | *Show code*, *Keep this answer* (written in below as a comment, or as a paragraph), *Dismiss* |
+| a claim | `apprentice: holds`, `does not hold: <why>` or `cannot tell: <why>` | *Show code*, *Dismiss*; a claim that does not hold also offers the task |
+| an instruction | a faint hint, `apprentice: I can do this · ~$0.50 · sonnet` | `apprentice: do this · ~$0.50 · sonnet`, *Dismiss* |
+
+Nothing runs a task by itself: an instruction is only offered, with its price (the median of
+your finished tasks once there are five, else `estimate_start`). Every classified region also
+offers four labels, `apprentice: this was a question / a claim / an instruction / nothing`: a
+pick is a line of `.sorcerer/state/apprentice/labels.jsonl`, and so is a *Dismiss*. That file
+is the prototype's measure of whether apprentice understood you.
+
+A mark lives on its text: it moves when lines are added above it, and goes once you change the
+words. A checkout or a pull (`.git/HEAD` moved) starts every look over, saying nothing.
+
+**While a task runs**, the status line says what it does (`apprentice: refuse late
+cancellations · reading booking.py · $0.00`, then `writing cancel_booking.py`, `running uv`,
+`subagent: reading routes.py`), and the place it writes shows `⟳ apprentice: writing…`. Its
+changes land in your buffers, unsaved, each one undoable with your editor's undo. A question it
+asks on a line is a mark there (`apprentice asks: …`) with one code action per option; a
+command it wants to run is asked in a list. *Stop this task* is offered on any line while it
+runs.
+
+**When it ends**: one message, `apprentice: done · refuse late cancellations · 1 file · $0.71 ·
+1m35s`, and on the first changed line of each file it changed a mark, `✦ apprentice: refuse late
+cancellations · 1 file · $0.71`, with *Show diff* (the file before the task against now, in your
+editor's diff view), *Undo this task* (every file back to its text before, in one undoable edit;
+a file you edited since is left alone and named) and *Show journal*. Review the hunks with your
+usual tools (gitsigns, the SCM view); saving every file it changed keeps the task, and its marks
+go. A task the server was running when it stopped is recorded `interrupted`.
+
+The editor clients: Neovim's is below; VS Code's comes later. Any other editor that speaks LSP
+gets the marks, the code actions, the questions in a list, the edits and the notes (opened over
+the current window, and the diff as a file); grey suggested lines are a message there.
+
 ## What a task is
 
 A task is one instruction you accepted. It runs as one Claude Code session (`claude -p`, on
@@ -78,6 +130,7 @@ local day a row.
 
 | command | what it does |
 |---|---|
+| `apprentice lsp` | the editor's server; your editor's client starts it |
 | `apprentice FILE:LINE "instruction"` | one task from the terminal: its changes are written to the disk, what it said is printed when it ends, and its questions take their default (so a command is never allowed from the terminal). For trying the harness without an editor |
 | `apprentice cost [--since YYYY-MM-DD] [--json]` | what it spent, a day a row: triage, answers, checks, tasks |
 | `apprentice log [N]` | the last tasks: id, state, files, cost, place, title |

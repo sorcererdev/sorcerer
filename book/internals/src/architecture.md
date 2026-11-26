@@ -105,11 +105,13 @@ they parse through the `Grammars` port. [Spellbook](spellbook.md) says what each
 **sorcerer-apprentice** (library and program `apprentice`; a prototype, not published) has the
 same five layers and depends on core, models and `sorcerer-lsp`. `domain/` (`config`, `task`,
 `agent_event`, `status`, `mediums`, `loopback_message`, `edits_text`, `permissions`, `paths`,
-`budget`, `estimate`, `log_text`, `prompt`, `scry_notes`, `rules`), `ports/` (`agent`, `editor`,
-`task_store`, `journal`, `permission_store`, `project_context`, `clock`), `usecases/`
-(`run_task/`, `report_cost`, `show_log`), `adapters/` (`claude_agent`, `loopback`,
-`helper_way`, `mcp_server`, `hooks`, `task_runner`, the stores, `project_context`,
-`disk_editor`, `wiring`) and `cli/`. [Apprentice](apprentice.md) says what each file holds.
+`budget`, `estimate`, `log_text`, `prompt`, `region`, `cutting`, `triage`, `region_record`,
+`answer_prompt`, `scry_notes`, `rules`), `ports/` (`agent`, `editor`, `task_store`, `journal`,
+`permission_store`, `project_context`, `syntax`, `region_store`, `clock`), `usecases/`
+(`run_task/`, `triage_regions`, `answer_regions`, `label_region`, `offer_task`, `end_task`,
+`report_cost`, `show_log`), `adapters/` (`claude_agent`, `loopback`, `helper_way`,
+`mcp_server`, `hooks`, `task_runner`, the stores, `project_context`, `grammar_syntax`,
+`disk_editor`, `wiring`, and `lsp/`, the editor server) and `cli/`. [Apprentice](apprentice.md) says what each file holds.
 
 **sorcerer-lsp** is a flat crate: `src/{lib,serve,client,jobs,uri}.rs`, with no layer
 directories. All of it is adapter code (a connection, threads, the protocol's types), and

@@ -9,7 +9,7 @@ test program `apprentice-fake-claude`. The design is
 ## The shape
 
 ```
- editor ──LSP──▶ apprentice lsp (a Product on sorcerer-lsp)          [the next part]
+ editor ──LSP──▶ apprentice lsp (a Product on sorcerer-lsp; adapters/lsp/)
                    │
                    ├─ run_task ── Agent port ──▶ claude -p (stream-json in and out)
                    │                               │ --mcp-config → apprentice mcp ─┐
@@ -48,6 +48,20 @@ three systems; pipes and sockets would be two.
   `estimate.rs` (`estimate_usd`: the median after five tasks), `log_text.rs` (`usd`,
   `title_of`, `offer_title`, `done_text`, `task_mark_text`, `task_line`), `prompt.rs`
   (`EDITOR_RULES`, `TaskPlace`, `task_prompt`).
+- `region.rs`: `Region` (id from the file and the squashed text, `RegionPlace`: comment,
+  prose, stub, hunk), `found_in` (where its lines are now, nearest its old place; `None` once
+  they changed), `region_id`.
+- `cutting.rs`: `Shape`, `ShapeUnit`, `changed_lines` (over `similar`), `regions_of` (comment
+  blocks touching a change; prose paragraphs where no language covers the file; stubs; the rest
+  as hunks of at most 40 lines with a letter in them).
+- `triage.rs`: `Kind`, `Triaged`, `KIND_CUT` and `ADDRESSED_CUT` (0.70), `free_kind` (a stub
+  is an instruction), `questions_for` (the four questions, sharing the region's `text` and
+  `where`, so Jev takes them as one request), `verdict_of`.
+- `region_record.rs`: `RegionRecord` (the region, its triage, its `Reply`, dismissed),
+  `ReplyVerdict`, `RegionRecords` (`regions.json`, `Versioned`), `Label` (a line of
+  `labels.jsonl`); `offers_a_task` (an instruction, or a claim that does not hold),
+  `waits_for_a_reply`.
+- `answer_prompt.rs`: `question_prompt`, `read_answer` (`LONG:`, the `path:line` citations).
 - `scry_notes.rs`, `rules.rs`: scry's findings file and steering file, read by apprentice's own
   readers (copies of conjure's: products never import each other).
 
@@ -56,10 +70,13 @@ three systems; pipes and sockets would be two.
 `editor.rs` (`Editor`: `notify`, `mark`, `ghost`, `write_file -> Written`, `note`, `ask ->
 Asked`, `edits_since_look`, `progress`, `finished`), `task_store.rs`, `journal.rs`,
 `permission_store.rs`, `project_context.rs` (the unit at a line, scry's notes near it, the
-rules), `clock.rs`.
+rules), `syntax.rs` (`Syntax::shape`, `comment_prefix`), `region_store.rs` (`RegionStore`:
+`get`, `of_file`, `put`, `label`), `clock.rs`.
 
-**Use cases** (`src/usecases/`): `run_task/` (below), `report_cost.rs` (a day a row, by verb),
-`show_log.rs`.
+**Use cases** (`src/usecases/`): `run_task/` (below), `triage_regions.rs` (`triage_change`,
+`TriageDeps`, `Look`, `acted_on_in`), `answer_regions.rs` (`answer_saved`, `AnswerDeps`),
+`label_region.rs` (`label_region`, `dismiss_region`), `offer_task.rs` (`offer_text`),
+`end_task.rs` (`record_task_end`), `report_cost.rs` (a day a row, by verb), `show_log.rs`.
 
 **Adapters** (`src/adapters/`): `claude_agent.rs` (`ClaudeAgent`), `loopback.rs` (`Loopback`,
 `ask_loopback`), `helper_way.rs` (`HelperWay::from_env`, `ask`), `mcp_server.rs` (`serve_mcp`),
@@ -67,11 +84,14 @@ rules), `clock.rs`.
 id), `jsonl_task_store.rs`, `markdown_journal.rs`, `json_permissions.rs`, `project_context.rs`
 (`FilesContext`), `scry_files.rs`, `steering_files.rs`, `state_files.rs` (`StateFiles`: every
 path under `.sorcerer/state/apprentice/`), `disk_editor.rs` (`DiskEditor`, the command line's
-editor), `system_clock.rs`, `wiring.rs` (`live_agent`, `task_deps`, `WireAgent`).
+editor), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
+`COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `json_region_store.rs`,
+`system_clock.rs`, `wiring.rs` (`live_agent`, `task_deps`, `WireAgent`), and `lsp/` (the
+server, below).
 
 **Command line** (`src/cli/`): `run_cli.rs` (`main`, `main_with`, `Wiring`), `arguments.rs`,
 `run.rs` (`apprentice FILE:LINE "…"`), `mcp.rs`, `hook.rs`, `cost.rs`, `log.rs`, `doctor.rs`,
-`trust.rs`, `console.rs`, `format.rs`.
+`trust.rs`, `lsp.rs` (`apprentice lsp`), `console.rs`, `format.rs`.
 
 ## A task, end to end
 
@@ -145,6 +165,71 @@ permission tool receives (`tool_name`, `input`); whether a `-p` run asks the per
 for `Bash` when `Bash` is not allowed. Each is a check in `tests/harness.rs` against the fake;
 one task by hand against the real one is the user's.
 
+## The server
+
+`adapters/lsp/apprentice_server.rs`: `serve(connection, ServerConfig)` plugs `ApprenticeServer`
+into the host as a product that tracks text. `ServerConfig` (`server_config.rs`): `open`,
+`cache`, `trust`, `clock`, `agent` (`WireAgent`), `decider` (`WireDecider`: Jev for the project,
+recording under `apprentice`, or none), `researcher` (`WireResearcher`), `idle` (1.5 s; the tests
+use 50 ms). The shared `Server` (`server_state.rs`) holds the client, the root, the `Jobs`, the
+last looks, `.git/HEAD`, the runner, each running task's looks and writes and progress line,
+the finished tasks still marked (`ShownTask`), the agent's marks and the pending questions.
+`trusted_project` opens the project afresh at every look (config edits need no restart) and,
+untrusted, says `NOT_TRUSTED` once and does nothing.
+
+**The two clocks** (`watch.rs`). `changed` submits `look_at` under `idle:<path>`; `saved` cancels
+it, then runs `look_at` and `answer_on_save` under `save:<path>`. `look_at` takes the text now,
+swaps it for the last look, and (unless `head_moved`, which resets every look) runs `triage`
+(`regions.rs`, building `TriageDeps` over `GrammarSyntax`, `JsonRegionStore`, the ledger and the
+decider) on the change, then `publish`. A task's own `write_file` moves the look
+(`looked_at_own_edit`), so its edits are never triaged as the person's. `answer_on_save` builds
+`AnswerDeps` (the researcher over core's `FilesView` of the disk, which the save just wrote) and
+writes a long answer as a note too.
+
+**The marks** (`publisher.rs`): one publish per file joins the regions' marks
+(`region_mark`: an answer or a verdict Information with its cost and time and the citations as
+`relatedInformation`, else in the message; an instruction a Hint with the offer's price), the
+finished tasks' (`task_marks`, code `task`, `data.task`), the agent's (`said_marks`) and the
+questions' (`ask_marks`). Ranges end at the end of the last line (`lines_of`, UTF-16).
+
+**The actions** (`commands.rs`): `code_actions` gives, per line, each found region's actions
+(`region_actions`: the offer while no task runs, *Show code*, *Keep this answer*, *Dismiss*, the
+four labels), the pending questions' options (`ask_actions`), a marked task's *Show diff*,
+*Undo this task*, *Show journal*, and *Stop this task* while one runs. `execute` routes the ten
+`apprentice.*` commands; the slow ones (*do this*, *Dismiss*, a label) go to a thread.
+
+**A task from the editor** (`tasks.rs`). `do_region` makes a `TaskOrder` (the region's text, its
+place now, the open files' unsaved edits) and `start_task` refuses a second task, builds a
+`TaskRunner` over `task_deps` with an `LspEditor` (`editor_port.rs`, holding the server weakly),
+starts it, gives it its first look (every open file's text now, `open_texts`) and follows it on a
+thread. `LspEditor`:
+
+- `write_file` → `write_for_task`: refused when the editor cannot apply edits (or create a
+  file); `MovedOn` when the file is not what the task last looked at
+  (`moved_since_task_looked`); then one `workspace/applyEdit` built by the host's
+  `landing::workspace_edit` at the buffer's version (checked with `moved_on`), waiting up to
+  10 s for the answer and 3 s for the editor to report the text (`wait_until_reported`; Neovim
+  answers first). The task's look and the server's look move to the new text, the text is kept
+  for undo (`written`), and `show_working` draws `⟳ apprentice: writing…` at the first changed
+  line.
+- `edits_since_look` → `edits_since_task_looked`: each open file against the task's look, the
+  look moved to now.
+- `ask` → `ask_person` (`asks.rs`): on a line (a `PendingAsk`, its mark, a `say`, one code action
+  per option, `apprentice.answer` sends the pick down a channel) or in the picker
+  (`Client::ask`); an editor that cannot show the picker falls back to the line.
+- `mark` keeps a `SaidMark`; `ghost` and `note` send `sorcerer/ghost` and `sorcerer/note` to an
+  editor that handles them (`Client::notify_sorcerer`), else a message and `show_document`.
+- `progress` starts the task's `WorkDone` and reports on it; `finished` → `task_finished`: the
+  progress line ends, `clear_working`, the done message, and a `ShownTask` per file it changed
+  (the before-text from the journal, the after-text from `written`, the first changed line).
+
+*Show diff* sends `sorcerer/showDiff { uri, before, title }` (else shows the journal's
+before-file). *Undo this task* plans each file with the host's `undo_of` (from
+`versioned_text_now`), sends the undoable ones as one `undo_edit` and, once applied, records
+`undone` (`record_task_end`) and names the files left alone. `keep_on_save` settles a saved file
+and records `kept` once every file is. At start, `interrupt_what_was_left_running` records any
+task still `running` or `asking` as `interrupted`.
+
 ## Tests
 
 `tests/run_task.rs`: the use cases over a `ScriptedAgent` (`tests/support/scripted_agent.rs`)
@@ -154,4 +239,10 @@ queue). `tests/harness.rs`: `ClaudeAgent` against `apprentice-fake-claude`
 (`tests/support/fake_claude.rs`), which writes its arguments and first input line to files,
 plays a script, really starts `apprentice mcp` from `--mcp-config` and really runs `apprentice
 hook` from `--settings`, logging each result. `tests/cli.rs`: `main_with` with a `Wiring` of
-doubles. No test calls a model.
+doubles. `tests/lsp.rs`: the server over `Connection::memory()` with a small editor
+(`tests/support/lsp_editor.rs`: buffers, versions checked, every `workspace/applyEdit` applied
+and reported, pickers answered from a queue), `StubJev` and `StubResearcher`
+(`tests/support/model_doubles.rs`) and the vendored grammars: the design's walk (a claim
+checked on save and offered, a task that writes, asks on a line, asks before a command, then
+*Show diff* and *Undo this task*), keeping on save, a stub offered by rule, a question answered
+and kept, labels and dismissal, an untrusted project, ghost and note. No test calls a model.
