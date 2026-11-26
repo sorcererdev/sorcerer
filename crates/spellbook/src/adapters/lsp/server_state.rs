@@ -1,6 +1,6 @@
 //! What the main loop shares with the commands.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -9,14 +9,23 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::needs_trust;
 use sorcerer_lsp::Client;
 
-use crate::adapters::wiring::wired;
+use crate::adapters::wiring::{Wired, wired};
 use crate::domain::config::spellbook_config;
 use crate::domain::finding::Finding;
+use crate::usecases::planned_view::PlannedView;
 
-use super::diagnostics::{FileDiagnostics, file_diagnostics};
+use super::diagnostics::{FileDiagnostics, file_diagnostics, file_diagnostics_over};
 use super::plans::PlanCache;
 use super::project_paths::project_relative;
 use super::server_config::ServerConfig;
+
+/// A file a fix lands in: its path in the plan (relative to the root, with `/`) and the text
+/// the plan leaves in it.
+#[derive(Debug, Clone)]
+pub(super) struct Landing {
+    pub(super) file: String,
+    pub(super) text: String,
+}
 
 /// What the server shares.
 pub(super) struct Server {
@@ -31,6 +40,12 @@ pub(super) struct Server {
     pub(super) published: Mutex<HashMap<PathBuf, Vec<Finding>>>,
     /// The plans made and not applied yet.
     pub(super) plans: Mutex<PlanCache>,
+    /// The files a fix is landing in the editor, or has landed and the person has not saved
+    /// yet, by the path the editor names them with: each with its path in the plan and the text
+    /// the plan leaves in it. Until the file is saved (or closed, or the editor refuses the
+    /// edit) its disk text is the old one, so its marks are read from this text: an editor that
+    /// opens the file to land the edit must not get the disk's marks back.
+    pub(super) landing: Mutex<HashMap<PathBuf, Landing>>,
 }
 
 impl Server {
@@ -72,7 +87,7 @@ impl Server {
         let Ok(wired) = wired(project, self.cfg.cache.clone(), self.cfg.clock.clone()) else {
             return;
         };
-        let diagnostics = file_diagnostics(&wired, &file);
+        let diagnostics = self.diagnostics_now(&wired, path, &file);
         if let Some(problem) = &diagnostics.rules_problem {
             self.client.say_once(
                 "rules",
@@ -83,8 +98,37 @@ impl Server {
         self.publish_at(path, diagnostics);
     }
 
+    /// A file's marks and findings: over the text a fix leaves in it while that fix lands (or
+    /// is landed and not saved), else over the disk.
+    fn diagnostics_now(&self, wired: &Wired, path: &Path, file: &Path) -> FileDiagnostics {
+        let landing = lock(&self.landing);
+        if !landing.contains_key(path) {
+            drop(landing);
+            return file_diagnostics(wired, file);
+        }
+        let planned: BTreeMap<String, String> = landing
+            .values()
+            .map(|landed| (landed.file.clone(), landed.text.clone()))
+            .collect();
+        drop(landing);
+        file_diagnostics_over(wired, &PlannedView::new(&wired.view, planned), file)
+    }
+
+    /// The editor saved a file: its disk text is the editor's now, so the marks come from the
+    /// disk again.
+    pub(super) fn saved(&self, path: &Path) {
+        self.forget_landing(path);
+        self.republish(path);
+    }
+
+    /// Forgets the planned text of a file that was saved or closed.
+    fn forget_landing(&self, path: &Path) {
+        lock(&self.landing).remove(path);
+    }
+
     /// Clears the marks of a file the editor closed.
     pub(super) fn closed(&self, path: &Path) {
+        self.forget_landing(path);
         if lock(&self.published).remove(path).is_some() {
             self.client.publish(path, Vec::new());
         }

@@ -1361,3 +1361,59 @@ fn a_hole_the_fix_leaves_in_a_changed_file_is_marked_and_shown_before_the_save()
     );
     s.stop();
 }
+
+// ---- the editor opens a changed file while the fix lands ----
+
+/// The marks the server publishes for a file the editor opens now, after what came before is
+/// read and dropped.
+fn marks_on_open(s: &Served, relative: &str) -> Vec<Diagnostic> {
+    s.all_within(QUIET);
+    s.open(relative);
+    s.marks(relative)
+}
+
+#[test]
+fn a_changed_file_opened_while_the_fix_lands_is_marked_from_the_plan_not_the_disk() {
+    let dir = bistro_with_the_fix();
+    let s = served_editing(dir.path());
+    let on_disk = findings_of(&marks_on_open(&s, CLOSE_TABLE_PATH));
+    let plan = plan_use_port(&s, json!(4));
+    let id = apply_asked(&s, &plan);
+    let asked = edit_asked(&s);
+    // the editor opens the file to land the edit in it, before it answers: the import is gone
+    assert_eq!(
+        findings_of(&marks_on_open(&s, CLOSE_TABLE_PATH)),
+        on_disk - 1
+    );
+    s.reply(asked.id, json!({ "applied": true }));
+    s.response(id);
+    // opened again after the edit landed, before the save: the disk still has `import sqlite3`
+    assert_eq!(
+        findings_of(&marks_on_open(&s, CLOSE_TABLE_PATH)),
+        on_disk - 1
+    );
+    // saved, the disk is the file again (the test's disk is the old text, so the finding is back)
+    s.all_within(QUIET);
+    s.save(CLOSE_TABLE_PATH);
+    assert_eq!(findings_of(&s.marks(CLOSE_TABLE_PATH)), on_disk);
+    s.stop();
+}
+
+#[test]
+fn a_fix_the_editor_refuses_leaves_the_disks_marks() {
+    let dir = bistro_with_the_fix();
+    let s = served_editing(dir.path());
+    let on_disk = findings_of(&marks_on_open(&s, CLOSE_TABLE_PATH));
+    let plan = plan_use_port(&s, json!(4));
+    let id = apply_asked(&s, &plan);
+    let asked = edit_asked(&s);
+    assert_eq!(
+        findings_of(&marks_on_open(&s, CLOSE_TABLE_PATH)),
+        on_disk - 1
+    );
+    s.reply(asked.id, json!({ "applied": false }));
+    s.response(id);
+    assert_eq!(findings_of(&s.marks(CLOSE_TABLE_PATH)), on_disk);
+    assert_eq!(findings_of(&marks_on_open(&s, CLOSE_TABLE_PATH)), on_disk);
+    s.stop();
+}

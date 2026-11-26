@@ -11,9 +11,10 @@ use lsp_types::{
 };
 use sorcerer_lsp::{Reply, uri_of};
 
-use super::Server;
 use super::commands::stop;
 use super::plans::KeptPlan;
+use super::server_state::Landing;
+use super::{Server, lock};
 use crate::domain::change::TextChange;
 use crate::domain::plan::{Plan, PlannedFile};
 use crate::usecases::apply_plan::ChangesLanded;
@@ -30,10 +31,12 @@ impl Server {
     pub(super) fn land_in_the_editor(self: &Arc<Self>, kept: KeptPlan, reply: Reply) {
         let edit = workspace_edit(&self.root, &kept.plan, kept.version);
         let label = edit_label(&kept.plan);
+        self.remember_landing(&kept.plan);
         let server = Arc::clone(self);
         let plan = kept.plan;
         self.client.apply_edit(&label, edit, move |answer| {
             let said = if !answer.applied {
+                server.forget_refused_landing(&plan);
                 stop(&changed_since_text(&plan))
             } else {
                 match server.wired_for_commands() {
@@ -43,6 +46,41 @@ impl Server {
             };
             reply.send(Ok(said));
         });
+    }
+}
+
+impl Server {
+    /// Keeps the text the plan leaves in each changed file, so a file the editor opens to land
+    /// the edit is marked from it, not from the disk.
+    fn remember_landing(&self, plan: &Plan) {
+        let mut landing = lock(&self.landing);
+        for file in plan.changed_files() {
+            landing.insert(
+                self.root.join(&file.path),
+                Landing {
+                    file: file.path.clone(),
+                    text: file.text.clone(),
+                },
+            );
+        }
+    }
+
+    /// The editor refused the edit: the changed files are the disk's again, and those open in
+    /// the editor are marked from it.
+    fn forget_refused_landing(&self, plan: &Plan) {
+        let paths: Vec<_> = plan
+            .changed_files()
+            .into_iter()
+            .map(|file| self.root.join(&file.path))
+            .collect();
+        lock(&self.landing).retain(|path, _| !paths.contains(path));
+        let open: Vec<_> = paths
+            .into_iter()
+            .filter(|path| lock(&self.published).contains_key(path))
+            .collect();
+        for path in open {
+            self.republish(&path);
+        }
     }
 }
 
