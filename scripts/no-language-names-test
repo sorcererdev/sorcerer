@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Tests scripts/no-language-names over a throwaway tree: each refused form planted in
+# crates/*/src is named, the same forms in crates/*/tests and in comments pass, and clean code
+# passes.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+check="$here/no-language-names"
+d=$(mktemp -d)
+clean=$(mktemp -d)
+trap 'rm -rf "$d" "$clean"' EXIT
+
+put() { mkdir -p "$(dirname "$d/$1")"; cat > "$d/$1"; }
+
+forms() {
+  cat <<'RS'
+fn a() -> &'static str { "python" }
+fn b(p: &Path) -> bool { p.ends_with("main.py") }
+fn c(p: &Path) -> bool { p.ends_with("lib.rs") }
+fn d(n: Node) -> Option<Node> { n.child_by_field_name("body") }
+fn e(n: Node) -> Option<Node> { n.child_by_field_id(7) }
+fn f(n: Node) -> bool { n.kind() == "call" }
+fn g(n: Node) -> bool { n.kind() != "block" }
+fn h(n: Node) -> bool { n.kind().contains("comment") }
+fn i(n: Node) -> bool { n.kind().ends_with("statement") }
+fn j(n: Node) -> bool { n.kind().starts_with("line_") }
+fn k() -> Command { Command::new("ruff") }
+fn l() -> &'static str { "run pytest -q" }
+fn m() -> [&'static str; 2] { ["cargo", "fmt"] }
+fn n() -> &'static str { "npm ci" }
+fn o() -> &'static str { "uv run" }
+RS
+}
+
+forms | put crates/x/src/lib.rs
+forms | put crates/x/tests/t.rs
+put crates/x/src/clean.rs <<'RS'
+// a comment may say n.kind() == "call", "python", ruff or child_by_field_name("body")
+/// So may a doc comment: `cargo test`, "main.py".
+fn by_capture(n: Node, wanted: &str) -> bool { n.kind() == wanted }
+fn version() -> &'static str { env!("CARGO_PKG_VERSION") }
+fn which(tool: &str) -> Command { Command::new(tool) }
+fn field(n: Node, name: &str) -> Option<Node> { n.child_by_field_name(name) }
+fn words() -> &'static str { "words: uvula, pipeline, trust, cargo-cult" }
+RS
+
+out=$("$check" "$d" 2>&1) && { echo "FAIL: no-language-names passed a tree full of couplings"; exit 1; }
+want=(
+  "crates/x/src/lib.rs:1: a language named: \"python\""
+  "crates/x/src/lib.rs:2: a language named: .py\""
+  "crates/x/src/lib.rs:3: a language named: .rs\""
+  "crates/x/src/lib.rs:4: a grammar's field named: child_by_field_name("
+  "crates/x/src/lib.rs:5: a grammar's field named: child_by_field_id("
+  "crates/x/src/lib.rs:6: a grammar's node kind named: kind() == \""
+  "crates/x/src/lib.rs:7: a grammar's node kind named: kind() != \""
+  "crates/x/src/lib.rs:8: a grammar's node kind named: kind().contains(\""
+  "crates/x/src/lib.rs:9: a grammar's node kind named: kind().ends_with(\""
+  "crates/x/src/lib.rs:10: a grammar's node kind named: kind().starts_with(\""
+  "crates/x/src/lib.rs:11: a tool named: ruff"
+  "crates/x/src/lib.rs:12: a tool named: pytest"
+  "crates/x/src/lib.rs:13: a tool named: cargo"
+  "crates/x/src/lib.rs:14: a tool named: npm"
+  "crates/x/src/lib.rs:15: a tool named: uv"
+)
+fail=0
+for w in "${want[@]}"; do
+  grep -qxF "$w" <<<"$out" || { echo "FAIL: not named: $w"; fail=1; }
+done
+for quiet in "crates/x/tests/t.rs" "crates/x/src/clean.rs"; do
+  if grep -qF "$quiet:" <<<"$out"; then echo "FAIL: named $quiet"; fail=1; fi
+done
+named=$(grep -c '^crates/' <<<"$out" || true)
+[ "$named" -eq 15 ] || { echo "FAIL: $named lines name a coupling, want 15"; fail=1; }
+[ "$fail" -eq 0 ] || { echo "$out"; exit 1; }
+
+mkdir -p "$clean/crates/x/src"
+cp "$d/crates/x/src/clean.rs" "$clean/crates/x/src/"
+"$check" "$clean" || { echo "FAIL: no-language-names refused clean code"; exit 1; }
+echo "no-language-names-test: ok"

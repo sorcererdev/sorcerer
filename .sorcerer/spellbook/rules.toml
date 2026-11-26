@@ -83,3 +83,75 @@ query    = """
 message  = "a mod.rs holds only mod and use lines; move this to a file named for what it does"
 severity = "error"
 why      = "mod.rs shows the tree, named files show the work; scripts/mod-rs-declarations"
+
+# --- the-engine-knows-no-language ---------------------------------------------------------------
+# The mechanical half of scry.toml's the-engine-knows-no-language, mirroring
+# scripts/no-language-names: code in crates/*/src reaches a language only through tree-sitter's
+# captures and the language's data (crates/sorcerer-core/library/languages/<name>/). A grammar's
+# field or node kind, a language's name or extension, or a tool, written into the engine, is a
+# finding; name it in a query capture or a language.toml key instead.
+
+[rules.no-grammar-field-in-the-engine]
+files    = "crates/{crate}/src/**.rs"
+query    = """
+(call_expression
+  function: (field_expression field: (field_identifier) @method)
+  arguments: (arguments . [(string_literal) (raw_string_literal)])
+  (#any-of? @method "child_by_field_name" "field_id_for_name")) @finding
+(call_expression
+  function: (field_expression field: (field_identifier) @method)
+  arguments: (arguments . (integer_literal))
+  (#eq? @method "child_by_field_id")) @finding
+"""
+message  = "the engine names no grammar field: capture the node in the language's queries and read the capture"
+severity = "error"
+why      = "scry.toml the-engine-knows-no-language; scripts/no-language-names"
+
+[rules.no-node-kind-in-the-engine]
+files    = "crates/{crate}/src/**.rs"
+query    = """
+(binary_expression
+  left: (call_expression function: (field_expression field: (field_identifier) @kind))
+  operator: ["==" "!="]
+  right: [(string_literal) (raw_string_literal)]
+  (#eq? @kind "kind")) @finding
+(binary_expression
+  left: [(string_literal) (raw_string_literal)]
+  operator: ["==" "!="]
+  right: (call_expression function: (field_expression field: (field_identifier) @kind))
+  (#eq? @kind "kind")) @finding
+(call_expression
+  function: (field_expression
+    value: (call_expression function: (field_expression field: (field_identifier) @kind))
+    field: (field_identifier) @method)
+  arguments: (arguments . [(string_literal) (raw_string_literal)])
+  (#eq? @kind "kind")
+  (#any-of? @method "contains" "starts_with" "ends_with")) @finding
+(match_expression
+  value: (call_expression function: (field_expression field: (field_identifier) @kind))
+  body: (match_block (match_arm pattern: (match_pattern [(string_literal) (raw_string_literal)]) @finding))
+  (#eq? @kind "kind"))
+"""
+message  = "the engine names no node kind: capture the node in the language's queries (a comment is @comment.outer, a body @function.inner) and read the capture"
+severity = "error"
+why      = "scry.toml the-engine-knows-no-language; scripts/no-language-names"
+
+[rules.no-language-name-in-the-engine]
+files    = "crates/{crate}/src/**.rs"
+match    = { any = [
+  { kind = "string_literal", regex = "(?i)^\"(python|rust)\"$|\\.(py|rs)\"$" },
+  { kind = "raw_string_literal", regex = "(?i)\\.(py|rs)\"#*$" },
+] }
+message  = "the engine names no language or file extension: a language is files under crates/sorcerer-core/library/languages/<name>/"
+severity = "error"
+why      = "scry.toml the-engine-knows-no-language; scripts/no-language-names"
+
+[rules.no-tool-in-the-engine]
+files    = "crates/{crate}/src/**.rs"
+match    = { any = [
+  { kind = "string_literal", regex = "(^|[^\\w-])(ruff|black|mypy|pyright|pytest|pip|pipx|uv|poetry|tox|cargo|rustc|rustfmt|rustup|clippy|npm|npx|yarn|pnpm|eslint|prettier|tsc|jest|vitest|gofmt|mvn|gradle)([^\\w-]|$)" },
+  { kind = "raw_string_literal", regex = "(^|[^\\w-])(ruff|black|mypy|pyright|pytest|pip|pipx|uv|poetry|tox|cargo|rustc|rustfmt|rustup|clippy|npm|npx|yarn|pnpm|eslint|prettier|tsc|jest|vitest|gofmt|mvn|gradle)([^\\w-]|$)" },
+] }
+message  = "the engine names no tool (formatter, linter, test runner, package manager): the person's configuration names tools, the engine runs what it is given"
+severity = "error"
+why      = "scry.toml the-engine-knows-no-language; scripts/no-language-names"

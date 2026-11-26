@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use sorcerer_core::domain::captures::{COMMENT, Captures};
 use sorcerer_core::domain::query::compile;
 use sorcerer_core::{Error, Result};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
@@ -110,9 +111,11 @@ impl RuleRunner for QueryRules<'_> {
         let Some(tree) = loaded.parse(text)? else {
             return Ok(Vec::new());
         };
-        let mut comments = Vec::new();
-        collect_comments(tree.root_node(), text, &mut comments);
-        Ok(comments)
+        Ok(Captures::of(&loaded, &tree, text)
+            .nodes(&[COMMENT])
+            .into_iter()
+            .map(|node| comment_of(node, text))
+            .collect())
     }
 
     fn enclosing(
@@ -147,21 +150,13 @@ fn span_of(node: tree_sitter::Node) -> Span {
     }
 }
 
-/// Adds every comment node under `node`, by the grammar's own naming (`comment`,
-/// `line_comment`, `block_comment`).
-fn collect_comments(node: tree_sitter::Node, text: &str, into: &mut Vec<Comment>) {
-    if node.kind().contains("comment") {
-        into.push(Comment {
-            line: u32::try_from(node.start_position().row + 1).unwrap_or(u32::MAX),
-            text: node
-                .utf8_text(text.as_bytes())
-                .unwrap_or_default()
-                .to_string(),
-        });
-        return;
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_comments(child, text, into);
+/// A comment the language's queries capture as `@comment.outer`.
+fn comment_of(node: tree_sitter::Node, text: &str) -> Comment {
+    Comment {
+        line: u32::try_from(node.start_position().row + 1).unwrap_or(u32::MAX),
+        text: node
+            .utf8_text(text.as_bytes())
+            .unwrap_or_default()
+            .to_string(),
     }
 }

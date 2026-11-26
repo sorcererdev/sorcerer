@@ -1,9 +1,60 @@
 #!/usr/bin/env bash
-# The engine knows no language: no language name or file extension in crates/*/src.
-# Tests that name a language live under crates/*/tests/.
+# The engine knows no language and no tool. Code in crates/*/src reaches a language only through
+# tree-sitter (the queries' captures) and the language's data under
+# crates/sorcerer-core/library/languages/<name>/, so it never names, in a string or a comparison:
+#   a language or a file extension         "python"  "rust"  ".py"  ".rs"
+#   a grammar's field                      child_by_field_name("…")  child_by_field_id(7)  field_id_for_name("…")
+#   a grammar's node kind                  kind() == "…"  kind() != "…"
+#                                          kind().contains("…") .starts_with("…") .ends_with("…")
+#   a formatter, linter, test runner or package manager, in a string literal
+#                                          "ruff" "pytest" "cargo" "npm" "uv" …
+# Tests under crates/*/tests may name languages; comment lines are skipped. The mechanical half of
+# the same rule over the syntax tree is in .sorcerer/spellbook/rules.toml.
+#
+# Usage: scripts/no-language-names [ROOT]   (ROOT defaults to the repository)
 set -euo pipefail
-cd "$(dirname "$0")/.."
-if grep -rnE -i '"(python|rust)"|\.py"|\.rs"' crates/*/src; then
-  echo "a language is named in crates/*/src; languages are data under crates/sorcerer-core/library/languages/"
-  exit 1
-fi
+root=${1:-$(cd "$(dirname "$0")/.." && pwd)}
+cd "$root"
+find crates -path 'crates/*/src/*' -name '*.rs' -print0 2>/dev/null | sort -z | perl -0 -ne '
+  BEGIN {
+    $tools = join "|", qw(ruff black mypy pyright pytest pip pipx uv poetry tox
+                          cargo rustc rustfmt rustup clippy
+                          npm npx yarn pnpm eslint prettier tsc jest vitest
+                          gofmt mvn gradle);
+    $bad = 0;
+  }
+  chomp(my $file = $_);
+  open my $fh, "<", $file or die "$file: $!";
+  my $n = 0;
+  local $/ = "\n";
+  while (my $line = <$fh>) {
+    $n++;
+    next if $line =~ m{^\s*//};
+    my @found;
+    push @found, "a language named: \"$1\"" while $line =~ /"(python|rust)"/gi;
+    push @found, "a language named: $1\""   while $line =~ /(\.py|\.rs)"/gi;
+    push @found, "a grammar\x27s field named: $1("
+      while $line =~ /\b(child_by_field_name|field_id_for_name)\(\s*"/g;
+    push @found, "a grammar\x27s field named: child_by_field_id("
+      while $line =~ /\bchild_by_field_id\(\s*\d/g;
+    push @found, "a grammar\x27s node kind named: kind() $1 \""
+      while $line =~ /\bkind\(\)\s*(==|!=)\s*"/g;
+    push @found, "a grammar\x27s node kind named: \" == kind()"
+      while $line =~ /"\s*(?:==|!=)\s*[\w.]*\bkind\(\)/g;
+    push @found, "a grammar\x27s node kind named: kind().$1(\""
+      while $line =~ /\bkind\(\)\.(contains|starts_with|ends_with)\(\s*"/g;
+    while ($line =~ /"((?:[^"\\]|\\.)*)"/g) {
+      my $literal = $1;
+      push @found, "a tool named: $1" while $literal =~ /(?<![\w-])($tools)(?![\w-])/g;
+    }
+    for my $form (@found) {
+      print "$file:$n: $form\n";
+      $bad = 1;
+    }
+  }
+  close $fh;
+  END {
+    print "the engine reaches languages through tree-sitter and crates/sorcerer-core/library/languages/, never by name\n" if $bad;
+    exit $bad;
+  }
+'

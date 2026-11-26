@@ -81,10 +81,18 @@ fn unit_at_is_the_innermost() {
 }
 
 #[test]
-fn the_body_is_the_grammars_body_field() {
+fn the_body_is_what_textobjects_captures_inside_the_definition() {
     let us = units_of(&loaded("python"), PY).unwrap();
     let top = us.iter().find(|u| u.name == "top").unwrap();
     assert_eq!(top.body, Some(Span { start: 15, end: 15 }));
+    // Rust's @function.inner is the items between the braces, not the braces' lines
+    let rs =
+        "impl A {\n    fn f(&self) {\n        let x = 1;\n        x\n    }\n    fn g() {}\n}\n";
+    let us = units_of(&loaded("rust"), rs).unwrap();
+    let body = |name: &str| us.iter().find(|u| u.name == name).unwrap().body;
+    assert_eq!(body("A::f"), Some(Span { start: 3, end: 4 }));
+    assert_eq!(body("A::g"), None);
+    assert_eq!(body("A"), Some(Span { start: 2, end: 6 }));
 }
 
 #[test]

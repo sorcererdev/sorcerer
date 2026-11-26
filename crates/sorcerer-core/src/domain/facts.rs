@@ -1,11 +1,13 @@
-//! Facts: what the code can tell about a unit without a model. Decided by
-//! node kinds tree-sitter grammars share, never by a language's name.
+//! Facts: what the code can tell about a unit without a model. Decided by what the language's
+//! queries capture (`@comment.outer`, `@placeholder`, a definition's `@function.inner`), never by
+//! a language's name or a grammar's node kinds.
 
 use tree_sitter::{Node, Tree};
 
 use crate::Result;
+use crate::domain::captures::{COMMENT, Captures, PLACEHOLDER};
 use crate::domain::language::Loaded;
-use crate::domain::unit::{Span, Unit, lines_of};
+use crate::domain::unit::{Span, Unit, is_unit_capture, lines_of};
 
 /// What the code alone says about one unit, without asking a model.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -14,16 +16,10 @@ pub struct Facts {
     pub parse_errors: Vec<u32>,
     /// Lines of comments that say `TODO` or `FIXME`.
     pub todo_lines: Vec<u32>,
-    /// True when the unit has no body, or its body holds only placeholders (`pass`, `...`,
-    /// `todo!()`) and comments.
+    /// True when the unit has no body, or its body holds only comments and what the language's
+    /// `placeholders.scm` captures as `@placeholder` (`pass`, `...`, `todo!()`).
     pub body_empty: bool,
 }
-
-/// Node kinds that do nothing, as tree-sitter grammars commonly name them:
-/// a `pass`, and a statement wrapping only an ellipsis.
-const EMPTY_BODY_KINDS: &[&str] = &["pass_statement", "ellipsis"];
-/// Macros that stand for a body not written yet.
-const PLACEHOLDER_MACROS: &[&str] = &["todo", "unimplemented"];
 
 /// Reads the facts of one unit of a file: its parse errors, its TODO and FIXME comments, and
 /// whether its body is still empty.
@@ -38,10 +34,11 @@ pub fn facts_of(lang: &Loaded, text: &str, unit: &Unit) -> Result<Facts> {
         return Ok(Facts::default());
     };
     let nodes = nodes_sharing_lines_with(&tree, unit.span);
+    let captures = Captures::of(lang, &tree, text);
     Ok(Facts {
         parse_errors: parse_error_lines(&nodes, unit.span),
-        todo_lines: todo_comment_lines(&nodes, unit.span, text),
-        body_empty: body_is_empty(&nodes, unit, text),
+        todo_lines: todo_comment_lines(&captures, unit.span, text),
+        body_empty: body_is_empty(&captures, unit),
     })
 }
 
@@ -64,19 +61,16 @@ pub fn parse_errors_of(lang: &Loaded, text: &str) -> Result<Vec<u32>> {
     Ok(lines)
 }
 
-/// A syntax node with the name of the field it fills in its parent (`body`, `name`, …), if any.
-type NodeInField<'t> = (Node<'t>, Option<&'static str>);
-
 /// Every node that shares at least one line with the span, in reading order (a parent before
 /// its children). A node wholly outside the span is skipped with everything inside it.
-fn nodes_sharing_lines_with(tree: &Tree, span: Span) -> Vec<NodeInField<'_>> {
+fn nodes_sharing_lines_with(tree: &Tree, span: Span) -> Vec<Node<'_>> {
     let mut cursor = tree.walk();
     let mut found = Vec::new();
     loop {
         let node = cursor.node();
         let shares_lines = overlaps(span, lines_of(&node));
         if shares_lines {
-            found.push((node, cursor.field_name()));
+            found.push(node);
         }
         if shares_lines && cursor.goto_first_child() {
             continue;
@@ -95,11 +89,11 @@ fn overlaps(a: Span, b: Span) -> bool {
 
 /// The lines inside the span where the parser marked an error or inserted a missing token,
 /// each line once.
-fn parse_error_lines(nodes: &[NodeInField], span: Span) -> Vec<u32> {
+fn parse_error_lines(nodes: &[Node], span: Span) -> Vec<u32> {
     let mut lines: Vec<u32> = nodes
         .iter()
-        .filter(|(node, _)| node.is_error() || node.is_missing())
-        .map(|(node, _)| first_line(node))
+        .filter(|node| node.is_error() || node.is_missing())
+        .map(first_line)
         .filter(|line| span.holds(*line))
         .collect();
     lines.dedup();
@@ -108,13 +102,13 @@ fn parse_error_lines(nodes: &[NodeInField], span: Span) -> Vec<u32> {
 
 /// The lines inside the span of comments that say `TODO` or `FIXME`, each line once. A comment
 /// over several lines is looked at line by line.
-fn todo_comment_lines(nodes: &[NodeInField], span: Span, text: &str) -> Vec<u32> {
-    let mut lines: Vec<u32> = nodes
-        .iter()
-        .filter(|(node, _)| node.kind().contains("comment"))
-        .flat_map(|(node, _)| {
+fn todo_comment_lines(captures: &Captures, span: Span, text: &str) -> Vec<u32> {
+    let mut lines: Vec<u32> = captures
+        .nodes(&[COMMENT])
+        .into_iter()
+        .flat_map(|node| {
             let comment = node.utf8_text(text.as_bytes()).unwrap_or_default();
-            (first_line(node)..)
+            (first_line(&node)..)
                 .zip(comment.lines())
                 .filter(|(_, line)| line.contains("TODO") || line.contains("FIXME"))
                 .map(|(number, _)| number)
@@ -130,42 +124,42 @@ fn first_line(node: &Node) -> u32 {
     node.start_position().row as u32 + 1
 }
 
-/// Whether the unit's body is missing or does nothing yet. The body node is the first node in
-/// a `body` field whose lines are exactly the unit's body lines.
-fn body_is_empty(nodes: &[NodeInField], unit: &Unit, text: &str) -> bool {
-    let body = nodes.iter().find(|(node, field)| {
-        let lines = lines_of(node);
-        *field == Some("body") && Some(lines) == unit.body && unit.span.contains(&lines)
+/// Whether the unit's body is missing or does nothing yet: every item of it, comments aside,
+/// is a `@placeholder`. The definition is the one the queries captured inside the unit's lines
+/// whose body has exactly the unit's body lines.
+fn body_is_empty(captures: &Captures, unit: &Unit) -> bool {
+    let Some(body) = unit.body else {
+        return true;
+    };
+    let definition = unit_definitions(captures).into_iter().find(|node| {
+        unit.span.contains(&lines_of(node)) && body_lines(captures, *node) == Some(body)
     });
-    match body {
-        Some((node, _)) => is_placeholder_body(node, text.as_bytes()),
-        None => unit.body.is_none(),
-    }
-}
-/// True when every statement in the body, comments aside, is a placeholder. An empty body
-/// (`{}`) counts.
-fn is_placeholder_body(body: &Node, src: &[u8]) -> bool {
-    let mut c = body.walk();
-    body.named_children(&mut c)
-        .filter(|n| !n.kind().contains("comment"))
-        .all(|n| is_placeholder(&n, src))
+    definition.is_some_and(|node| {
+        captures
+            .body_items(node)
+            .iter()
+            .all(|item| captures.is(PLACEHOLDER, *item))
+    })
 }
 
-/// True for a statement that does nothing yet: `pass`, `...`, `todo!()`, `unimplemented!()`, or a
-/// statement wrapping exactly one of those.
-fn is_placeholder(n: &Node, src: &[u8]) -> bool {
-    if EMPTY_BODY_KINDS.contains(&n.kind()) {
-        return true;
-    }
-    if n.kind() == "macro_invocation" {
-        let name = n
-            .child_by_field_name("macro")
-            .and_then(|m| m.utf8_text(src).ok())
-            .unwrap_or_default();
-        return PLACEHOLDER_MACROS.contains(&name);
-    }
-    // a statement wrapping one placeholder (`...`, `todo!();`)
-    let mut c = n.walk();
-    let kids: Vec<Node> = n.named_children(&mut c).collect();
-    n.kind().ends_with("statement") && kids.len() == 1 && is_placeholder(&kids[0], src)
+/// Every node captured as a unit (`@definition.<kind>`, `@unit.<…>`).
+fn unit_definitions<'t>(captures: &Captures<'t>) -> Vec<Node<'t>> {
+    let mut nodes: Vec<Node<'t>> = captures
+        .matches()
+        .iter()
+        .flatten()
+        .filter(|(capture, _)| is_unit_capture(capture))
+        .map(|(_, node)| *node)
+        .collect();
+    nodes.sort_by_key(|node| (node.start_byte(), node.id()));
+    nodes.dedup_by_key(|node| node.id());
+    nodes
+}
+
+/// The lines of what the queries capture as the definition's body.
+fn body_lines(captures: &Captures, definition: Node) -> Option<Span> {
+    let body = captures.body_of(definition);
+    let start = body.iter().map(|node| lines_of(node).start).min()?;
+    let end = body.iter().map(|node| lines_of(node).end).max()?;
+    Some(Span { start, end })
 }
