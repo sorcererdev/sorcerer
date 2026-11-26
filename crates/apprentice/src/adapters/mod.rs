@@ -4,11 +4,14 @@
 
 pub mod claude_agent;
 pub mod disk_editor;
+pub mod grammar_syntax;
 pub mod helper_way;
 pub mod hooks;
 pub mod json_permissions;
+pub mod json_region_store;
 pub mod jsonl_task_store;
 pub mod loopback;
+pub mod lsp;
 pub mod markdown_journal;
 pub mod mcp_server;
 pub mod project_context;

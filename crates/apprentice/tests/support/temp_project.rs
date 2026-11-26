@@ -8,6 +8,7 @@ use apprentice::ports::agent::Agent;
 use apprentice::ports::editor::Editor;
 use apprentice::usecases::run_task::TaskDeps;
 use sorcerer_core::adapters::env::MapEnv;
+use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::domain::project::Project;
 use tempfile::TempDir;
 
@@ -44,10 +45,9 @@ impl TempProject {
 
     /// The deps of a task over this project, with the editor and agent given.
     pub fn deps(&self, editor: Arc<dyn Editor>, agent: Arc<dyn Agent>) -> TaskDeps {
-        let env = MapEnv::default();
         task_deps(
             &self.project(),
-            &env,
+            GrammarCache::user(&MapEnv::default()),
             editor,
             agent,
             Arc::new(FixedClock::thanksgiving()),

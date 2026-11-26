@@ -10,6 +10,7 @@ mod doctor;
 mod format;
 mod hook;
 mod log;
+mod lsp;
 mod mcp;
 mod run;
 mod run_cli;

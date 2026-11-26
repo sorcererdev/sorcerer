@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail};
+use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::platform::paths::canonical;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
@@ -47,7 +48,7 @@ pub(super) fn run_here(
     let editor = Arc::new(DiskEditor::new(project.root.clone(), notes_dir(&project)?));
     let deps = task_deps(
         &project,
-        env,
+        GrammarCache::user(env),
         editor.clone(),
         (wiring.agent)(&project)?,
         wiring.clock.clone(),

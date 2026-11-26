@@ -6,4 +6,6 @@ pub mod editor;
 pub mod journal;
 pub mod permission_store;
 pub mod project_context;
+pub mod region_store;
+pub mod syntax;
 pub mod task_store;

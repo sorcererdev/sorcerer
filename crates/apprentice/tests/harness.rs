@@ -224,11 +224,13 @@ fn the_persons_edits_reach_the_fake_through_the_hook() {
     runner.follow(started);
     typing.join().unwrap();
     let log = fake.log();
-    let after_read = log
+    // the edit reaches the agent after the next tool call, whichever that is
+    let fed = log
         .iter()
-        .find(|entry| entry["hook"] == "PostToolUse" && entry["after"] == "Read")
-        .unwrap();
-    let output: Value = serde_json::from_str(after_read["output"].as_str().unwrap()).unwrap();
+        .filter(|entry| entry["hook"] == "PostToolUse")
+        .find_map(|entry| entry["output"].as_str().filter(|output| !output.is_empty()))
+        .unwrap_or_else(|| panic!("no hook output in {log:?}"));
+    let output: Value = serde_json::from_str(fed).unwrap();
     assert_eq!(output["hookSpecificOutput"]["hookEventName"], "PostToolUse");
     let context = output["hookSpecificOutput"]["additionalContext"]
         .as_str()

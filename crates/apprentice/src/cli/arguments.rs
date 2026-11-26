@@ -18,6 +18,8 @@ pub(super) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(super) enum Cmd {
+    /// The editor's language server, over standard input and output
+    Lsp,
     /// The medium tools as an MCP server (the agent starts this)
     Mcp,
     /// A hook of the agent's: post-tool-use or stop (the agent runs this)

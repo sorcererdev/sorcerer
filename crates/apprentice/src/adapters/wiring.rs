@@ -11,7 +11,6 @@ use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
-use sorcerer_core::ports::env::Env;
 
 use crate::adapters::claude_agent::ClaudeAgent;
 use crate::adapters::json_permissions::JsonPermissions;
@@ -54,7 +53,7 @@ pub fn claude_settings(project: &Project) -> ProviderConfig {
 /// Everything a task needs, over the project's files, with the given editor, agent and clock.
 pub fn task_deps(
     project: &Project,
-    env: &dyn Env,
+    cache: GrammarCache,
     editor: Arc<dyn Editor>,
     agent: Arc<dyn Agent>,
     clock: Arc<dyn Clock>,
@@ -71,7 +70,7 @@ pub fn task_deps(
         clock,
         context: Arc::new(FilesContext {
             project: Arc::new(project.clone()),
-            cache: GrammarCache::user(env),
+            cache,
             fences: fences.clone(),
         }),
         fences,

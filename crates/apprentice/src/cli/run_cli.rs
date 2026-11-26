@@ -18,7 +18,7 @@ use crate::ports::clock::Clock;
 
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
-use super::{cost, doctor, hook, log, mcp, run, trust};
+use super::{cost, doctor, hook, log, lsp, mcp, run, trust};
 
 /// What the commands are built with: the agent and the clock. The tests give their own.
 pub struct Wiring {
@@ -85,6 +85,7 @@ fn run_command(
     // the project holding the current directory
     let project = || Project::open(cwd);
     match cli.cmd {
+        Some(Cmd::Lsp) => lsp::lsp(),
         Some(Cmd::Mcp) => mcp::mcp(env, out),
         Some(Cmd::Hook { event }) => hook::hook(&event, env, out),
         None => run::run_here(&cli.run, cwd, project()?, env, wiring, out),
