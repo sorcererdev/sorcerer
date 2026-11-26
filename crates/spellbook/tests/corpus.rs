@@ -15,6 +15,7 @@ use spellbook::domain::plan::plan_stop_text;
 use spellbook::usecases::check_files::check_files;
 use spellbook::usecases::check_project::check_project;
 use spellbook::usecases::open_holes::{HolesDeps, open_holes};
+use spellbook::usecases::sync_regions::{SyncMode, plan_sync};
 use support::*;
 use tempfile::TempDir;
 
@@ -24,6 +25,19 @@ struct CorpusFile {
     language: String,
     /// The base project, relative to the corpus folder.
     base: String,
+    /// A folder of files laid over the base for every case that does not say `base =
+    /// "shared"`: the files that carry region markers.
+    overlay: Option<String>,
+}
+
+/// Which project a case starts from: the base with the corpus's overlay (the default), or the
+/// shared base as the other corpora have it (`base = "shared"`).
+#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum Base {
+    #[default]
+    Overlaid,
+    Shared,
 }
 
 /// A `new` or `holes` case: a generator run with inputs, then (for `holes`) a patch applied.
@@ -37,6 +51,8 @@ struct NewCase {
     /// The holes still open at the end, one entry a place.
     #[serde(default)]
     holes: Vec<ExpectedHole>,
+    #[serde(default)]
+    base: Base,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,6 +72,9 @@ struct LoadCase {
     inputs: BTreeMap<String, String>,
     /// A file to check, for a mistake that only shows when a rule runs.
     check: Option<String>,
+    /// The mistake is in `regions.toml`: the sentence is what a sync says.
+    #[serde(default)]
+    sync: bool,
 }
 
 /// A `fix` case: a patch over the base plants a finding, then one of its fixes is planned and
@@ -71,6 +90,8 @@ struct FixCase {
     inputs: BTreeMap<String, String>,
     #[serde(default)]
     holes: Vec<ExpectedHole>,
+    #[serde(default)]
+    base: Base,
 }
 
 fn first_fix() -> usize {
@@ -81,6 +102,24 @@ fn first_fix() -> usize {
 #[derive(Deserialize)]
 struct CheckCase {
     patch: Option<String>,
+    #[serde(default)]
+    base: Base,
+}
+
+/// A `sync` case: a patch over the base, then a command (`spellbook sync` with the case's
+/// `mode`, or the case's whole `command`); what it printed is `expected/sync/<id>.txt`, every
+/// file it changed is under `expected/sync/<id>/`.
+#[derive(Deserialize)]
+struct SyncCase {
+    /// `refresh`, `init NAME`, `check` or `plan`.
+    #[serde(default)]
+    mode: Option<String>,
+    /// The words after `spellbook`, instead of a sync (a `new` on broken markers).
+    command: Option<String>,
+    patch: Option<String>,
+    #[serde(default)]
+    base: Base,
+    exit: i32,
 }
 
 fn corpus_dir(name: &str) -> PathBuf {
@@ -102,10 +141,14 @@ fn unix_newlines(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
-/// The corpus's base with its `spellbook/` folder in place as `.sorcerer/spellbook/`.
-fn project_of(dir: &Path, corpus: &CorpusFile) -> TempDir {
+/// The corpus's base (with its overlay, unless the case starts from the shared base) and its
+/// `spellbook/` folder in place as `.sorcerer/spellbook/`.
+fn project_of(dir: &Path, corpus: &CorpusFile, base: Base) -> TempDir {
     let project = tempfile::tempdir().unwrap();
     copy_tree(&dir.join(&corpus.base), project.path());
+    if let (Some(overlay), Base::Overlaid) = (&corpus.overlay, base) {
+        copy_tree(&dir.join(overlay), project.path());
+    }
     let target = project.path().join(".sorcerer/spellbook");
     std::fs::create_dir_all(&target).unwrap();
     copy_tree(&dir.join("spellbook"), &target);
@@ -159,7 +202,7 @@ fn open_places(rig: &PlanRig) -> Vec<ExpectedHole> {
 /// against the case's list.
 fn run_new_case(dir: &Path, corpus: &CorpusFile, kind: &str, id: &str) {
     let case: NewCase = read_toml(&dir.join("cases").join(kind).join(format!("{id}.toml")));
-    let project = project_of(dir, corpus);
+    let project = project_of(dir, corpus, case.base);
     let rig = PlanRig::new(project.path());
     assert_eq!(rig.generator(&case.generator).language, corpus.language);
     let given: Vec<(&str, &str)> = case
@@ -170,8 +213,9 @@ fn run_new_case(dir: &Path, corpus: &CorpusFile, kind: &str, id: &str) {
     let plan = rig
         .plan(&case.generator, &given)
         .unwrap_or_else(|stop| panic!("{kind}/{id}: {}", plan_stop_text(&stop)));
-    let written = rig.apply(plan).written;
-    assert!(!written.is_empty(), "{kind}/{id} wrote nothing");
+    let applied = rig.apply(plan);
+    assert!(!applied.written.is_empty(), "{kind}/{id} wrote nothing");
+    let written: Vec<String> = applied.written.into_iter().chain(applied.changed).collect();
     if let Some(patch) = &case.patch {
         git_apply(project.path(), &dir.join("cases").join(kind).join(patch));
     }
@@ -233,10 +277,16 @@ fn bistro_rs_holds_its_cases() {
 fn load_sentence(dir: &Path, corpus: &CorpusFile, id: &str) -> String {
     let case_dir = dir.join("cases/load").join(id);
     let case: LoadCase = read_toml(&case_dir.join("case.toml"));
-    let project = project_of(dir, corpus);
+    let project = project_of(dir, corpus, Base::Overlaid);
     let overlay = case_dir.join("spellbook");
     copy_tree(&overlay, &project.path().join(".sorcerer/spellbook"));
     let rig = PlanRig::new(project.path());
+    if case.sync {
+        return match plan_sync(&rig.deps(), &SyncMode::Refresh) {
+            Ok(_) => panic!("load/{id}: the regions loaded and synced; the mistake is gone"),
+            Err(stop) => plan_stop_text(&stop),
+        };
+    }
     let Some(generator) = &case.generator else {
         return rules_sentence(project.path(), id, case.check.as_deref());
     };
@@ -280,7 +330,7 @@ fn run_fix_case(dir: &Path, corpus: &CorpusFile, id: &str) {
 
     let cases = dir.join("cases/fix");
     let case: FixCase = read_toml(&cases.join(format!("{id}.toml")));
-    let project = project_of(dir, corpus);
+    let project = project_of(dir, corpus, case.base);
     git_apply(project.path(), &cases.join(&case.patch));
     let (file, line) = case.at.rsplit_once(':').expect("at is FILE:LINE");
     let at = FindingAt {
@@ -391,7 +441,7 @@ fn bistro_rs_load_mistakes_say_what_is_wrong() {
 /// `expected/check/<id>.json`.
 fn run_check_case(dir: &Path, corpus: &CorpusFile, id: &str) {
     let case: CheckCase = read_toml(&dir.join(format!("cases/check/{id}.toml")));
-    let project = project_of(dir, corpus);
+    let project = project_of(dir, corpus, case.base);
     if let Some(patch) = &case.patch {
         git_apply(project.path(), &dir.join("cases/check").join(patch));
     }
@@ -435,4 +485,147 @@ fn bistro_check_cases_find_what_was_planted() {
 #[test]
 fn bistro_rs_check_cases_find_what_was_planted() {
     run_check_cases("bistro-rs");
+}
+
+/// Every text file of a project but spellbook's own folder, by its path with `/`.
+fn texts_of(root: &Path) -> BTreeMap<String, String> {
+    fn walk(root: &Path, dir: &Path, found: &mut BTreeMap<String, String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let name = path
+                .strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            if name == ".sorcerer" || name == ".git" || name == "target" {
+                continue;
+            }
+            if path.is_dir() {
+                walk(root, &path, found);
+            } else if let Ok(text) = std::fs::read_to_string(&path) {
+                found.insert(name, text);
+            }
+        }
+    }
+    let mut found = BTreeMap::new();
+    walk(root, root, &mut found);
+    found
+}
+
+/// The words a sync case runs after `spellbook`.
+fn sync_words(case: &SyncCase) -> Vec<String> {
+    if let Some(command) = &case.command {
+        return command.split_whitespace().map(String::from).collect();
+    }
+    let mode = case.mode.as_deref().unwrap_or("refresh");
+    let mut words = vec!["sync".to_string()];
+    match mode.split_whitespace().collect::<Vec<_>>().as_slice() {
+        ["refresh"] => {}
+        ["check"] => words.push("--check".into()),
+        ["plan"] => words.push("--plan".into()),
+        ["init", name] => words.extend(["--init".to_string(), name.to_string()]),
+        _ => panic!("mode = {mode:?} is not refresh, init NAME, check or plan"),
+    }
+    words
+}
+
+/// Runs the command line in a project on the vendored grammars and a fixed clock: the exit
+/// code, and what it printed and said, in that order.
+fn run_spellbook(root: &Path, words: &[String]) -> (i32, String) {
+    use sorcerer_core::adapters::env::MapEnv;
+    use sorcerer_core::domain::project::Project;
+    use spellbook::adapters::wiring::{Wired, wired};
+
+    let env = MapEnv::default().with_user_dirs(root);
+    let wire = |mut project: Project| -> sorcerer_core::Result<Wired> {
+        point_at_vendored(&mut project.languages);
+        wired(
+            project,
+            test_cache(),
+            std::sync::Arc::new(FixedClock::at_noon()),
+        )
+    };
+    let args: Vec<std::ffi::OsString> = std::iter::once("spellbook".to_string())
+        .chain(words.iter().cloned())
+        .map(Into::into)
+        .collect();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = spellbook::cli::main_with(args, root, &env, &wire, &mut out, &mut err);
+    let printed = String::from_utf8(out).unwrap() + &String::from_utf8(err).unwrap();
+    (code, printed)
+}
+
+/// Runs one `sync` case: the patch applied, the command run, what it printed against
+/// `expected/sync/<id>.txt`, its exit code against the case's, every file it changed against
+/// `expected/sync/<id>/`.
+fn run_sync_case(dir: &Path, corpus: &CorpusFile, id: &str) {
+    let cases = dir.join("cases/sync");
+    let case: SyncCase = read_toml(&cases.join(format!("{id}.toml")));
+    let project = project_of(dir, corpus, case.base);
+    if let Some(patch) = &case.patch {
+        git_apply(project.path(), &cases.join(patch));
+    }
+    let before = texts_of(project.path());
+    let (code, printed) = run_spellbook(project.path(), &sync_words(&case));
+    let after = texts_of(project.path());
+    let changed: Vec<&String> = after
+        .iter()
+        .filter(|(path, text)| before.get(*path) != Some(*text))
+        .map(|(path, _)| path)
+        .collect();
+    let printed_path = dir.join(format!("expected/sync/{id}.txt"));
+    let expected_dir = dir.join("expected/sync").join(id);
+    if blessing() {
+        std::fs::create_dir_all(printed_path.parent().unwrap()).unwrap();
+        std::fs::write(&printed_path, &printed).unwrap();
+        for path in &changed {
+            let to = expected_dir.join(path);
+            std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+            std::fs::write(&to, &after[*path]).unwrap();
+        }
+        println!("# sync/{id}: exit {code}");
+        return;
+    }
+    let expected = std::fs::read_to_string(&printed_path)
+        .unwrap_or_else(|e| panic!("{}: {e}", printed_path.display()));
+    assert_eq!(
+        unix_newlines(&printed),
+        unix_newlines(&expected),
+        "sync/{id}"
+    );
+    assert_eq!(code, case.exit, "sync/{id}: the exit code");
+    let mut want: Vec<String> = Vec::new();
+    if expected_dir.is_dir() {
+        want = texts_of(&expected_dir).into_keys().collect();
+    }
+    let got: Vec<String> = changed.iter().map(|path| path.to_string()).collect();
+    assert_eq!(got, want, "sync/{id}: the files changed");
+    for path in &got {
+        let expected = std::fs::read_to_string(expected_dir.join(path)).unwrap();
+        assert_eq!(
+            unix_newlines(&after[path]),
+            unix_newlines(&expected),
+            "sync/{id}: {path}"
+        );
+    }
+}
+
+fn run_sync_cases(name: &str) {
+    let dir = corpus_dir(name);
+    let corpus: CorpusFile = read_toml(&dir.join("corpus.toml"));
+    let ids = case_ids(&dir, "sync", "toml");
+    assert!(!ids.is_empty(), "{name} has no sync cases");
+    for id in ids {
+        run_sync_case(&dir, &corpus, &id);
+    }
+}
+
+#[test]
+fn bistro_keeps_its_regions() {
+    run_sync_cases("bistro");
+}
+
+#[test]
+fn bistro_rs_keeps_its_regions() {
+    run_sync_cases("bistro-rs");
 }

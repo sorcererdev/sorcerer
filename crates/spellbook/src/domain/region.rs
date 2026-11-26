@@ -177,7 +177,7 @@ fn refuse_unknown_keys(table: &toml::Table) -> Result<(), String> {
 fn region_file(table: &toml::Table) -> Result<PathPattern, String> {
     let text = string_of(table, "file")?
         .ok_or("`file` is missing: the path pattern of the file(s) that hold the block")?;
-    let kept = relative_path(&text).map_err(|why| format!("file: `{text}` is {why}"))?;
+    let kept = relative_path(&text).map_err(|why| format!("file: `{text}`: {why}"))?;
     if kept.starts_with(".sorcerer/") || kept.starts_with(".git/") {
         return Err(format!(
             "file: `{text}` is a fenced path (.sorcerer/ and .git/ are never written)"

@@ -9,6 +9,7 @@ use sorcerer_core::domain::fnv::fnv64_hex;
 use crate::domain::change::{Hunk, TextChange, added_and_removed, changes_between, hunks};
 use crate::domain::holes::{Hole, HoleOrigin};
 use crate::domain::inputs::{InputStop, input_stop_text};
+use crate::domain::region::REGIONS_FILE;
 
 /// What a generation would do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -297,14 +298,14 @@ pub fn plan_stop_text(stop: &PlanStop) -> String {
         PlanStop::RegionsDoNotLoad(why) => why.clone(),
         PlanStop::RegionNotThere { name, known } => region_not_there_text(name, known),
         PlanStop::Region { name, file, why } => {
-            format!("region {name} ({file}): {why}; nothing was written")
+            format!("{REGIONS_FILE}: region {name}, in {file}: {why}; nothing was written")
         }
     }
 }
 
 fn region_not_there_text(name: &str, known: &[String]) -> String {
     if known.is_empty() {
-        return format!("no region named {name}: .sorcerer/spellbook/regions.toml declares none");
+        return format!("no region named {name}: {REGIONS_FILE} declares none");
     }
     format!(
         "no region named {name} (the regions are: {})",

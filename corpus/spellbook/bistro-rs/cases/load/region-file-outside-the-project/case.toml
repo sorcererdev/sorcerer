@@ -1,0 +1,2 @@
+# A region file outside the project is refused when regions.toml loads.
+sync = true

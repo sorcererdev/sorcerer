@@ -1,0 +1,10 @@
+diff --git a/src/booking/commands/mod.rs b/src/booking/commands/mod.rs
+index c251067..2ec8ca8 100644
+--- a/src/booking/commands/mod.rs
++++ b/src/booking/commands/mod.rs
+@@ -2,4 +2,5 @@
+ 
+ // spellbook:region modules (from src/booking/commands/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
+ pub mod create_booking;
++pub mod ghost;
+ // spellbook:end modules

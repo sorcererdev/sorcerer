@@ -1,0 +1,4 @@
+# The same broken pair stops a `new` too: every plan refreshes the regions, so none writes past them.
+patch   = "broken-markers.patch"
+command = "new command --set service=booking --set command=cancel_table"
+exit    = 2

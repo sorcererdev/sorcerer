@@ -1,0 +1,2 @@
+# A deleted query file: region-stale on the opening marker's line of queries/mod.rs.
+patch = "region-stale.patch"

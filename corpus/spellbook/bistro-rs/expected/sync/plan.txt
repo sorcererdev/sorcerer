@@ -1,0 +1,8 @@
+sync (1 file changed)
+  ~ src/booking/commands/mod.rs  (region modules: +1 −0)
+--- src/booking/commands/mod.rs
+@@ -4,2 +4,3 @@
+ pub mod create_booking;
++pub mod seat_walk_in;
+ // spellbook:end modules
+nothing written (--plan)

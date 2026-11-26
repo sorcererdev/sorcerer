@@ -31,3 +31,14 @@ replace   = [
   { enclosing = ["use_declaration"], text = "" },
   { enclosing = ["expression_statement", "let_declaration"], text = "{= ? port_call: stmt | the same as {= finding =} through self.{= param =} =}" },
 ]
+
+# A port the service does not have yet: the port's two files, its `pub mod` line in ports/mod.rs
+# (the ports region), and the command rewired as use-port does, in one plan.
+[[rules.commands-use-ports.fixes]]
+generator = "add-port"
+label     = "Add a port and use it"
+with      = { service = "{= service =}", kind = "{= kind =}", unit = "{= stem =}" }
+replace   = [
+  { enclosing = ["use_declaration"], text = "" },
+  { enclosing = ["expression_statement", "let_declaration"], text = "{= ? port_call: stmt | the same as {= finding =} through self.{= param =} =}" },
+]

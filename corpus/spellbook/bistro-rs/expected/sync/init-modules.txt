@@ -1,0 +1,6 @@
+sync (4 files changed)
+  ~ src/booking/commands/mod.rs  (region modules: set up, 1 item)
+  ~ src/booking/models/mod.rs    (region modules: set up, 3 items)
+  ~ src/booking/queries/mod.rs   (region modules: set up, 1 item)
+  ~ src/web/bookings/mod.rs      (region modules: set up, 3 items)
+region ports is not set up in src/booking/ports/mod.rs  (run spellbook sync --init ports)

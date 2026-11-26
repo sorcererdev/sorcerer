@@ -1,0 +1,5 @@
+# On the shared base: `end of imports` in an empty __init__.py is its start, and the item
+# names each class with the pascal filter.
+base = "shared"
+mode = "init commands-exports"
+exit = 0

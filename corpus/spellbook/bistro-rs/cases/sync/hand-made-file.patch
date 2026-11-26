@@ -1,0 +1,11 @@
+diff --git a/src/booking/commands/seat_walk_in.rs b/src/booking/commands/seat_walk_in.rs
+new file mode 100644
+index 0000000..14cbfed
+--- /dev/null
++++ b/src/booking/commands/seat_walk_in.rs
+@@ -0,0 +1,5 @@
++//! Seat a party that walks in, written by hand.
++
++pub fn seat_walk_in(party: u32) -> bool {
++    party > 0
++}

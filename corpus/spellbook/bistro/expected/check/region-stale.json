@@ -1,0 +1,13 @@
+[
+  {
+    "rule": "region-stale",
+    "file": "src/bistro/booking/commands/__init__.py",
+    "line": 1,
+    "severity": "error",
+    "message": "region commands-exports is out of date (+0 −1)",
+    "fingerprint": "f971fe9",
+    "region": "commands-exports",
+    "added": 0,
+    "removed": 1
+  }
+]

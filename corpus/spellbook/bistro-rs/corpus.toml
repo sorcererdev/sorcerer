@@ -3,3 +3,6 @@
 name     = "bistro-rs"
 language = "rust"
 base     = "../../scry/bistro-rs/base"
+# The five mod.rs files with their region markers, laid over the base for every case that does
+# not say base = "shared".
+overlay  = "base"

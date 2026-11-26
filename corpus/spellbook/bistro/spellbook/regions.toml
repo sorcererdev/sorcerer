@@ -1,0 +1,10 @@
+# The lists spellbook keeps. Hand edits inside a region are overwritten: edit this file, or
+# add and remove the files it lists.
+
+# commands/__init__.py re-exports each command, so `from bistro.booking.commands import
+# CancelBooking` works: one line per command module (tests left out).
+[regions.commands-exports]
+file    = "src/{app}/{service}/commands/__init__.py"
+query   = { glob = "{= dir =}/*.py", exclude = ["{= dir =}/__init__.py", "{= dir =}/*__test.py"] }
+item    = "from .{= stem =} import {= stem|pascal =}"
+init_at = "end of imports"
