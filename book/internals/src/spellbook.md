@@ -12,7 +12,7 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 
 `domain/` (data and rules, no I/O):
 
-- `config.rs`: `SpellbookConfig { enabled, exclude, sync_on_save }` (`sync_on_save` is read and not yet used: the server's sync on save comes with the editors' side of regions), `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
+- `config.rs`: `SpellbookConfig { enabled, exclude, sync_on_save }` (`sync_on_save` is read by the server's sync on save, `adapters/lsp/sync_on_save.rs`), `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
   the server (`republish`, `wired_for_commands`).
 - `generator.rs`: the types (`Generator`, `Input`/`InputKind`, `Query`/`QueryValue`,
   `Edit::{Create, Insert}`/`EditBody`/`OnExists`/`OnMissing`, `HoleSource`, `Use`) and `read_generator(id, text, templates)`, which
@@ -289,7 +289,8 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
 - `spellbook_server.rs`: `serve` and the product (`SpellbookServer`); `tracks_text` is false:
   the marks come from the disk, so a placeholder replaced and **saved** loses its mark, not on
   each keystroke. `opened` calls `Server::republish`, `saved` calls `Server::saved` (which
-  forgets the file's landing text first); `closed` publishes an empty list for a file it
+  forgets the file's landing text first, syncs the regions, then republishes the file and every
+  other open region file; see "Regions in the editor" below); `closed` publishes an empty list for a file it
   published for. One exception to "from the disk": a file a fix is landing in, or has landed
   in and the person has not saved, is marked over the plan's text (`Server::landing`, filled by
   `remember_landing` in `landing.rs` before the `workspace/applyEdit`, read by
@@ -310,7 +311,7 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
   |---|---|---|
   | `spellbook.generators` | none | `[GeneratorSummary]` (a broken generator is left out and logged) |
   | `spellbook.choices` | generator, inputs so far, input | `{ choices }` or `{ stop }` |
-  | `spellbook.plan` | generator, inputs, and for a fix `{ file, line, rule, index, version }` | the `Plan` as JSON (`id`, `files[{path,status,text,lines}]`, `holes[{name,kind,instruction,source,places[{file,line,text,edges}]}]`; a changed file has `status: "changed"`, `hunks[{header,from,to,lines}]`, `added`, `removed`, `changes`; a fix's plan has `fix{rule,file,line,fingerprint,index,label}`), or `{ stop }` (a missing input adds `input` and `choices`; a finding gone and a fix already applied are stops) |
+  | `spellbook.plan` | generator, inputs, and for a fix `{ file, line, rule, index, version }`; the generator `sync` is the regions' refresh (inputs `mode = init` and `region` set one up; a fix argument is ignored) | the `Plan` as JSON (`id`, `files[{path,status,text,lines,region?,set_up?}]`, `notes`, `holes[{name,kind,instruction,source,places[{file,line,text,edges}]}]`; a changed file has `status: "changed"`, `hunks[{header,from,to,lines}]`, `added`, `removed`, `changes`; a fix's plan has `fix{rule,file,line,fingerprint,index,label}`), or `{ stop }` (a missing input adds `input` and `choices`; a finding gone and a fix already applied are stops) |
   | `spellbook.apply` | plan id | `{ changed, written, skipped, refused: null or {path, why}, holes, first: null or {file, line}, stops: [{ file, name, kind, instruction, range }] }`, or `{ stop }` for a plan that is gone or a changed file that moved on (`close_table.py changed since the plan; nothing was applied: fix again`) |
 
   A hole's location is `file` everywhere (it is `HolePlace::file`, and `holes.json`'s key);
@@ -320,7 +321,10 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
   removes the plan, so a plan is applied once.
 - `code_actions.rs`: `Server::code_actions`, a finding's fixes as quick fixes (below).
 - `landing.rs`: `Server::land_in_the_editor`, a plan's changed files as one `workspace/applyEdit`
-  (`workspace_edit`, `text_edit`), and `changed_since_text` (below).
+  over `Server::send_edit` (`workspace_edit`, `text_edit`, `edit_label`), and `changed_since_text`
+  (below).
+- `sync_on_save.rs`: `Server::sync_on_save`, `sync_planned` (a sync over the editor's unsaved
+  landings) and `republish_region_files`; see "Regions in the editor".
 - `marks.rs` (`hole_mark(hole, row)`: the placeholder's span (the whole line when the row no longer holds it), Information, source `spellbook`, code `hole`, message
   `<name> (<kind>): <instruction>`, `data` the generation id), `diagnostics.rs`
   (`file_diagnostics`: `open_holes` for one file, so the same `still_open` search as the command
@@ -427,6 +431,64 @@ modified; a `version: null` is `vim.NIL`, which that function accepts). `spellbo
 highlights. `keys.lua` binds `fix` to `M.fix_here`, which asks `vim.lsp.buf.code_action` for the
 first `spellbook.fix` quick fix on the line (`:Spellbook fix k=v` is the same with answers).
 
+### Regions in the editor
+
+A save keeps the owned regions (`Server::saved` in `server_state.rs`: `forget_landing`, then
+`sync_on_save`, then `republish` of the saved file and `republish_region_files`, every other open
+file a region's `instances` name, since a file written or deleted makes another file's block stale or
+fresh). `sync_on_save` (`adapters/lsp/sync_on_save.rs`) reads as its steps:
+
+1. `wired_for_commands`: nothing in an untrusted or switched-off project.
+2. `sync_planned(wired, Refresh)`: `plan_sync` over a `PlannedView` of `Server::landing_texts`, so a
+   region file a sync or a fix landed in and the person has not saved is planned from the buffer's
+   text, not the disk's: a second save sends no second edit, and an edit is never made against text
+   the buffer no longer has.
+3. A `PlanStop` (broken markers, a `regions.toml` that does not load) is `say_once` with
+   `plan_stop_text`; an empty plan says nothing.
+4. `[spellbook] sync_on_save = false` (`spellbook_config`): `say_once` `spellbook: N region(s) out of
+   date; run spellbook sync`, and the blocks are left for their findings, which the republishing of
+   step 6 shows on open region files.
+5. `open_and_closed` splits the plan: a file the editor has open (`Client::is_open`, and only for an
+   editor that `can_apply_edits`) goes to `land_in_open_files`, one `send_edit` labelled
+   `spellbook: sync region NAME` with no version (the server does not track text); the answer
+   `applied` records the sync (`apply_plan(…, ByTheEditor)`, a `generations.jsonl` line whose
+   generator is `sync`), says `spellbook: synced region NAME in FILE (+a −r)` per file and
+   republishes from the landed text; a refusal (`send_edit` already forgot the landing and
+   republished from the disk) says `… was not synced (the editor refused the edit); run spellbook
+   sync`. The rest goes to `write_to_disk`: `apply_plan(…, NotYet)`, `write_changed` onto the text the
+   plan saw, the same line per file.
+6. `saved` republishes, as above.
+
+`Server::send_edit(plan, version, answered)` (`landing.rs`) is the one sender of a plan as an edit:
+it remembers the landing texts, sends `workspace/applyEdit` labelled by `edit_label` (`spellbook:
+<fix label>`, `spellbook: <generator>`, or for a sync `spellbook: sync region NAME`, the names from
+`region_names`), forgets the landing on a refusal, and runs `answered(server, plan, applied)` on the
+main loop; `land_in_the_editor` (an apply) and `land_in_open_files` (a save) both use it.
+
+The quick fix: `code_actions.rs::offers_for` gives a finding with a `region` the built-in
+`region_fix_offer` (the same one `check --json` prints), so `region-stale` offers `spellbook: Sync
+region NAME` and `region-not-set-up` `spellbook: Set up region NAME`, each a `spellbook.fix` with
+`generator: "sync"`, `inputs { region, file[, mode: init] }` and `missing: []`. `commands.rs::plan`
+sends the generator `sync` (`SYNC_GENERATOR`, `usecases/sync_regions.rs`) to `Server::planned_sync`,
+which picks `SyncMode` from the inputs and calls `sync_planned`; its apply is any plan's.
+
+The clients learn one word. VS Code: `plan.ts` words a file with `region` as `~ path · region NAME:
++a −r` (`set up, N items` with `set_up`) and a sync's title (`spellbook: sync · 1 file changed`);
+`newFlow.ts` takes the generator `sync` without asking the server for generators (`SYNC_GENERATOR`)
+and ends a sync with no files with `syncedText` (`spellbook: regions up to date`, then the notes);
+`syncCommand.ts` registers **Spellbook: Sync** (`spellbook.sync`, `ctrl+m s`) as `flowIn` with
+`{ generator: 'sync' }`; a region's quick fix goes through `fixCommand.ts` unchanged. The server's
+`window/showMessage` is taken over after the client starts (`extension.ts`,
+`showMessagesInPlace`): `messages.ts` (`messagePlace`) sends the save's `spellbook: synced region …`
+lines to the status bar and every other message to a notification of its level. sorcerer.nvim:
+`spellbook_plan.lua` (`changed_text`, `M.title`) words the same rows; `spellbook.lua` `M.sync`
+(`:Spellbook sync`, `keys.lua`'s `sync`, `<leader>ms`) and `M.fix` for a `sync` argument call
+`planned_sync`, which plans `["sync", inputs]`, says `regions up to date` for no files, refuses a
+region file whose buffer is modified (`dirty_text`), and shows the float; the save's edit and
+message need nothing (Neovim's own `workspace/applyEdit` and `window/showMessage` handlers). The
+contract grows by `files[].region`, `files[].set_up`, `notes`, the two finding codes with
+`region`/`added`/`removed`, and the generator name `sync`.
+
 ## A check
 
 `spellbook check` (`cli/check.rs`) and the server share one path:
@@ -480,7 +542,14 @@ corpus's generators with its rules, since the rules' fixes name them.
 
 `regions.rs` covers `plan_sync`, `region_findings` and a `new` refreshing a region on bistro-rs;
 `sync.rs` the `sync` command, `check`'s region findings and fix, `new`'s region row and notes, the exit
-codes and `doctor`'s row, through `main_with`.
+codes and `doctor`'s row, through `main_with`. `lsp.rs`'s region tests run on bistro-rs with the
+corpus's `base/` laid over it (`support::bistro_rs_with_regions`): a save that writes a closed region
+file and says so, one that lands in an open file as an edit (and no second edit on the next save), a
+refused edit (said, the finding back), `sync_on_save = false` (the finding, said once), the two quick
+fixes, and `spellbook.plan ["sync", …]` (refresh with region rows and hunks, `mode = init`, nothing to
+do, a generator's plan naming its region). The VS Code e2e's last case saves hand-written commands in
+bistro with the corpus's `__init__.py` markers in place: closed, the file is synced on disk; open, the
+buffer gets the edit and stays unsaved.
 
 `corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust);
 `corpus.toml`'s `overlay` (the corpus's `base/`, the files that carry region markers) is laid over the
