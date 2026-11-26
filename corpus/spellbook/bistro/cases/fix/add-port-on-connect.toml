@@ -1,0 +1,12 @@
+# `sqlite3.connect(…)` in handle, the second fix: a new `clock` port, and the statement a hole
+# saying what it did through self.clock, in one plan.
+patch  = "sqlite3-call-in-handle.patch"
+at     = "src/bistro/booking/commands/cancel_booking.py:32"
+fix    = 2
+inputs = { port = "clock" }
+
+[[holes]]
+name = "port_call"
+kind = "block"
+file = "src/bistro/booking/commands/cancel_booking.py"
+line = 34

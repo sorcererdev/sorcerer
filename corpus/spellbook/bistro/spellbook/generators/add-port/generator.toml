@@ -34,6 +34,10 @@ value = "parent folder"
 glob  = "src/{= app =}/*/models"
 value = "parent folder"
 
+# The fix's statement case names the port's field, as use-port does.
+[derive]
+param = "{= port|snake =}"
+
 [[uses]]
 generator = "port"
 with      = { app = "{= app =}", service = "{= service =}", port = "{= port =}" }

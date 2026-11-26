@@ -26,6 +26,10 @@ prompt = "The new port (clock, email_sender)"
 glob  = "src/*/ports"
 value = "parent folder"
 
+# The fix's statement case names the port's field, as use-port does.
+[derive]
+param = "{= port|snake =}"
+
 [[uses]]
 generator = "port"
 with      = { service = "{= service =}", port = "{= port =}" }

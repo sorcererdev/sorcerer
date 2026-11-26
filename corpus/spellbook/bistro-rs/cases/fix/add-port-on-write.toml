@@ -1,0 +1,50 @@
+# `std::fs::write(…)` in handle, the second fix: a new `clock` port, `pub mod clock;` in
+# ports/mod.rs (the ports region), and the statement a `stmt` hole saying what it did through
+# self.clock, in one plan.
+patch  = "fs-write-in-handle.patch"
+at     = "src/booking/commands/seat_walk_in.rs:34"
+fix    = 2
+inputs = { port = "clock" }
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "src/booking/ports/clock/in_memory.rs"
+line = 10
+
+[[holes]]
+name = "fake"
+kind = "expr"
+file = "src/booking/commands/seat_walk_in.rs"
+line = 48
+
+[[holes]]
+name = "method"
+kind = "ident"
+file = "src/booking/ports/clock/in_memory.rs"
+line = 9
+
+[[holes]]
+name = "method"
+kind = "ident"
+file = "src/booking/ports/clock/mod.rs"
+line = 6
+
+[[holes]]
+name = "port_call"
+kind = "stmt"
+file = "src/booking/commands/seat_walk_in.rs"
+line = 36
+
+[[holes]]
+name = "returns"
+kind = "type"
+file = "src/booking/ports/clock/in_memory.rs"
+line = 9
+
+[[holes]]
+name = "returns"
+kind = "type"
+file = "src/booking/ports/clock/mod.rs"
+line = 6
+
