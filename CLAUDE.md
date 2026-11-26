@@ -57,3 +57,7 @@ jumps from the story; comments that repeat the code.
 
 clippy stops a function over 100 lines; an exception is an #[expect] with its reason. The limit is a tripwire: a shorter function is still held to the rules.
 scry reviews changed code against these rules (.sorcerer/scry.toml); keep the two in step.
+
+- Module lists in most `mod.rs` files are spellbook regions (`.sorcerer/spellbook/regions.toml`): add a
+  module by creating its file and running `spellbook sync`, never by typing the `mod` line. CI runs
+  `spellbook sync --check`.

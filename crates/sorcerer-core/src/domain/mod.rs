@@ -1,5 +1,6 @@
 //! Data and rules: no I/O, nothing from `ports` or `adapters`.
 
+// spellbook:region domain-modules (from crates/sorcerer-core/src/domain/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod broken_region;
 pub mod captures;
 pub mod compare;
@@ -19,3 +20,4 @@ pub mod templates;
 pub mod trust;
 pub mod unit;
 pub mod versioned;
+// spellbook:end domain-modules

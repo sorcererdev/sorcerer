@@ -48,6 +48,8 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: cargo run -q -p sorcerer-spellbook --bin spellbook -- check
       - if: matrix.os == 'ubuntu-latest'
+        run: cargo run -q -p sorcerer-spellbook --bin spellbook -- sync --check
+      - if: matrix.os == 'ubuntu-latest'
         run: bash scripts/book-check-test
       - if: matrix.os == 'ubuntu-latest'
         run: cargo publish --workspace --dry-run

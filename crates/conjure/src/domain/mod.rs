@@ -1,5 +1,6 @@
 //! Data and rules with no I/O.
 
+// spellbook:region domain-modules (from crates/conjure/src/domain/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod budget;
 pub mod change_prompt;
 pub mod config;
@@ -11,3 +12,4 @@ pub mod reply;
 pub mod rules;
 pub mod scry_notes;
 pub mod situation;
+// spellbook:end domain-modules

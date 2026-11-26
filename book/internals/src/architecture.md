@@ -229,8 +229,20 @@ The repository keeps the same conventions as spellbook data, in `.sorcerer/spell
 - `generators/` writes the shapes the crates repeat: `port` (a trait in `ports/` and its adapter
   in `adapters/`), `usecase` (a request and the use case's public function, a command or a query by its `kind`)
   and `cli-subcommand` (an inbound adapter: a cli subcommand and its `…_text`). Each writes new
-  files only, so the `mod` line in the parent `mod.rs`, and a subcommand's place in
-  `arguments.rs` and `run_cli.rs`, are added by hand.
+  files only; the `mod` line in the parent `mod.rs` is the region's (below), and a subcommand's
+  place in `arguments.rs` and `run_cli.rs` is added by hand.
+- `regions.toml` keeps the module lists. 25 of the 33 `mod.rs` files under `crates/`
+  hold owned regions (30 in all), one per shape of line: `domain-modules`, `ports-modules`,
+  `adapters-modules`, `usecases-modules` (`pub mod NAME;` per file), `adapters-folders`,
+  `usecases-folders` (`pub mod NAME;` per folder with a `mod.rs`), `platform-modules`, and the
+  private `mod NAME;` lists `cli-modules`, `lsp-modules`, `usecase-parts`. A new module is a new
+  file plus `spellbook sync` (or `spellbook new`, which includes it); never type the line, and
+  delete a file and sync drops its line. Four lists stay by hand because no glob describes them:
+  `conjure/src/adapters/lsp/mod.rs` (`pub(crate) mod` mixed with `mod`),
+  `scry/src/usecases/mod.rs` and `scry/src/usecases/review_change/mod.rs` (public and private
+  mixed), and every `tests/support/mod.rs` (`#[allow]` re-exports). A mod.rs with files and
+  folders has two regions, the folders' block last (`init_at = "end of file"`), because
+  `sync --init` of a second region after the last `pub mod` would nest it inside the first.
 
-CI runs `spellbook check` on ubuntu beside the scripts; `spellbook doctor` shows the rules and
+CI runs `spellbook check` and `spellbook sync --check` on ubuntu beside the scripts; `spellbook doctor` shows the rules and
 generators, and the project needs no trust.

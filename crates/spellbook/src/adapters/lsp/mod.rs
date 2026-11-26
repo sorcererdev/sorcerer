@@ -16,6 +16,7 @@
 //!   diagnostics of one file (the marks and the findings published together).
 //! - `project_paths.rs`: which editor paths are the project's.
 
+// spellbook:region lsp-modules (from crates/spellbook/src/adapters/lsp/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 mod code_actions;
 mod commands;
 mod diagnostics;
@@ -28,6 +29,7 @@ mod server_config;
 mod server_state;
 mod spellbook_server;
 mod sync_on_save;
+// spellbook:end lsp-modules
 
 pub use server_config::{OpenProject, ServerConfig};
 use server_state::{NOT_TRUSTED, Server, lock};
