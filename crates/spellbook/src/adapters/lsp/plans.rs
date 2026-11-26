@@ -59,6 +59,7 @@ mod tests {
                 files: Vec::new(),
                 holes: Vec::new(),
                 fix: None,
+                notes: Vec::new(),
             },
         }
     }

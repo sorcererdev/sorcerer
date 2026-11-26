@@ -92,6 +92,7 @@ pub fn plan_generation(
         files,
         holes,
         fix: None,
+        notes: Vec::new(),
     })
 }
 

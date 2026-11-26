@@ -53,6 +53,7 @@ mod tests {
 
     fn finding(file: &str, line: u32) -> Finding {
         Finding {
+            region: None,
             rule: "r".into(),
             file: file.into(),
             line,

@@ -20,6 +20,9 @@ pub struct SpellbookConfig {
     /// Glob patterns of files no rule looks at, such as `gen/**`. Generation ignores them: a
     /// generator writes only what a person asked for by name.
     pub exclude: Vec<String>,
+    /// Whether the editor's server refreshes stale regions when a file is saved: on by default.
+    /// The team's setting, not the editor's, since it decides whether its lists are kept by hand.
+    pub sync_on_save: bool,
 }
 
 impl Default for SpellbookConfig {
@@ -27,6 +30,7 @@ impl Default for SpellbookConfig {
         SpellbookConfig {
             enabled: true,
             exclude: Vec::new(),
+            sync_on_save: true,
         }
     }
 }

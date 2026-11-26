@@ -47,6 +47,9 @@ pub struct ChangedFile {
     pub path: String,
     pub added: u32,
     pub removed: u32,
+    /// The region(s) whose block was rewritten in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
 }
 
 /// A file a generation wrote or left as it was.
@@ -124,6 +127,7 @@ pub fn record_of(plan: &Plan, at: DateTime<Utc>, kept: &[String]) -> GenerationR
                 path: file.path.clone(),
                 added: file.added,
                 removed: file.removed,
+                region: file.region.clone(),
             })
             .collect(),
     }

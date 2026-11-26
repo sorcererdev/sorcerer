@@ -205,6 +205,7 @@ fn generation_or_nothing(
                 files: Vec::new(),
                 holes: Vec::new(),
                 fix: None,
+                notes: Vec::new(),
             })
         }
         planned => planned,

@@ -117,6 +117,7 @@ fn unsilenced(
             let rule = rules.iter().find(|rule| rule.id == finding.rule)?;
             Some(Finding {
                 fingerprint: fingerprint(&finding.rule, &finding.node_text),
+                region: None,
                 node_text: finding.node_text,
                 rule: finding.rule,
                 file: file.to_string(),
@@ -143,6 +144,7 @@ fn allow_warnings(rules: &[Rule], file: &str, allows: &[AllowComment]) -> Vec<Fi
             };
             Some(Finding {
                 fingerprint: fingerprint(rule, &allow.rule),
+                region: None,
                 rule: rule.to_string(),
                 file: file.to_string(),
                 line: allow.line,
