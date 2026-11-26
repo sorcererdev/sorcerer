@@ -6,7 +6,9 @@ use std::io::Write;
 use anyhow::{Result, anyhow};
 use serde_json::json;
 
+use crate::adapters::checking::Checking;
 use crate::adapters::wiring::Wired;
+use crate::domain::finding::{REGION_NOT_SET_UP, REGION_STALE};
 use crate::domain::inputs::Given;
 use crate::domain::plan::{FileStatus, Plan, PlanStop, PlannedFile, plan_stop_text};
 use crate::domain::rule::Rule;
@@ -14,9 +16,11 @@ use crate::ports::generators::Generators;
 use crate::ports::workspace::write_refused_text;
 use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::plan_fix::{FindingAt, plan_fix};
+use crate::usecases::sync_regions::region_findings;
 
 use super::format::{columns, count, file_row, hunks_text, notes_text};
 use super::new::hole_row;
+use super::sync::{SyncRequest, sync};
 
 /// What the person asked `fix` for: the finding's file (relative to the root, with `/`) and line,
 /// the rule and the fix when they pick one.
@@ -33,6 +37,7 @@ pub(super) struct FixRequest {
 /// Plans the fix, prints it, and (without `--plan`) applies it. Exit 0 when applied (or
 /// planned), 1 when the plan stopped or a file was refused, 2 when an input is missing (its
 /// choices are printed, as `new` does), 3 when there is nothing to do (the fix is applied).
+/// A region's finding on the line is fixed by `spellbook sync` (its built-in fix).
 pub(super) fn fix(
     wired: &Wired,
     request: &FixRequest,
@@ -40,6 +45,9 @@ pub(super) fn fix(
     err: &mut dyn Write,
 ) -> Result<i32> {
     let checking = wired.checking().map_err(|why| anyhow!(why))?;
+    if let Some(sync_request) = region_finding_here(wired, &checking, request)? {
+        return sync(wired, &sync_request, out, err);
+    }
     let planned = Given::from_pairs(&request.set)
         .map_err(|pair| PlanStop::Template(format!("--set {pair}: write it as INPUT=VALUE")))
         .and_then(|given| {
@@ -62,6 +70,43 @@ pub(super) fn fix(
     }
     let applied = apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet)?;
     print_applied(&applied, request.json, out, err)
+}
+
+/// The sync that fixes a region's finding on the requested line, when there is one: a refresh
+/// for a stale block, `--init` for a region not set up.
+fn region_finding_here(
+    wired: &Wired,
+    checking: &Checking,
+    request: &FixRequest,
+) -> Result<Option<SyncRequest>> {
+    let asks_for_a_rule = request
+        .rule
+        .as_deref()
+        .is_some_and(|rule| ![REGION_STALE, REGION_NOT_SET_UP].contains(&rule));
+    if asks_for_a_rule || checking.regions().is_empty() {
+        return Ok(None);
+    }
+    let found = region_findings(
+        &wired.view,
+        &wired.grammars,
+        checking.regions(),
+        Some(std::slice::from_ref(&request.file)),
+    )
+    .map_err(|stop| anyhow!(plan_stop_text(&stop)))?;
+    let Some(finding) = found.iter().find(|finding| finding.line == request.line) else {
+        return Ok(None);
+    };
+    let init = match (finding.rule.as_str(), &finding.region) {
+        (REGION_NOT_SET_UP, Some(drift)) => Some(drift.region.clone()),
+        (REGION_STALE, _) => None,
+        _ => return Ok(None),
+    };
+    Ok(Some(SyncRequest {
+        init,
+        check: false,
+        only_plan: request.only_plan,
+        json: request.json,
+    }))
 }
 
 /// `--fix`: a number from 1, or a fix's label (or its generator's name); the first fix when

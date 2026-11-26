@@ -16,6 +16,7 @@ use super::format::{columns, count, file_row, hunks_text, notes_text};
 
 /// What the person asked `sync` for.
 pub(super) struct SyncRequest {
+    /// The region to set up (`--init NAME`).
     pub(super) init: Option<String>,
     pub(super) check: bool,
     pub(super) only_plan: bool,

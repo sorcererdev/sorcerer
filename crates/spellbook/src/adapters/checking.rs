@@ -49,6 +49,11 @@ impl Checking<'_> {
         }
     }
 
+    /// The project's owned regions, read with the rules.
+    pub fn regions(&self) -> &[Region] {
+        &self.regions
+    }
+
     pub fn deps(&self) -> CheckDeps<'_> {
         CheckDeps {
             view: &self.wired.view,

@@ -737,7 +737,8 @@ In JSON a region's file is a changed file with `"region": "modules"` (and `"set_
 `"rule": "region-stale"` (or `"region-not-set-up"`, `"region-broken"`), `"region"`, `"added"`,
 `"removed"`, and `"fixes": [{ "index": 1, "label": "Sync region modules", "generator": "sync",
 "inputs": { "region": "modules", "file": "src/…/mod.rs" }, "missing": [] }]`, so an agent runs
-`spellbook sync` without reading anything else. A sync applied is a line of `generations.jsonl` whose
+`spellbook sync` without reading anything else; `spellbook fix FILE:LINE` on a region's finding runs that
+sync (`--init NAME` for a region not set up). A sync applied is a line of `generations.jsonl` whose
 generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doctor` has a `regions` row:
 `2 declared, 5 files, 1 not set up (ports in src/booking/ports/mod.rs)`.
 

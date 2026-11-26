@@ -253,3 +253,16 @@ fn doctor_says_what_the_regions_keep() {
         "regions      ok    2 declared, 5 files, 1 not set up (ports in src/booking/ports/mod.rs)"
     );
 }
+
+#[test]
+fn fix_on_a_region_finding_runs_the_sync() {
+    let dir = bistro_rs_project();
+    set_up(dir.path());
+    std::fs::remove_file(dir.path().join("src/booking/queries/get_day_schedule.rs")).unwrap();
+    let (code, out, err) = run(dir.path(), &["fix", "src/booking/queries/mod.rs:3"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        out,
+        "sync (1 file changed)\n  ~ src/booking/queries/mod.rs  (region modules: +0 \u{2212}1)\n"
+    );
+}

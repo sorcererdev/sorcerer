@@ -275,7 +275,8 @@ removed }` (flattened into the JSON); `NotSetUp` is `region-not-set-up` (warn, l
 `region-broken` (error). A region that cannot be kept (`PlanStop::Region`) is a config error naming
 `regions.toml`, as a broken rules file is. `cli/check.rs::offers_for` gives a region's finding the
 built-in `region_fix_offer` (`usecases/fixes_for.rs`): generator `"sync"`, inputs `region` and `file`
-(and `mode = init`). `cli/doctor.rs::regions_row` uses the same `instances` and `region_findings` over
+(and `mode = init`); `cli/fix.rs::region_finding_here` sends `spellbook fix` on such a line to
+`cli/sync.rs::sync`. `cli/doctor.rs::regions_row` uses the same `instances` and `region_findings` over
 a `FilesView` and `CachedGrammars` whose `covers`/`line_comment` read the languages' data, so the
 doctor loads no grammar.
 
