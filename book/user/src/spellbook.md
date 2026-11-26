@@ -16,7 +16,8 @@ What is here and what is coming (the five parts of spellbook):
 | generators with holes | here: `spellbook new`, `spellbook holes`, and `:Spellbook new` in Neovim |
 | rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
 | fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line and, in VS Code and Neovim, the quick fix and the fix key (`ctrl+m f`, `<leader>mf`) |
-| owned regions (`pub mod` lines a generator keeps), list inputs, `if`/`for` in templates | milestone 2 |
+| owned regions (a list such as a folder's `pub mod` lines, kept between two markers) | here: `.sorcerer/spellbook/regions.toml`, `spellbook sync`, and `region-stale` findings in `check`; in the editor, sync on save and **Spellbook: Sync** come next |
+| list inputs, `if`/`for` in templates | milestone 2 |
 | packs of generators shared between projects | milestone 2 |
 | suggestions (a convention noticed in your code) | milestone 3 |
 
@@ -167,7 +168,10 @@ code already` and exits 3.
 The repository ships two small projects with generators you can read and copy, in
 `corpus/spellbook/`. `bistro` is Python (`command`, `query`, `port`, and the two its fix uses:
 `use-port`, which inserts a port into a command and its test, and `add-port`, which uses `port`
-then `use-port`); `bistro-rs` is Rust (`command`, `port`). Take bistro's `command` end to end:
+then `use-port`); `bistro-rs` is Rust (`command`, `port`, `use-port`, `add-port`). Take bistro's
+`command` end to end (on a project whose `commands-exports` region is not set up; once it is, the
+`__init__.py` row reads `~ … (region commands-exports: +1 −0)`, see
+[Owned regions](#owned-regions-and-spellbook-sync)):
 
 ```
 $ spellbook new command --set command=cancel_table
@@ -184,10 +188,10 @@ filled. `spellbook holes` lists four places (`field` is in both files), and thre
 replaced the `handle` line.
 
 The Rust `command` writes `src/booking/commands/cancel_table.rs` the same way, its `handle` body a
-`todo!("hole handle: …")`. It does not touch `commands/mod.rs`: add `pub mod cancel_table;` yourself.
-Until you do, the new file is not compiled; once you do, it compiles (with an unused-variable
-warning) and its test fails red, as the convention intends. Keeping a `pub mod` line for you is
-what an owned region will do in milestone 2.
+`todo!("hole handle: …")`. Its `pub mod cancel_table;` line in `commands/mod.rs` is the `modules`
+region's (see [Owned regions](#owned-regions-and-spellbook-sync)): once the region is set up, the line
+is in the same plan, so the new file compiles at once (with an unused-variable warning) and its test
+fails red, as the convention intends.
 
 ### Writing your first generator
 
@@ -258,8 +262,10 @@ says `skip`; and every new file a language covers is parsed, so a template mista
 template and the line instead of landing broken code. Writing then refuses again any file that
 appeared since the plan, and any path a link leads out of the project.
 
-A generator writes the files it creates and nothing else: a Rust module still needs its
-`pub mod` line, which is yours to add until owned regions arrive (milestone 2).
+A generator writes the files it creates and the lines its inserts name, and then every owned region
+is refreshed in the same plan: a new Rust module's `pub mod` line is the region's, not the
+generator's (`~ src/booking/commands/mod.rs (region modules: +1 −0)`). A region not set up is a note
+after the holes.
 
 ## `spellbook holes`
 
@@ -282,8 +288,10 @@ lines of it. Fill it and it is gone. `spellbook holes FILE…` looks only at tho
 ```
 spellbook list                     the generators, a row each (a broken one is a row with its problem)
 spellbook show <generator>         its inputs and their choices now, the files it creates, its holes, its examples
-spellbook check [FILE…] [--json]   run the rules over the project (or the named files)
-spellbook doctor                   the config, the generators, the rules, the languages and their hole kinds,
+spellbook check [FILE…] [--json]   run the rules over the project (or the named files), and check its regions
+spellbook sync [--init NAME] [--check] [--plan] [--json]
+                                   refresh the owned regions (see Owned regions below)
+spellbook doctor                   the config, the generators, the rules, the regions, the languages and their hole kinds,
                                    whether conjure is installed, trust, holes.json, report.json, generations.jsonl
 spellbook trust [--revoke]         let the editor's server run here although the project's config runs code
 spellbook lsp                      the editor's language server (the editor starts it; see below)
@@ -520,8 +528,9 @@ nothing written (--plan)
 
 Applied, it builds (`cargo test` compiles, warnings aside) and the test is red on `hole fake` until
 you pass the in-memory adapter. The found code goes into an instruction without quotes,
-backslashes or braces, since `todo!("…")` is a format string. A new command's `pub mod` line in
-`commands/mod.rs` is still yours to add (owned regions arrive in milestone 2c). The struct's
+backslashes or braces, since `todo!("…")` is a format string. The second fix, *Add a port and use
+it* (`add-port`), runs the `port` generator and then `use-port` in one plan: the port's two files,
+`pub mod clock;` in `ports/mod.rs` (the `ports` region) and the rewiring; it builds. The struct's
 fields are expected to end with a comma, as rustfmt writes them.
 
 `spellbook fix FILE:LINE` takes the finding on that line (`--rule ID` picks when two rules fire on
@@ -553,6 +562,206 @@ opens the file to land the edit. If you typed
 in the file since the plan, nothing is applied and you are told `close_table.py changed since the
 plan; nothing was applied: fix again`. An editor that cannot apply edits gets the changed files
 written to disk, and is told so once. See [Fixes in VS Code](#fixes-in-vs-code) and [Fixes in Neovim](#fixes-in-neovim).
+
+## Owned regions and `spellbook sync`
+
+Some code is a list of everything of a kind: the `pub mod` lines of a `mod.rs`, the re-exports of an
+`__init__.py`. Such a list should never be typed. An **owned region** is a block spellbook rewrites
+whole from the files on disk, between two comment lines that say so, every time anything runs: `new`,
+a fix, `sync`. The list is sorted, so two branches that each add a module merge cleanly; delete a file
+and its line goes; a hand edit inside the block is overwritten, and the block says it will be.
+
+### Declaring a region
+
+Regions live in `.sorcerer/spellbook/regions.toml`, beside `rules.toml`, one `[regions.NAME]` each
+(bistro-rs's, from the corpus):
+
+```toml
+# The lists spellbook keeps. Hand edits inside a region are overwritten: edit this file, or
+# add and remove the files it lists.
+
+# commands/, queries/, models/ (and web/bookings/): one `pub mod` line per sibling file.
+[regions.modules]
+file    = "src/{service}/{kind}/mod.rs"
+exclude = ["src/*/ports/mod.rs"]
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+# ports/: one line per port, and a port is a folder with its mod.rs.
+[regions.ports]
+file    = "src/{service}/ports/mod.rs"
+query   = { glob = "{= dir =}/*/mod.rs" }
+item    = "pub mod {= parent =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+```
+
+| key | what it is |
+|---|---|
+| `file` | the file(s) that hold the block: a path pattern as a rule's `files` (`*` one name, `**` any folders, `{slot}` a name bound for `query` and `item`). A pattern that matches several files is a **family**: one region in each. Required |
+| `exclude` | path patterns `file` may match but the region leaves alone (`src/*/ports/mod.rs`, which `ports` keeps) |
+| `query` | `{ glob = "…", exclude = ["…"] }`: what to list. Each file the glob matches is one item. `*` stays inside one folder and `**` crosses folders. Required |
+| `item` | the line written for each match, a template. Lines are trimmed, empty ones dropped, each kept once, sorted. Required |
+| `init_at` | where `sync --init` puts the markers: a phrase, or a list tried in order, as an insert's `at` (`end of imports`, `after last line matching ^pub mod `, `start of file`). Default `end of imports` |
+| `comment` | the marker lines' comment syntax, for a file no language covers (a `Cargo.toml`); a file a language covers takes the language's `comment` and may not set it |
+| `severity` | of the `region-stale` finding: `error` (the default), `warn` or `hint` |
+
+The names a template may use differ between the two keys, because one is about the region's file and
+the other about each file it lists:
+
+| name | in `query` | in `item` |
+|---|---|---|
+| the slots of `file` (`{= service =}`) | yes | yes |
+| `{= dir =}` | the region file's folder | the listed file's folder |
+| `{= file =}` | the region file's path | — |
+| `{= path =}`, `{= stem =}`, `{= parent =}` | — | the listed file's path, its name without the extension, its folder's name |
+
+Filters work as in templates (`{= stem|pascal =}`). A mistake in `regions.toml` names the region and the
+key (`region modules: `quary` is not a key; did you mean `query`?`); `sync` and `check` stop on it
+with exit 2, and every `new` says `regions are not being refreshed: …` and goes on without them.
+
+### The markers
+
+```rust
+//! Commands: each changes the bookings, and holds the booking rules for its change.
+
+// spellbook:region modules (from src/booking/commands/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
+pub mod create_booking;
+// spellbook:end modules
+```
+
+Both lines begin with the file's comment marker (from its language's `language.toml`; nothing in
+`regions.toml` names it), then `spellbook:region NAME` or `spellbook:end NAME`. The opening line may
+carry anything after the name (a template may write a bare `// spellbook:region modules`); sync rewrites
+it, so the glob you read is the current one. Every line of the block takes the opening marker's
+indentation, and the file keeps its line endings. One pair per region per file: an opening without its
+end, two openings, or an end before its start is broken, and stops every plan, naming the file and the
+line, with nothing written. Fix the markers by hand.
+
+### On the command line, bistro-rs
+
+Nothing is set up yet:
+
+```
+$ spellbook sync --check
+region modules is not set up in src/booking/commands/mod.rs, src/booking/models/mod.rs, src/booking/queries/mod.rs, src/web/bookings/mod.rs  (run spellbook sync --init modules)
+region ports is not set up in src/booking/ports/mod.rs  (run spellbook sync --init ports)
+nothing written (--check)
+$ spellbook sync --init modules
+sync (4 files changed)
+  ~ src/booking/commands/mod.rs  (region modules: set up, 1 item)
+  ~ src/booking/models/mod.rs    (region modules: set up, 3 items)
+  ~ src/booking/queries/mod.rs   (region modules: set up, 1 item)
+  ~ src/web/bookings/mod.rs      (region modules: set up, 3 items)
+region ports is not set up in src/booking/ports/mod.rs  (run spellbook sync --init ports)
+$ spellbook sync --init ports
+sync (1 file changed)
+  ~ src/booking/ports/mod.rs  (region ports: set up, 2 items)
+$ cargo test      # still green: nothing is declared twice
+```
+
+The markers went in after the last `pub mod` line, and the hand-written `pub mod create_booking;`
+**moved into the block**: a line outside the new block that is exactly an item is adopted, so the file
+compiles right after `--init`. From now on the block is the list:
+
+```
+$ spellbook new command --set service=booking --set command=cancel_table
+command (1 new, 1 changed, 4 holes)
+  + src/booking/commands/cancel_table.rs  (34 lines)
+  ~ src/booking/commands/mod.rs           (region modules: +1 −0)
+holes:
+  …
+$ cargo test      # compiles; red on the holes, as the convention intends
+
+$ rm src/booking/queries/get_day_schedule.rs
+$ spellbook check
+✗ src/booking/queries/mod.rs:3  region-stale — region modules is out of date (+0 −1)  (fixes: Sync region modules)
+1 blocking finding
+$ spellbook sync
+sync (1 file changed)
+  ~ src/booking/queries/mod.rs  (region modules: +0 −1)
+$ spellbook sync
+regions up to date (5 regions)
+```
+
+### On the command line, bistro (Python)
+
+Python has no `pub mod`, but the same list in another coat: a package's `__init__.py` re-exporting what
+is in the package, so `from bistro.booking.commands import CancelBooking` works:
+
+```toml
+[regions.commands-exports]
+file    = "src/{app}/{service}/commands/__init__.py"
+query   = { glob = "{= dir =}/*.py", exclude = ["{= dir =}/__init__.py", "{= dir =}/*__test.py"] }
+item    = "from .{= stem =} import {= stem|pascal =}"
+init_at = "end of imports"
+```
+
+```
+$ spellbook sync --init commands-exports
+sync (1 file changed)
+  ~ src/bistro/booking/commands/__init__.py  (region commands-exports: set up, 2 items)
+```
+
+```python
+# spellbook:region commands-exports (from src/bistro/booking/commands/*.py; edit .sorcerer/spellbook/regions.toml, not this block)
+from .cancel_booking import CancelBooking
+from .create_booking import CreateBooking
+# spellbook:end commands-exports
+```
+
+`end of imports` in an empty file is its start. `spellbook new command --set command=cancel_table` then
+shows `__init__.py` no longer as `= … (exists, skipped)` but as `~ …/__init__.py (region
+commands-exports: +1 −0)`: one row per file, and a file a region changes is `~` whatever its `create`
+edit said. The marker is `#` because Python's `language.toml` says so.
+
+### The commands and their exit codes
+
+```
+spellbook sync                  refresh every region now (after a hand-made file, a rename, a revert)
+spellbook sync --init NAME      set up the region NAME in every file it matches that has no markers yet;
+                                files with markers are left alone (and refreshed)
+spellbook sync --check          write nothing; exit 1 when a region is out of date or not set up
+                                (a linter for hooks and CI)
+spellbook sync --plan           write nothing; print the refresh as a plan, with each file's hunks
+spellbook sync --json           with any of the above: the plan (or what was applied) as JSON
+```
+
+The exit code is 0 when the regions are up to date (also when there was nothing to do: that is the
+happy state) or were brought up to date; 1 when the plan stopped (broken markers, a write refused
+because the file changed since the plan) or `--check` found work; 2 when it could not run (a
+`regions.toml` that does not load, no region by that name, spellbook off).
+
+In JSON a region's file is a changed file with `"region": "modules"` (and `"set_up": 3` for one
+`--init` set up); a plan's `"notes"` are its one-line hints. `check --json` gives a region's findings
+`"rule": "region-stale"` (or `"region-not-set-up"`, `"region-broken"`), `"region"`, `"added"`,
+`"removed"`, and `"fixes": [{ "index": 1, "label": "Sync region modules", "generator": "sync",
+"inputs": { "region": "modules", "file": "src/…/mod.rs" }, "missing": [] }]`, so an agent runs
+`spellbook sync` without reading anything else. A sync applied is a line of `generations.jsonl` whose
+generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doctor` has a `regions` row:
+`2 declared, 5 files, 1 not set up (ports in src/booking/ports/mod.rs)`.
+
+### The rules
+
+- **Only between the markers.** A region changes the lines from its opening marker to its closing marker
+  and nothing else; `--init` adds the two lines at `init_at` and removes only lines equal to an item.
+- **Whole block, from the files.** Sorted (by bytes, so every platform sorts alike), each line once,
+  rendered from the files on disk: a second `sync` says `regions up to date`, and `check` after `sync`
+  is clean.
+- **Every plan refreshes.** `new` and every fix refresh every region at the end of the same plan, over
+  the project as the plan leaves it: a file the plan creates is listed at once. A region not set up is a
+  note at the end of the plan, never a silent skip.
+- **A hand edit inside the block is overwritten.** The opening marker says so and names the file to edit
+  instead. A line you want kept goes outside the block, or becomes a file the query lists.
+- **Checked like the rules.** A stale block is the finding `region-stale` (an error, or the region's
+  `severity`) on its opening marker's line, with the fix *Sync region NAME*; a file the region matches
+  without markers is `region-not-set-up` (a warning on line 1, fix *Set up region NAME*); broken markers
+  are `region-broken` (an error, no fix: mend them by hand).
+- **What sync never does.** It never removes or creates a file (a deleted file only loses its line),
+  never touches a fenced path, never calls a model, and never writes a file that changed since the plan.
+
+In the editor, `check`'s findings show on save as any rule's do; sync on save (`[spellbook]
+sync_on_save`), the quick fix and **Spellbook: Sync** arrive with the editors' side of regions.
 
 ## In Neovim
 
@@ -746,13 +955,13 @@ Besides the files you ask for by name, spellbook writes only its own state under
 
 | file | what it holds |
 |---|---|
-| `generations.jsonl` | one line per generation applied: its id, time, generator, inputs, files and holes, and for a fix `"fix": { "rule", "file", "line", "fingerprint", "index" }` and `"changed": [{ "path", "added", "removed" }]` (each line has `"version": 1`) |
+| `generations.jsonl` | one line per generation applied: its id, time, generator, inputs, files and holes, and for a fix `"fix": { "rule", "file", "line", "fingerprint", "index" }` and `"changed": [{ "path", "added", "removed", "region" }]` (`region` when an owned region rewrote the file; a `spellbook sync` is a line whose generator is `"sync"`; each line has `"version": 1`) |
 | `holes.json` | the open holes, `{"version": 1, "data": {"holes": [...]}}`, refreshed by `new` and `holes` |
 | `report.json` | the findings of the last check, `{"version": 1, "data": {"checked": …, "findings": [...]}}`: rewritten whole by `spellbook check`, a file at a time by the editor's server |
 
 ## Settings
 
-`[spellbook]` in `.sorcerer/config.toml` has two keys, `enabled` and `exclude`; see
+`[spellbook]` in `.sorcerer/config.toml` has three keys, `enabled`, `exclude` and `sync_on_save`; see
 [Configuration](configuration.md). With `enabled = false` the command line (everything but
 `trust` and `doctor`) says `spellbook is off in this project ([spellbook] enabled = false)` and
 exits 2, and the editor server shows no marks and answers commands with that sentence.
@@ -760,9 +969,9 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 ## What is coming
 
 The rest of milestone 2 brings the editors' side of fixes (the fix command, a diff preview, the keys),
-`missing` rules, owned regions (the
-`pub mod` line a generator keeps), list inputs and `if`/`for` in templates, and packs of generators
-and rules shared between projects.
+`missing` rules, the editors' side of owned regions (sync on save, the quick fix, **Spellbook: Sync**),
+check adoption (a baseline of today's findings, `check --since`, severity overrides), list inputs and
+`if`/`for` in templates, and packs of generators and rules shared between projects.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything
 until then, and the model parts stay optional.
