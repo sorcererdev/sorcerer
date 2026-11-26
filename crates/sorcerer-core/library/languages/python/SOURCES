@@ -2,8 +2,11 @@
 # grammar (language.toml): tree-sitter-python 0.25.0, git 293fdc02038ee2bf0e2e206711b69c90ac0d413f. MIT.
 textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/python/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
 tags.scm         tree-sitter/tree-sitter-python v0.25.0  293fdc02038ee2bf0e2e206711b69c90ac0d413f  queries/tags.scm  MIT (queries/LICENSE-tree-sitter-python)
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, a statement that does nothing yet.
+docstrings.scm   sorcerer's own (not vendored): `@docstring`, a top-level string documenting the file.
+lists.scm        sorcerer's own (not vendored): `@parameters` and `@arguments`, the lists anchors put items into.
 # changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of?, #not-any-of? and
 # nothing else; a pattern using another predicate or directive is removed), as olifant's copy:
 #   textobjects.scm: removed the two `(comment) @comment.inner @comment.outer` patterns (they use
-#   #offset! and #lua-match?).
+#   #offset! and #lua-match?), and added `(comment) @comment.outer` at the end in their place.
 #   tags.scm: none (byte-for-byte the pinned upstream file).
