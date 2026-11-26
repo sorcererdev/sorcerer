@@ -1,5 +1,6 @@
 //! Data and rules: no I/O, nothing from `ports` or `adapters`.
 
+// spellbook:region domain-modules (from crates/spellbook/src/domain/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod allow;
 pub mod anchor;
 pub mod change;
@@ -22,3 +23,4 @@ pub mod report;
 pub mod rule;
 pub mod rule_query;
 pub mod template;
+// spellbook:end domain-modules

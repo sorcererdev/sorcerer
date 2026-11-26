@@ -10,6 +10,7 @@
 //! comes back. The exit code is 0 when nothing is open in the change, 1
 //! when findings are, and 2 when scry could not run.
 
+// spellbook:region cli-modules (from crates/scry/src/cli/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 mod arguments;
 mod console;
 mod cost;
@@ -23,6 +24,7 @@ mod review;
 mod run_cli;
 mod trust;
 mod why;
+// spellbook:end cli-modules
 
 use arguments::RunArgs;
 use console::Console;

@@ -10,6 +10,7 @@
 //! order it was asked for, so the main loop never waits on a parse or a grammar build and a
 //! close always lands after the open before it.
 
+// spellbook:region lsp-modules (from crates/scry/src/adapters/lsp/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 mod commands;
 mod diagnostics;
 mod passes;
@@ -18,6 +19,7 @@ mod scry_server;
 mod server_config;
 mod server_state;
 mod trust;
+// spellbook:end lsp-modules
 pub use diagnostics::{STALE_LINE, diagnostic};
 use publisher::project_file;
 pub use scry_server::serve;
