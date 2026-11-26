@@ -53,6 +53,23 @@ struct Served {
 }
 
 fn served(dir: &Path) -> Served {
+    served_with(
+        dir,
+        json!({ "window": { "showDocument": { "support": true } } }),
+    )
+}
+
+/// A server for an editor that applies the edits the server sends, tied to versions.
+fn served_editing(dir: &Path) -> Served {
+    served_with(
+        dir,
+        json!({ "window": { "showDocument": { "support": true } },
+                "workspace": { "applyEdit": true,
+                               "workspaceEdit": { "documentChanges": true } } }),
+    )
+}
+
+fn served_with(dir: &Path, capabilities: Value) -> Served {
     let trust_home = TempDir::new().unwrap();
     let trust = TrustList::at(trust_home.path());
     let clock = Arc::new(TestClock(Mutex::new(
@@ -80,8 +97,7 @@ fn served(dir: &Path) -> Served {
     };
     let id = s.request(
         "initialize",
-        json!({ "capabilities": { "window": { "showDocument": { "support": true } } },
-                "rootUri": uri_of(&root).as_str() }),
+        json!({ "capabilities": capabilities, "rootUri": uri_of(&root).as_str() }),
     );
     *s.handshake.borrow_mut() = s.response(id).response_result.unwrap();
     s.notify("initialized", json!({}));
@@ -1076,5 +1092,234 @@ fn a_malformed_fix_argument_is_refused() {
     );
     let error = s.response(id).response_result.expect_err("an error");
     assert!(error.message.contains("fix"), "{}", error.message);
+    s.stop();
+}
+
+// ---- M2a Part B3: a fix applied ----
+
+const CHANGED_SINCE: &str = "close_table.py changed since the plan; nothing was applied: fix again";
+const CANNOT_EDIT: &str =
+    "spellbook: your editor cannot apply edits; changed files were written to disk";
+
+/// The add-port fix (four new files, two changed) of the finding on `close_table.py:4`.
+fn plan_add_port(s: &Served, version: Value) -> Value {
+    let mut inputs = use_port_inputs();
+    inputs["port"] = json!("clock");
+    s.command(
+        "spellbook.plan",
+        json!(["add-port", inputs,
+               { "file": CLOSE_TABLE_PATH, "line": 4, "rule": "commands-use-ports", "index": 2,
+                 "version": version }]),
+    )
+}
+
+fn paths_with_status(plan: &Value, status: &str) -> Vec<String> {
+    plan["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{plan}"))
+        .iter()
+        .filter(|file| file["status"] == status)
+        .map(|file| file["path"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn planned_text(plan: &Value, path: &str) -> String {
+    let file = plan["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|file| file["path"] == path)
+        .unwrap();
+    file["text"].as_str().unwrap().to_string()
+}
+
+/// Asks for the apply without waiting for its reply.
+fn apply_asked(s: &Served, plan: &Value) -> i32 {
+    s.request(
+        "workspace/executeCommand",
+        json!({ "command": "spellbook.apply", "arguments": [plan["id"]] }),
+    )
+}
+
+/// The edit the server asked the editor to apply, not answered yet.
+fn edit_asked(s: &Served) -> Request {
+    match s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Request(r) if r.method == "workspace/applyEdit"),
+    ) {
+        Some(Message::Request(request)) => request,
+        _ => panic!("no edit asked"),
+    }
+}
+
+/// The text with a document's text edits made, as an editor makes them (every range is in the
+/// text as it was; the test texts are ASCII, so a UTF-16 column is a byte).
+fn with_edits_made(text: &str, edits: &[Value]) -> String {
+    let offset = |position: &Value| {
+        let line = position["line"].as_u64().unwrap() as usize;
+        let column = position["character"].as_u64().unwrap() as usize;
+        text.split_inclusive('\n')
+            .take(line)
+            .map(str::len)
+            .sum::<usize>()
+            + column
+    };
+    let mut ranged: Vec<(usize, usize, &str)> = edits
+        .iter()
+        .map(|edit| {
+            (
+                offset(&edit["range"]["start"]),
+                offset(&edit["range"]["end"]),
+                edit["newText"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    ranged.sort_by_key(|(start, _, _)| std::cmp::Reverse(*start));
+    let mut made = text.to_string();
+    for (start, end, new_text) in ranged {
+        made.replace_range(start..end, new_text);
+    }
+    made
+}
+
+fn findings_of(marks: &[Diagnostic]) -> usize {
+    marks
+        .iter()
+        .filter(|mark| code_of(mark) == "commands-use-ports")
+        .count()
+}
+
+#[test]
+fn a_fix_lands_as_one_edit_and_its_new_files_are_written_after_the_editors_yes() {
+    let dir = bistro_with_the_fix();
+    let s = served_editing(dir.path());
+    s.open(CLOSE_TABLE_PATH);
+    let findings_before = findings_of(&s.marks(CLOSE_TABLE_PATH));
+    let on_disk = |path: &str| std::fs::read_to_string(dir.path().join(path)).unwrap();
+    let module_before = on_disk(CLOSE_TABLE_PATH);
+    let plan = plan_add_port(&s, json!(7));
+    let new_files = paths_with_status(&plan, "new");
+    assert!(!new_files.is_empty(), "{plan}");
+    assert_eq!(
+        paths_with_status(&plan, "changed"),
+        [CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH]
+    );
+    let id = apply_asked(&s, &plan);
+    let asked = edit_asked(&s);
+    assert_eq!(asked.params["label"], "spellbook: Add a port and use it");
+    let documents = asked.params["edit"]["documentChanges"].as_array().unwrap();
+    assert_eq!(
+        documents[0]["textDocument"],
+        json!({ "uri": s.uri(CLOSE_TABLE_PATH), "version": 7 })
+    );
+    assert_eq!(
+        documents[1]["textDocument"],
+        json!({ "uri": s.uri(CLOSE_TABLE_TEST_PATH), "version": null })
+    );
+    for (document, path) in documents
+        .iter()
+        .zip([CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH])
+    {
+        let edits = document["edits"].as_array().unwrap();
+        assert_eq!(
+            with_edits_made(&on_disk(path), edits),
+            planned_text(&plan, path)
+        );
+    }
+    // nothing is written, and apply is not answered, before the editor says yes
+    let answered = RequestId::from(id);
+    assert!(
+        s.wait_for(
+            QUIET,
+            |m| matches!(m, Message::Response(r) if r.id == answered)
+        )
+        .is_none()
+    );
+    for path in &new_files {
+        assert!(!dir.path().join(path).exists(), "{path}");
+    }
+    s.reply(asked.id, json!({ "applied": true }));
+    let reply = s.response(id).response_result.unwrap();
+    assert_eq!(
+        reply["changed"],
+        json!([CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH])
+    );
+    assert_eq!(reply["written"], json!(new_files));
+    for path in &new_files {
+        assert!(dir.path().join(path).exists(), "{path}");
+    }
+    // the changed files are the editor's buffers to save; the disk is not touched
+    assert_eq!(on_disk(CLOSE_TABLE_PATH), module_before);
+    // the finding the fix answered is gone from the marks, read from the planned text
+    assert_eq!(findings_of(&s.marks(CLOSE_TABLE_PATH)), findings_before - 1);
+    s.stop();
+}
+
+#[test]
+fn an_edit_the_editor_refuses_writes_nothing_and_says_to_fix_again() {
+    let dir = bistro_with_the_fix();
+    let s = served_editing(dir.path());
+    let plan = plan_add_port(&s, json!(3));
+    let id = apply_asked(&s, &plan);
+    let asked = edit_asked(&s);
+    s.reply(
+        asked.id,
+        json!({ "applied": false, "failureReason": "version moved" }),
+    );
+    assert_eq!(
+        s.response(id).response_result.unwrap(),
+        json!({ "stop": CHANGED_SINCE })
+    );
+    for path in paths_with_status(&plan, "new") {
+        assert!(!dir.path().join(&path).exists(), "{path}");
+    }
+    assert_eq!(
+        s.command("spellbook.apply", json!([plan["id"]])),
+        json!({ "stop": GONE })
+    );
+    s.stop();
+}
+
+#[test]
+fn an_editor_that_cannot_apply_edits_gets_the_changes_on_disk_said_once() {
+    let dir = bistro_with_the_fix();
+    let s = served(dir.path());
+    let plan = plan_use_port(&s, json!(1));
+    let reply = s.command("spellbook.apply", json!([plan["id"]]));
+    assert_eq!(
+        reply["changed"],
+        json!([CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH])
+    );
+    for path in [CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH] {
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(path)).unwrap(),
+            planned_text(&plan, path)
+        );
+    }
+    let said: Vec<Message> = s
+        .all_within(QUIET)
+        .into_iter()
+        .filter(|m| {
+            matches!(m, Message::Notification(n)
+            if n.method == "window/showMessage" && n.params["message"] == CANNOT_EDIT)
+        })
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    s.stop();
+}
+
+#[test]
+fn a_file_edited_on_disk_after_the_plan_stops_the_apply() {
+    let dir = bistro_with_the_fix();
+    let s = served(dir.path());
+    let plan = plan_use_port(&s, json!(1));
+    let path = dir.path().join(CLOSE_TABLE_PATH);
+    let edited = std::fs::read_to_string(&path).unwrap() + "# mine\n";
+    std::fs::write(&path, &edited).unwrap();
+    assert_eq!(
+        s.command("spellbook.apply", json!([plan["id"]])),
+        json!({ "stop": CHANGED_SINCE })
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
     s.stop();
 }

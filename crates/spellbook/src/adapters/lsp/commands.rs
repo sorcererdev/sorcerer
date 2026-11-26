@@ -5,8 +5,9 @@
 //! - `spellbook.plan [generator, inputs, fix?]`: with `fix` (`{ file, line, rule, index,
 //!   version }`), the fix of that finding; a changed file comes with its `hunks`, `added` and
 //!   `removed`, and the plan with the `fix` it is
-//! - `spellbook.apply [plan id]`: replies with `written`, `skipped`, `refused`, `holes`, `first`
-//!   (the first hole's file and line) and `stops`, the holes in the order to walk them
+//! - `spellbook.apply [plan id]`: replies with `changed`, `written`, `skipped`, `refused`,
+//!   `holes`, `first` (the first hole's file and line) and `stops`, the holes in the order to
+//!   walk them; a plan's changed files are landed by the editor first (`landing.rs`)
 //!
 //! A reply is JSON the plugin reads; a refusal the person must hear is `{ "stop": "<sentence>" }`
 //! in the reply. An error answers only a malformed or unknown command.
@@ -14,16 +15,20 @@
 use std::collections::BTreeMap;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use lsp_server::{ErrorCode, ResponseError};
 use lsp_types::{
-    CodeActionProviderCapability, ExecuteCommandOptions, ExecuteCommandParams, ServerCapabilities,
+    CodeActionProviderCapability, ExecuteCommandOptions, ExecuteCommandParams, MessageType,
+    ServerCapabilities,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sorcerer_core::domain::project::Project;
+use sorcerer_lsp::Reply;
 
-use super::diagnostics::file_diagnostics;
+use super::diagnostics::file_diagnostics_over;
+use super::landing::{CANNOT_EDIT, changed_since_text};
 use super::plans::KeptPlan;
 use super::{NOT_TRUSTED, Server, lock};
 use crate::adapters::wiring::{Wired, wired};
@@ -31,12 +36,13 @@ use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 use crate::domain::inputs::{Given, InputStop, input_stop_text};
 use crate::domain::plan::{Plan, PlanStop, plan_stop_text};
 use crate::ports::generators::Generators;
-use crate::ports::workspace::write_refused_text;
+use crate::ports::workspace::{WriteRefused, write_refused_text};
 use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::choices_for::choices_for;
 use crate::usecases::list_generators::list_generators;
 use crate::usecases::plan_fix::{FindingAt, plan_fix};
 use crate::usecases::plan_generation::plan_generation;
+use crate::usecases::planned_view::PlannedView;
 
 pub(super) const GENERATORS: &str = "spellbook.generators";
 pub(super) const CHOICES: &str = "spellbook.choices";
@@ -61,24 +67,29 @@ pub(super) fn capabilities() -> ServerCapabilities {
 }
 
 impl Server {
-    /// Runs one of the commands. A refusal the person must hear (an untrusted project, a plan
-    /// that stopped) is a `stop` in the reply; an error answers only a malformed command.
-    pub(super) fn execute(&self, params: Value) -> Result<Value, ResponseError> {
-        let params: ExecuteCommandParams = serde_json::from_value(params).map_err(invalid)?;
+    /// Runs one of the commands and answers through `reply`: at once, or (an apply whose
+    /// changes the editor lands) once the editor has answered the edit. A refusal the person
+    /// must hear (an untrusted project, a plan that stopped) is a `stop` in the reply; an error
+    /// answers only a malformed command.
+    pub(super) fn execute(self: &Arc<Self>, params: Value, reply: Reply) {
+        let params: ExecuteCommandParams = match serde_json::from_value(params) {
+            Ok(params) => params,
+            Err(e) => return reply.send(Err(invalid(e))),
+        };
         let command = params.command.as_str();
         if ![GENERATORS, CHOICES, PLAN, APPLY].contains(&command) {
-            return Err(invalid(format!("no command {command}")));
+            return reply.send(Err(invalid(format!("no command {command}"))));
         }
         let wired = match self.wired_for_commands() {
             Ok(wired) => wired,
-            Err(sentence) => return Ok(stop(&sentence)),
+            Err(sentence) => return reply.send(Ok(stop(&sentence))),
         };
         let arguments = &params.arguments;
         match command {
-            GENERATORS => Ok(self.generators(&wired)),
-            CHOICES => self.choices(&wired, arguments),
-            PLAN => self.plan(&wired, arguments),
-            _ => self.apply(&wired, arguments),
+            GENERATORS => reply.send(Ok(self.generators(&wired))),
+            CHOICES => reply.send(self.choices(&wired, arguments)),
+            PLAN => reply.send(self.plan(&wired, arguments)),
+            _ => self.apply(&wired, arguments, reply),
         }
     }
 
@@ -150,39 +161,73 @@ impl Server {
         })
     }
 
-    /// `[plan id]`: writes the plan's new files, marks each hole and opens the first one. A
-    /// plan is applied once.
-    fn apply(&self, wired: &Wired, arguments: &[Value]) -> Result<Value, ResponseError> {
-        let id = text_argument(arguments, 0)?;
+    /// `[plan id]`: lands the plan's changed files, writes its new files, marks each hole and
+    /// opens the first one. A plan is applied once. The changed files are landed by the editor
+    /// as one undoable edit when it can apply edits, and the rest waits for its answer;
+    /// otherwise they are written to disk, and the person is told so once.
+    fn apply(self: &Arc<Self>, wired: &Wired, arguments: &[Value], reply: Reply) {
+        let id = match text_argument(arguments, 0) {
+            Ok(id) => id,
+            Err(e) => return reply.send(Err(e)),
+        };
         let taken = lock(&self.plans).take(&id, self.cfg.clock.now());
-        let Some(KeptPlan { plan, .. }) = taken else {
-            return Ok(stop(PLAN_GONE));
+        let Some(kept) = taken else {
+            return reply.send(Ok(stop(PLAN_GONE)));
         };
-        let applied = match apply_plan(&wired.apply_deps(), plan, ChangesLanded::NotYet) {
+        if kept.plan.changed_files().is_empty() {
+            return reply.send(Ok(self.applied(wired, kept.plan, ChangesLanded::NotYet)));
+        }
+        if self.client.can_apply_edits() {
+            return self.land_in_the_editor(kept, reply);
+        }
+        self.client
+            .say_once("cannot-edit", MessageType::INFO, CANNOT_EDIT);
+        reply.send(Ok(self.applied(wired, kept.plan, ChangesLanded::NotYet)));
+    }
+
+    /// Applies the plan (its changed files already landed by the editor, or not yet), publishes
+    /// the marks of the changed and written files, opens the first hole, and says what was done.
+    pub(super) fn applied(&self, wired: &Wired, plan: Plan, landed: ChangesLanded) -> Value {
+        let applied = match apply_plan(&wired.apply_deps(), plan, landed) {
             Ok(applied) => applied,
-            Err(e) => return Ok(stop(&format!("spellbook: {e:#}"))),
+            Err(e) => return stop(&format!("spellbook: {e:#}")),
         };
-        let stops = self.mark_written_files(wired, &applied.written);
+        if let Some((_, WriteRefused::Changed)) = &applied.refused
+            && applied.changed.is_empty()
+        {
+            return stop(&changed_since_text(&applied.plan));
+        }
+        let stops = self.mark_files(wired, &applied);
         if let Some(first) = stops.first() {
             self.client.show_document(
                 &self.root.join(first["file"].as_str().unwrap_or_default()),
                 serde_json::from_value(first["range"].clone()).ok(),
             );
         }
-        Ok(applied_reply(&applied, stops))
+        applied_reply(&applied, stops)
     }
 
-    /// Publishes the hole marks of each written file; returns the holes as tab stops, the files
-    /// in the order they were written and each file's holes by line then column.
-    fn mark_written_files(&self, wired: &Wired, written: &[String]) -> Vec<Value> {
+    /// Publishes the marks and findings of each changed then written file, the changed ones
+    /// read as the plan left them; returns the holes as tab stops, the files in that order and
+    /// each file's holes by line then column.
+    fn mark_files(&self, wired: &Wired, applied: &AppliedGeneration) -> Vec<Value> {
+        let planned_view = PlannedView::new(&wired.view, changed_texts(&applied.plan));
         let mut stops = Vec::new();
-        for file in written {
-            let mut diagnostics = file_diagnostics(wired, Path::new(file));
+        for file in applied.changed.iter().chain(&applied.written) {
+            let mut diagnostics = file_diagnostics_over(wired, &planned_view, Path::new(file));
             stops.append(&mut diagnostics.stops);
             self.publish(file, diagnostics);
         }
         stops
     }
+}
+
+/// The text the plan leaves in each changed file, by path.
+fn changed_texts(plan: &Plan) -> BTreeMap<String, String> {
+    plan.changed_files()
+        .into_iter()
+        .map(|file| (file.path.clone(), file.text.clone()))
+        .collect()
 }
 
 /// What apply did, as the plugin reads it.
@@ -192,6 +237,7 @@ fn applied_reply(applied: &AppliedGeneration, stops: Vec<Value>) -> Value {
         .as_ref()
         .map(|(path, why)| json!({ "path": path, "why": write_refused_text(why) }));
     json!({
+        "changed": applied.changed,
         "written": applied.written,
         "skipped": applied.skipped,
         "refused": refused,
@@ -259,7 +305,7 @@ fn input_stop_reply(why: &InputStop) -> Value {
     })
 }
 
-fn stop(sentence: &str) -> Value {
+pub(super) fn stop(sentence: &str) -> Value {
     json!({ "stop": sentence })
 }
 

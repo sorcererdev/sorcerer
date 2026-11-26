@@ -10,6 +10,7 @@
 //! - `commands.rs`: the capabilities and the four commands.
 //! - `code_actions.rs`: a finding's fixes as quick fixes.
 //! - `plans.rs`: the plans made and not yet applied.
+//! - `landing.rs`: a plan's changed files landed by the editor as one undoable edit.
 //! - `marks.rs`, `findings.rs` and `diagnostics.rs`: a hole and a finding as diagnostics, and the
 //!   diagnostics of one file (the marks and the findings published together).
 //! - `project_paths.rs`: which editor paths are the project's.
@@ -18,6 +19,7 @@ mod code_actions;
 mod commands;
 mod diagnostics;
 mod findings;
+mod landing;
 mod marks;
 mod plans;
 mod project_paths;
