@@ -20,6 +20,7 @@ use crate::domain::inputs::{Given, Values};
 use crate::domain::plan::{
     Applied, FileStatus, Plan, PlanStop, PlannedFile, line_count, plan_id, relative_path,
 };
+use crate::domain::region::DeclaredRegions;
 use crate::domain::template::{Rendered, render};
 use crate::ports::anchors::Anchors;
 use crate::ports::clock::Clock;
@@ -27,6 +28,7 @@ use crate::ports::generators::Generators;
 use crate::ports::grammars::Grammars;
 use crate::usecases::choices_for::{Resolved, resolve_inputs};
 use crate::usecases::planned_view::PlannedView;
+use crate::usecases::sync_regions::refresh_regions;
 
 /// What planning reads: the project's files, its grammars and anchors, its fences and the clock.
 pub struct PlanDeps<'a> {
@@ -37,23 +39,36 @@ pub struct PlanDeps<'a> {
     pub generators: &'a dyn Generators,
     pub fences: &'a Fences,
     pub clock: &'a dyn Clock,
+    /// The owned regions every plan refreshes at its end.
+    pub regions: &'a DeclaredRegions,
 }
 
-/// Plans a generation: the inputs resolved, each edit's path and text rendered (placeholders
-/// from the language of the file's own path), each path kept inside the project and off the
-/// fences, an existing file skipped or the plan stopped as the edit says, each insert placed by
-/// its phrase (or left out when its `unless` holds), and every new or changed file a language
-/// covers parsed. A generator with inserts whose every edit is in place already is
-/// `NothingToDo`. Nothing is written.
+/// Plans a generation: its edits (see [`plan_edits`]), then every owned region refreshed over
+/// the project as the plan would leave it, in the same plan. Nothing is written.
 ///
-/// Example: in bistro, `command` with `command=cancel_table` plans `__init__.py` (skipped: it is
-/// there), `cancel_table.py` and `cancel_table__test.py`, and the holes `field`, `type` and
-/// `handle` with placeholders in the code.
+/// Example: in bistro-rs with the `modules` region set up, `command` with
+/// `command=cancel_table` plans `cancel_table.rs` and changes `src/booking/commands/mod.rs`
+/// (region modules: +1 −0).
 pub fn plan_generation(
     deps: &PlanDeps,
     generator: &Generator,
     given: &Given,
 ) -> Result<Plan, PlanStop> {
+    let plan = plan_edits(deps, generator, given)?;
+    refresh_regions(deps, plan)
+}
+
+/// Plans a generation's edits, regions left alone: the inputs resolved, each edit's path and
+/// text rendered (placeholders from the language of the file's own path), each path kept inside
+/// the project and off the fences, an existing file skipped or the plan stopped as the edit
+/// says, each insert placed by its phrase (or left out when its `unless` holds), every
+/// `[[uses]]` planned after it, and every new or changed file a language covers parsed. A
+/// generator with inserts whose every edit is in place already is `NothingToDo`.
+///
+/// Example: in bistro, `command` with `command=cancel_table` plans `__init__.py` (skipped: it is
+/// there), `cancel_table.py` and `cancel_table__test.py`, and the holes `field`, `type` and
+/// `handle` with placeholders in the code.
+pub fn plan_edits(deps: &PlanDeps, generator: &Generator, given: &Given) -> Result<Plan, PlanStop> {
     let values = match resolve_inputs(deps.view, generator, given) {
         Resolved::Ready(values) => values,
         Resolved::Stop(stop) => return Err(PlanStop::Input(stop)),
@@ -92,6 +107,7 @@ pub fn plan_generation(
         files,
         holes,
         fix: None,
+        notes: Vec::new(),
     })
 }
 
@@ -135,8 +151,9 @@ fn with_used(
         generators: deps.generators,
         fences: deps.fences,
         clock: deps.clock,
+        regions: deps.regions,
     };
-    let plan = match plan_generation(&over_the_plan, &generator, &given) {
+    let plan = match plan_edits(&over_the_plan, &generator, &given) {
         Ok(plan) => plan,
         Err(PlanStop::NothingToDo(_)) => return Ok((files, holes)),
         Err(stop) => return Err(stop),

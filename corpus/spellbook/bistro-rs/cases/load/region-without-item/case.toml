@@ -1,0 +1,2 @@
+# A region without `item`: it would not know what to write.
+sync = true

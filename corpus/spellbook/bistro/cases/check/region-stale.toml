@@ -1,0 +1,2 @@
+# cancel_booking.py deleted (its test left): region-stale on the opening marker of __init__.py.
+patch = "region-stale.patch"

@@ -1,0 +1,4 @@
+# A line typed inside the block is overwritten: the block is the list of files, nothing else.
+patch = "hand-edit-in-the-block.patch"
+mode  = "refresh"
+exit  = 0

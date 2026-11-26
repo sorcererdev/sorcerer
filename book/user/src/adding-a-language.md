@@ -50,7 +50,7 @@ it never keeps them under the project.
 |---|---|
 | `files` | globs over paths in the project: which files are this language's |
 | `grammar` | `{ git = "…", rev = "…" }`, or `{ path = "…" }` for a grammar on disk (relative to the language file's directory) |
-| `comment` | the line-comment marker |
+| `comment` | the line-comment marker: allow comments and owned regions' markers are written with it |
 | `unit_words` | how a prompt describes a unit of this language |
 | `unit_separator` | joins a method to its type in a unit's name; `.` unless set (Rust ships `::`) |
 | `[unit] name` | patterns that read a unit's name from its first line, when the queries do not |

@@ -1,0 +1,3 @@
+[regions.modules]
+file    = "src/{service}/{kind}/mod.rs"
+query   = { glob = "{= dir =}/*.rs" }

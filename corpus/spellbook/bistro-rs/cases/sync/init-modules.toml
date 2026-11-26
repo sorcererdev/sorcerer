@@ -1,0 +1,6 @@
+# On the shared base, nothing set up: --init puts the markers after the last `pub mod` line of
+# each of the four files the pattern matches (web/bookings/mod.rs among them: a family member
+# nobody named) and moves the hand-written lines into the block, so nothing is declared twice.
+base = "shared"
+mode = "init modules"
+exit = 0

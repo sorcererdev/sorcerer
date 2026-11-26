@@ -1,0 +1,4 @@
+# A command written by hand is a module as soon as it exists: sync adds its line.
+patch = "hand-made-file.patch"
+mode  = "refresh"
+exit  = 0

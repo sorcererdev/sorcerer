@@ -9,6 +9,7 @@ use sorcerer_core::domain::fnv::fnv64_hex;
 use crate::domain::change::{Hunk, TextChange, added_and_removed, changes_between, hunks};
 use crate::domain::holes::{Hole, HoleOrigin};
 use crate::domain::inputs::{InputStop, input_stop_text};
+use crate::domain::region::REGIONS_FILE;
 
 /// What a generation would do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -23,6 +24,10 @@ pub struct Plan {
     /// The finding this plan fixes, when it is a fix.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<FixOrigin>,
+    /// One-line hints the plan ends with: a region not set up in a file it could keep, or
+    /// `regions.toml` not loading.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 /// The finding a fix answers, and which of its rule's fixes it is (from 1).
@@ -93,6 +98,12 @@ pub struct PlannedFile {
     pub added: u32,
     #[serde(skip_serializing_if = "is_zero")]
     pub removed: u32,
+    /// The owned region(s) whose block the plan rewrites in this file, by name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// For a region set up by `sync --init`: how many items its block holds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set_up: Option<u32>,
 }
 
 fn is_zero(count: &u32) -> bool {
@@ -112,6 +123,8 @@ impl PlannedFile {
             before: String::new(),
             added: 0,
             removed: 0,
+            region: None,
+            set_up: None,
         }
     }
 
@@ -133,6 +146,8 @@ impl PlannedFile {
             status: FileStatus::Changed,
             text: after,
             before,
+            region: None,
+            set_up: None,
         }
     }
 
@@ -154,6 +169,8 @@ impl PlannedFile {
             before: String::new(),
             added: 0,
             removed: 0,
+            region: None,
+            set_up: None,
         }
     }
 }
@@ -219,6 +236,26 @@ pub enum PlanStop {
     },
     /// Every edit is in place already and nothing is new.
     NothingToDo(Applied),
+    /// A region's markers in a file are not a pair: the line (from 1) of the first one found.
+    RegionBroken {
+        file: String,
+        line: u32,
+        why: String,
+    },
+    /// `regions.toml` did not load: the sentence naming the region and the key.
+    RegionsDoNotLoad(String),
+    /// No region has that name.
+    RegionNotThere {
+        name: String,
+        known: Vec<String>,
+    },
+    /// A region cannot be kept in one of its files: no comment syntax, a `comment` where the
+    /// language has one, a glob that does not fill.
+    Region {
+        name: String,
+        file: String,
+        why: String,
+    },
 }
 
 /// The stop as one sentence.
@@ -255,7 +292,25 @@ pub fn plan_stop_text(stop: &PlanStop) -> String {
         PlanStop::NothingToDo(Applied::Generation) => {
             "nothing to do: every edit is in the code already".into()
         }
+        PlanStop::RegionBroken { file, line, why } => {
+            format!("{file}:{line}: {why}; nothing was written (fix the markers by hand)")
+        }
+        PlanStop::RegionsDoNotLoad(why) => why.clone(),
+        PlanStop::RegionNotThere { name, known } => region_not_there_text(name, known),
+        PlanStop::Region { name, file, why } => {
+            format!("{REGIONS_FILE}: region {name}, in {file}: {why}; nothing was written")
+        }
     }
+}
+
+fn region_not_there_text(name: &str, known: &[String]) -> String {
+    if known.is_empty() {
+        return format!("no region named {name}: {REGIONS_FILE} declares none");
+    }
+    format!(
+        "no region named {name} (the regions are: {})",
+        known.join(", ")
+    )
 }
 
 /// A path as a generator wrote it, kept only when it stays inside the project: not absolute,

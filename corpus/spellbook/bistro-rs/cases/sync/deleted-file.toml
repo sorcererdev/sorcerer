@@ -1,0 +1,4 @@
+# A deleted query loses its line (and nothing else: sync never removes a file).
+patch = "deleted-file.patch"
+mode  = "refresh"
+exit  = 0

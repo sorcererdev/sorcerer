@@ -1,0 +1,4 @@
+[regions.modules]
+file    = "../{kind}/mod.rs"
+query   = { glob = "{= dir =}/*.rs" }
+item    = "pub mod {= stem =};"

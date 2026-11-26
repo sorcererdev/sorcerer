@@ -2,24 +2,33 @@
 //! It only reads.
 
 use std::io::Write;
+use std::sync::Arc;
 
 use anyhow::Result;
+use sorcerer_core::adapters::files_view::FilesView;
+use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::json_store::{Snapshot, Store};
 use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::needs_trust;
 use sorcerer_core::ports::env::Env;
 
+use crate::adapters::cached_grammars::CachedGrammars;
 use crate::adapters::generator_dir::{GENERATORS_DIR, generators_in};
 use crate::adapters::json_holes::HOLES_FILE;
 use crate::adapters::json_report::REPORT_FILE;
 use crate::adapters::jsonl_generation_store::JsonlGenerationStore;
+use crate::adapters::regions_toml::load_regions;
 use crate::adapters::rules_toml::{RULES_FILE, load_rules};
 use crate::domain::config::spellbook_config;
+use crate::domain::finding::{REGION_BROKEN, REGION_NOT_SET_UP, REGION_STALE};
 use crate::domain::holes_table::holes_table;
+use crate::domain::plan::plan_stop_text;
 use crate::domain::record::HolesFile;
+use crate::domain::region::REGIONS_FILE;
 use crate::domain::report::ReportFile;
 use crate::ports::generation_store::GenerationStore;
+use crate::usecases::sync_regions::{instances, region_findings};
 
 use super::format::count;
 
@@ -43,7 +52,7 @@ pub(super) fn doctor(project: &Project, env: &dyn Env, out: &mut dyn Write) -> R
     })
 }
 
-/// The rows, in this order: `config`, `generators`, `rules`, `languages`, `conjure`, `trust`,
+/// The rows, in this order: `config`, `generators`, `rules`, `regions`, `languages`, `conjure`, `trust`,
 /// `holes`, `report`, `generations`.
 pub fn doctor_rows(project: &Project, env: &dyn Env) -> Vec<DoctorRow> {
     let row = |name, result| DoctorRow { name, result };
@@ -56,6 +65,7 @@ pub fn doctor_rows(project: &Project, env: &dyn Env) -> Vec<DoctorRow> {
         ),
         row("generators", generators_row(project)),
         row("rules", rules_row(project)),
+        row("regions", regions_row(project, env)),
         row("languages", Ok(languages_row(project))),
         row("conjure", Ok(conjure_row(env))),
         row(
@@ -154,6 +164,59 @@ fn rules_row(project: &Project) -> Result<String, String> {
         count(rules.len(), "rule", "rules"),
         ids.join(", ")
     ))
+}
+
+/// The regions declared, how many files they keep, and which are not set up or out of date.
+/// Only reads: no grammar is loaded (the comment markers are the languages' data).
+///
+/// Example: `2 declared, 5 files, 1 not set up (ports in src/booking/ports/mod.rs)`.
+fn regions_row(project: &Project, env: &dyn Env) -> Result<String, String> {
+    let regions = load_regions(project).map_err(|problem| problem.to_string())?;
+    if regions.is_empty() {
+        return Ok(format!(
+            "none declared (add {REGIONS_FILE} to keep a list such as a folder's module lines)"
+        ));
+    }
+    let project = Arc::new(project.clone());
+    let cache = GrammarCache::user(env);
+    let view = FilesView::new(project.clone(), cache.clone());
+    let grammars = CachedGrammars {
+        languages: project.languages.clone(),
+        cache,
+    };
+    let files = instances(&view, &regions).len();
+    let found =
+        region_findings(&view, &grammars, &regions, None).map_err(|stop| plan_stop_text(&stop))?;
+    let mut text = format!(
+        "{} declared, {}",
+        regions.len(),
+        count(files, "file", "files")
+    );
+    for (rule, words) in [
+        (REGION_NOT_SET_UP, "not set up"),
+        (REGION_STALE, "out of date"),
+        (REGION_BROKEN, "with broken markers"),
+    ] {
+        let places: Vec<String> = found
+            .iter()
+            .filter(|finding| finding.rule == rule)
+            .map(|finding| {
+                let region = finding
+                    .region
+                    .as_ref()
+                    .map_or("", |drift| drift.region.as_str());
+                format!("{region} in {}", finding.file)
+            })
+            .collect();
+        if !places.is_empty() {
+            text.push_str(&format!(
+                ", {} {words} ({})",
+                places.len(),
+                places.join(", ")
+            ));
+        }
+    }
+    Ok(text)
 }
 
 /// The last check: how many findings it left and when.

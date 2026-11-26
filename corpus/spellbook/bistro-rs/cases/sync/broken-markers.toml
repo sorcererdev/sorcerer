@@ -1,0 +1,4 @@
+# A closing marker deleted: the plan stops naming the file and the line, nothing is written.
+patch = "broken-markers.patch"
+mode  = "refresh"
+exit  = 1

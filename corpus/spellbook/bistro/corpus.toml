@@ -3,3 +3,6 @@
 name     = "bistro"
 language = "python"
 base     = "../../conjure/bistro/base"
+# commands/__init__.py with its region markers, laid over the base for every case that does
+# not say base = "shared".
+overlay  = "base"

@@ -1,0 +1,4 @@
+# On the shared base: --check names every file a region could keep that has no markers, exit 1.
+base = "shared"
+mode = "check"
+exit = 1

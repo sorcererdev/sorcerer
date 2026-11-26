@@ -1,12 +1,3 @@
-diff --git a/src/booking/commands/mod.rs b/src/booking/commands/mod.rs
-index c5aad87..6984606 100644
---- a/src/booking/commands/mod.rs
-+++ b/src/booking/commands/mod.rs
-@@ -1,3 +1,4 @@
- //! Commands: each changes the bookings, and holds the booking rules for its change.
- 
- pub mod create_booking;
-+pub mod seat_walk_in;
 diff --git a/src/booking/commands/seat_walk_in.rs b/src/booking/commands/seat_walk_in.rs
 new file mode 100644
 index 0000000..9023639

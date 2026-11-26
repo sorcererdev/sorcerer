@@ -1,6 +1,6 @@
 name        = "Command"
 summary     = "A command of a service, with its test"
-description = "commands/NAME.rs: its Input, a failure, handle, and a test calling it (red until handle is written). Add `pub mod NAME;` to commands/mod.rs by hand: in milestone 1 the mod line is the person's."
+description = "commands/NAME.rs: its Input, a failure, handle, and a test calling it (red until handle is written). commands/mod.rs lists it through the modules region."
 language    = "rust"
 examples    = ["spellbook new command --set service=booking --set command=cancel_table"]
 

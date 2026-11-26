@@ -1,0 +1,4 @@
+# --plan on a hand-made command: the row and the hunk, nothing written.
+patch = "hand-made-file.patch"
+mode  = "plan"
+exit  = 0

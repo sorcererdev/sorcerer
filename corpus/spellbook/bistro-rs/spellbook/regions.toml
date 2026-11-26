@@ -1,0 +1,17 @@
+# The lists spellbook keeps. Hand edits inside a region are overwritten: edit this file, or
+# add and remove the files it lists.
+
+# commands/, queries/, models/ (and web/bookings/): one `pub mod` line per sibling file.
+[regions.modules]
+file    = "src/{service}/{kind}/mod.rs"
+exclude = ["src/*/ports/mod.rs"]
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+# ports/: one line per port, and a port is a folder with its mod.rs.
+[regions.ports]
+file    = "src/{service}/ports/mod.rs"
+query   = { glob = "{= dir =}/*/mod.rs" }
+item    = "pub mod {= parent =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]

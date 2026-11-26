@@ -20,7 +20,8 @@ use crate::domain::template::render;
 use crate::ports::generators::Generators;
 use crate::ports::rule_runner::RuleRunner;
 use crate::usecases::choices_for::{Resolved, resolve_inputs};
-use crate::usecases::plan_generation::{PlanDeps, plan_generation};
+use crate::usecases::plan_generation::{PlanDeps, plan_edits, plan_generation};
+use crate::usecases::sync_regions::refresh_regions;
 
 /// What planning a fix reads: what planning a generation reads, the rules and their runner, and
 /// the generators.
@@ -77,6 +78,7 @@ pub fn plan_fix(deps: &FixDeps, at: &FindingAt, given: &Given) -> Result<Plan, P
         None => plan,
     };
     refuse_a_new_parse_error(deps, &at.file, &text, &plan)?;
+    let plan = refresh_regions(&deps.plan, plan)?;
     Ok(Plan {
         fix: Some(FixOrigin {
             rule: rule.id.clone(),
@@ -194,7 +196,7 @@ fn generation_or_nothing(
     generator: &Generator,
     inputs: &Given,
 ) -> Result<Plan, PlanStop> {
-    match plan_generation(deps, generator, inputs) {
+    match plan_edits(deps, generator, inputs) {
         Err(PlanStop::NothingToDo(_)) => {
             let values = values_of(deps, generator, inputs)?;
             let inputs = values.inputs();
@@ -205,6 +207,7 @@ fn generation_or_nothing(
                 files: Vec::new(),
                 holes: Vec::new(),
                 fix: None,
+                notes: Vec::new(),
             })
         }
         planned => planned,

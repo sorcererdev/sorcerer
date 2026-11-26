@@ -1,0 +1,4 @@
+# A port is a folder with its mod.rs: the item is the folder's name, {= parent =}.
+base = "shared"
+mode = "init ports"
+exit = 0

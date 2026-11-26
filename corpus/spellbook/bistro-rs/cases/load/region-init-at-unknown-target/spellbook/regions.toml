@@ -1,0 +1,5 @@
+[regions.modules]
+file    = "src/{service}/{kind}/mod.rs"
+query   = { glob = "{= dir =}/*.rs" }
+item    = "pub mod {= stem =};"
+init_at = "after the mod lines"

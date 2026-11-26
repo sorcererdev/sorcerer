@@ -15,7 +15,7 @@ use crate::ports::workspace::write_refused_text;
 use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::plan_generation::plan_generation;
 
-use super::format::{columns, count};
+use super::format::{columns, count, file_row, notes_text};
 
 /// What the person asked `new` for.
 pub(super) struct NewRequest {
@@ -160,8 +160,9 @@ fn skipped_paths(plan: &Plan) -> Vec<String> {
         .collect()
 }
 
-/// The generation in a few lines: the files (`+` written, `=` left as they were), the holes to
-/// fill at their first place, and what the inputs filled.
+/// The generation in a few lines: the files (`+` written, `~` changed, a region's rewrite
+/// included, `=` left as they were), the holes to fill at their first place, what the inputs
+/// filled, and the plan's notes.
 ///
 /// Example:
 /// ```text
@@ -174,28 +175,27 @@ fn skipped_paths(plan: &Plan) -> Vec<String> {
 /// ```
 fn summary_text(plan: &Plan, written: &[String]) -> String {
     let holes = plan.placeholder_holes();
-    let mut text = format!(
-        "{} ({}, {})\n",
-        plan.generator,
-        count(written.len(), "file", "files"),
-        count(holes.len(), "hole", "holes")
-    );
+    let changed = plan.changed_files().len();
+    let mut text = if changed == 0 {
+        format!(
+            "{} ({}, {})\n",
+            plan.generator,
+            count(written.len(), "file", "files"),
+            count(holes.len(), "hole", "holes")
+        )
+    } else {
+        format!(
+            "{} ({} new, {changed} changed, {})\n",
+            plan.generator,
+            written.len(),
+            count(holes.len(), "hole", "holes")
+        )
+    };
     let file_rows: Vec<Vec<String>> = plan
         .files
         .iter()
         .filter(|file| file.status != FileStatus::New || written.contains(&file.path))
-        .map(|file| match file.status {
-            FileStatus::New => vec![
-                format!("+ {}", file.path),
-                format!("({} lines)", file.lines),
-            ],
-            FileStatus::Changed => vec![
-                format!("~ {}", file.path),
-                format!("(+{} \u{2212}{})", file.added, file.removed),
-            ],
-            FileStatus::Skipped => vec![format!("= {}", file.path), "(exists, skipped)".into()],
-            FileStatus::Unchanged => vec![format!("= {}", file.path), "(unchanged)".into()],
-        })
+        .map(file_row)
         .collect();
     text.push_str(&columns("  ", &file_rows));
     if !holes.is_empty() {
@@ -206,6 +206,7 @@ fn summary_text(plan: &Plan, written: &[String]) -> String {
         ));
     }
     text.push_str(&derived_text(&plan.derived_holes()));
+    text.push_str(&notes_text(plan));
     text
 }
 

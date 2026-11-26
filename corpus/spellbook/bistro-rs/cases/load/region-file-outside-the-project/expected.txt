@@ -1,0 +1,1 @@
+.sorcerer/spellbook/regions.toml: region modules: file: `../{kind}/mod.rs`: the path leaves the project

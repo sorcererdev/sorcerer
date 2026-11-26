@@ -12,7 +12,7 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 
 `domain/` (data and rules, no I/O):
 
-- `config.rs`: `SpellbookConfig { enabled, exclude }`, `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
+- `config.rs`: `SpellbookConfig { enabled, exclude, sync_on_save }` (`sync_on_save` is read and not yet used: the server's sync on save comes with the editors' side of regions), `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
   the server (`republish`, `wired_for_commands`).
 - `generator.rs`: the types (`Generator`, `Input`/`InputKind`, `Query`/`QueryValue`,
   `Edit::{Create, Insert}`/`EditBody`/`OnExists`/`OnMissing`, `HoleSource`, `Use`) and `read_generator(id, text, templates)`, which
@@ -59,14 +59,21 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `holes.rs`: `Hole { name, kind, instruction, source: HoleOrigin, places }`,
   `HolePlace { file, line, text }`, and `HoleBook`, which gathers one generation's holes file by
   file (one hole per name, every place).
-- `plan.rs`: `Plan { id, generator, inputs, files, holes, fix }`, `FixOrigin`, `PlannedFile`
+- `plan.rs`: `Plan { id, generator, inputs, files, holes, fix, notes }`, `FixOrigin`, `PlannedFile`
   (`new_file`, `left`, `changed(path, before, after)`, which works out `changes`, `hunks`,
-  `added`, `removed`; `before` is what the apply checks the disk against), `FileStatus::{New,
+  `added`, `removed`; `before` is what the apply checks the disk against; `region` and `set_up` when an
+  owned region rewrote it), `FileStatus::{New,
   Skipped, Changed, Unchanged}`, `PlanStop` (with `FindingGone`, `NoReplaceCase`, `Anchor`,
-  `NothingToDo(Applied)`) and `plan_stop_text`, `relative_path` (lexical: no absolute path, no `..` out),
+  `NothingToDo(Applied)`, `RegionBroken`, `RegionsDoNotLoad`, `RegionNotThere`, `Region`) and `plan_stop_text`, `relative_path` (lexical: no absolute path, no `..` out),
   `plan_id` (eight hex digits of `fnv64_hex` over the generator, the inputs and the time).
+- `region.rs`: owned regions. `Region { name, file: PathPattern, exclude, query: RegionQuery { glob,
+  exclude }, item, init_at, comment, severity }`, `REGIONS_FILE`, `RegionsProblem`, `DeclaredRegions`,
+  `parse_regions(text)`; `RegionInstance` (`Region::instance_in(file)`, `query_glob`, `query_excludes`,
+  `items`, `opening_marker`, `closing_marker`); and the text work, all on plain strings: `find_block`
+  (`Block { open_row, close_row, indent }` or `BrokenMarkers { row, why }`), `splice`, `Markers`,
+  `with_markers_at`, `adopt`. See [A sync, end to end](#a-sync-end-to-end).
 - `record.rs`: `GenerationRecord` (a line of `generations.jsonl`; a fix adds `fix: RecordedFix`
-  and `changed: Vec<ChangedFile>`), `OpenHole` and `HolesFile`
+  and `changed: Vec<ChangedFile>`, whose `region` names the owned region that rewrote the file), `OpenHole` and `HolesFile`
   (`holes.json`, a core `Versioned` at version 1), `record_of`, `open_holes_of`.
 - `open_hole_places.rs`: `still_open(hole, text)`: a placeholder carrying `hole <name>:` is
   found by that text anywhere, nearest the recorded line first; a short one (`todo_field`) as a
@@ -81,14 +88,17 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   "arrives in milestone 2b"; both `match` and `query` is refused; every regex is compiled once to catch a bad one early). `rule_query.rs`: `query_text`, the
   short form written as tree-sitter query text (`@finding`, `#match?`, `#not-match?`, backslash and
   quote escaped).
-- `finding.rs` (`Finding`, whose `node_text` is not serialized; `RawFinding` with the node's `kind`
+- `finding.rs` (`Finding`, whose `node_text` is not serialized and whose `region: Option<RegionDrift>`
+  is flattened into a region's finding; `REGION_STALE`, `REGION_NOT_SET_UP`, `REGION_BROKEN` beside
+  `ALLOW_WITHOUT_REASON` and `UNKNOWN_RULE`; `RawFinding` with the node's `kind`
   and `Span` (rows and bytes); `fingerprint`: seven hex digits of `fnv64_hex` over the
   rule and the node text with whitespace collapsed), `allow.rs` (`allow_comments`, `silencing`),
   `report.rs` (`ReportFile`, `with_files_replaced`, `sort_findings`; `report.json` is a core
   `Versioned` at version 1).
 
 `ports/`: `generators.rs` (`Generators`: `all`, `named`), `grammars.rs` (`Grammars::for_path`:
-the loaded language of a path, or none), `workspace.rs` (`Workspace::write_new`,
+the loaded language of a path, or none; `covers` and `line_comment`, which `CachedGrammars` answers
+from the language's data without loading a grammar), `workspace.rs` (`Workspace::write_new`,
 `Workspace::write_changed(path, before, after)`, `WriteRefused` with `Changed`),
 `generation_store.rs`, `holes_store.rs`, `clock.rs`, `rule_runner.rs` (`RuleRunner::findings_in`,
 `RuleRunner::enclosing(file, text, span, kinds)`: the nearest node of those kinds around a
@@ -96,12 +106,14 @@ finding), `anchors.rs` (`Anchors::resolve(file, text, anchor)`), `report_store.r
 
 `usecases/`: `list_generators.rs` (`GeneratorSummary`, also the editor's picker reply),
 `choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`, which
-carries `anchors`, and `plan_generation`, whose `Insert` places an insert edit and whose `with_used` plans each
-`[[uses]]` over a `PlannedView`), `planned_view.rs` (`PlannedView`: a `CodebaseView` that answers
+carries `anchors` and `regions`; `plan_generation` = `plan_edits` then `refresh_regions`; `plan_edits`'s `Insert` places an insert edit and its `with_used` plans each
+`[[uses]]` over a `PlannedView`), `sync_regions.rs` (`SyncMode`, `SyncPlan`, `plan_sync`,
+`refresh_regions`, `region_findings`, `instances`, `not_set_up_text`; the private `Keeper` does the
+work), `planned_view.rs` (`PlannedView`: a `CodebaseView` that answers
 `exists`, `text` and `glob` with the plan so far laid over the project and passes every other
 question on), `fixes_for.rs`
-(`FixOffer`, `fixes_for`), `plan_fix.rs` (`FixDeps`, `FindingAt`, `plan_fix`), `apply_plan.rs`
-(`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, `check_files`), `check_project.rs`
+(`FixOffer`, `fixes_for`, `region_fix_offer`), `plan_fix.rs` (`FixDeps`, `FindingAt`, `plan_fix`), `apply_plan.rs`
+(`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, which carries `regions`, `check_files`), `check_project.rs`
 (`check_project`).
 
 `adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
@@ -109,18 +121,19 @@ question on), `fixes_for.rs`
 loading, its `with` names its inputs, no cycle, at most four in a chain; `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
 `Languages::for_path` and `Languages::load`), `disk_workspace.rs`, `jsonl_generation_store.rs`,
 `json_holes.rs` (core's `Store` at `spellbook/holes.json`), `json_report.rs` (the same at
-`spellbook/report.json`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every
+`spellbook/report.json`), `regions_toml.rs` (`load_regions`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every
 rule's fixes against `generator_named`), `query_rules.rs` (`QueryRules`, the `RuleRunner` over
 tree-sitter), `query_anchors.rs` (`QueryAnchors<G>`, the `Anchors` port over a language's query captures,
 read through core's `Captures`), `checking.rs` (`Wired::checking()`: the rules
 read fresh, the settings and the runner, then `Checking::deps()` and `Checking::fix_deps()`), `system_clock.rs`, `wiring.rs` (`Wired`, `live`, `wired`, and
-`plan_deps`/`apply_deps`/`holes_deps`).
+`plan_deps`/`apply_deps`/`holes_deps`; `Wired.regions` is `regions.toml` read once).
 
 `adapters/lsp/`: the server, below.
 
 `cli/`: `arguments.rs`, `file_arguments.rs` (`relative_to_root`: `check`/`holes` file arguments made project-relative), `run_cli.rs` (`main`, `main_with(args, cwd, env, wire, out, err)`),
-one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `fix.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
-`format.rs` (`columns`), `console.rs`.
+one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `fix.rs`, `sync.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
+`format.rs` (`columns`, `count`, and the plan rows the commands share: `file_row`, which words a region's
+row `(region NAME: +a −r)` or `(region NAME: set up, N items)`, `hunks_text`, `notes_text`), `console.rs`.
 
 ## One generation, end to end
 
@@ -191,6 +204,81 @@ one or none takes the language's `[syntax] list_separator` (`domain/language_syn
 language without it refuses the place with a sentence. An empty list's place is after its first
 child, the opening token. `Class.method` splits on the language's `unit_separator`. `row_after`
 counts a node that holds its own line ending (Rust's `//!` comment) as ending on its line.
+
+## A sync, end to end
+
+An **owned region** is a list kept between two marker lines and rewritten whole from the files on
+disk (the user chapter's *Owned regions and `spellbook sync`* has the keys). Everything below names no
+language: the markers' comment syntax is the language's `comment` (from `language.toml`, read through
+`Grammars::line_comment`), the items are the person's `regions.toml`, the block is found by its text,
+and the parse check and the `init_at` phrases go through the ports that exist.
+
+1. **Load.** `Wired` reads `.sorcerer/spellbook/regions.toml` once when it is made
+   (`adapters/regions_toml.rs::load_regions` → `domain/region.rs::parse_regions`) and keeps a
+   `DeclaredRegions` (`Result<Vec<Region>, RegionsProblem>`): a command, or one server request, sees one
+   reading. `PlanDeps.regions` borrows it; `Wired::checking()` turns a problem into the sentence `check`
+   exits 2 with. `parse_regions` is strict (`unknown_key_text`), parses each `init_at` with
+   `Anchor::parse`, dry-fills the query and item templates with core's `fill` over the names each may
+   use, and keeps `file` inside the project and off `.sorcerer/` and `.git/` (`relative_path`).
+2. **Instances.** `usecases/sync_regions.rs::instances(view, regions)`: every file of `view.glob("**")`
+   (less `.sorcerer/`, `.git/`) that a region's `file` pattern matches and no `exclude` does
+   (`Region::instance_in`, which binds the slots): a `RegionInstance { region, file, slots }`.
+3. **The block.** `Keeper::state_of` finds the comment marker (`comment_for`: the language's, or the
+   region's own `comment` for a file no language covers; both, or neither, is a `PlanStop::Region`),
+   then `find_block(text, name, comment)`: the first non-blank text of each line, the comment marker,
+   then `spellbook:region NAME` or `spellbook:end NAME`. No pair is `NotSetUp`; a broken pair is
+   `Broken { row, why }`. `block_of` fills the query glob (`RegionInstance::query_glob`: the slots, the
+   region file's `dir` and `file`), asks `view.glob`, and keeps the matches a literal-separator
+   `globset` matcher accepts (core's `FilesView::glob` lets `*` cross folders; a region's `*` stays in
+   one), less the query's excludes; `RegionInstance::items` renders each (`stem`, `parent`, `dir`, `path`,
+   the slots), trims, drops empty lines, dedups and sorts by bytes. `splice` writes the opening marker
+   (with the current glob), the items and the closing marker, each with the opening marker's
+   indentation, in the file's line ending (`with_line_ending`); the same text back is `Fresh`, else
+   `Stale`.
+4. **Init.** Under `SyncMode::Init(name)` a `NotSetUp` instance of that region is set up
+   (`Keeper::set_up`): the first `init_at` phrase the `Anchors` port resolves to whole lines
+   (`Place::Lines`), `with_markers_at` there, `adopt` (a line outside the new block that is exactly an item
+   is removed, so a hand-written list moves in instead of being declared twice), then `splice`.
+5. **The plan.** `Keeper::keep_all` goes file by file (two regions in one file are kept one after the
+   other on the same text); a file whose text changed is parsed again (`refuse_a_new_parse_error`:
+   only a new error stops) and becomes `PlannedFile::changed(path, before, after)` with `region` (the
+   names) and, for `--init`, `set_up` (the item count). Regions not set up are collected per region into
+   `Plan.notes` (`not_set_up_text`); a broken pair is `PlanStop::RegionBroken`, which stops the whole
+   plan. `plan_sync(deps, mode)` wraps this in a `Plan` whose generator is `"sync"` (inputs empty, or
+   `init`), with `SyncPlan.blocks`, the number of blocks once applied (`regions up to date (5 regions)`).
+6. **Apply.** `cli/sync.rs::sync` prints (`--check`: the stale and not-set-up lines and exit 1;
+   `--plan`: `file_row` and `hunks_text` from `cli/format.rs`; nothing to do: `regions up to date`) or
+   calls `apply_plan` unchanged: a region row is a changed file, landed through `write_changed` only
+   onto the text the plan saw. The record's `changed[]` entries carry `region`.
+
+### Every plan refreshes its regions
+
+`plan_generation` is now two steps: `plan_edits` (the edits and the `[[uses]]`, as before; `with_used`
+calls `plan_edits`, so a used generator does not refresh in the middle of the plan) and then
+`refresh_regions(deps, plan)`. `refresh_regions` lays the plan's new and changed files over the
+project with a `PlannedView` and runs `Keeper::keep_all` over it with no anchors (a plan never sets a
+region up), so a file the plan creates is listed at once. `with_region_files` puts each rewritten file
+into the plan: a new file keeps `New` with its text rewritten; a changed one is recomposed against
+its disk text (`PlannedFile::changed(path, before, after)`, as `with_replacement` does), so its
+`changes` stay one change from the disk; a skipped or unchanged file becomes changed (bistro's
+`__init__.py`, which `command` skips, is `~ … (region commands-exports: +1 −0)`); any other is appended.
+Not-set-up regions become notes; a `regions.toml` that does not load becomes the note `regions are not
+being refreshed: …` and the plan goes on. `plan_fix` calls `plan_edits`, the replacement, the parse
+check, then `refresh_regions` once at its end.
+
+### Regions in `check`
+
+`CheckDeps.regions` holds the loaded regions. `findings_of_files` adds `regions_out_of_step`, which
+calls `region_findings(view, grammars, regions, Some(files))`: a `Stale` block is `region-stale` on its
+opening marker's line (the region's `severity`) with `Finding.region = RegionDrift { region, added,
+removed }` (flattened into the JSON); `NotSetUp` is `region-not-set-up` (warn, line 1); `Broken` is
+`region-broken` (error). A region that cannot be kept (`PlanStop::Region`) is a config error naming
+`regions.toml`, as a broken rules file is. `cli/check.rs::offers_for` gives a region's finding the
+built-in `region_fix_offer` (`usecases/fixes_for.rs`): generator `"sync"`, inputs `region` and `file`
+(and `mode = init`); `cli/fix.rs::region_finding_here` sends `spellbook fix` on such a line to
+`cli/sync.rs::sync`. `cli/doctor.rs::regions_row` uses the same `instances` and `region_findings` over
+a `FilesView` and `CachedGrammars` whose `covers`/`line_comment` read the languages' data, so the
+doctor loads no grammar.
 
 ## The server
 
@@ -390,7 +478,18 @@ command-shaped files (one-line and one-per-line lists, a call narrowed with `in`
 statement with its hole, and a second run that has nothing to do). `use_corpus_rules` copies the
 corpus's generators with its rules, since the rules' fixes name them.
 
-`corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust); each also has `cases/check/<id>.{toml,patch}` (a planted break, every file checked, `expected/check/<id>.json` the findings) and a `rules.toml` among its `spellbook/` files. A
+`regions.rs` covers `plan_sync`, `region_findings` and a `new` refreshing a region on bistro-rs;
+`sync.rs` the `sync` command, `check`'s region findings and fix, `new`'s region row and notes, the exit
+codes and `doctor`'s row, through `main_with`.
+
+`corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust);
+`corpus.toml`'s `overlay` (the corpus's `base/`, the files that carry region markers) is laid over the
+shared base for every case unless the case says `base = "shared"` (`project_of(dir, corpus, Base)`);
+`cases/sync/<id>.{toml,patch}` runs the command line through `main_with` (`mode` for `sync`, or a whole
+`command`) and compares what it printed with `expected/sync/<id>.txt`, its exit code with `exit`, and
+every file it changed with `expected/sync/<id>/` (`texts_of` before and after); a load case with
+`sync = true` is a mistake in `regions.toml`, its sentence the sync's stop; a `new` case compares the
+files it changed (a region's) as well as those it wrote; each also has `cases/check/<id>.{toml,patch}` (a planted break, every file checked, `expected/check/<id>.json` the findings) and a `rules.toml` among its `spellbook/` files. A
 corpus is a base copied from another corpus plus a `spellbook/` folder that becomes
 `.sorcerer/spellbook/`; its cases are `cases/new/<id>.toml` (a generator and inputs; every written
 file is compared with `expected/new/<id>/<path>` after `\r\n` becomes `\n`, and the open holes, one a

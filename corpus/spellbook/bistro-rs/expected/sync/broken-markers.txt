@@ -1,0 +1,1 @@
+spellbook: src/booking/queries/mod.rs:3: region modules opens on line 3 and never ends (no `// spellbook:end modules`); nothing was written (fix the markers by hand)

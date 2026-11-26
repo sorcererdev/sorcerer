@@ -1,0 +1,13 @@
+[
+  {
+    "rule": "region-stale",
+    "file": "src/booking/queries/mod.rs",
+    "line": 3,
+    "severity": "error",
+    "message": "region modules is out of date (+0 −1)",
+    "fingerprint": "71c56e9",
+    "region": "modules",
+    "added": 0,
+    "removed": 1
+  }
+]

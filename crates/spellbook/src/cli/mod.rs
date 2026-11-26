@@ -15,6 +15,7 @@ mod lsp;
 mod new;
 mod run_cli;
 mod show;
+mod sync;
 mod trust;
 
 pub use doctor::{DoctorRow, doctor_rows};

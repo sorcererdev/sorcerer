@@ -22,6 +22,7 @@ See [Conjure](conjure.md).
 |---|---|
 | `enabled` | whether spellbook runs in this project: `true` by default |
 | `exclude` | globs of files no rule looks at, such as `gen/**`: `spellbook check` and the editor's findings skip them. It is the rules', not generation's: a generator ignores it, since it writes only what you ask for by name |
+| `sync_on_save` | whether the editor's server refreshes stale owned regions when a file is saved: `true` by default. The project's setting, not the editor's, since the team decides whether its lists are kept by hand. Read now; the server acts on it with the editors' side of regions |
 
 See [Spellbook](spellbook.md).
 

@@ -1,0 +1,5 @@
+[regions.modules]
+file    = "src/{service}/{kind}/mod.rs"
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+comment = "//"

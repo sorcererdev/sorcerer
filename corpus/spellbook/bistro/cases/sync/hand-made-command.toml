@@ -1,0 +1,4 @@
+# A command written by hand: its re-export joins the block.
+patch = "hand-made-command.patch"
+mode  = "refresh"
+exit  = 0
