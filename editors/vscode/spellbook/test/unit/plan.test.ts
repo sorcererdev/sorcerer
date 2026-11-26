@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fileItems, type Plan, placeholderRanges, planTitle, planUriPath } from '../../src/plan';
+import { changedFiles, fileItems, newFiles, type Plan, placeholderRanges, planTitle, planUriPath } from '../../src/plan';
 
 const plan: Plan = {
   id: '1a2b3c4d',
@@ -56,4 +56,35 @@ test('a_placeholder_is_found_on_its_row_else_the_row_after_its_indent_and_derive
 test('an_empty_placeholder_text_lights_the_row', () => {
   const empty: Plan = { ...plan, holes: [{ ...plan.holes[0], places: [{ file: 'a.py', line: 1, text: '' }] }] };
   assert.deepEqual(placeholderRanges(empty, 'a.py', () => '  é = 1'), [{ line: 0, start: 2, end: 7 }]);
+});
+
+const fixed: Plan = {
+  id: 'f1', generator: 'use-port',
+  files: [
+    { path: 'src/a/close_table.py', status: 'changed', text: 'after', lines: 30, added: 3, removed: 1, hunks: [] },
+    { path: 'src/a/close_table__test.py', status: 'changed', text: 'after', lines: 9, added: 2, removed: 1, hunks: [] },
+    { path: 'src/a/ports/p.py', status: 'new', text: 'new', lines: 4 },
+  ],
+  holes: [],
+  fix: { rule: 'commands-use-ports', file: 'src/a/close_table.py', line: 4, fingerprint: 'x', index: 1, label: 'Use a port the service has' },
+};
+
+test('a_changed_file_says_its_added_and_removed_lines', () => {
+  assert.deepEqual(fileItems(fixed).map(i => [i.label, i.description]), [
+    ['~ src/a/close_table.py', '+3 −1'],
+    ['~ src/a/close_table__test.py', '+2 −1'],
+    ['+ src/a/ports/p.py', '4 lines'],
+  ]);
+});
+
+test('a_fix_title_names_the_rule_the_fix_the_counts_and_what_the_finding_settled', () => {
+  assert.equal(planTitle(fixed, {}, { app: 'bistro', unit: 'close_table' }),
+    'spellbook: fix commands-use-ports · Use a port the service has · 2 files changed · 1 new · 0 holes to fill · app bistro, unit close_table (from the finding)');
+  const plain = { ...fixed, files: [fixed.files[0]] };
+  assert.equal(planTitle(plain), 'spellbook: fix commands-use-ports · Use a port the service has · 1 file changed · 0 holes to fill');
+});
+
+test('changed_files_are_the_ones_the_plan_edits_and_new_files_the_ones_it_writes', () => {
+  assert.deepEqual(changedFiles(fixed).map(f => f.path), ['src/a/close_table.py', 'src/a/close_table__test.py']);
+  assert.deepEqual(newFiles(fixed).map(f => f.path), ['src/a/ports/p.py']);
 });

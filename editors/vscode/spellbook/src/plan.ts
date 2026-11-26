@@ -2,12 +2,35 @@
 // runner covers it); planPreview.ts shows them.
 import type { Values } from './inputs';
 
-// One file of a plan: its path under the root (with `/`), whether it is written, its text.
+// One hunk of a changed file: the lines it covers on disk (from 1, both included) and its rows
+// (` kept`, `-removed`, `+added`).
+export interface PlanHunk {
+  header: string;
+  from: number;
+  to: number;
+  lines: string[];
+}
+
+// One file of a plan: its path under the root (with `/`), whether it is written (`new`), edited
+// (`changed`, with what it adds and removes) or left alone, its text after the plan.
 export interface PlannedFile {
   path: string;
-  status: 'new' | 'skipped' | string;
+  status: 'new' | 'changed' | 'skipped' | string;
   text: string;
   lines: number;
+  added?: number;
+  removed?: number;
+  hunks?: PlanHunk[];
+}
+
+// The finding a fix plan answers, as `spellbook.plan` echoes it.
+export interface PlanFix {
+  rule: string;
+  file: string;
+  line: number;
+  fingerprint: string;
+  index: number;
+  label: string;
 }
 
 // One place a hole appears: its file, its line (from 1) and the code written there.
@@ -33,6 +56,7 @@ export interface Plan {
   inputs?: Record<string, string>;
   files: PlannedFile[];
   holes: Hole[];
+  fix?: PlanFix;
 }
 
 // One file item of the preview's pick: the label shown, a description, the file's path.
@@ -51,12 +75,21 @@ export interface LineRange {
 
 // planTitle is the preview's title: the generator, how many files it writes, how many holes
 // are left to fill (the derived ones are filled already) and the inputs taken without asking,
-// so the person sees what was picked for them.
+// so the person sees what was picked for them. A fix plan names the rule and the fix, counts
+// changed files and new ones, and names the inputs the finding settled.
 // Example: `spellbook: command · 2 files · 3 holes to fill · app bistro, service booking (the only choices)`.
-export function planTitle(plan: Plan, taken: Values = {}): string {
-  const files = newFiles(plan).length;
-  const holes = plan.holes.filter(hole => hole.source === 'placeholder').length;
-  return `spellbook: ${plan.generator} · ${counted(files, 'file')} · ${counted(holes, 'hole')} to fill${takenText(taken)}`;
+// Example: `spellbook: fix commands-use-ports · Use a port the service has · 2 files changed · 0 holes to fill`.
+export function planTitle(plan: Plan, taken: Values = {}, settled: Values = {}): string {
+  const holes = counted(plan.holes.filter(hole => hole.source === 'placeholder').length, 'hole');
+  if (plan.fix) return `spellbook: fix ${plan.fix.rule} · ${plan.fix.label} · ${fixCounts(plan)} · ${holes} to fill${takenText(taken)}${settledText(settled)}`;
+  return `spellbook: ${plan.generator} · ${counted(newFiles(plan).length, 'file')} · ${holes} to fill${takenText(taken)}`;
+}
+
+// `2 files changed`, then ` · 4 new` when the plan writes new files too.
+function fixCounts(plan: Plan): string {
+  const changed = `${counted(changedFiles(plan).length, 'file')} changed`;
+  const fresh = newFiles(plan).length;
+  return fresh === 0 ? changed : `${changed} · ${fresh} new`;
 }
 
 // ` · app bistro (the only choice)`, or nothing when every input was asked or given.
@@ -66,18 +99,31 @@ function takenText(taken: Values): string {
   return ` · ${names.join(', ')} (the only ${names.length === 1 ? 'choice' : 'choices'})`;
 }
 
+// ` · app bistro, unit close_table (from the finding)`, or nothing.
+function settledText(settled: Values): string {
+  const names = Object.entries(settled).map(([name, value]) => `${name} ${value}`);
+  return names.length === 0 ? '' : ` · ${names.join(', ')} (from the finding)`;
+}
+
 // fileItems is one pick item per planned file: `+ path` with its line count for a file written,
-// `= path` for one that exists and is skipped.
-// Example: `+ src/bistro/booking/commands/cancel_table.py` · `31 lines`.
+// `~ path` with `+a −r` for a changed one, `= path` for one that exists and is skipped.
+// Example: `+ src/bistro/booking/commands/cancel_table.py` · `31 lines`; `~ close_table.py` · `+3 −1`.
 export function fileItems(plan: Plan): FileItem[] {
-  return plan.files.map(file => file.status === 'new'
-    ? { label: `+ ${file.path}`, description: counted(file.lines, 'line'), path: file.path }
-    : { label: `= ${file.path}`, description: 'exists, skipped', path: file.path });
+  return plan.files.map(file => {
+    if (file.status === 'new') return { label: `+ ${file.path}`, description: counted(file.lines, 'line'), path: file.path };
+    if (file.status === 'changed') return { label: `~ ${file.path}`, description: `+${file.added ?? 0} −${file.removed ?? 0}`, path: file.path };
+    return { label: `= ${file.path}`, description: 'exists, skipped', path: file.path };
+  });
 }
 
 // newFiles is the files the plan writes, in its order.
 export function newFiles(plan: Plan): PlannedFile[] {
   return plan.files.filter(file => file.status === 'new');
+}
+
+// changedFiles is the existing files the plan edits, in its order.
+export function changedFiles(plan: Plan): PlannedFile[] {
+  return plan.files.filter(file => file.status === 'changed');
 }
 
 // planUriPath is the path of a planned file's preview document under the `spellbook-plan`

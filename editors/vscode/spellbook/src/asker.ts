@@ -5,7 +5,7 @@ import type { PlanPreviews } from './planPreview';
 // vscodeAsker is the Asker of VS Code's own pickers: a QuickPick for the generator and for an
 // enum's choices, an InputBox for typed inputs, the plan preview for the plan, and messages for
 // what is said. Esc anywhere answers undefined, which ends the flow silently.
-export function vscodeAsker(previews: PlanPreviews): Asker {
+export function vscodeAsker(previews: PlanPreviews, root?: vscode.Uri): Asker {
   return {
     pickGenerator: async generators => {
       const items = generators.map(generator => ({ label: generator.name, description: generator.summary, generator }));
@@ -14,7 +14,7 @@ export function vscodeAsker(previews: PlanPreviews): Asker {
     },
     pickChoice: (input, items) => Promise.resolve(vscode.window.showQuickPick(items, { title: 'spellbook: new', placeHolder: input.prompt })),
     askText: (input, prompt) => Promise.resolve(vscode.window.showInputBox({ title: 'spellbook: new', prompt, placeHolder: input.name })),
-    showPlan: (plan, taken) => previews.showPlan(plan, taken),
+    showPlan: (plan, taken, settled) => previews.showPlan(plan, taken, settled, root),
     say: (level, text) => {
       if (level === 'error') void vscode.window.showErrorMessage(text);
       else if (level === 'warn') void vscode.window.showWarningMessage(text);
