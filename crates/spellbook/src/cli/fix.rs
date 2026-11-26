@@ -15,7 +15,7 @@ use crate::ports::workspace::write_refused_text;
 use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
 use crate::usecases::plan_fix::{FindingAt, plan_fix};
 
-use super::format::{columns, count};
+use super::format::{columns, count, file_row, hunks_text, notes_text};
 use super::new::hole_row;
 
 /// What the person asked `fix` for: the finding's file (relative to the root, with `/`) and line,
@@ -207,6 +207,7 @@ fn summary_text(plan: &Plan) -> String {
         let hole_rows: Vec<Vec<String>> = holes.iter().map(|hole| hole_row(hole)).collect();
         text.push_str(&columns("  ", &hole_rows));
     }
+    text.push_str(&notes_text(plan));
     text
 }
 
@@ -220,35 +221,6 @@ fn ordered_files(plan: &Plan) -> Vec<&PlannedFile> {
     let mut files: Vec<&PlannedFile> = plan.files.iter().collect();
     files.sort_by_key(rank);
     files
-}
-
-fn file_row(file: &PlannedFile) -> Vec<String> {
-    match file.status {
-        FileStatus::New => vec![
-            format!("+ {}", file.path),
-            format!("({} lines)", file.lines),
-        ],
-        FileStatus::Changed => vec![
-            format!("~ {}", file.path),
-            format!("(+{} \u{2212}{})", file.added, file.removed),
-        ],
-        FileStatus::Skipped => vec![format!("= {}", file.path), "(exists, skipped)".into()],
-        FileStatus::Unchanged => vec![format!("= {}", file.path), "(unchanged)".into()],
-    }
-}
-
-/// A changed file's diff: its path, then each hunk's header and lines.
-fn hunks_text(file: &PlannedFile) -> String {
-    let mut text = format!("--- {}\n", file.path);
-    for hunk in &file.hunks {
-        text.push_str(&hunk.header);
-        text.push('\n');
-        for line in &hunk.lines {
-            text.push_str(line);
-            text.push('\n');
-        }
-    }
-    text
 }
 
 /// The end line of an applied fix.
