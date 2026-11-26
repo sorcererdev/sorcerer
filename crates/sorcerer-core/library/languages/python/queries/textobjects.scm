@@ -213,3 +213,7 @@
   left: (_) @assignment.inner)
 
 ; TODO: exclude comments using the future negate syntax from tree-sitter
+
+; comments (the upstream pattern, `(comment) @comment.inner @comment.outer`, uses #offset!;
+; sorcerer keeps the outer capture alone)
+(comment) @comment.outer

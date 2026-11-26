@@ -1,16 +1,21 @@
-//! Anchor phrases resolved with the language's own queries: `imports.scm` for the imports,
-//! `tags.scm` for the definitions and calls by name, `textobjects.scm` for a body's statements.
-//! A language gets anchors by having those three queries; nothing here names one.
+//! Anchor phrases resolved with the language's own query captures (see
+//! `sorcerer_core::domain::captures`): `imports.scm`'s `@import.path` for the imports, the
+//! `@definition.*` and `@reference.call` captures for definitions and calls by name,
+//! `textobjects.scm`'s `@function.inner`/`@class.inner`, `@parameter.inner` and `@comment.outer`
+//! for bodies, list items and comments, and `lists.scm`'s `@parameters`/`@arguments` for the lists.
+//! A language gets anchors by having those captures; nothing here names a language or a node kind.
 
 use std::path::Path;
 
 use sorcerer_core::Result;
+use sorcerer_core::domain::captures::{ARGUMENTS, COMMENT, Captures, DOCSTRING, PARAMETERS};
 use sorcerer_core::domain::language::Loaded;
-use tree_sitter::{Node, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Node, Tree};
 
 use crate::domain::anchor::{
     Anchor, Place, Position, Resolution, Target, indent_of, resolve_in_text,
 };
+use crate::domain::language_syntax::list_separator;
 use crate::ports::anchors::Anchors;
 use crate::ports::grammars::Grammars;
 
@@ -42,6 +47,7 @@ impl<G: Grammars> Anchors for QueryAnchors<G> {
             loaded: &loaded,
             tree: &tree,
             text,
+            captures: Captures::of(&loaded, &tree, text),
         };
         Ok(match &anchor.target {
             Target::Imports => parsed.imports(anchor.position),
@@ -60,7 +66,8 @@ fn refused(why: &str) -> Resolution {
     Resolution::Refused { why: why.into() }
 }
 
-/// What `tags.scm` tags a definition as.
+/// What the queries tag a definition as: `@definition.function` or `@definition.method` is a
+/// function, `@definition.class` a class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Definition {
     Function,
@@ -74,13 +81,31 @@ impl Definition {
             Definition::Class => "class",
         }
     }
+
+    /// The definition a capture names, or `None` for one that only holds others (a module, an
+    /// impl).
+    fn of_capture(capture: &str) -> Option<Definition> {
+        match capture.strip_prefix("definition.")? {
+            "function" | "method" => Some(Definition::Function),
+            "class" => Some(Definition::Class),
+            _ => None,
+        }
+    }
 }
 
-/// A file parsed in its language.
+/// One definition the queries tag: what it is (if a phrase can name it), its node, its name.
+struct Tagged<'a> {
+    kind: Option<Definition>,
+    node: Node<'a>,
+    name: String,
+}
+
+/// A file parsed in its language, with what its queries capture.
 struct Parsed<'a> {
     loaded: &'a Loaded,
     tree: &'a Tree,
     text: &'a str,
+    captures: Captures<'a>,
 }
 
 impl<'a> Parsed<'a> {
@@ -90,35 +115,42 @@ impl<'a> Parsed<'a> {
         let imports = self.top_level_imports();
         let row = match (imports.first(), imports.last(), position) {
             (Some(first), _, Position::Start | Position::Before) => first.start_position().row,
-            (_, Some(last), _) => last.end_position().row + 1,
+            (_, Some(last), _) => row_after(*last),
             _ => self.row_after_the_preamble(),
         };
         lines_at(row, String::new(), String::new())
     }
 
-    /// The top-level statements holding an `@import.path`, in file order. A statement with a
-    /// body (a function, a class, a module block) holds its imports inside, so it is not one.
+    /// The top-level statements holding an `@import.path`, in file order. A whole definition
+    /// (a function, a class, a module block) holds its imports inside, so it is not one.
     fn top_level_imports(&self) -> Vec<Node<'a>> {
         let mut statements: Vec<Node<'a>> = self
-            .captures("imports.scm", "import.path")
+            .captures
+            .nodes(&["import.path"])
             .into_iter()
             .filter_map(|capture| self.top_level_ancestor(capture))
-            .filter(|statement| statement.child_by_field_name("body").is_none())
+            .filter(|statement| !self.is_a_whole_definition(*statement))
             .collect();
         statements.sort_by_key(Node::start_byte);
         statements.dedup_by_key(|statement| statement.id());
         statements
     }
 
-    /// The row after the file's leading comments and its docstring (a first statement that is
-    /// only a string), or 0.
+    fn is_a_whole_definition(&self, node: Node<'a>) -> bool {
+        self.captures.is("function.outer", node) || self.captures.is("class.outer", node)
+    }
+
+    /// The row after the file's leading comments and its docstring (`@comment.outer`,
+    /// `@docstring`), or 0.
     fn row_after_the_preamble(&self) -> usize {
         let root = self.tree.root_node();
         let mut cursor = root.walk();
         root.named_children(&mut cursor)
-            .take_while(|node| is_comment(*node) || is_only_a_string(*node))
+            .take_while(|node| {
+                self.captures.is(COMMENT, *node) || self.captures.is(DOCSTRING, *node)
+            })
             .last()
-            .map_or(0, |node| node.end_position().row + 1)
+            .map_or(0, row_after)
     }
 
     /// Inside a function's or class's body (`start of`/`end of`, indented like its statements),
@@ -135,12 +167,12 @@ impl<'a> Parsed<'a> {
                 lines_at(row, indent_at(row), String::new())
             }
             Position::After => lines_at(
-                definition.end_position().row + 1,
+                row_after(definition),
                 indent_at(definition.start_position().row),
                 String::new(),
             ),
             Position::Start | Position::End => {
-                let items = self.body_items(kind, definition);
+                let items = self.captures.body_items(definition);
                 let item = if position == Position::Start {
                     items.first()
                 } else {
@@ -153,7 +185,7 @@ impl<'a> Parsed<'a> {
                         lines_at(row, indent_at(row), String::new())
                     }
                     Some(item) => lines_at(
-                        item.end_position().row + 1,
+                        row_after(*item),
                         indent_at(item.start_position().row),
                         String::new(),
                     ),
@@ -162,13 +194,13 @@ impl<'a> Parsed<'a> {
         }
     }
 
-    /// Inside the function's parameter list.
+    /// Inside the function's parameter list (its own `@parameters`).
     fn parameters(&self, name: &str, position: Position) -> Resolution {
         let function = match self.the_one(Definition::Function, name) {
             Ok(function) => function,
             Err(miss) => return miss,
         };
-        match function.child_by_field_name("parameters") {
+        match self.captures.own(PARAMETERS, function) {
             Some(list) => self.in_list(list, position),
             None => refused(&format!("function `{name}` has no parameter list")),
         }
@@ -184,7 +216,8 @@ impl<'a> Parsed<'a> {
             },
         };
         let calls: Vec<Node<'a>> = self
-            .tagged("reference.call")
+            .captures
+            .named("reference.call", self.text)
             .into_iter()
             .filter(|(call, called)| *called == name || self.callee_text(*call) == name)
             .map(|(call, _)| call)
@@ -193,7 +226,7 @@ impl<'a> Parsed<'a> {
         let what = format!("call `{name}`");
         match calls.as_slice() {
             [] => Resolution::Missing { what },
-            [call] => match call.child_by_field_name("arguments") {
+            [call] => match self.arguments_of(*call) {
                 Some(list) => self.in_list(list, position),
                 None => refused(&format!("{what} has no argument list")),
             },
@@ -210,20 +243,16 @@ impl<'a> Parsed<'a> {
         if matches!(position, Position::Before | Position::After) {
             return refused("a list's place is `start of` or `end of`");
         }
-        let mut cursor = list.walk();
-        let items: Vec<Node<'a>> = list
-            .named_children(&mut cursor)
-            .filter(|item| !is_comment(*item))
-            .collect();
-        let (Some(first), Some(last)) = (items.first(), items.last()) else {
-            return Resolution::At(Place::InLine {
-                row: list.start_position().row,
-                column: list.start_position().column + 1,
-                prefix: String::new(),
-                suffix: String::new(),
-            });
+        let items = self.captures.list_items(list);
+        let Some(separator) = self.separator_of(&items) else {
+            return refused(&format!(
+                "a list of one item or none takes the separator `[syntax] list_separator` names, and the language {} names none",
+                self.loaded.language.name
+            ));
         };
-        let separator = self.separator_of(&items);
+        let (Some(first), Some(last)) = (items.first(), items.last()) else {
+            return Resolution::At(self.inside_an_empty_list(list));
+        };
         let one_line = list.start_position().row == list.end_position().row;
         let item_indent = |item: &Node| indent_of(self.line(item.start_position().row));
         match (position, one_line) {
@@ -239,7 +268,7 @@ impl<'a> Parsed<'a> {
             _ => {
                 let after_last = self.text[last.end_byte()..].trim_start();
                 if after_last.starts_with(&separator) {
-                    lines_at(last.end_position().row + 1, item_indent(last), separator)
+                    lines_at(row_after(*last), item_indent(last), separator)
                 } else {
                     let prefix = format!("{separator}\n{}", item_indent(last));
                     in_line_at(*last, false, prefix, String::new())
@@ -248,23 +277,35 @@ impl<'a> Parsed<'a> {
         }
     }
 
-    /// The text between the list's last two items, trimmed; `,` for a list of one.
-    fn separator_of(&self, items: &[Node<'a>]) -> String {
-        match items {
-            [.., before, last] => {
-                let between = self.text[before.end_byte()..last.start_byte()].trim();
-                if between.is_empty() {
-                    ",".into()
-                } else {
-                    between.into()
-                }
-            }
-            _ => ",".into(),
+    /// Right after the list's opening token (its first child), on its line.
+    fn inside_an_empty_list(&self, list: Node<'a>) -> Place {
+        let at = list
+            .child(0)
+            .map_or(list.start_position(), |open| open.end_position());
+        Place::InLine {
+            row: at.row,
+            column: at.column,
+            prefix: String::new(),
+            suffix: String::new(),
         }
     }
 
-    /// The one definition of this kind by this name; a `Class.method` name is a method inside
-    /// that class. None, or several, is the miss to say.
+    /// The text between the list's last two items, trimmed; for a list of one or none, the
+    /// language's `[syntax] list_separator`.
+    fn separator_of(&self, items: &[Node<'a>]) -> Option<String> {
+        let between = match items {
+            [.., before, last] => self.text[before.end_byte()..last.start_byte()].trim(),
+            _ => "",
+        };
+        if between.is_empty() {
+            list_separator(&self.loaded.language)
+        } else {
+            Some(between.into())
+        }
+    }
+
+    /// The one definition of this kind by this name; a `Class.method` name (with the language's
+    /// `unit_separator`) is a method inside that class. None, or several, is the miss to say.
     fn the_one(&self, kind: Definition, name: &str) -> std::result::Result<Node<'a>, Resolution> {
         let separator = self.loaded.language.unit_separator.as_str();
         let words: Vec<&str> = if separator.is_empty() {
@@ -272,28 +313,26 @@ impl<'a> Parsed<'a> {
         } else {
             name.split(separator).collect()
         };
+        let what = format!("{} `{name}`", kind.word());
         let Some((own, outer)) = words.split_last() else {
-            return Err(Resolution::Missing {
-                what: format!("{} `{name}`", kind.word()),
-            });
+            return Err(Resolution::Missing { what });
         };
         let all = self.definitions();
         let found: Vec<Node<'a>> = all
             .iter()
-            .filter(|(of, node, named)| {
-                *of == kind && named == own && {
-                    outer.iter().all(|word| {
-                        all.iter().any(|(_, around, around_name)| {
-                            around_name == word
-                                && around.id() != node.id()
-                                && contains(*around, *node)
+            .filter(|tagged| {
+                tagged.kind == Some(kind)
+                    && tagged.name == *own
+                    && outer.iter().all(|word| {
+                        all.iter().any(|around| {
+                            around.name == *word
+                                && around.node.id() != tagged.node.id()
+                                && contains(around.node, tagged.node)
                         })
                     })
-                }
             })
-            .map(|(_, node, _)| *node)
+            .map(|tagged| tagged.node)
             .collect();
-        let what = format!("{} `{name}`", kind.word());
         match found.as_slice() {
             [] => Err(Resolution::Missing { what }),
             [one] => Ok(*one),
@@ -304,114 +343,28 @@ impl<'a> Parsed<'a> {
         }
     }
 
-    /// Every definition `tags.scm` tags, with its kind and name.
-    fn definitions(&self) -> Vec<(Definition, Node<'a>, String)> {
-        [
-            (Definition::Function, "definition.function"),
-            (Definition::Class, "definition.class"),
-        ]
-        .into_iter()
-        .flat_map(|(kind, capture)| {
-            self.tagged(capture)
-                .into_iter()
-                .map(move |(node, name)| (kind, node, name))
-        })
-        .collect()
-    }
-
-    /// The nodes `tags.scm` captures as `capture`, each with the text of its match's `@name`.
-    fn tagged(&self, capture: &str) -> Vec<(Node<'a>, String)> {
-        let Some(query) = self.query("tags.scm") else {
-            return Vec::new();
-        };
-        let names = query.capture_names();
-        let mut found = Vec::new();
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(query, self.tree.root_node(), self.text.as_bytes());
-        while let Some(hit) = matches.next() {
-            let named = |wanted: &str| {
-                hit.captures
-                    .iter()
-                    .find(|c| names[c.index as usize] == wanted)
-                    .map(|c| c.node)
-            };
-            if let (Some(node), Some(name)) = (named(capture), named("name")) {
-                found.push((node, self.text[name.byte_range()].to_string()));
-            }
-        }
-        found
-    }
-
-    /// A definition's statements or members: what `textobjects.scm` captures as its
-    /// `@function.inner`/`@class.inner`, or that node's own items when it captures the block.
-    fn body_items(&self, kind: Definition, definition: Node<'a>) -> Vec<Node<'a>> {
-        let Some(query) = self.query("textobjects.scm") else {
-            return Vec::new();
-        };
-        let names = query.capture_names();
-        let (outer, inner) = (
-            format!("{}.outer", kind.word()),
-            format!("{}.inner", kind.word()),
-        );
-        let mut found: Vec<Node<'a>> = Vec::new();
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(query, definition, self.text.as_bytes());
-        while let Some(hit) = matches.next() {
-            let of_this = hit
-                .captures
-                .iter()
-                .any(|c| names[c.index as usize] == outer && c.node.id() == definition.id());
-            if of_this {
-                found.extend(
-                    hit.captures
-                        .iter()
-                        .filter(|c| names[c.index as usize] == inner)
-                        .map(|c| c.node),
-                );
-            }
-        }
-        found.sort_by_key(Node::start_byte);
-        found.dedup_by_key(|node| node.id());
-        match found.as_slice() {
-            [block] if block.named_child_count() > 0 => {
-                let mut cursor = block.walk();
-                block
-                    .named_children(&mut cursor)
-                    .filter(|item| !is_comment(*item))
-                    .collect()
-            }
-            _ => found,
-        }
-    }
-
-    /// Every node a query file captures as `capture`.
-    fn captures(&self, file: &str, capture: &str) -> Vec<Node<'a>> {
-        let Some(query) = self.query(file) else {
-            return Vec::new();
-        };
-        let Some(index) = query.capture_index_for_name(capture) else {
-            return Vec::new();
-        };
-        let mut found = Vec::new();
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(query, self.tree.root_node(), self.text.as_bytes());
-        while let Some(hit) = matches.next() {
-            found.extend(
-                hit.captures
-                    .iter()
-                    .filter(|c| c.index == index)
-                    .map(|c| c.node),
-            );
-        }
-        found
-    }
-
-    fn query(&self, file: &str) -> Option<&'a tree_sitter::Query> {
-        self.loaded
-            .queries
+    /// Every definition the queries tag (`@definition.<kind>` with its `@name`), each node once
+    /// for each kind.
+    fn definitions(&self) -> Vec<Tagged<'a>> {
+        let mut found: Vec<Tagged<'a>> = self
+            .captures
+            .matches()
             .iter()
-            .find(|(name, _)| name == file)
-            .map(|(_, query)| query)
+            .filter_map(|captures| {
+                let (capture, node) = captures
+                    .iter()
+                    .find(|(capture, _)| capture.starts_with("definition."))?;
+                let name = captures.iter().find(|(capture, _)| capture == "name")?.1;
+                Some(Tagged {
+                    kind: Definition::of_capture(capture),
+                    node: *node,
+                    name: self.text[name.byte_range()].to_string(),
+                })
+            })
+            .collect();
+        found.sort_by_key(|tagged| (tagged.node.start_byte(), tagged.node.id()));
+        found.dedup_by(|a, b| a.node.id() == b.node.id() && a.kind == b.kind);
+        found
     }
 
     /// The ancestor of the node (or the node) that sits directly in the file.
@@ -424,16 +377,35 @@ impl<'a> Parsed<'a> {
         })
     }
 
+    /// A call's `@arguments` list: the one that is the call's own child.
+    fn arguments_of(&self, call: Node<'a>) -> Option<Node<'a>> {
+        self.captures
+            .nodes(&[ARGUMENTS])
+            .into_iter()
+            .find(|list| list.parent().is_some_and(|parent| parent.id() == call.id()))
+    }
+
     /// A call's text up to its arguments: `repo.save` in `repo.save(x)`.
     fn callee_text(&self, call: Node<'a>) -> &'a str {
-        let end = call
-            .child_by_field_name("arguments")
+        let end = self
+            .arguments_of(call)
             .map_or(call.end_byte(), |arguments| arguments.start_byte());
         self.text[call.start_byte()..end].trim()
     }
 
     fn line(&self, row: usize) -> &'a str {
         self.text.lines().nth(row).unwrap_or("")
+    }
+}
+
+/// The row after a node's last line. A node that ends at the start of a line (a comment that
+/// holds its line ending) ends on the line before.
+fn row_after(node: Node) -> usize {
+    let (start, end) = (node.start_position(), node.end_position());
+    if end.column == 0 && end.row > start.row {
+        end.row
+    } else {
+        end.row + 1
     }
 }
 
@@ -462,17 +434,4 @@ fn in_line_at(item: Node, before_item: bool, prefix: String, suffix: String) -> 
 
 fn contains(outer: Node, inner: Node) -> bool {
     outer.start_byte() <= inner.start_byte() && inner.end_byte() <= outer.end_byte()
-}
-
-/// Comments by the grammar's own naming (`comment`, `line_comment`, `block_comment`).
-fn is_comment(node: Node) -> bool {
-    node.kind().contains("comment")
-}
-
-/// A statement that is only a string: a docstring.
-fn is_only_a_string(node: Node) -> bool {
-    node.named_child_count() == 1
-        && node
-            .named_child(0)
-            .is_some_and(|child| child.kind().contains("string"))
 }

@@ -1,0 +1,4 @@
+# A method written with another language's separator: Rust names it `Type::method`
+# (language.toml's unit_separator), so `CreateBooking.new` is no function.
+generator = "use-port"
+inputs    = { service = "booking", kind = "commands", unit = "create_booking", port = "booking_repository" }

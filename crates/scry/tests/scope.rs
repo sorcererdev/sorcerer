@@ -211,6 +211,35 @@ fn the_enclosing_class_header_is_given() {
 }
 
 #[test]
+fn the_header_is_found_whatever_the_language_joins_names_with() {
+    use sorcerer_core::domain::fingerprint::Fingerprint;
+    use sorcerer_core::domain::unit::{Span, Unit, UnitKind};
+    let unit = |name: &str, start: u32, end: u32| Unit {
+        name: name.into(),
+        kind: UnitKind::Other("x".into()),
+        span: Span { start, end },
+        body: None,
+        fingerprint: Fingerprint::parse("0000000").unwrap(),
+    };
+    // the outer unit starts on its annotation; its own name, `Order`, is on the next line
+    let lines = [
+        "(module Shop",
+        "  ^{:doc}",
+        "  (defn Order",
+        "    (defn cancel)))",
+    ];
+    let units = [
+        unit("Shop", 1, 4),
+        unit("Shop/Order", 2, 4),
+        unit("Order/cancel", 4, 4),
+    ];
+    assert_eq!(
+        scry::domain::scope::header_of(&lines, &units, &units[2]).as_deref(),
+        Some("(defn Order")
+    );
+}
+
+#[test]
 fn a_bad_since_rev_names_it() {
     let d = committed();
     let (p, v) = support::project_with_vendored_grammars(d.path());

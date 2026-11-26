@@ -55,6 +55,22 @@ fn a_body_of_only_pass_or_ellipsis_or_todo_macro_is_empty() {
 }
 
 #[test]
+fn a_one_line_method_of_only_a_placeholder_is_empty() {
+    let rs = "impl A {\n    fn f(&self) { todo!() }\n    fn g(&self) { 1 }\n}\n";
+    assert!(facts("rust", rs, "A::f").body_empty);
+    assert!(!facts("rust", rs, "A::g").body_empty);
+    let py = "class A:\n    def f(self): ...\n    def g(self): return 1\n";
+    assert!(facts("python", py, "A.f").body_empty);
+    assert!(!facts("python", py, "A.g").body_empty);
+}
+
+#[test]
+fn a_todo_in_a_comment_counts_but_not_in_a_string() {
+    let rs = "fn f() {\n    let s = \"TODO\";\n    /// FIXME: say more\n    s\n}\n";
+    assert_eq!(facts("rust", rs, "f").todo_lines, vec![3]);
+}
+
+#[test]
 fn a_body_with_a_statement_is_not() {
     assert!(!facts("python", "def f():\n    return 1\n", "f").body_empty);
     assert!(!facts("rust", "fn f() {\n    println!(\"x\")\n}\n", "f").body_empty);

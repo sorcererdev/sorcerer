@@ -97,10 +97,22 @@ Values are built once and replaced rather than changed in place, where that read
 [[rule]]
 id = "the-engine-knows-no-language"
 text = """
-No language name, file extension or language-specific syntax appears in `crates/*/src/`:
-languages are data under `crates/sorcerer-core/library/languages/<name>/`. A prompt or
-rule that assumes one language's conventions (such as `Class.method`) takes them from the
-language's data instead."""
+Code in `crates/*/src/` reaches a language only through tree-sitter (the captures of the
+language's query files) and the language's data under
+`crates/sorcerer-core/library/languages/<name>/` (`language.toml` and `queries/*.scm`). It never
+names, in a string, a constant or a comparison: a language, a file extension, or a language's
+syntax (comment markers, list separators, keywords, docstrings, `self`, an indentation width);
+a grammar's node kinds or field names (`"call"`, `"body"`, `"parameters"`,
+`kind().contains("comment")`), which a query capture (`@comment.outer`, `@function.inner`,
+`@parameters`) or a `language.toml` key names instead; or a tool (a formatter, linter, test
+runner or package manager such as ruff, pytest, cargo, rustfmt, uv or npm) as behaviour, which
+only the configuration a person writes may name. A prompt or rule that assumes one language's
+conventions (such as `Class.method`) takes them from the language's data. Tests under
+`crates/*/tests/` and corpus data may name languages; sorcerer's own build metadata
+(`env!("CARGO_PKG_VERSION")`) is not a tool. `scripts/no-language-names` and the
+`no-*-in-the-engine` rules in `.sorcerer/spellbook/rules.toml` check the mechanical half; a
+coupling they cannot see (a list of node kinds in a constant, a syntax guess on text) is a
+finding too."""
 
 [[rule]]
 id = "nothing-outside-the-repository"

@@ -35,6 +35,7 @@ impl SpellbookServer {
             root: root.unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
             published: Mutex::new(HashMap::new()),
             plans: Mutex::new(Default::default()),
+            landing: Mutex::new(HashMap::new()),
         });
         SpellbookServer { server }
     }
@@ -60,7 +61,7 @@ impl Product for SpellbookServer {
     }
 
     fn saved(&mut self, path: &Path) {
-        self.server.republish(path);
+        self.server.saved(path);
     }
 
     /// The requests answered at once; the commands go through [`Product::request_later`].

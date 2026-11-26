@@ -136,15 +136,17 @@ or after its last item), `before`, `after` (outside it).
 | `imports` | after the file's last top-level import (in a file with none, after its leading comments and docstring) |
 | `function NAME`, `class NAME` | after the last statement of the body, indented like it. `NAME` may be a method, `Class.method` (`Class::method` in Rust) |
 | `parameters in FUNCTION` | after the last parameter, with the list's own separator: on the line when the list is written on one line, on a line of its own when it is one per line |
-| `call NAME`, `call NAME in FUNCTION` | after the call's last argument, by the same rule; an empty `()` takes the text alone |
+| `call NAME`, `call NAME in FUNCTION` | after the call's last argument, by the same rule; an empty `()` takes the text alone. In Rust a path call is `call Type::new`, and a struct literal `Type { … }` is `call Type` (its fields are its arguments) |
 | `marker TEXT`, `first line matching R`, `last line matching R` | `before` or `after` that line (any file, no grammar) |
 | `file` | `start of file` or `end of file` |
 
 A target found in several places (two `CloseTable(…)` calls) stops the plan and asks you to
 narrow it with `in FUNCTION`. A phrase with no `{= =}` is checked when the generator loads; one
-with a value is checked once filled. The structural targets read the queries every shipped
-language has (`imports.scm`, `tags.scm`, `textobjects.scm`), so a language you add gets them by
-having those queries.
+with a value is checked once filled. The structural targets read only the language's query
+captures (`@import.path`, `@definition.*`, `@function.inner`, `@parameters`, `@parameter.inner`,
+`@comment.outer` and a few more) and its `[syntax] list_separator`, which a list of one item or
+none takes; a language you add gets them by having those captures (see [Adding a
+language](adding-a-language.md#what-anchors-and-fixes-read)). Spellbook names no language itself.
 
 A plan shows a changed file as `~ path (+3 −1)`, and `--plan` prints its diff. A plan whose every
 insert is in place already and that writes nothing new says `nothing to do: every edit is in the
@@ -448,6 +450,80 @@ sqlite3.connect(path)` (the `attribute` form of the match), that statement would
 `raise NotImplementedError("hole port_call: the same as conn = sqlite3.connect(path) through
 self.table_repository")`, a hole like any other.
 
+### A fix in Rust
+
+The same keys work in any language with the captures. Bistro-rs (the Rust corpus,
+`corpus/spellbook/bistro-rs/`) has `commands-use-ports` for a command or query that uses `std::fs`,
+and a `use-port` fix of the same shape:
+
+```toml
+[rules.commands-use-ports]
+files    = "src/{service}/{kind}/*.rs"
+exclude  = ["**/mod.rs", "src/web/**"]
+match    = { any = [
+  { kind = "use_declaration", regex = "\\bstd::(fs\\b|\\{[^}]*\\bfs\\b)" },
+  { kind = "scoped_identifier", regex = "^(std::)?fs::\\w+$" },
+] }
+message  = "Commands and queries talk to ports, not the file system (ports & adapters)"
+
+[[rules.commands-use-ports.fixes]]
+generator = "use-port"
+label     = "Use a port the service has"
+with      = { service = "{= service =}", kind = "{= kind =}", unit = "{= stem =}" }
+replace   = [
+  { enclosing = ["use_declaration"], text = "" },
+  { enclosing = ["expression_statement", "let_declaration"], text = "{= ? port_call: stmt | the same as {= finding =} through self.{= param =} =}" },
+]
+```
+
+Its `use-port` generator inserts `use crate::{= service =}::ports::{= port =}::{= Port =};` at
+`end of imports`, a field at `end of class {= Unit =}`, a parameter at `end of parameters in
+{= Unit =}::new`, the field in the struct literal at `end of call {= Unit =} in {= Unit =}::new`,
+and an `expr` hole for the fake at `end of call {= Unit =}::new in command` (the test helper in the
+file's own `mod tests`). On a command whose `handle` writes a file:
+
+```
+$ spellbook fix src/booking/commands/seat_walk_in.rs:34 --set port=booking_repository --plan
+Use a port the service has: use-port (1 file changed, 0 new, 2 holes)
+  ~ src/booking/commands/seat_walk_in.rs  (+6 −4)
+holes:
+  fake       src/booking/commands/seat_walk_in.rs:48  expr  an in-memory adapter of the port, for the test
+  port_call  src/booking/commands/seat_walk_in.rs:36  stmt  the same as std::fs::write(walk-ins.txt, format!(booking:?)).ok(); through self.booking_repository
+--- src/booking/commands/seat_walk_in.rs
+@@ -7,2 +7,3 @@
+ use crate::booking::ports::id_generator::IdGenerator;
++use crate::booking::ports::booking_repository::BookingRepository;
+ 
+@@ -18,2 +19,3 @@
+     ids: Rc<dyn IdGenerator>,
++    booking_repository: Rc<dyn BookingRepository>,
+ }
+@@ -21,4 +23,4 @@
+ impl SeatWalkIn {
+-    pub fn new(ids: Rc<dyn IdGenerator>) -> SeatWalkIn {
+-        SeatWalkIn { ids }
++    pub fn new(ids: Rc<dyn IdGenerator>, booking_repository: Rc<dyn BookingRepository>) -> SeatWalkIn {
++        SeatWalkIn { ids, booking_repository }
+     }
+@@ -33,3 +35,3 @@
+         };
+-        std::fs::write("walk-ins.txt", format!("{booking:?}")).ok();
++        todo!("hole port_call: the same as std::fs::write(walk-ins.txt, format!(booking:?)).ok(); through self.booking_repository");
+         booking
+@@ -45,3 +47,3 @@
+     fn command() -> SeatWalkIn {
+-        SeatWalkIn::new(Rc::new(SequentialIds::default()))
++        SeatWalkIn::new(Rc::new(SequentialIds::default()), todo!("hole fake: an in-memory adapter of the port, for the test"))
+     }
+nothing written (--plan)
+```
+
+Applied, it builds (`cargo test` compiles, warnings aside) and the test is red on `hole fake` until
+you pass the in-memory adapter. The found code goes into an instruction without quotes,
+backslashes or braces, since `todo!("…")` is a format string. A new command's `pub mod` line in
+`commands/mod.rs` is still yours to add (owned regions arrive in milestone 2c). The struct's
+fields are expected to end with a comma, as rustfmt writes them.
+
 `spellbook fix FILE:LINE` takes the finding on that line (`--rule ID` picks when two rules fire on
 it), `--fix N|LABEL` (the first fix when not given), `--set` for the inputs the finding does not
 settle, `--plan` and `--json` (the plan). The exit code is 0 when it was applied, 1 when the plan
@@ -471,7 +547,9 @@ generator's edit says so.
 In an editor, the language server (`spellbook lsp`) offers each fix as a quick fix on the finding's
 line, `spellbook: Use a port the service has` first (preferred) and `spellbook: Add a port and use
 it` after. Applied from the editor, the changed files land as one edit you can undo in each file
-(they are left unsaved, for you to look at and save), then the new files are written. If you typed
+(they are left unsaved, for you to look at and save), then the new files are written. Until you
+save a changed file its marks follow the fixed text, not the old one on disk, also when the editor
+opens the file to land the edit. If you typed
 in the file since the plan, nothing is applied and you are told `close_table.py changed since the
 plan; nothing was applied: fix again`. An editor that cannot apply edits gets the changed files
 written to disk, and is told so once. See [Fixes in VS Code](#fixes-in-vs-code) and [Fixes in Neovim](#fixes-in-neovim).

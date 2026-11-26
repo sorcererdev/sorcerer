@@ -328,15 +328,24 @@ fn run_fix_case(dir: &Path, corpus: &CorpusFile, id: &str) {
     assert_eq!(holes, want, "fix/{id}: the open holes");
 }
 
-#[test]
-fn bistro_holds_its_fix_cases() {
-    let dir = corpus_dir("bistro");
+fn run_fix_cases(name: &str) {
+    let dir = corpus_dir(name);
     let corpus: CorpusFile = read_toml(&dir.join("corpus.toml"));
     let ids = case_ids(&dir, "fix", "toml");
-    assert!(!ids.is_empty(), "bistro has no fix cases");
+    assert!(!ids.is_empty(), "{name} has no fix cases");
     for id in ids {
         run_fix_case(&dir, &corpus, &id);
     }
+}
+
+#[test]
+fn bistro_holds_its_fix_cases() {
+    run_fix_cases("bistro");
+}
+
+#[test]
+fn bistro_rs_holds_its_fix_cases() {
+    run_fix_cases("bistro-rs");
 }
 
 fn run_load_cases(name: &str) {
@@ -351,6 +360,7 @@ fn run_load_cases(name: &str) {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     ids.sort();
+    assert!(!ids.is_empty(), "{name} has no load cases");
     for id in ids {
         let got = load_sentence(&dir, &corpus, &id);
         let path = cases.join(&id).join("expected.txt");
@@ -370,6 +380,11 @@ fn run_load_cases(name: &str) {
 #[test]
 fn bistro_load_mistakes_say_what_is_wrong() {
     run_load_cases("bistro");
+}
+
+#[test]
+fn bistro_rs_load_mistakes_say_what_is_wrong() {
+    run_load_cases("bistro-rs");
 }
 
 /// Runs one `check` case: the patch applied, every file checked, the findings against

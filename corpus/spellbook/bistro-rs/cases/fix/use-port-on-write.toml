@@ -1,0 +1,18 @@
+# `std::fs::write(…)` in handle: the statement becomes a `stmt` hole saying what it did, through
+# the port.
+patch  = "fs-write-in-handle.patch"
+at     = "src/booking/commands/seat_walk_in.rs:34"
+fix    = 1
+inputs = { port = "booking_repository" }
+
+[[holes]]
+name = "port_call"
+kind = "stmt"
+file = "src/booking/commands/seat_walk_in.rs"
+line = 36
+
+[[holes]]
+name = "fake"
+kind = "expr"
+file = "src/booking/commands/seat_walk_in.rs"
+line = 48

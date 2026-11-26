@@ -20,17 +20,22 @@ fn host(language: &str, kind: &str, hole: &str) -> String {
         ("rust", "type") => format!("struct A {{\n    x: {hole},\n}}\n"),
         ("rust", "block") => format!("fn f() {{\n    {hole}\n}}\n"),
         ("rust", "expr") => format!("fn f() {{\n    let x = {hole};\n}}\n"),
+        // a statement among others: what a fix's `replace` text puts where a statement was
+        ("rust", "stmt") => format!("fn f() {{\n    let x = 1;\n    {hole}\n    g(x);\n}}\n"),
         _ => unreachable!(),
     }
 }
 
 #[test]
 fn each_shipped_kind_fills_and_parses() {
-    for language in ["python", "rust"] {
+    for (language, shipped) in [
+        ("python", &["block", "expr", "ident", "type"][..]),
+        ("rust", &["block", "expr", "ident", "stmt", "type"][..]),
+    ] {
         let loaded = loaded(language);
         let table = holes_table(&loaded.language).unwrap();
         let kinds: Vec<&str> = table.kinds.keys().map(String::as_str).collect();
-        assert_eq!(kinds, ["block", "expr", "ident", "type"], "{language}");
+        assert_eq!(kinds, shipped, "{language}");
         for kind in kinds {
             let hole = placeholder(&loaded.language, kind, "handle", "its first case").unwrap();
             let code = host(language, kind, &hole);
@@ -50,6 +55,18 @@ fn a_block_placeholder_says_its_name_and_instruction() {
     assert_eq!(
         hole,
         "raise NotImplementedError(\"hole handle: its first case\")"
+    );
+    let rust = support::loaded("rust");
+    let hole = placeholder(
+        &rust.language,
+        "stmt",
+        "port_call",
+        "the same through the port",
+    )
+    .unwrap();
+    assert_eq!(
+        hole,
+        "todo!(\"hole port_call: the same through the port\");"
     );
 }
 

@@ -1,0 +1,79 @@
+name        = "Use a port"
+summary     = "A command or query takes one of the service's ports; its test passes an in-memory one"
+description = "The port's trait is used, the struct keeps an Rc<dyn Port>, new takes it and the struct literal sets it, and the test's helper passes a hole for the in-memory adapter. main.rs is yours until the adapter choice can be written (milestone 2b)."
+language    = "rust"
+examples    = ["spellbook new use-port --set service=booking --set kind=commands --set unit=seat_walk_in --set port=booking_repository"]
+
+[inputs.service]
+type   = "enum"
+one_of = "services"
+prompt = "The service it belongs to"
+
+[inputs.kind]
+type    = "enum"
+choices = ["commands", "queries"]
+prompt  = "A command or a query"
+
+[inputs.unit]
+type   = "ident"
+prompt = "The command or query (its module's name)"
+
+[inputs.port]
+type   = "enum"
+one_of = "ports"
+prompt = "The port it takes (one of the service's ports/)"
+
+[query.services]
+glob  = "src/*/ports"
+value = "parent folder"
+
+[query.ports]
+glob  = "src/{= service|snake =}/ports/*/mod.rs"
+value = "parent folder"
+
+[derive]
+Unit   = "{= unit|pascal =}"
+Port   = "{= port|pascal =}"
+param  = "{= port|snake =}"
+module = "src/{= service|snake =}/{= kind =}/{= unit|snake =}.rs"
+ports  = "crate::{= service|snake =}::ports::{= port|snake =}"
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of imports"
+text   = "use {= ports =}::{= Port =};"
+unless = { matches = "^use .*\\b{= Port =}\\b" }
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of imports"
+text   = "use std::rc::Rc;"
+unless = { matches = "^use std::rc::Rc;" }
+
+# The struct keeps it (a field line, so the struct's fields end with a comma, as rustfmt writes them).
+[[edits]]
+insert = "{= module =}"
+at     = "end of class {= Unit =}"
+text   = "{= param =}: Rc<dyn {= Port =}>,"
+unless = { matches = "^\\s*(pub\\s+)?{= param =}: Rc<dyn {= Port =}>,\\s*$" }
+
+[[edits]]
+insert = "{= module =}"
+at     = "end of parameters in {= Unit =}.new"
+text   = "{= param =}: Rc<dyn {= Port =}>"
+unless = { matches = "fn new\\(.*\\b{= param =}: Rc<dyn {= Port =}>" }
+
+# `{= Unit =} { … }` in new: the struct literal sets the field.
+[[edits]]
+insert = "{= module =}"
+at     = "end of call {= Unit =} in {= Unit =}::new"
+text   = "{= param =}"
+unless = { matches = "{= Unit =} \\{.*\\b{= param =}\\b" }
+
+# The test's helper builds it with the port: an in-memory adapter is the person's to pick.
+[[edits]]
+insert     = "{= module =}"
+at         = ["end of call {= Unit =}::new in command", "end of call {= Unit =}::new in query"]
+text       = "{= ? fake: expr | an in-memory adapter of the port, for the test =}"
+unless     = { matches = "{= Unit =}::new\\(.*(InMemory{= Port =}|hole fake)" }
+on_missing = "skip"

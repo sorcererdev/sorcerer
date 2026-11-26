@@ -3,4 +3,7 @@
 textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/rust/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
 tags.scm         tree-sitter/tree-sitter-rust v0.24.2  77a3747266f4d621d0757825e6b11edcbf991ca5  queries/tags.scm  MIT (queries/LICENSE-tree-sitter-rust)
 impls.scm        sorcerer's own (from olifant, not vendored): an impl as a unit, named by its type.
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, `todo!()` and `unimplemented!()`.
+lists.scm        sorcerer's own (not vendored): `@parameters` and `@arguments`, the lists anchors put items into.
+calls.scm        sorcerer's own (not vendored): `Type::new(…)` calls and struct literals as `@reference.call`.
 # changes: none (the vendored files are byte-for-byte the pinned upstream files).

@@ -34,3 +34,10 @@ ident = "todo_{= name =}"
 type = "()"
 expr = "todo!(\"hole {= name =}: {= instruction =}\")"
 block = "todo!(\"hole {= name =}: {= instruction =}\")"
+# A statement among others, as a fix's `replace` text writes where a statement was.
+stmt = "todo!(\"hole {= name =}: {= instruction =}\");"
+
+# What spellbook's anchors cannot read from the code: the separator a list of one item, or of
+# none, takes when an item is put into it (a longer list shows its own).
+[syntax]
+list_separator = ","

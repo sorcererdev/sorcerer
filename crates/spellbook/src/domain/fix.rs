@@ -96,13 +96,15 @@ pub fn fix_label(
 }
 
 /// The found node's text as it may sit in a hole's instruction, which a placeholder puts inside
-/// a string: on one line, without quotes or backslashes, at most 60 characters.
+/// a string: on one line, without quotes, backslashes or braces (the string may be a format
+/// string, as Rust's `todo!("…")` is), at most 60 characters, the rule a generator's own
+/// instructions follow.
 ///
 /// Example: `conn = sqlite3.connect(\n    "bistro.db")` becomes `conn = sqlite3.connect( bistro.db)`.
 pub fn finding_for_instruction(text: &str) -> String {
     one_line(text)
         .chars()
-        .filter(|c| !matches!(c, '"' | '\'' | '\\'))
+        .filter(|c| !matches!(c, '"' | '\'' | '\\' | '{' | '}'))
         .take(60)
         .collect()
 }
@@ -329,6 +331,11 @@ mod tests {
             "conn = sqlite3.connect( bistro.db)"
         );
         assert_eq!(finding_for_instruction("a\\b 'c'"), "ab c");
+        // a placeholder's string may be a format string (Rust's `todo!`): no braces either
+        assert_eq!(
+            finding_for_instruction("write(format!(\"{booking:?}\"))"),
+            "write(format!(booking:?))"
+        );
         assert_eq!(finding_for_instruction(&"x".repeat(80)).len(), 60);
     }
 

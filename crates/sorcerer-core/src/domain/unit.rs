@@ -12,9 +12,10 @@
 //! 3. Its name is qualified one level: the name of the innermost other unit around it, then the
 //!    language's `unit_separator`, then its own name (`Order.cancel`, `Order::new`).
 
-use tree_sitter::{Node, QueryCursor, QueryMatch, StreamingIterator, Tree};
+use tree_sitter::Node;
 
 use crate::Result;
+use crate::domain::captures::{CapturedMatch, Captures};
 use crate::domain::fingerprint::{Fingerprint, fingerprint};
 use crate::domain::language::Loaded;
 
@@ -74,7 +75,8 @@ pub struct Unit {
     pub kind: UnitKind,
     /// All the definition's lines, its decorators or attributes included.
     pub span: Span,
-    /// The lines of its body, when the grammar marks one (a `body` field).
+    /// The lines of its body, when `textobjects.scm` captures one (`@function.inner` or
+    /// `@class.inner` inside the definition): `None` for a definition with nothing in its body.
     pub body: Option<Span>,
     /// Names the unit's text; see [`fingerprint`].
     pub fingerprint: Fingerprint,
@@ -91,7 +93,8 @@ pub fn units_of(lang: &Loaded, text: &str) -> Result<Vec<Unit>> {
     let Some(tree) = lang.parse(text)? else {
         return Ok(Vec::new());
     };
-    let captured = Captured::by_queries(lang, &tree, text);
+    let captures = Captures::of(lang, &tree, text);
+    let captured = Captured::from(&captures, text);
     let definitions = one_per_node(captured.definitions);
     let spans: Vec<Span> = definitions
         .iter()
@@ -133,8 +136,14 @@ struct Definition {
 }
 
 impl Definition {
-    /// A definition from its node and its name captures (each with where it starts, in bytes).
-    fn new(capture: &str, node: &Node, mut name_parts: Vec<(usize, &str)>) -> Definition {
+    /// A definition from its node, its name captures (each with where it starts, in bytes) and
+    /// what the queries captured as its body.
+    fn new(
+        capture: &str,
+        node: &Node,
+        mut name_parts: Vec<(usize, &str)>,
+        body: &[Node],
+    ) -> Definition {
         name_parts.sort();
         let name: Vec<&str> = name_parts.iter().map(|(_, part)| *part).collect();
         Definition {
@@ -142,9 +151,19 @@ impl Definition {
             bytes: ByteRange::of(node),
             lines: lines_of(node),
             name: name.join(" "),
-            body: node.child_by_field_name("body").map(|body| lines_of(&body)),
+            body: lines_of_all(body),
         }
     }
+}
+
+/// The lines from the first node's first to the last node's last; `None` for no nodes.
+fn lines_of_all(nodes: &[Node]) -> Option<Span> {
+    let first = nodes.iter().map(|node| lines_of(node).start).min()?;
+    let last = nodes.iter().map(|node| lines_of(node).end).max()?;
+    Some(Span {
+        start: first,
+        end: last,
+    })
 }
 
 /// A `@function.outer` or `@class.outer` capture: a range that may widen a definition.
@@ -161,49 +180,47 @@ struct Captured {
 }
 
 impl Captured {
-    /// Runs each of the language's queries over the file and gathers what they capture.
-    fn by_queries(lang: &Loaded, tree: &Tree, text: &str) -> Captured {
+    /// Gathers the definitions and outer ranges from every match the language's queries made.
+    fn from(captures: &Captures, text: &str) -> Captured {
         let mut captured = Captured::default();
-        for (_, query) in &lang.queries {
-            let mut cursor = QueryCursor::new();
-            let mut matches = cursor.matches(query, tree.root_node(), text.as_bytes());
-            while let Some(found) = matches.next() {
-                captured.add_match(query.capture_names(), found, text);
-            }
+        for found in captures.matches() {
+            captured.add_match(captures, found, text);
         }
         captured
     }
 
     /// Records one query match: any outer ranges in it, and its definition when the match
     /// also captured a name. When a match captures several definitions, the last one counts.
-    fn add_match(&mut self, capture_names: &[&str], found: &QueryMatch<'_, '_>, text: &str) {
+    fn add_match(&mut self, captures: &Captures, found: &CapturedMatch<'_>, text: &str) {
         let mut name_parts: Vec<(usize, &str)> = Vec::new();
         let mut definition: Option<(&str, Node)> = None;
-        for capture in found.captures {
-            let node = capture.node;
-            match capture_names[capture.index as usize] {
+        for (capture, node) in found {
+            match capture.as_str() {
                 "name" | "unit.name" => name_parts.push((
                     node.start_byte(),
                     node.utf8_text(text.as_bytes()).unwrap_or_default(),
                 )),
                 "function.outer" | "class.outer" => self.outer_ranges.push(OuterRange {
-                    bytes: ByteRange::of(&node),
-                    lines: lines_of(&node),
+                    bytes: ByteRange::of(node),
+                    lines: lines_of(node),
                 }),
-                name if is_unit_capture(name) => definition = Some((name, node)),
+                name if is_unit_capture(name) => definition = Some((name, *node)),
                 _ => {}
             }
         }
         if let Some((capture, node)) = definition
             && !name_parts.is_empty()
         {
+            let body = captures.body_of(node);
             self.definitions
-                .push(Definition::new(capture, &node, name_parts));
+                .push(Definition::new(capture, &node, name_parts, &body));
         }
     }
 }
 
-fn is_unit_capture(capture: &str) -> bool {
+/// Whether a capture names a unit: `definition.<kind>` with a kind in [`UNIT_KINDS`], or
+/// `unit.<anything>` but `unit.name`.
+pub(crate) fn is_unit_capture(capture: &str) -> bool {
     match capture.strip_prefix("definition.") {
         Some(kind) => UNIT_KINDS.contains(&kind),
         None => capture.starts_with("unit.") && capture != "unit.name",

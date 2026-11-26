@@ -1,6 +1,7 @@
 //! Data and rules: no I/O, nothing from `ports` or `adapters`.
 
 pub mod broken_region;
+pub mod captures;
 pub mod compare;
 pub mod config;
 pub mod cost;
