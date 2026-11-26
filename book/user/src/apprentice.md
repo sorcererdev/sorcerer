@@ -79,7 +79,7 @@ once (`debounce_text_changes = 0`, so a task never writes over what you typed a 
 your edits reach the agent after its next tool call). It draws what the server sends only to it:
 grey suggested lines under a line (`SorcererGhost`; gone at your next edit of that line), the
 agent's notes in a vertical split beside your code, and *Show diff* as a scratch buffer of the
-text before beside the live one, both in diff mode. Marks are `vim.diagnostic`; the code actions
+text before beside the live one, both in diff mode, in a tab of their own (`:tabclose` ends it). Marks are `vim.diagnostic`; the code actions
 are your code-action key's. The keys:
 
 | key | does |

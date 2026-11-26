@@ -174,8 +174,8 @@ impl Server {
         runner.all_live().first().map(|live| live.id.clone())
     }
 
-    /// The task ended: the progress line ends, the done message, the marks on every file it
-    /// changed.
+    /// The task ended: the progress line ends, the marks go on every file it changed, then the
+    /// done message.
     pub(super) fn task_finished(&self, task: &TaskRecord, done_text: &str) {
         if let Some(line) = lock(&self.progress).remove(&task.id) {
             line.end(None);
@@ -219,6 +219,13 @@ impl Server {
         for path in paths {
             self.publish(&path);
         }
+        // the marks first: the done message is the person's cue to look at them
+        let kind = if task.state == TaskState::Done {
+            MessageType::INFO
+        } else {
+            MessageType::WARNING
+        };
+        self.client.say(kind, done_text);
     }
 
     fn journal(&self) -> Option<MarkdownJournal> {
