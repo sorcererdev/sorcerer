@@ -52,6 +52,35 @@ function spellbookMarks(uri: vscode.Uri): vscode.Diagnostic[] {
   return vscode.languages.getDiagnostics(uri).filter(d => d.source === 'spellbook');
 }
 
+// whether a tab still shows a plan preview (a document, or the right side of a diff)
+function previewOpen(): boolean {
+  return vscode.window.tabGroups.all.some(g => g.tabs.some(t =>
+    (t.input instanceof vscode.TabInputText && t.input.uri.scheme === 'spellbook-plan')
+    || (t.input instanceof vscode.TabInputTextDiff && t.input.modified.scheme === 'spellbook-plan')));
+}
+
+// applyPlan answers the plan's pick with its first item (Apply), then waits for the command
+// DONE to end. The pick opens only after the preview is shown, and an accept sent before it
+// opens is lost, so the accept is sent again until the preview closes (the pick has answered).
+// Each stage fails on its own, naming where it stopped.
+async function applyPlan(done: Thenable<unknown>, said: [string, string][]): Promise<void> {
+  let ended = false;
+  const command = Promise.resolve(done).finally(() => { ended = true; });
+  command.catch(() => undefined);
+  let accepts = 0;
+  const deadline = Date.now() + 30_000;
+  while (previewOpen() && !ended) {
+    if (Date.now() > deadline) assert.fail(`the plan's pick did not answer ${accepts} accepts\nsaid: ${JSON.stringify(said)}`);
+    await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+    accepts += 1;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (accepts > 1) console.log(`the plan's pick answered after ${accepts} accepts`);
+  await until('the command to end after Apply', () => (ended ? true : undefined), 60_000)
+    .catch(err => { throw new Error(`${String(err)}\nsaid: ${JSON.stringify(said)}`); });
+  await command;
+}
+
 // The suite: run by the ubuntu and windows CI jobs and by hand (npm run test:e2e).
 describe('spellbook', () => {
   let api: Api;
@@ -97,14 +126,11 @@ describe('spellbook', () => {
     assert.match(preview.document.uri.path, /cancel_table\.py$/);
     assert.equal(preview.document.languageId, 'python');
     assert.match(preview.document.getText(), /class CancelTableInput:/);
-    // Apply is the pick's first item
-    await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
-    await done;
+    await applyPlan(done, said);
     assert.deepEqual(asked, ['command']);
     assert.deepEqual(said, []);
     assert.ok(existsSync(WRITTEN) && existsSync(join(COMMANDS, 'cancel_table__test.py')), 'both files are written');
-    assert.ok(!vscode.window.tabGroups.all.some(g => g.tabs.some(t =>
-      t.input instanceof vscode.TabInputText && t.input.uri.scheme === 'spellbook-plan')), 'the preview tabs are closed');
+    assert.ok(!previewOpen(), 'the preview tabs are closed');
 
     const uri = vscode.Uri.file(WRITTEN);
     const holes = await until('the hole marks', () => {
@@ -167,8 +193,7 @@ describe('spellbook', () => {
     await until('the diff of the plan', () => vscode.window.tabGroups.all.flatMap(g => g.tabs)
       .find(t => t.input instanceof vscode.TabInputTextDiff && t.input.modified.scheme === 'spellbook-plan'), 60_000)
       .catch(err => { throw new Error(`${String(err)}\nsaid: ${JSON.stringify(said)}`); });
-    await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
-    await done;
+    await applyPlan(done, said);
     assert.deepEqual(said, []);
     assert.deepEqual(asked, ['port']);
     await until('the fix landed in the editor', () => (doc.getText().includes('import sqlite3') ? undefined : true), 30_000);
