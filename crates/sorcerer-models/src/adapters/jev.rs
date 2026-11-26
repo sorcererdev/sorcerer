@@ -289,12 +289,31 @@ impl Jev {
 }
 
 impl Decider for Jev {
-    /// An empty batch asks nothing. A call that fails makes every answer unsure, except a
-    /// cancel or a ledger that cannot be written, which stop the caller.
+    /// Asks the batch in as few requests as Jev takes (see `requests_jev_takes`) and gives
+    /// the answers back in the order asked. An empty batch asks nothing. A request that
+    /// fails makes its own answers unsure, except a cancel or a ledger that cannot be
+    /// written, which stop the caller.
+    ///
+    /// Example: scry asks "same problem?" about two stored findings. Jev takes one question
+    /// of a kind per request, so they go as two requests, and both answers come back.
     fn ask(&self, qs: &[Question], cancel: &Cancel) -> Result<Vec<Weighed>> {
-        if qs.is_empty() {
-            return Ok(Vec::new());
+        let mut answers = vec![Weighed::unsure(); qs.len()];
+        for request in requests_jev_takes(qs) {
+            let batch: Vec<Question> = request.iter().map(|&n| qs[n].clone()).collect();
+            for (n, weighed) in request
+                .into_iter()
+                .zip(self.ask_one_request(&batch, cancel)?)
+            {
+                answers[n] = weighed;
+            }
         }
+        Ok(answers)
+    }
+}
+
+impl Jev {
+    /// One request's answers: a call that fails is unsure for every question in it.
+    fn ask_one_request(&self, qs: &[Question], cancel: &Cancel) -> Result<Vec<Weighed>> {
         match self.ask_raw(qs, cancel) {
             Ok(reply) => Ok(jev_answers(qs, reply.to_string().as_bytes())),
             Err(Error::Cancelled) => Err(Error::Cancelled),
@@ -302,4 +321,37 @@ impl Decider for Jev {
             Err(_) => Ok(qs.iter().map(|_| Weighed::unsure()).collect()),
         }
     }
+}
+
+/// The batch split into the requests Jev takes, as positions in the batch. A request holds
+/// at most one question of each kind, and its questions agree on every context text they
+/// share a name for (Jev reads one `state` for the whole request, see `jev_body`). Each
+/// question joins the first request it fits, so a batch Jev takes whole stays one request.
+///
+/// Example: the claim checker's three guards, of three kinds, are one request. Two
+/// "same" questions are two: they share a kind, and their `finding B` texts differ.
+pub fn requests_jev_takes(qs: &[Question]) -> Vec<Vec<usize>> {
+    qs.iter()
+        .enumerate()
+        .fold(Vec::new(), |mut requests: Vec<Vec<usize>>, (n, q)| {
+            match requests
+                .iter_mut()
+                .find(|request| request.iter().all(|&m| can_share_a_request(&qs[m], q)))
+            {
+                Some(request) => request.push(n),
+                None => requests.push(vec![n]),
+            }
+            requests
+        })
+}
+
+/// Whether two questions can go in one request: their kinds differ, and a context name
+/// they both carry has the same text in each.
+fn can_share_a_request(a: &Question, b: &Question) -> bool {
+    a.kind != b.kind
+        && a.context.iter().all(|(name, text)| {
+            b.context
+                .iter()
+                .all(|(other_name, other_text)| other_name != name || other_text == text)
+        })
 }

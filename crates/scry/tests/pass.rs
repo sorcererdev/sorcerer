@@ -3,6 +3,7 @@ mod support;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use scry::domain::budget::Caps;
@@ -16,12 +17,16 @@ use scry::usecases::review_change::{
     Progress, ReviewDeps, ReviewOutcome, ReviewReport, ReviewRequest, review_change,
 };
 use sorcerer_core::Cancel;
+use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::json_store::Snapshot;
+use sorcerer_core::domain::config::DecideConfig;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_models::adapters::jev::Jev;
 use sorcerer_models::domain::claim::{Checked, Claim, Escalation};
 use sorcerer_models::domain::decide::Answer;
+use sorcerer_models::ports::decider::Decider;
 use support::{FixedClock, StubDecider, StubReviewer, commit, git_project, write};
 use tempfile::TempDir;
 
@@ -59,14 +64,14 @@ impl Fixture {
         self.dir.path()
     }
 
-    fn run(&self, reviewer: &StubReviewer, decider: &StubDecider, fresh: bool) -> ReviewOutcome {
+    fn run(&self, reviewer: &StubReviewer, decider: &dyn Decider, fresh: bool) -> ReviewOutcome {
         self.try_run(reviewer, decider, fresh).unwrap()
     }
 
     fn try_run(
         &self,
         reviewer: &StubReviewer,
-        decider: &StubDecider,
+        decider: &dyn Decider,
         fresh: bool,
     ) -> sorcerer_core::Result<ReviewOutcome> {
         // a claim check that fails: an unverified finding stays unverified
@@ -345,6 +350,51 @@ fn a_rule_text_citation_is_not_resolved_by_substring() {
     );
 }
 
+/// The user's trial of 2026-11-26: the reviewer raised two findings in a file that already
+/// held a live one, so the second finding asked Jev "same problem?" about two stored findings
+/// in one batch. Live Jev takes one question of a kind per request: the batch came back
+/// unsure, the pass was skipped and its paid review dropped. Asked of live Jev (here a local
+/// stand-in), the pass now runs to its end and stores both findings.
+#[test]
+fn two_same_problem_questions_reach_live_jev_and_the_pass_runs_to_its_end() {
+    let f = Fixture::new();
+    ran(f.run(
+        &bug_reviewer("cancel() returns None."),
+        &StubDecider::new(),
+        false,
+    ));
+    let mut server = mockito::Server::new();
+    let jev_calls = server
+        .mock("POST", "/v1/systemone")
+        .with_body(
+            r#"{"answers": {"same": {"type": "noul", "noul": 0.1}, "nitpick": {"type": "noul", "noul": 0.1}}}"#,
+        )
+        .expect(5)
+        .create();
+    let jev = Jev::from_env(
+        &DecideConfig::default(),
+        &MapEnv::default().var_set("JEV_API_KEY", "k"),
+        None,
+    )
+    .unwrap()
+    .with_url(&server.url())
+    .with_backoff(Duration::ZERO);
+    let two = reply_of(
+        &[
+            ("orders.py", 2, "cancel() drops the order's refund.", ""),
+            ("orders.py", 2, "cancel() never logs the cancel.", ""),
+        ],
+        serde_json::json!([]),
+    );
+    let reviewer = StubReviewer::new().reply(&["orders.py"], &two);
+    let r = ran(f.run(&reviewer, &jev, true));
+    // the first finding: one same-problem request and one nitpick; the second: its two
+    // same-problem questions as two requests, and one nitpick
+    jev_calls.assert();
+    assert_eq!(r.new.len(), 2);
+    assert_eq!(f.store().findings.len(), 3);
+}
+
 #[test]
 fn the_same_problem_merges_into_the_stored_id() {
     let f = Fixture::new();
@@ -473,6 +523,13 @@ fn still_holds_keeps_the_finding() {
     let s = f.store();
     assert_eq!(only(&s).status, Status::Unverified);
     assert!(s.reviewed[Path::new("orders.py")].contains(&cancel_print(&f)));
+    // re-judged on the new code, it is about that code now: not stale in the editor
+    let place = &only(&s).place;
+    assert_eq!(
+        place.fingerprint.map(|p| p.to_string()),
+        Some(cancel_print(&f))
+    );
+    assert_eq!((place.unit_start, place.lines.start), (Some(1), 2));
 }
 
 #[test]

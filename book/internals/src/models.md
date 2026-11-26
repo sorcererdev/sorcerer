@@ -151,14 +151,21 @@ the file. Fenced `grep` hits and `glob` paths are dropped, and `grep` says how m
 `ports/decider.rs` and `domain/decide.rs`. A `Decider` answers typed questions with calibrated probabilities and never
 writes text: a `Question` has a kind (its name in the batch), instructions, a `Shape`
 (`Choice`, `Noul` with its yes and no sides, or `Score`), named context texts, and `unsure` (an `UnsureAnswer`): whether
-a choice may be answered "none of these fits". `ask` sends a batch as one call with one shared state and
-returns a `Weighed` per question: the `Answer` and, for a choice, the distribution.
+a choice may be answered "none of these fits". `ask` takes any batch, sends it in as few calls as the
+decider allows (questions that can share a call share their context), and
+returns a `Weighed` per question, in the order asked: the `Answer` and, for a choice, the distribution.
 
 `adapters/jev.rs` is Jev. `jev_body` builds the request from `shared_state` (context names
 shared across the batch must agree) and `questions_by_kind`, each from `question_body`;
-`jev_answers` reads each answer with `chosen_option`, `yes_or_no` or `level`; the model is pinned (`jev-1.14.0`),
+`jev_answers` reads each answer with `chosen_option`, `yes_or_no` or `level`. Jev takes one
+question of a kind per request and one `state`, so `Jev::ask` first splits the batch with
+`requests_jev_takes` (each question joins the first request it fits, `can_share_a_request`:
+another kind, and the same text under every context name both carry) and asks each request
+with `ask_one_request`; two `same` questions about two stored findings are two requests. Before
+this split such a batch failed in `jev_body`, before any call (so no ledger row), came back
+`Unsure`, and stopped scry's pass. The model is pinned (`jev-1.14.0`),
 and 429 and 529 are retried twice. A reply that does not fit a question's shape, or a call
-that fails, makes the whole batch `Unsure`: a decider never guesses, and a pass that gets
+that fails, makes that request's answers `Unsure`: a decider never guesses, and a pass that gets
 `Unsure` stops. Each call is a ledger row with verb `decide`.
 
 `adapters/recorded_decider.rs` answers from `<dir>/<question_key>.json`, where the key is FNV-1a 64
