@@ -18,6 +18,7 @@ use super::{Server, lock};
 use crate::domain::change::TextChange;
 use crate::domain::plan::{Plan, PlannedFile};
 use crate::usecases::apply_plan::ChangesLanded;
+use crate::usecases::sync_regions::SYNC_GENERATOR;
 
 /// What an editor that cannot apply edits is told, once: the changed files went to the disk.
 pub(super) const CANNOT_EDIT: &str =
@@ -29,14 +30,8 @@ impl Server {
     /// the marks published and the first hole opened; refused (the document moved on), nothing
     /// is written and the person is told to fix again.
     pub(super) fn land_in_the_editor(self: &Arc<Self>, kept: KeptPlan, reply: Reply) {
-        let edit = workspace_edit(&self.root, &kept.plan, kept.version);
-        let label = edit_label(&kept.plan);
-        self.remember_landing(&kept.plan);
-        let server = Arc::clone(self);
-        let plan = kept.plan;
-        self.client.apply_edit(&label, edit, move |answer| {
-            let said = if !answer.applied {
-                server.forget_refused_landing(&plan);
+        self.send_edit(kept.plan, kept.version, move |server, plan, applied| {
+            let said = if !applied {
                 stop(&changed_since_text(&plan))
             } else {
                 match server.wired_for_commands() {
@@ -45,6 +40,28 @@ impl Server {
                 }
             };
             reply.send(Ok(said));
+        });
+    }
+
+    /// Sends the plan's changed files as one edit the editor may undo, the fix's own file tied to
+    /// `version`. Until the editor answers, and after a yes until each file is saved, the files'
+    /// marks are read from the planned text; a no puts them back to the disk's. `answered` runs
+    /// with the plan and whether the editor applied it.
+    pub(super) fn send_edit(
+        self: &Arc<Self>,
+        plan: Plan,
+        version: Option<i32>,
+        answered: impl FnOnce(&Arc<Server>, Plan, bool) + Send + 'static,
+    ) {
+        let edit = workspace_edit(&self.root, &plan, version);
+        let label = edit_label(&plan);
+        self.remember_landing(&plan);
+        let server = Arc::clone(self);
+        self.client.apply_edit(&label, edit, move |answer| {
+            if !answer.applied {
+                server.forget_refused_landing(&plan);
+            }
+            answered(&server, plan, answer.applied);
         });
     }
 }
@@ -150,13 +167,33 @@ fn text_edit(before: &str, change: &TextChange) -> TextEdit {
 
 /// The label the editor may show for the edit (in its undo history, say).
 ///
-/// Example: `spellbook: Use a port the service has`; for a `new` plan, `spellbook: command`.
+/// Example: `spellbook: Use a port the service has`; for a `new` plan, `spellbook: command`;
+/// for a sync, `spellbook: sync region modules`.
 fn edit_label(plan: &Plan) -> String {
+    if plan.generator == SYNC_GENERATOR {
+        return format!("spellbook: sync region {}", region_names(plan).join(", "));
+    }
     let named = plan
         .fix
         .as_ref()
         .map_or(plan.generator.as_str(), |fix| fix.label.as_str());
     format!("spellbook: {named}")
+}
+
+/// The regions a plan rewrites, each named once, in the order the plan first meets them.
+pub(super) fn region_names(plan: &Plan) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for name in plan
+        .files
+        .iter()
+        .filter_map(|file| file.region.as_deref())
+        .flat_map(|regions| regions.split(", "))
+    {
+        if !names.iter().any(|known| known == name) {
+            names.push(name.to_string());
+        }
+    }
+    names
 }
 
 /// What a refused edit is told: the file (the fix's, else the first changed one) changed since

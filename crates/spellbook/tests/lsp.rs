@@ -19,8 +19,9 @@ use sorcerer_lsp::uri_of;
 use spellbook::adapters::lsp::{ServerConfig, serve};
 use spellbook::ports::clock::Clock;
 use support::{
-    CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH, bistro_project, bistro_with_the_fix, test_cache,
-    use_corpus_rules, vendored_project, write_file,
+    CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH, bistro_project, bistro_rs_project,
+    bistro_rs_with_regions, bistro_with_the_fix, test_cache, use_corpus_rules, vendored_project,
+    write_file,
 };
 use tempfile::TempDir;
 
@@ -1415,5 +1416,331 @@ fn a_fix_the_editor_refuses_leaves_the_disks_marks() {
     s.response(id);
     assert_eq!(findings_of(&s.marks(CLOSE_TABLE_PATH)), on_disk);
     assert_eq!(findings_of(&marks_on_open(&s, CLOSE_TABLE_PATH)), on_disk);
+    s.stop();
+}
+
+// ---- M2c-2: owned regions in the editor ----
+
+const COMMANDS_MOD: &str = "src/booking/commands/mod.rs";
+const CLOSE_TABLE_RS: &str = "src/booking/commands/close_table.rs";
+const SYNCED_NOTICE: &str =
+    "spellbook: synced region modules in src/booking/commands/mod.rs (+1 \u{2212}0)";
+
+/// A command file written by hand: the region `modules` of `commands/mod.rs` should list it.
+fn write_close_table(root: &Path) {
+    write_file(
+        root,
+        CLOSE_TABLE_RS,
+        "//! Close a table.\n\npub fn close_table() {}\n",
+    );
+}
+
+/// The messages the server shows, in order, read until it goes quiet.
+fn said_within(s: &Served, within: Duration) -> Vec<String> {
+    s.all_within(within)
+        .into_iter()
+        .filter_map(|m| match m {
+            Message::Notification(n) if n.method == "window/showMessage" => {
+                n.params["message"].as_str().map(String::from)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The next message the server shows.
+fn next_said(s: &Served) -> String {
+    match s.wait_for(
+        WAIT,
+        |m| matches!(m, Message::Notification(n) if n.method == "window/showMessage"),
+    ) {
+        Some(Message::Notification(n)) => n.params["message"].as_str().unwrap().to_string(),
+        _ => panic!("nothing said"),
+    }
+}
+
+fn region_codes(marks: &[Diagnostic]) -> Vec<String> {
+    marks
+        .iter()
+        .map(code_of)
+        .filter(|code| code.starts_with("region-"))
+        .collect()
+}
+
+fn on_disk(root: &Path, path: &str) -> String {
+    std::fs::read_to_string(root.join(path)).unwrap()
+}
+
+#[test]
+fn a_save_syncs_a_region_file_not_open_on_disk_and_says_so() {
+    let dir = bistro_rs_with_regions();
+    let s = served_editing(dir.path());
+    write_close_table(dir.path());
+    s.open(CLOSE_TABLE_RS);
+    s.save(CLOSE_TABLE_RS);
+    assert_eq!(next_said(&s), SYNCED_NOTICE);
+    assert!(
+        on_disk(dir.path(), COMMANDS_MOD)
+            .contains("pub mod close_table;\npub mod create_booking;\n"),
+        "{}",
+        on_disk(dir.path(), COMMANDS_MOD)
+    );
+    // a second save has nothing to sync, and says nothing
+    s.save(CLOSE_TABLE_RS);
+    assert!(said_within(&s, QUIET).is_empty());
+    s.stop();
+}
+
+#[test]
+fn a_save_lands_the_sync_of_an_open_region_file_as_an_edit_the_editor_can_undo() {
+    let dir = bistro_rs_with_regions();
+    let s = served_editing(dir.path());
+    s.open(COMMANDS_MOD);
+    assert!(region_codes(&s.marks(COMMANDS_MOD)).is_empty());
+    let before = on_disk(dir.path(), COMMANDS_MOD);
+    write_close_table(dir.path());
+    s.save(CLOSE_TABLE_RS);
+    let asked = edit_asked(&s);
+    assert_eq!(asked.params["label"], "spellbook: sync region modules");
+    let documents = asked.params["edit"]["documentChanges"].as_array().unwrap();
+    assert_eq!(documents.len(), 1);
+    assert_eq!(
+        documents[0]["textDocument"],
+        json!({ "uri": s.uri(COMMANDS_MOD), "version": null })
+    );
+    let landed = with_edits_made(&before, documents[0]["edits"].as_array().unwrap());
+    assert!(
+        landed.contains("pub mod close_table;\npub mod create_booking;\n"),
+        "{landed}"
+    );
+    s.reply(asked.id, json!({ "applied": true }));
+    assert_eq!(next_said(&s), SYNCED_NOTICE);
+    // the buffer is the person's to save: the disk is not touched
+    assert_eq!(on_disk(dir.path(), COMMANDS_MOD), before);
+    // a save of another file before mod.rs is saved sends no second edit
+    s.save(CLOSE_TABLE_RS);
+    assert!(
+        s.wait_for(
+            QUIET,
+            |m| matches!(m, Message::Request(r) if r.method == "workspace/applyEdit")
+        )
+        .is_none()
+    );
+    s.stop();
+}
+
+#[test]
+fn a_sync_edit_the_editor_refuses_is_said_and_left_for_the_finding() {
+    let dir = bistro_rs_with_regions();
+    let s = served_editing(dir.path());
+    s.open(COMMANDS_MOD);
+    s.marks(COMMANDS_MOD);
+    write_close_table(dir.path());
+    s.save(CLOSE_TABLE_RS);
+    let asked = edit_asked(&s);
+    s.reply(
+        asked.id,
+        json!({ "applied": false, "failureReason": "the buffer moved on" }),
+    );
+    assert_eq!(
+        next_said(&s),
+        "spellbook: region modules in src/booking/commands/mod.rs was not synced (the editor refused the edit); run spellbook sync"
+    );
+    let codes = loop {
+        let codes = region_codes(&s.marks(COMMANDS_MOD));
+        if !codes.is_empty() {
+            break codes;
+        }
+    };
+    assert_eq!(codes, ["region-stale"]);
+    s.stop();
+}
+
+#[test]
+fn sync_on_save_off_shows_the_finding_and_says_so_once() {
+    let dir = bistro_rs_with_regions();
+    write_file(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[spellbook]\nsync_on_save = false\n",
+    );
+    let s = served_editing(dir.path());
+    s.open(COMMANDS_MOD);
+    s.marks(COMMANDS_MOD);
+    let before = on_disk(dir.path(), COMMANDS_MOD);
+    write_close_table(dir.path());
+    s.save(CLOSE_TABLE_RS);
+    let messages = s.all_within(Duration::from_secs(2));
+    let said: Vec<&str> = messages
+        .iter()
+        .filter_map(|m| match m {
+            Message::Notification(n) if n.method == "window/showMessage" => {
+                n.params["message"].as_str()
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        said,
+        ["spellbook: 1 region out of date; run spellbook sync"]
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|m| matches!(m, Message::Request(r) if r.method == "workspace/applyEdit"))
+    );
+    let mod_uri = s.uri(COMMANDS_MOD);
+    let republished = messages
+        .iter()
+        .rev()
+        .find(|m| is_publish_for(m, &mod_uri))
+        .expect("mod.rs republished");
+    let Message::Notification(note) = republished else {
+        unreachable!()
+    };
+    let marks: Vec<Diagnostic> =
+        serde_json::from_value(note.params["diagnostics"].clone()).unwrap();
+    assert_eq!(region_codes(&marks), ["region-stale"]);
+    let stale = marks.iter().find(|m| code_of(m) == "region-stale").unwrap();
+    assert_eq!(stale.range.start.line, 2);
+    assert_eq!(
+        stale.message,
+        "region modules is out of date (+1 \u{2212}0)"
+    );
+    assert_eq!(on_disk(dir.path(), COMMANDS_MOD), before);
+    // said once for the life of the server
+    s.save(CLOSE_TABLE_RS);
+    assert!(said_within(&s, QUIET).is_empty());
+    s.stop();
+}
+
+#[test]
+fn a_stale_region_offers_the_sync_as_its_preferred_quick_fix() {
+    let dir = bistro_rs_with_regions();
+    write_file(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[spellbook]\nsync_on_save = false\n",
+    );
+    write_close_table(dir.path());
+    let s = served(dir.path());
+    s.open(COMMANDS_MOD);
+    assert_eq!(region_codes(&s.marks(COMMANDS_MOD)), ["region-stale"]);
+    let actions = code_actions(&s, COMMANDS_MOD, 2);
+    assert_eq!(actions.len(), 1, "{actions:?}");
+    let action = &actions[0];
+    assert_eq!(action["title"], "spellbook: Sync region modules");
+    assert_eq!(action["isPreferred"], true);
+    assert_eq!(action["diagnostics"][0]["code"], "region-stale");
+    assert_eq!(
+        action["command"]["arguments"],
+        json!([{
+            "generator": "sync",
+            "inputs": { "region": "modules", "file": COMMANDS_MOD },
+            "missing": [],
+            "fix": { "file": COMMANDS_MOD, "line": 3, "rule": "region-stale", "index": 1,
+                     "label": "Sync region modules", "version": null },
+        }])
+    );
+    s.stop();
+}
+
+#[test]
+fn a_region_not_set_up_offers_to_set_it_up() {
+    let dir = bistro_rs_project();
+    let s = served(dir.path());
+    s.open(COMMANDS_MOD);
+    assert_eq!(region_codes(&s.marks(COMMANDS_MOD)), ["region-not-set-up"]);
+    let actions = code_actions(&s, COMMANDS_MOD, 0);
+    assert_eq!(actions[0]["title"], "spellbook: Set up region modules");
+    assert_eq!(
+        actions[0]["command"]["arguments"][0]["inputs"],
+        json!({ "region": "modules", "file": COMMANDS_MOD, "mode": "init" })
+    );
+    s.stop();
+}
+
+#[test]
+fn plan_sync_is_the_refresh_with_region_rows_and_hunks_and_its_apply_lands_in_the_editor() {
+    let dir = bistro_rs_with_regions();
+    write_file(
+        dir.path(),
+        ".sorcerer/config.toml",
+        "[spellbook]\nsync_on_save = false\n",
+    );
+    write_close_table(dir.path());
+    let s = served_editing(dir.path());
+    // a quick fix sends its finding too; a sync plan does not need it
+    let fix = json!({ "file": COMMANDS_MOD, "line": 3, "rule": "region-stale", "index": 1,
+                      "version": 4 });
+    let plan = s.command(
+        "spellbook.plan",
+        json!(["sync", { "region": "modules", "file": COMMANDS_MOD }, fix]),
+    );
+    assert_eq!(plan["generator"], "sync", "{plan}");
+    let files = plan["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], COMMANDS_MOD);
+    assert_eq!(files[0]["status"], "changed");
+    assert_eq!(files[0]["region"], "modules");
+    assert_eq!(
+        (files[0]["added"].clone(), files[0]["removed"].clone()),
+        (json!(1), Value::Null)
+    );
+    let rows = files[0]["hunks"][0]["lines"].as_array().unwrap();
+    assert!(rows.contains(&json!("+pub mod close_table;")), "{rows:?}");
+    let id = apply_asked(&s, &plan);
+    let asked = edit_asked(&s);
+    assert_eq!(asked.params["label"], "spellbook: sync region modules");
+    s.reply(asked.id, json!({ "applied": true }));
+    let reply = s.response(id).response_result.unwrap();
+    assert_eq!(reply["changed"], json!([COMMANDS_MOD]));
+    assert_eq!(reply["stops"], json!([]));
+    s.stop();
+}
+
+#[test]
+fn plan_sync_with_mode_init_sets_the_region_up() {
+    let dir = bistro_rs_project();
+    let s = served(dir.path());
+    let plan = s.command(
+        "spellbook.plan",
+        json!(["sync", { "region": "ports", "mode": "init", "file": "src/booking/ports/mod.rs" }]),
+    );
+    let rows: Vec<(Value, Value)> = plan["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{plan}"))
+        .iter()
+        .map(|file| (file["path"].clone(), file["set_up"].clone()))
+        .collect();
+    assert_eq!(rows, [(json!("src/booking/ports/mod.rs"), json!(2))]);
+    s.stop();
+}
+
+#[test]
+fn plan_sync_with_nothing_to_do_has_no_files() {
+    let dir = bistro_rs_with_regions();
+    let s = served(dir.path());
+    let plan = s.command("spellbook.plan", json!(["sync", {}]));
+    assert_eq!(plan["files"], json!([]), "{plan}");
+    s.stop();
+}
+
+#[test]
+fn a_generators_plan_names_the_region_it_refreshes() {
+    let dir = bistro_rs_with_regions();
+    let s = served(dir.path());
+    let plan = s.command(
+        "spellbook.plan",
+        json!(["command", { "service": "booking", "command": "cancel_table" }]),
+    );
+    let region_rows: Vec<(Value, Value)> = plan["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{plan}"))
+        .iter()
+        .filter(|file| file["region"].is_string())
+        .map(|file| (file["path"].clone(), file["region"].clone()))
+        .collect();
+    assert_eq!(region_rows, [(json!(COMMANDS_MOD), json!("modules"))]);
     s.stop();
 }

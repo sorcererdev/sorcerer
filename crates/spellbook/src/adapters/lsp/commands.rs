@@ -4,7 +4,8 @@
 //! - `spellbook.choices [generator, inputs, input]`
 //! - `spellbook.plan [generator, inputs, fix?]`: with `fix` (`{ file, line, rule, index,
 //!   version }`), the fix of that finding; a changed file comes with its `hunks`, `added` and
-//!   `removed`, and the plan with the `fix` it is
+//!   `removed` (and `region` when a region's block is what changes), and the plan with the
+//!   `fix` it is. The generator `sync` is the owned regions' refresh (`sync_on_save.rs`)
 //! - `spellbook.apply [plan id]`: replies with `changed`, `written`, `skipped`, `refused`,
 //!   `holes`, `first` (the first hole's file and line) and `stops`, the holes in the order to
 //!   walk them; a plan's changed files are landed by the editor first (`landing.rs`)
@@ -43,11 +44,16 @@ use crate::usecases::list_generators::list_generators;
 use crate::usecases::plan_fix::{FindingAt, plan_fix};
 use crate::usecases::plan_generation::plan_generation;
 use crate::usecases::planned_view::PlannedView;
+use crate::usecases::sync_regions::{SYNC_GENERATOR, SyncMode};
 
 pub(super) const GENERATORS: &str = "spellbook.generators";
 pub(super) const CHOICES: &str = "spellbook.choices";
 pub(super) const PLAN: &str = "spellbook.plan";
 pub(super) const APPLY: &str = "spellbook.apply";
+
+/// What a sync asked to set a region up without naming it is told.
+const INIT_NAMES_NO_REGION: &str =
+    "a sync with mode init names the region to set up (region = NAME)";
 
 /// What an apply of an unknown, expired or already applied plan is told.
 const PLAN_GONE: &str = "that plan is gone (plans last ten minutes); make it again";
@@ -147,6 +153,7 @@ impl Server {
         let given = given_argument(arguments, 1);
         let fix = fix_argument(arguments, 2)?;
         let planned = match &fix {
+            _ if name == SYNC_GENERATOR => self.planned_sync(wired, &given),
             Some(fix) => planned_fix(wired, fix, &given),
             None => planned_generation(wired, &name, &given),
         };
@@ -159,6 +166,25 @@ impl Server {
             }
             Err(stop_reply) => stop_reply,
         })
+    }
+
+    /// The sync the editor asks for by the generator name `sync`: the refresh of every region,
+    /// or with `mode` `init` the region named by `region` set up as well. A region's quick fix
+    /// sends its finding too; the sync needs only the inputs.
+    ///
+    /// Example: `["sync", { "region": "ports", "mode": "init", "file": "src/booking/ports/mod.rs" }]`
+    /// plans `sync --init ports`.
+    fn planned_sync(&self, wired: &Wired, given: &Given) -> Result<Plan, Value> {
+        let mode = match (
+            given.0.get("mode").map(String::as_str),
+            given.0.get("region"),
+        ) {
+            (Some("init"), Some(region)) => SyncMode::Init(region.clone()),
+            (Some("init"), None) => return Err(stop(INIT_NAMES_NO_REGION)),
+            _ => SyncMode::Refresh,
+        };
+        self.sync_planned(wired, &mode)
+            .map_err(|why| plan_stop_reply(&why))
     }
 
     /// `[plan id]`: lands the plan's changed files, writes its new files, marks each hole and

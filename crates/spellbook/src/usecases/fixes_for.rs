@@ -13,6 +13,7 @@ use crate::domain::inputs::{Given, InputStop};
 use crate::domain::rule::Rule;
 use crate::ports::generators::Generators;
 use crate::usecases::choices_for::{Resolved, resolve_inputs};
+use crate::usecases::sync_regions::SYNC_GENERATOR;
 
 /// One fix offered for a finding: which of the rule's fixes (from 1), what it shows, its
 /// generator, the inputs the finding settles and the inputs still to ask.
@@ -83,7 +84,7 @@ pub fn region_fix_offer(finding: &Finding) -> Option<FixOffer> {
     Some(FixOffer {
         index: 1,
         label,
-        generator: "sync".into(),
+        generator: SYNC_GENERATOR.into(),
         inputs,
         missing: Vec::new(),
     })

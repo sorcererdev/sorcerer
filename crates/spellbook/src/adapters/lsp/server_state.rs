@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use lsp_types::MessageType;
 use sorcerer_core::domain::project::Project;
@@ -106,23 +106,33 @@ impl Server {
             drop(landing);
             return file_diagnostics(wired, file);
         }
-        let planned: BTreeMap<String, String> = landing
-            .values()
-            .map(|landed| (landed.file.clone(), landed.text.clone()))
-            .collect();
         drop(landing);
-        file_diagnostics_over(wired, &PlannedView::new(&wired.view, planned), file)
+        let planned = PlannedView::new(&wired.view, self.landing_texts());
+        file_diagnostics_over(wired, &planned, file)
     }
 
-    /// The editor saved a file: its disk text is the editor's now, so the marks come from the
-    /// disk again.
-    pub(super) fn saved(&self, path: &Path) {
+    /// The text a fix or a sync left in each file the editor has not saved since, by its path
+    /// in the plan.
+    pub(super) fn landing_texts(&self) -> BTreeMap<String, String> {
+        lock(&self.landing)
+            .values()
+            .map(|landed| (landed.file.clone(), landed.text.clone()))
+            .collect()
+    }
+
+    /// The editor saved a file: (1) its disk text is the editor's now, so its marks come from
+    /// the disk again; (2) the owned regions are synced (`sync_on_save.rs`); (3) the file's
+    /// marks are published, then those of every other open file a region keeps, since the save
+    /// may have made its block stale or fresh.
+    pub(super) fn saved(self: &Arc<Self>, path: &Path) {
         self.forget_landing(path);
+        self.sync_on_save();
         self.republish(path);
+        self.republish_region_files(path);
     }
 
     /// Forgets the planned text of a file that was saved or closed.
-    fn forget_landing(&self, path: &Path) {
+    pub(super) fn forget_landing(&self, path: &Path) {
         lock(&self.landing).remove(path);
     }
 
