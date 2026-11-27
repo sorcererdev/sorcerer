@@ -2,7 +2,7 @@
 //! Every call comes from a task's thread (the follow loop, or a helper's loopback thread) and
 //! may wait there; the main loop never waits.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -147,7 +147,9 @@ impl Server {
     /// A task's `write_file`, landed through the editor at the buffer's version:
     ///
     /// 1. the file's text now (the editor's, else the disk's); refused as moved on when it is
-    ///    not what the task last looked at;
+    ///    not what the task last looked at, or when the buffer has unsaved edits and the task
+    ///    has neither written the file nor been sent its editor text yet (the agent's `Read`
+    ///    shows the disk, so its text would undo the person's unsaved work);
     /// 2. one `workspace/applyEdit` (an edit at the version, or a created file), checked with
     ///    the host's `moved_on` first; waits for the editor's answer, then for it to report the
     ///    text;
@@ -165,6 +167,18 @@ impl Server {
             .or_else(|| std::fs::read_to_string(&path).ok());
         if let Some(moved) = self.moved_since_task_looked(task, file, before.as_deref()) {
             return Written::MovedOn { now: moved };
+        }
+        if let Some((_, unsaved)) = &now
+            && self.unsaved_and_unseen(task, file, &path, unsaved)
+        {
+            lock(&self.told_unsaved)
+                .entry(task.to_string())
+                .or_default()
+                .insert(file.to_path_buf());
+            self.task_looked_at(task, file, unsaved);
+            return Written::MovedOn {
+                now: unsaved.clone(),
+            };
         }
         if before.is_none() && !self.client.can_create_files() {
             return Written::Refused("the editor cannot create files from a server".into());
@@ -230,6 +244,22 @@ impl Server {
         let line = first_changed_line(before.as_deref().unwrap_or(""), &after).unwrap_or(1);
         self.client.show_working(WRITING, &[(path, line)]);
         Written::Landed { before }
+    }
+
+    /// Whether the buffer's text is not the disk's while the task has neither written the file
+    /// nor been sent the buffer's text: the agent can only have read the disk.
+    ///
+    /// Example: the person renamed `TooLate` to `TooLateToCancel`, unsaved; the agent's `Read`
+    /// still shows `TooLate`, so its first `write_file` of that file is refused with the buffer.
+    fn unsaved_and_unseen(&self, task: &str, file: &Path, path: &Path, editor_text: &str) -> bool {
+        let disk = std::fs::read_to_string(path).unwrap_or_default();
+        let seen = |known: &HashMap<String, HashSet<PathBuf>>| {
+            known.get(task).is_some_and(|files| files.contains(file))
+        };
+        let written = lock(&self.written)
+            .get(task)
+            .is_some_and(|files| files.contains_key(file));
+        !same_text(&disk, editor_text) && !written && !seen(&lock(&self.told_unsaved))
     }
 
     /// Some editors (Neovim) answer an edit before they report it.

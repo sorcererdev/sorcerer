@@ -265,7 +265,10 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
 
 - `write_file` → `write_for_task`: refused when the editor cannot apply edits (or create a
   file); `MovedOn` when the file is not what the task last looked at
-  (`moved_since_task_looked`); then one `workspace/applyEdit` built by the host's
+  (`moved_since_task_looked`), or when the buffer is not the disk and the task has neither
+  written the file nor been sent its buffer (`unsaved_and_unseen`; the agent's `Read` shows the
+  disk; the file goes into `told_unsaved` and the look moves to the buffer, so the next write
+  lands); then one `workspace/applyEdit` built by the host's
   `landing::workspace_edit` at the buffer's version (checked with `moved_on`), waiting up to
   10 s for the answer and 3 s for the editor to report the text (`wait_until_reported`; Neovim
   answers first). The task's look and the server's look move to the new text, the text is kept

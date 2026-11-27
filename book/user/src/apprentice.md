@@ -148,7 +148,9 @@ short, a note when long), so nothing it decided to say is lost.
 **Your edits win.** After every tool call the agent is handed what you changed in the files
 since it last looked, as diffs, under "their edits are authoritative". A `write_file` to a file
 you changed since it read it is refused with the file's text now, so it rebases instead of
-writing over you.
+writing over you. The same holds for edits you had not saved when the task started: the agent
+reads files from the disk, so its first `write_file` to a buffer with unsaved edits is refused
+with the buffer's text (one extra step for it, only then).
 
 A question (`ask`) waits for you for two minutes (`ask_timeout_seconds`); then the agent is
 told to carry on with its default.

@@ -1,7 +1,7 @@
 //! What the server's threads share: the editor, the project root, the last looks, the marks,
 //! the pending questions, the tasks.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -36,6 +36,9 @@ pub(super) struct Server {
     pub task_looks: Mutex<HashMap<String, HashMap<PathBuf, String>>>,
     /// What each task last wrote to each file (relative), for its undo.
     pub written: Mutex<HashMap<String, HashMap<PathBuf, String>>>,
+    /// The files (relative) each running task was sent the editor's unsaved text of, so its
+    /// next `write_file` there may land.
+    pub told_unsaved: Mutex<HashMap<String, HashSet<PathBuf>>>,
     /// Each running task's progress line.
     pub progress: Mutex<HashMap<String, WorkDone>>,
     /// The finished tasks still marked.
@@ -66,6 +69,7 @@ impl Server {
             runner: Mutex::default(),
             task_looks: Mutex::default(),
             written: Mutex::default(),
+            told_unsaved: Mutex::default(),
             progress: Mutex::default(),
             shown: Mutex::default(),
             said: Mutex::default(),

@@ -209,7 +209,9 @@ fn a_claim_checked_on_save_is_offered_done_as_a_task_shown_diffed_and_undone() {
 #[test]
 fn saving_every_file_a_task_changed_keeps_it() {
     let project = TempProject::with(&[(FILE, BEFORE)]);
+    // the instruction is unsaved: the first write is refused with the buffer, the second lands
     let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool("write_file", json!({ "path": FILE, "text": AFTER })),
         Step::Tool("write_file", json!({ "path": FILE, "text": AFTER })),
         Step::Finish(0.3),
     ]));
@@ -483,5 +485,46 @@ fn a_fenced_file_open_in_the_editor_never_reaches_the_agent() {
             assert!(!said.contains(secret), "{secret} in {said}");
         }
     }
+    s.stop();
+}
+
+#[test]
+fn a_write_over_unsaved_edits_the_agent_has_not_seen_is_refused_once_with_the_editors_text() {
+    let renamed = with_claim().replace("booking_id", "booking_ref");
+    let from_disk = AFTER.to_string();
+    let rebased = AFTER.replace("booking_id", "booking_ref");
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool("write_file", json!({ "path": FILE, "text": from_disk })),
+        Step::Tool("write_file", json!({ "path": FILE, "text": rebased })),
+        Step::Finish(0.2),
+    ]));
+    let project = TempProject::with(&[(FILE, BEFORE)]);
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: agent.clone(),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.open(FILE);
+    s.settle(Duration::from_millis(100));
+    // the person renames, unsaved, and writes the instruction: the disk still says booking_id
+    s.type_text(FILE, &renamed);
+    s.marks_until(FILE, |marks| !marks.is_empty());
+    s.run_action(FILE, 5, "apprentice: do this");
+    s.shown_message("apprentice: done");
+    let replies = agent.replies();
+    assert!(replies[0].is_error, "{}", replies[0].text);
+    assert!(
+        replies[0].text.ends_with(&format!("Its text now:\n{renamed}")),
+        "{}",
+        replies[0].text
+    );
+    assert_eq!(
+        replies[1].text,
+        format!("written: {FILE} (in the editor, unsaved)")
+    );
+    assert_eq!(s.text(FILE).as_deref(), Some(rebased.as_str()));
     s.stop();
 }

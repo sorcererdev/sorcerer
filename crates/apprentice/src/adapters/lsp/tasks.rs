@@ -188,6 +188,7 @@ impl Server {
         };
         self.client.say(kind, done_text);
         lock(&self.task_looks).remove(&task.id);
+        lock(&self.told_unsaved).remove(&task.id);
         let written = lock(&self.written).remove(&task.id).unwrap_or_default();
         let journal = self.journal();
         let files: Vec<ShownFile> = task
