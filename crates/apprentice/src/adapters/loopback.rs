@@ -3,13 +3,15 @@
 //! `127.0.0.1` chosen by the system, one JSON line in and one out per connection, and a token of
 //! the server's own that every request must carry. Loopback TCP is one code path on Windows,
 //! macOS and Linux, where named pipes and Unix sockets would be two.
+//!
+//! Any local process can connect, so a peer is bounded: its request line must arrive within a
+//! few seconds and be at most 16 MiB, and at most 64 connections are answered at once; a peer
+//! past these is closed unanswered.
 
-use std::collections::hash_map::RandomState;
-use std::hash::{BuildHasher, Hasher};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::domain::loopback_message::{LoopbackReply, LoopbackRequest};
@@ -17,6 +19,23 @@ use crate::ports::agent::WayBack;
 
 /// What answers a request whose token is right.
 pub type Handler = Arc<dyn Fn(LoopbackRequest) -> LoopbackReply + Send + Sync>;
+
+/// How much a peer may take of the server.
+#[derive(Debug, Clone, Copy)]
+struct Limits {
+    /// The request line must arrive within this (the answer may take minutes: a question).
+    read_within: Duration,
+    /// The longest request line, in bytes (a `write_file` carries a whole file).
+    longest_line: u64,
+    /// The connections answered at once.
+    connections: usize,
+}
+
+const LIMITS: Limits = Limits {
+    read_within: Duration::from_secs(5),
+    longest_line: 16 * 1024 * 1024,
+    connections: 64,
+};
 
 /// An open loopback port. Dropping it stops answering.
 pub struct Loopback {
@@ -28,14 +47,18 @@ impl Loopback {
     /// Opens a port on `127.0.0.1` and answers each connection on a thread of its own: a
     /// request with the wrong token is refused unanswered by the handler.
     pub fn open(handler: Handler) -> io::Result<Loopback> {
+        Loopback::open_with(handler, LIMITS)
+    }
+
+    fn open_with(handler: Handler, limits: Limits) -> io::Result<Loopback> {
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?;
         let way_back = WayBack {
             port: listener.local_addr()?.port(),
-            token: new_token(),
+            token: new_token()?,
         };
         let closed = Arc::new(AtomicBool::new(false));
         let (token, stop) = (way_back.token.clone(), closed.clone());
-        std::thread::spawn(move || accept_until_closed(&listener, &token, &handler, &stop));
+        std::thread::spawn(move || accept_until_closed(&listener, &token, &handler, &stop, limits));
         Ok(Loopback { way_back, closed })
     }
 
@@ -58,23 +81,34 @@ fn accept_until_closed(
     token: &str,
     handler: &Handler,
     closed: &AtomicBool,
+    limits: Limits,
 ) {
+    let answering = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         if closed.load(Ordering::SeqCst) {
             return;
         }
         let Ok(stream) = stream else { continue };
-        let (token, handler) = (token.to_string(), handler.clone());
+        if answering.fetch_add(1, Ordering::SeqCst) >= limits.connections {
+            answering.fetch_sub(1, Ordering::SeqCst);
+            continue; // dropped: closed unanswered
+        }
+        let (token, handler, answering) = (token.to_string(), handler.clone(), answering.clone());
         std::thread::spawn(move || {
-            let _ = answer_one(stream, &token, &handler);
+            let _ = answer_one(stream, &token, &handler, limits);
+            answering.fetch_sub(1, Ordering::SeqCst);
         });
     }
 }
 
-/// Reads one request line, answers it, closes.
-fn answer_one(stream: TcpStream, token: &str, handler: &Handler) -> io::Result<()> {
+/// Reads one request line (within the time and length limits), answers it, closes.
+fn answer_one(stream: TcpStream, token: &str, handler: &Handler, limits: Limits) -> io::Result<()> {
+    stream.set_read_timeout(Some(limits.read_within))?;
     let mut line = String::new();
-    BufReader::new(stream.try_clone()?).read_line(&mut line)?;
+    BufReader::new(stream.try_clone()?.take(limits.longest_line + 1)).read_line(&mut line)?;
+    if line.len() as u64 > limits.longest_line {
+        return Err(io::Error::other("request too long")); // closed unanswered
+    }
     let reply = match serde_json::from_str::<LoopbackRequest>(&line) {
         Ok(request) if request.token == token => handler(request),
         Ok(_) => LoopbackReply::error("wrong token"),
@@ -97,14 +131,11 @@ pub fn ask_loopback(port: u16, request: &LoopbackRequest) -> io::Result<Loopback
     serde_json::from_str(&line).map_err(io::Error::other)
 }
 
-/// 128 random bits as hex, from the standard library's per-process random hasher keys.
-fn new_token() -> String {
-    let random = || {
-        let mut hasher = RandomState::new().build_hasher();
-        hasher.write_u64(std::process::id().into());
-        hasher.finish()
-    };
-    format!("{:016x}{:016x}", random(), random())
+/// 128 random bits from the operating system's random source, as hex.
+fn new_token() -> io::Result<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 #[cfg(test)]
@@ -134,5 +165,69 @@ mod tests {
             LoopbackReply::error("wrong token")
         );
         assert_eq!(way.token.len(), 32);
+    }
+
+    #[test]
+    fn tokens_are_random_hex() {
+        let (one, two) = (new_token().unwrap(), new_token().unwrap());
+        assert_ne!(one, two);
+        assert!(one.len() == 32 && one.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    fn small_limits() -> Limits {
+        Limits {
+            read_within: Duration::from_millis(200),
+            longest_line: 64,
+            connections: 2,
+        }
+    }
+
+    fn echo() -> Handler {
+        Arc::new(|request| LoopbackReply::text(request.task))
+    }
+
+    #[test]
+    fn a_peer_that_sends_nothing_is_dropped_after_the_read_timeout() {
+        let loopback = Loopback::open_with(echo(), small_limits()).unwrap();
+        let mut idle = TcpStream::connect((Ipv4Addr::LOCALHOST, loopback.way_back().port)).unwrap();
+        idle.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let started = std::time::Instant::now();
+        let mut answer = String::new();
+        let _ = BufReader::new(&mut idle).read_line(&mut answer);
+        assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+        assert!(answer.is_empty(), "{answer}");
+    }
+
+    #[test]
+    fn a_line_longer_than_the_cap_is_closed_unanswered() {
+        let asked = Arc::new(AtomicBool::new(false));
+        let seen = asked.clone();
+        let handler: Handler = Arc::new(move |request| {
+            seen.store(true, Ordering::SeqCst);
+            LoopbackReply::text(request.task)
+        });
+        let loopback = Loopback::open_with(handler, small_limits()).unwrap();
+        let mut long = TcpStream::connect((Ipv4Addr::LOCALHOST, loopback.way_back().port)).unwrap();
+        let _ = writeln!(long, "{}", "x".repeat(1000));
+        let mut answer = String::new();
+        let _ = BufReader::new(long).read_line(&mut answer);
+        assert!(answer.is_empty(), "{answer}");
+        assert!(!asked.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn connections_past_the_cap_are_closed_unanswered() {
+        let loopback = Loopback::open_with(echo(), small_limits()).unwrap();
+        let port = loopback.way_back().port;
+        let _held: Vec<TcpStream> = (0..2)
+            .map(|_| TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap())
+            .collect();
+        std::thread::sleep(Duration::from_millis(50));
+        let mut extra = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        extra.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let started = std::time::Instant::now();
+        let mut answer = String::new();
+        let _ = BufReader::new(&mut extra).read_line(&mut answer);
+        assert!(answer.is_empty() && started.elapsed() < Duration::from_millis(150));
     }
 }

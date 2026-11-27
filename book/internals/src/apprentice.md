@@ -20,8 +20,11 @@ test program `apprentice-fake-claude`. The design is
 A task is one `claude -p` child. Its helper processes (the MCP server that serves the medium
 tools, and the hooks) are the child's children, not the server's, so they reach the server
 through a loopback port: `127.0.0.1`, a port the system picks, one JSON line in and one out per
-connection, and a token of the server's own in every request. Loopback TCP is one code path on
-three systems; pipes and sockets would be two.
+connection, and a token of the server's own in every request (`new_token`: 16 bytes from the
+operating system's random source, through `getrandom`). Loopback TCP is one code path on
+three systems; pipes and sockets would be two. Any local process can connect, so `Loopback`
+bounds a peer (`LIMITS`): the request line within 5 s and at most 16 MiB, at most 64
+connections answered at once; past that a connection is closed unanswered.
 
 ## Module map
 
