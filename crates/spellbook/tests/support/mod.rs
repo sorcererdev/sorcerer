@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 mod bistro_fixtures;
+mod corpus_cases;
 mod fix_fixtures;
 mod fixed_clock;
 mod plan_rig;
@@ -12,6 +13,8 @@ mod test_grammars;
 
 #[allow(unused_imports)]
 pub use bistro_fixtures::*;
+#[allow(unused_imports)]
+pub use corpus_cases::*;
 #[allow(unused_imports)]
 pub use fix_fixtures::*;
 #[allow(unused_imports)]
