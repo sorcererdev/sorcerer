@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-27
 
 - **Lackey is released.** The coding agent whose whole interface is your editor ships like
   the other three: the `lackey` program in the release (installers

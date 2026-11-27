@@ -1616,7 +1616,7 @@ dependencies = [
 
 [[package]]
 name = "sorcerer-conjure"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1638,7 +1638,7 @@ dependencies = [
 
 [[package]]
 name = "sorcerer-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1668,7 +1668,7 @@ dependencies = [
 
 [[package]]
 name = "sorcerer-lackey"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "sorcerer-lsp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -1708,7 +1708,7 @@ dependencies = [
 
 [[package]]
 name = "sorcerer-models"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1723,7 +1723,7 @@ dependencies = [
 
 [[package]]
 name = "sorcerer-scry"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1745,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "sorcerer-spellbook"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",

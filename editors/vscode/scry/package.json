@@ -3,7 +3,7 @@
   "displayName": "Scry",
   "description": "Scry in VS Code: save a file and scry reviews what changed, putting each verified finding on its line",
   "publisher": "sorcererdev",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
