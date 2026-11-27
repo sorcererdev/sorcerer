@@ -116,6 +116,12 @@ describe('apprentice (fake claude)', () => {
     await until('the task\'s text in the buffer', () => (doc.getText() === DONE ? true : undefined), 60_000)
       .catch(err => { throw new Error(`${String(err)}\n${why(ws, uri)}`); });
     assert.equal(readFileSync(uri.fsPath, 'utf8'), 'def total(cart):\n    return 1\n', 'nothing was saved: the disk is as committed');
+    // the working ghost is drawn once the server hears the edit landed, which is after VS Code
+    // has the text: wait for it in what was ever drawn (a fast task draws and clears it)
+    const textAt = Date.now();
+    await until('the working ghost', () => (api.everDrawn().length > 0 ? true : undefined), 10_000)
+      .catch(err => { throw new Error(`${String(err)}\n${why(ws, uri)}`); });
+    console.log(`the working ghost came ${Date.now() - textAt} ms after the text`);
     assert.deepEqual(api.everDrawn().map(u => [vscode.Uri.parse(u.uri).toString(), u.line, u.text]), [[uri.toString(), 5, '⟳ apprentice: writing…']]);
     await until('the done message', () => (said.some(text => text.startsWith('apprentice: done')) ? true : undefined))
       .catch(err => { throw new Error(`${String(err)}\n${why(ws, uri)}`); });
