@@ -43,6 +43,8 @@ pub struct Served {
     /// What the pickers (`window/showMessageRequest`) answer, in order.
     pub picks: RefCell<VecDeque<String>>,
     pub picked_questions: RefCell<Vec<String>>,
+    /// An editor with no picker: every `window/showMessageRequest` is answered with an error.
+    pub no_picker: std::cell::Cell<bool>,
     pub trust: TrustList,
     _trust_home: TempDir,
 }
@@ -77,6 +79,7 @@ pub fn served(dir: &Path, doubles: Doubles) -> Served {
         buffers: RefCell::new(HashMap::new()),
         picks: RefCell::new(VecDeque::new()),
         picked_questions: RefCell::new(Vec::new()),
+        no_picker: std::cell::Cell::new(false),
         trust,
         _trust_home: trust_home,
     };
@@ -130,6 +133,21 @@ impl Served {
         let response = Response {
             id,
             response_result: Ok(result),
+        };
+        self.editor
+            .sender
+            .send(Message::Response(response))
+            .unwrap();
+    }
+
+    fn reply_error(&self, id: RequestId, method: &str) {
+        let response = Response {
+            id,
+            response_result: Err(lsp_server::ResponseError {
+                code: -32601,
+                message: format!("{method} is not supported"),
+                data: None,
+            }),
         };
         self.editor
             .sender
@@ -208,9 +226,13 @@ impl Served {
                     self.picked_questions
                         .borrow_mut()
                         .push(r.params["message"].as_str().unwrap_or_default().to_string());
-                    let pick = self.picks.borrow_mut().pop_front();
-                    let answer = pick.map_or(Value::Null, |title| json!({ "title": title }));
-                    self.reply(r.id.clone(), answer);
+                    if self.no_picker.get() {
+                        self.reply_error(r.id.clone(), "window/showMessageRequest");
+                    } else {
+                        let pick = self.picks.borrow_mut().pop_front();
+                        let answer = pick.map_or(Value::Null, |title| json!({ "title": title }));
+                        self.reply(r.id.clone(), answer);
+                    }
                 }
                 _ => {}
             }

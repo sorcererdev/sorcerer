@@ -124,7 +124,10 @@ reading and searching your files, running commands. What it may not do:
 - **Run a command without asking you.** Every command is asked about, even the ones Claude Code
   counts as read-only and runs unasked elsewhere (`cat`, `grep`, `git log`): the first time it
   wants to run `uv run pytest -q`, you are asked: *Allow once*, *Always for this project (uv run
-  pytest -q)* or *Deny*. *Always* remembers that exact command line, arguments and all, in
+  pytest -q)* or *Deny*. The question comes in your editor's picker; an editor with no picker
+  gets the same choices as code actions on the line of your instruction. A command of several
+  lines (a heredoc, a script) shows its first line in the picker or on the mark, and the whole
+  command in a message before the picker or in the mark's hover. *Always* remembers that exact command line, arguments and all, in
   `.sorcerer/state/apprentice/permissions.json`; any other command line is asked about again, so
   allowing `grep foo src/` never lets `grep -r KEY .` run.
 

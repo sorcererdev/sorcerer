@@ -135,7 +135,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    - `Permission` (and the `permission` tool) → `answer_permission` (`permissions.rs`): the
      writers and `AskUserQuestion` denied with a sentence; a command naming a fenced path denied
      (`fenced_path_named`); a command line allowed always (`AllowedCommands::allows`) passes;
-     else the picker, with *Always* only when `always_for` gives a line. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
+     else the picker, with *Always* only when `always_for` gives a line, and the instruction's
+     file and line as `Ask::at`, so an editor with no picker is asked there. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
      or `{"behavior":"deny","message":…}`.
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
@@ -299,7 +300,11 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
   look moved to now.
 - `ask` → `ask_person` (`asks.rs`): on a line (a `PendingAsk`, its mark, a `say`, one code action
   per option, `apprentice.answer` sends the pick down a channel) or in the picker
-  (`Client::ask`); an editor that cannot show the picker falls back to the line.
+  (`Client::ask`); an editor that cannot show the picker (an error reply, `Answer::Unsupported`)
+  falls back to the line. A question of several lines is cut by `Question` (`asks.rs`): the
+  picker and the `say` show its first line (the picker's question said whole first), the mark's
+  message is the first line then the rest, for the hover. A line question's id is
+  `<task>-<n>` from the `asks_put` counter, never reused.
 - `mark` keeps a `SaidMark`; `ghost` and `note` send `sorcerer/ghost` and `sorcerer/note` to an
   editor that handles them (`Client::notify_sorcerer`), else a message and `show_document`.
 - `progress` starts the task's `WorkDone` and reports on it; `finished` → `task_finished`: the

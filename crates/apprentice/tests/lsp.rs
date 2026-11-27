@@ -578,3 +578,46 @@ fn two_do_this_at_once_start_one_task_and_it_can_be_stopped() {
     assert!(ended.starts_with("apprentice: stopped"), "{ended}");
     s.stop();
 }
+
+/// S9: an editor that answers the picker with an error gets a command's permission question as
+/// choices on the instruction's line, and a question of several lines shows its first line
+/// there, the rest in the mark's hover text.
+#[test]
+fn an_editor_with_no_picker_is_asked_a_permission_on_the_instructions_line() {
+    let script = "cat > notes.txt <<EOF\nlate cancellations\nEOF";
+    let project = TempProject::with(&[(FILE, BEFORE)]);
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Bash(script),
+        Step::Finish(0.1),
+    ]));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: agent.clone(),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.no_picker.set(true);
+    s.open(FILE);
+    s.settle(Duration::from_millis(100));
+    s.type_text(FILE, &with_claim());
+    s.marks_until(FILE, |marks| !marks.is_empty());
+    s.run_action(FILE, 5, "apprentice: do this");
+    let said = s.shown_message("apprentice asks: apprentice wants to run: cat > notes.txt <<EOF …");
+    assert!(said.ends_with(&format!("(choices on {FILE}:5)")), "{said}");
+    let is_ask = |mark: &lsp_types::Diagnostic| {
+        mark.code == Some(lsp_types::NumberOrString::String("ask".into()))
+    };
+    let marks = s.marks_until(FILE, |marks| marks.iter().any(is_ask));
+    let ask = marks.iter().find(|mark| is_ask(mark)).unwrap();
+    assert_eq!(
+        ask.message,
+        "apprentice asks: apprentice wants to run: cat > notes.txt <<EOF …\nlate cancellations\nEOF"
+    );
+    s.run_action(FILE, 5, "apprentice: Allow once");
+    s.shown_message("apprentice: done");
+    let allowed: serde_json::Value = serde_json::from_str(&agent.replies()[0].text).unwrap();
+    assert_eq!(allowed["behavior"], "allow", "{allowed}");
+    s.stop();
+}

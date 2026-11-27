@@ -16,6 +16,7 @@ use crate::domain::mediums::MarkSeverity;
 use crate::domain::region_record::{RegionRecord, ReplyVerdict};
 use crate::domain::triage::Kind;
 
+use super::asks::Question;
 use super::server_state::{Server, lock};
 
 /// The diagnostics' source.
@@ -161,7 +162,7 @@ impl Server {
                 severity: Some(DiagnosticSeverity::INFORMATION),
                 code: Some(NumberOrString::String("ask".into())),
                 source: Some(SOURCE.into()),
-                message: format!("apprentice asks: {}", pending.question),
+                message: Question::of(&pending.question).mark_text(),
                 data: Some(json!({ "ask": pending.id })),
                 ..Diagnostic::default()
             })
