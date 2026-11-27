@@ -1,18 +1,21 @@
-//! The agent's permission questions: before a command (`Bash`) or any tool nothing allows,
-//! `claude` asks the permission tool, which asks the person once. A command allowed *always for
-//! this project* runs unasked from then on; the writers are refused outright, because every
-//! change goes through `write_file`.
+//! The agent's permission questions: before every command (`Bash`, `PowerShell`, `Monitor`, which
+//! `claude` is told to ask about) or any tool nothing allows, `claude` asks the permission tool,
+//! which asks the person once. A command allowed *always for this project* runs unasked from
+//! then on; the writers are refused outright, because every change goes through `write_file`,
+//! and so is a command that names a fenced path, whatever the person allowed.
 
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use crate::domain::loopback_message::LoopbackReply;
 use crate::domain::mediums::{Ask, AskWay};
-use crate::domain::permissions::prefix_of;
+use crate::domain::permissions::{prefix_of, words_naming_paths};
 use crate::ports::editor::Asked;
 
 use super::task_deps::{LiveTask, TaskDeps};
+use sorcerer_core::domain::fences::Fences;
 
 const ALLOW_ONCE: &str = "Allow once";
 const DENY: &str = "Deny";
@@ -24,8 +27,11 @@ const WRITERS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 /// text block: `{"behavior":"allow","updatedInput":…}` or `{"behavior":"deny","message":…}`.
 ///
 /// 1. A writer is denied: "use write_file". `AskUserQuestion` is denied: "use ask".
-/// 2. A command allowed always runs.
-/// 3. Anything else is asked through the picker: *Allow once*, *Always for this project
+/// 2. A command that names a fenced path is denied, even one allowed always: `git show
+///    HEAD:.env` or `ls .sorcerer` never runs. (A command that reads a fenced file without
+///    naming it, such as `grep -r KEY .`, is caught by the person, who is asked.)
+/// 3. A command allowed always runs.
+/// 4. Anything else is asked through the picker: *Allow once*, *Always for this project
 ///    (<prefix>)* for a command that has one, *Deny*. No answer within the wait is a deny.
 ///
 /// Example: `uv run pytest -q` asked, answered *Always for this project (uv run pytest)*, runs;
@@ -43,11 +49,35 @@ pub fn answer_permission(
         return deny("use the ask tool: the person answers in their editor");
     }
     let command = input["command"].as_str().unwrap_or_default();
+    if let Some(fenced) = fenced_path_named(command, &deps.fences) {
+        let _ = deps.journal.write(&live.id, "refused, fenced", command);
+        return deny(&format!(
+            "{fenced} is fenced: no task may read it, and no command may name it"
+        ));
+    }
     if tool == "Bash" && deps.permissions.allowed().allows(command) {
         let _ = deps.journal.write(&live.id, "allowed always", command);
         return allow(input);
     }
     ask_for(live, tool, command, input, deps)
+}
+
+/// The first word of the command that names a path inside the project the fences keep out: a
+/// fenced file, or a directory everything in which is fenced (`.git`, `.sorcerer`). The project
+/// root itself (`.`) is not one, and a word naming a path outside the project is left to the
+/// person: commands name programs and system files all the time.
+fn fenced_path_named<'a>(command: &'a str, fences: &Fences) -> Option<&'a str> {
+    words_naming_paths(command).find(|word| {
+        fences
+            .relative(Path::new(word))
+            .is_some_and(|relative| is_fenced(&relative, fences))
+    })
+}
+
+fn is_fenced(relative: &Path, fences: &Fences) -> bool {
+    let something_inside = relative.join("anything");
+    !relative.as_os_str().is_empty()
+        && !(fences.allows_relative(relative) && fences.allows_relative(&something_inside))
 }
 
 fn ask_for(

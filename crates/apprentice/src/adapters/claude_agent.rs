@@ -21,10 +21,19 @@ use crate::domain::loopback_message::{PORT_VAR, TASK_VAR, TOKEN_VAR};
 use crate::domain::mediums::{PERMISSION_TOOL, SERVER_NAME, TOOL_PREFIX};
 use crate::ports::agent::{Agent, NextEvent, Running, TaskRequest};
 
-/// The tools the agent may use unasked: the mediums, reading and searching under the fences,
-/// subagents, the web. `Bash` is not among them: the permission tool asks the person first.
+/// The tools the agent may use unasked: the mediums, reading and searching, subagents, the web.
+/// Reading and searching stop at the fences (the `Read` deny rules) and at the project's edge
+/// (`blockReadsOutsideWorkingDirectories`). Naming `Grep` and `Glob` here also brings them back
+/// on macOS and Linux, where Claude Code otherwise searches with `grep` and `find` through
+/// `Bash`, which would ask the person about every search.
 const ALLOWED_TOOLS: &str =
     "mcp__apprentice__*,Read,Grep,Glob,Agent,Task,TodoWrite,WebSearch,WebFetch";
+
+/// The tools that run commands, asked about every time through the permission tool. Without
+/// the rule Claude Code runs the commands it counts as read-only (`cat`, `grep -r`, `git show`)
+/// unasked, and those can print a fenced file: `grep -r KEY .` names no fenced path, so no
+/// `Read` rule stops it.
+const ASKED_TOOLS: [&str; 3] = ["Bash", "PowerShell", "Monitor"];
 
 /// The tools no task may use: every write goes through `write_file`, every question through
 /// `ask`.
@@ -102,13 +111,18 @@ impl ClaudeAgent {
     }
 
     /// The hooks (the person's edits after each tool call and at the end of the turn) and the
-    /// deny rules (the writers, `AskUserQuestion`, and every fence as a `Read` rule, which fences
-    /// Grep and Glob too).
+    /// permissions: the deny rules (the writers, `AskUserQuestion`, and every fence as a `Read`
+    /// rule, which fences Grep, Glob and the file commands Claude Code recognises, such as
+    /// `cat .env`), every command asked about, and no file tool reading outside the project.
     fn settings(&self) -> Value {
         let hook = |event: &str| json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": self.helper_command(&["hook", event]) }] }]);
         json!({
             "hooks": { "PostToolUse": hook("post-tool-use"), "Stop": hook("stop") },
-            "permissions": { "deny": self.deny_rules() },
+            "permissions": {
+                "deny": self.deny_rules(),
+                "ask": ASKED_TOOLS,
+                "blockReadsOutsideWorkingDirectories": true,
+            },
         })
     }
 
@@ -117,7 +131,14 @@ impl ClaudeAgent {
             let root_form = pattern
                 .strip_prefix("**/")
                 .map(|root_form| format!("Read(./{root_form})"));
-            std::iter::once(format!("Read(./{pattern})")).chain(root_form)
+            // `.git/**` fences what is in `.git`; `Read(./.git)` fences a search of `.git` too
+            let directory = pattern
+                .strip_suffix("/**")
+                .filter(|directory| !directory.contains('*'))
+                .map(|directory| format!("Read(./{directory})"));
+            std::iter::once(format!("Read(./{pattern})"))
+                .chain(root_form)
+                .chain(directory)
         });
         let fenced_links = self.fences.fenced_links().into_iter().flat_map(|link| {
             [
@@ -125,12 +146,17 @@ impl ClaudeAgent {
                 format!("Read(./{}/**)", forward_slashes(&link)),
             ]
         });
-        DENIED_TOOLS
+        let rules = DENIED_TOOLS
             .iter()
             .map(|tool| tool.to_string())
             .chain(fenced_files)
-            .chain(fenced_links)
-            .collect()
+            .chain(fenced_links);
+        rules.fold(Vec::new(), |mut once, rule| {
+            if !once.contains(&rule) {
+                once.push(rule);
+            }
+            once
+        })
     }
 
     /// One stdio MCP server, `apprentice mcp`, with the way back in its environment.

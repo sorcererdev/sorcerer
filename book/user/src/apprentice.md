@@ -106,12 +106,21 @@ reading and searching your files, running commands. What it may not do:
   the buffer, never to the disk: saving is yours.
 - **Read what is fenced.** `.env` files, `.git/`, `.sorcerer/` and your `[model] not_evidence`
   globs are denied to it, as they are to every sorcerer tool, so it cannot read its own journal
-  or the ledger.
-- **Run a command without asking you.** The first time it wants to run `uv run pytest`, you are
-  asked: *Allow once*, *Always for this project (uv run pytest)* or *Deny*. *Always* remembers
-  the command's first words (at most three, stopping at an option or a path) in
-  `.sorcerer/state/apprentice/permissions.json`; a command that chains others (`&&`, `;`, `|`,
-  a redirect) is always asked about.
+  or the ledger. Claude Code's file tools (Read, Grep, Glob, and a file you `@`-mention) refuse
+  them, and so do the commands Claude Code reads paths from, such as `cat .env`. Any command
+  that names a fenced path (`git show HEAD:.env`, `ls .git`) is refused before you are asked,
+  even one you allowed always. Nothing outside the project can be read with the file tools.
+- **Run a command without asking you.** Every command is asked about, even the ones Claude Code
+  counts as read-only and runs unasked elsewhere (`cat`, `grep`, `git log`): the first time it
+  wants to run `uv run pytest`, you are asked: *Allow once*, *Always for this project (uv run
+  pytest)* or *Deny*. *Always* remembers the command's first words (at most three, stopping at
+  an option or a path) in `.sorcerer/state/apprentice/permissions.json`; a command that chains
+  others (`&&`, `;`, `|`, a redirect) is always asked about.
+
+  **What you allow can read anything.** A command that searches or dumps the project without
+  naming a fenced path, such as `grep -r KEY .`, `rg --hidden KEY` or `git log -p`, reads
+  `.env` like any other file, and so does a test run that loads it. Allow such a search once,
+  not always, and deny it when you have secrets in the project.
 - **Chat.** Nobody reads its output. It speaks only through six tools, the *mediums*:
 
 | medium | what you see |

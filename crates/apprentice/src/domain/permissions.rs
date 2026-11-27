@@ -63,6 +63,17 @@ pub fn prefix_of(command: &str) -> Option<String> {
     (!words.is_empty()).then(|| words.join(" "))
 }
 
+/// The words of a command that could name a file: the command split at spaces, quotes, shell
+/// operators and the `:` and `=` that join a path to something else.
+///
+/// Example: `git show HEAD:.env --output=out.txt` gives `git`, `show`, `HEAD`, `.env`,
+/// `--output` and `out.txt`.
+pub fn words_naming_paths(command: &str) -> impl Iterator<Item = &str> {
+    command
+        .split(|c: char| c.is_whitespace() || "'\"`;|&<>()=:".contains(c))
+        .filter(|word| !word.is_empty())
+}
+
 fn chains_commands(command: &str) -> bool {
     ["&&", "||", ";", "|", ">", "<", "`", "$(", "\n"]
         .iter()
@@ -94,6 +105,18 @@ mod tests {
         assert_eq!(prefix_of("ls -la").as_deref(), Some("ls"));
         assert_eq!(prefix_of("a && b"), None);
         assert_eq!(prefix_of("./run.sh"), None);
+    }
+
+    #[test]
+    fn a_path_joined_by_a_colon_an_equals_or_a_quote_is_a_word_of_its_own() {
+        let words: Vec<&str> =
+            words_naming_paths("git show HEAD:.env --output='out.txt'|cat<x").collect();
+        assert_eq!(
+            words,
+            [
+                "git", "show", "HEAD", ".env", "--output", "out.txt", "cat", "x"
+            ]
+        );
     }
 
     #[test]

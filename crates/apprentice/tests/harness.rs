@@ -69,11 +69,17 @@ impl Fake {
 }
 
 fn agent(project: &TempProject, fake: &Fake) -> ClaudeAgent {
+    agent_fencing(project, fake, &[])
+}
+
+/// The agent with the project's `[model] not_evidence` entries as well.
+fn agent_fencing(project: &TempProject, fake: &Fake, not_evidence: &[&str]) -> ClaudeAgent {
     let settings = ProviderConfig {
         runner: Some(PathBuf::from(env!("CARGO_BIN_EXE_apprentice-fake-claude"))),
         ..ProviderConfig::default()
     };
-    let fences = Fences::new(project.root.clone(), &[]).unwrap();
+    let not_evidence: Vec<String> = not_evidence.iter().map(|entry| entry.to_string()).collect();
+    let fences = Fences::new(project.root.clone(), &not_evidence).unwrap();
     ClaudeAgent::new(
         &settings,
         PathBuf::from(env!("CARGO_BIN_EXE_apprentice")),
@@ -194,6 +200,94 @@ fn the_flags_and_the_first_message_are_the_designs() {
             .unwrap()
             .contains("Refuse late cancellations.")
     );
+}
+
+/// The gap the real `claude` 2.1.331 showed: it ran `cat`, `grep -r` and `git show` unasked as
+/// read-only commands, and `grep -r KEY .` printed `.env`. Every command must reach the
+/// permission tool, and every fence must be a deny rule for the file tools.
+#[test]
+fn every_command_reaches_the_permission_tool_and_every_fence_is_a_deny_rule() {
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let fake = Fake::new(json!({
+        "steps": [
+            { "bash": "cat src/cancel.txt" },
+            { "bash": "grep -r KEY ." },
+            { "bash": "git show HEAD:.env" },
+        ],
+    }));
+    let editor = Arc::new(RecordingEditor::at(&project.root).answering(&["Allow once", "Deny"]));
+    let agent = Arc::new(agent_fencing(&project, &fake, &["secrets"]));
+    let runner = TaskRunner::open(project.deps(editor.clone(), agent)).unwrap();
+    runner.run(&order()).unwrap();
+
+    let log = fake.log();
+    assert!(
+        log.iter().all(|entry| entry.get("ran_unasked").is_none()),
+        "{log:?}"
+    );
+    let answers: Vec<Value> = log
+        .iter()
+        .filter_map(|entry| entry["permission"]["text"].as_str())
+        .map(|text| serde_json::from_str(text).unwrap())
+        .collect();
+    assert_eq!(answers.len(), 3, "{log:?}");
+    assert_eq!(answers[0]["behavior"], "allow");
+    assert_eq!(answers[1]["behavior"], "deny");
+    assert_eq!(answers[2]["behavior"], "deny");
+    assert!(
+        answers[2]["message"]
+            .as_str()
+            .unwrap()
+            .contains(".env is fenced")
+    );
+    // the fenced command is refused before the person is asked
+    assert_eq!(editor.asked.lock().unwrap().len(), 2);
+
+    let args = fake.args();
+    let after = |flag: &str| args[args.iter().position(|a| a == flag).unwrap() + 1].clone();
+    let settings: Value = serde_json::from_str(&after("--settings")).unwrap();
+    let permissions = &settings["permissions"];
+    assert_eq!(permissions["ask"], json!(["Bash", "PowerShell", "Monitor"]));
+    assert_eq!(permissions["blockReadsOutsideWorkingDirectories"], true);
+    let deny = permissions["deny"].as_array().unwrap();
+    for rule in [
+        "Read(./**/.env*)",
+        "Read(./.env*)",
+        "Read(./.sorcerer/**)",
+        "Read(./.git/**)",
+        "Read(./.git)",
+        "Read(./.sorcerer)",
+        "Read(./secrets)",
+        "Read(./secrets/**)",
+    ] {
+        assert!(deny.contains(&json!(rule)), "{rule}: {deny:?}");
+    }
+    let mut once: Vec<&str> = deny.iter().filter_map(Value::as_str).collect();
+    once.sort_unstable();
+    once.dedup();
+    assert_eq!(once.len(), deny.len(), "each rule once: {deny:?}");
+    let allowed: Vec<String> = after("--allowedTools")
+        .split(',')
+        .map(String::from)
+        .collect();
+    for asked in ["Bash", "PowerShell", "Monitor", "*"] {
+        assert!(
+            !allowed
+                .iter()
+                .any(|tool| tool == asked || tool.starts_with(&format!("{asked}("))),
+            "{asked} must be asked about: {allowed:?}"
+        );
+    }
+    for flag in [
+        "--dangerously-skip-permissions",
+        "--allow-dangerously-skip-permissions",
+        "--permission-mode",
+        "--permission-prompts",
+        "--disallowedTools",
+        "--tools",
+    ] {
+        assert!(!args.contains(&flag.to_string()), "{flag}");
+    }
 }
 
 #[test]

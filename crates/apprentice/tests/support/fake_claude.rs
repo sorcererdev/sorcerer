@@ -4,6 +4,9 @@
 //! really runs the hooks named in `--settings` after each tool call and at the end, logging
 //! every result to a file of JSON lines.
 //!
+//! Like the real one, it runs a command it counts as read-only (`cat`, `grep`, `git`, …)
+//! without asking the permission tool, unless the settings' `permissions.ask` names `Bash`.
+//!
 //! The script (`FAKE_APPRENTICE_SCRIPT`, JSON): `{"steps": [...], "cost": 0.71, "session":
 //! "s1", "result": "done", "is_error": false, "hang": false}`, each step one of
 //! `{"text": "…"}`, `{"tool": "write_file", "arguments": {…}}`, `{"builtin": "Read", "input":
@@ -76,9 +79,13 @@ fn play(step: &Value, mcp: Option<&mut Mcp>, hooks: &Value) {
         after_tool(hooks, name);
     } else if let Some(command) = step["bash"].as_str() {
         let input = json!({ "command": command });
-        let asked =
-            mcp.map(|mcp| mcp.call("permission", json!({ "tool_name": "Bash", "input": input })));
-        log(json!({ "permission": asked }));
+        if asks_every_time(hooks, "Bash") || !counted_read_only(command) {
+            let asked = mcp
+                .map(|mcp| mcp.call("permission", json!({ "tool_name": "Bash", "input": input })));
+            log(json!({ "permission": asked, "command": command }));
+        } else {
+            log(json!({ "ran_unasked": command }));
+        }
         emit(assistant(
             json!({ "type": "tool_use", "id": "u", "name": "Bash", "input": input }),
         ));
@@ -86,6 +93,19 @@ fn play(step: &Value, mcp: Option<&mut Mcp>, hooks: &Value) {
     } else if let Some(ms) = step["sleep_ms"].as_u64() {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
+}
+
+/// Whether the settings ask about every call of the tool (`"permissions": {"ask": ["Bash"]}`).
+fn asks_every_time(settings: &Value, tool: &str) -> bool {
+    settings["permissions"]["ask"]
+        .as_array()
+        .is_some_and(|asked| asked.iter().any(|rule| rule == tool))
+}
+
+/// A few of the commands the real `claude` runs unasked as read-only.
+fn counted_read_only(command: &str) -> bool {
+    let program = command.split_whitespace().next().unwrap_or_default();
+    ["cat", "head", "tail", "grep", "ls", "find", "git", "wc"].contains(&program)
 }
 
 fn after_tool(hooks: &Value, tool: &str) {

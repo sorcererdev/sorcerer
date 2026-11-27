@@ -377,6 +377,39 @@ fn a_command_is_asked_once_and_remembered_for_the_project() {
 }
 
 #[test]
+fn a_command_naming_a_fenced_path_is_refused_even_when_allowed_always() {
+    let run = run(
+        vec![
+            Step::Bash("ls -la"),
+            Step::Bash("ls .git"),
+            Step::Bash("git show HEAD:.env"),
+            Step::Bash("cat ./src/../.sorcerer/state/apprentice/tasks.jsonl"),
+            Step::Bash("grep -r KEY ."),
+            Step::Finish(0.0),
+        ],
+        &["Always for this project (ls)", "Allow once"],
+    );
+    let replies = run.agent.replies();
+    let refused = |at: usize| {
+        let reply = behavior(&replies[at].text);
+        reply["behavior"] == "deny" && reply["message"].as_str().unwrap().contains("is fenced")
+    };
+    assert_eq!(behavior(&replies[0].text)["behavior"], "allow");
+    assert!(refused(1) && refused(2) && refused(3), "{replies:?}");
+    // a command that reads without naming a fenced path is the person's to allow
+    assert_eq!(behavior(&replies[4].text)["behavior"], "allow");
+    let asked = run.editor.asked.lock().unwrap().clone();
+    let questions: Vec<&str> = asked.iter().map(|ask| ask.question.as_str()).collect();
+    assert_eq!(
+        questions,
+        [
+            "apprentice wants to run: ls -la",
+            "apprentice wants to run: grep -r KEY ."
+        ]
+    );
+}
+
+#[test]
 fn the_writers_and_askuserquestion_are_denied_outright() {
     let run = run(
         vec![

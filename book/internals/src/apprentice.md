@@ -42,7 +42,7 @@ three systems; pipes and sockets would be two.
   Tool | Permission`, `LoopbackReply`, and the three environment variables of the way back.
 - `edits_text.rs`: `FileEdit`, `diff_text` (unified, two lines of context),
   `edits_context_text` (the hook's text) and `unsaved_edits_text` (the first message's).
-- `permissions.rs`: `CommandPrefixes` (`permissions.json`, `Versioned`), `allows`, `prefix_of`.
+- `permissions.rs`: `CommandPrefixes` (`permissions.json`, `Versioned`), `allows`, `prefix_of`, `words_naming_paths`.
 - `paths.rs`: `project_relative` (conjure's `lexical_relative`, copied), `is_sorcerers_own`.
 - `budget.rs` (`spent_today`, `triage_spent_today`, `day_allows`, `triage_allows`),
   `estimate.rs` (`estimate_usd`: the median after five tasks), `log_text.rs` (`usd`,
@@ -118,8 +118,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
      `Written::MovedOn` answers an error with the file's text now. `ask` sets the task `asking`
      while it waits.
    - `Permission` (and the `permission` tool) → `answer_permission` (`permissions.rs`): the
-     writers and `AskUserQuestion` denied with a sentence; a command allowed always passes; else
-     the picker. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
+     writers and `AskUserQuestion` denied with a sentence; a command naming a fenced path denied
+     (`fenced_path_named`); a command allowed always passes; else the picker. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
      or `{"behavior":"deny","message":…}`.
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
@@ -137,12 +137,18 @@ behind a mutex, whether the turn spoke, the `Cancel`.
 `--input-format stream-json`, `--verbose`, `--model`, `--max-budget-usd`, `--max-turns`,
 `--setting-sources ""` (no project settings, hooks or `CLAUDE.md` reach the child; core's trust
 gate stays in front), `--settings` (the two hooks, `PostToolUse` and `Stop`, each `"<apprentice>"
-hook <event>` with `/` in the path on every system; the deny rules: the five tools and every
-fence as `Read(./…)`, which fences Grep and Glob too), `--mcp-config` (one stdio server, `apprentice
-mcp`, with the way back in its `env`) with `--strict-mcp-config`, `--allowedTools` (the
-mediums, Read, Grep, Glob, Agent, Task, TodoWrite, WebSearch, WebFetch; **not Bash**, which the
-permission tool gates: a tool in `--allowedTools` is never asked about), `--permission-prompt-tool
-mcp__apprentice__permission`, `--append-system-prompt` (`EDITOR_RULES`). The environment drops
+hook <event>` with `/` in the path on every system; then `permissions`: `deny` holds the five
+tools and every fence as `Read(./…)` (a `dir/**` fence also as `Read(./dir)`, each rule once),
+which Claude Code applies to Read, Grep, Glob, `@`-mentions and the file commands it parses
+(`cat .env`, `head`, `cp .env x`); `ask` is `ASKED_TOOLS`, `Bash`, `PowerShell` and `Monitor`,
+so every command reaches the permission tool, even the ones Claude Code otherwise runs unasked
+as read-only; `blockReadsOutsideWorkingDirectories` makes the file tools refuse paths outside
+the project), `--mcp-config` (one stdio server, `apprentice mcp`, with the way back in its `env`)
+with `--strict-mcp-config`, `--allowedTools` (`ALLOWED_TOOLS`: the mediums, Read, Grep, Glob,
+Agent, Task, TodoWrite, WebSearch, WebFetch; never a command tool, since a tool allowed there is
+never asked about; naming Grep and Glob also brings them back on macOS and Linux, where Claude
+Code otherwise searches through `Bash`), `--permission-prompt-tool mcp__apprentice__permission`,
+`--append-system-prompt` (`EDITOR_RULES`). The environment drops
 `CLAUDECODE`, sets `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and the three `APPRENTICE_*` variables. The
 child starts with core's `platform::process::start` (a process group or a job object, so a stop
 ends everything it started). The task goes on standard input as one line,
@@ -159,11 +165,38 @@ loopback `Tool` request answered as one text block with `isError`. `apprentice h
 always exits 0. The `Stop` hook prints nothing: a stop's only way to say more is to refuse the
 stop, and a task that should go on is a new instruction.
 
-**To confirm against the real `claude`** (the tests run the fake): hooks given inline through
-`--settings` under `-p`; the stdin framing of `--input-format stream-json`; the input the
-permission tool receives (`tool_name`, `input`); whether a `-p` run asks the permission tool
-for `Bash` when `Bash` is not allowed. Each is a check in `tests/harness.rs` against the fake;
-one task by hand against the real one is the user's.
+### Fences against the real `claude`
+
+Measured with `claude` 2.1.331 on haiku, on a copy of the bistro demo with a canary in `.env`
+and in a `not_evidence` directory (report: `apprentice-secrets-gap-report-2026-11-26.md` in the
+notes). Without the `ask` rule Claude Code ran its read-only commands unasked, and `grep -r KEY
+.`, `grep -rh`, `rg --hidden`, `git grep`, `git show HEAD:.env`, `git log -p` and `cat s*/keys.txt`
+printed the canary; the deny rules alone stopped `cat .env`, `head`, `tail`, `base64 -i`, `sort`,
+`cat < .env`, `cp .env …`, Read, Grep, Glob and `@.env`. A bare `Read` in `--allowedTools` also
+let Read open any file outside the project. With the `ask` rule and the outside-read block,
+every command reached the permission tool and nothing printed a canary.
+
+`answer_permission` (`usecases/run_task/permissions.rs`) refuses a command that names a fenced
+path before it asks or checks the always list (`fenced_path_named`, over
+`domain::permissions::words_naming_paths`, which splits at spaces, quotes, operators, `:` and
+`=`): a fenced file, or a directory all of whose contents are fenced. A command the person
+allows may still read a fenced file without naming it; the user chapter says so. Claude Code's
+sandbox would stop that at the system level on macOS and Linux (measured: `grep -r` and `rg` got
+"Operation not permitted" on the fenced paths), but it is not on: it has no native Windows
+support, and with `.git` fenced and writes outside the project refused, `git status` and `uv run
+pytest` (its cache in `~/.cache/uv`) failed under it.
+
+`tests/harness.rs` pins this: the fake `claude` runs `cat`, `grep`, `git`, … unasked unless
+`permissions.ask` names `Bash`, as the real one does, and
+`every_command_reaches_the_permission_tool_and_every_fence_is_a_deny_rule` checks every command
+reached the permission tool, the `ask`, block and deny rules, and that no flag widens
+permissions. `a_command_naming_a_fenced_path_is_refused_even_when_allowed_always`
+(`tests/run_task.rs`) pins the refusal.
+
+**Still to confirm against the real `claude`** (the tests run the fake): a `PostToolUse` hook
+given inline through `--settings` under `-p`. Seen working: the stdin framing of
+`--input-format stream-json`, the permission tool's input (`tool_name`, `input`) and its answer
+obeyed, the MCP tools, the cost and session in `result`.
 
 ## The server
 
