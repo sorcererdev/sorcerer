@@ -161,7 +161,7 @@ impl ResearchRun<'_> {
             model,
             system: FENCE_PROMPT
                 .trim()
-                .replace("{fences}", &self.researcher.fences.patterns().join(", ")),
+                .replace("{fences}", &self.researcher.fences.described()),
             tools: tools::specs(&self.research.tools),
         };
         let so_far = SoFar {

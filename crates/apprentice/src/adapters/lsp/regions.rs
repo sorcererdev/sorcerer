@@ -18,6 +18,7 @@ use sorcerer_lsp::tool_edits::lines_tools_landed;
 use crate::adapters::git_session::GitSession;
 use crate::adapters::grammar_syntax::GrammarSyntax;
 use crate::adapters::json_region_store::JsonRegionStore;
+use crate::adapters::notes_dir::NotesDir;
 use crate::adapters::state_files::StateFiles;
 use crate::domain::config::{ApprenticeConfig, apprentice_config};
 use crate::domain::region_record::RegionRecord;
@@ -283,7 +284,7 @@ impl Server {
         );
     }
 
-    /// A long answer, written as a note (`notes/<region>.md`); answers where.
+    /// A long answer, written as a note (`.sorcerer/notes/<region>.md`); answers where.
     pub(super) fn write_note(
         &self,
         id: &str,
@@ -291,11 +292,9 @@ impl Server {
         text: &str,
     ) -> Option<std::path::PathBuf> {
         let project = self.project()?;
-        let notes = StateFiles::for_project(&project).ok()?.notes();
-        std::fs::create_dir_all(&notes).ok()?;
-        let path = notes.join(format!("{id}.md"));
-        std::fs::write(&path, format!("# {}\n\n{text}\n", title.trim())).ok()?;
-        Some(path)
+        NotesDir::for_project(&project)
+            .write_answer(id, title, text)
+            .ok()
     }
 
     /// Opens a note beside the code (`sorcerer/note`), else over it.

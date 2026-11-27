@@ -89,6 +89,31 @@ fn a_related_file_left_out_for_room_is_named_not_shown() {
     assert!(!situation_text(&fixed_situation()).contains("left out for room"));
 }
 
+/// overnight Q8: a writer shown a file with a spellbook region is told the region's lines come
+/// from files, so it adds a module by creating its file.
+#[test]
+fn a_shown_file_with_a_spellbook_region_says_its_lines_come_from_files() {
+    let line = "Lines inside a spellbook:region are generated from files: to add one, create the file, and saving adds its line.";
+    assert!(!situation_text(&fixed_situation()).contains("spellbook:region"));
+    let in_the_file = Situation {
+        module: "// spellbook:region modules (from src/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)\npub mod a;\n// spellbook:end modules\n".into(),
+        ..fixed_situation()
+    };
+    let in_a_related_file = Situation {
+        related: vec![RelatedFile {
+            path: "src/mod.rs".into(),
+            text: "# spellbook:region modules (from x)\n".into(),
+            closeness: Closeness::Imported,
+            names: vec![],
+        }],
+        ..fixed_situation()
+    };
+    for s in [in_the_file, in_a_related_file] {
+        let text = situation_text(&s);
+        assert_eq!(text.matches(line).count(), 1, "{text}");
+    }
+}
+
 #[test]
 fn a_situation_with_no_test_file_and_nothing_else_says_so() {
     let s = Situation {

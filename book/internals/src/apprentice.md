@@ -125,7 +125,11 @@ changed files, the region's first), `clock.rs`.
 `hooks.rs` (`hook_output`), `task_runner.rs` (`TaskRunner`: the loopback open, the live tasks by
 id), `jsonl_task_store.rs`, `markdown_journal.rs`, `json_permissions.rs`, `project_context.rs`
 (`FilesContext`), `scry_files.rs`, `steering_files.rs`, `state_files.rs` (`StateFiles`: every
-path under `.sorcerer/state/apprentice/`), `disk_editor.rs` (`DiskEditor`, the command line's
+path under `.sorcerer/state/apprentice/`), `notes_dir.rs` (`NotesDir`: `.sorcerer/notes/`, the
+notes' one writer: `write_task_note`, `write_answer`, each made new, never through a link, and
+only in the project's own directory; `move_from` moves notes from the old `notes/` under the
+state directory, which `ApprenticeServer::start` and `wiring::notes_dir` call; a new kind of note
+is one more method naming its file), `disk_editor.rs` (`DiskEditor`, the command line's
 editor), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
 `COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `git_session.rs`
 (`GitSession`: the merge base with `origin/HEAD`, `main` or `master` through core's
@@ -148,7 +152,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    against `budget_per_day`); the record, `running`, appended to `tasks.jsonl`; the
    instruction journaled; the first message (`task_prompt`: the instruction, where it was
    written, the unit around it from `ProjectContext::unit_at`, scry's open findings near it, the
-   rules, the editor's unsaved edits, less a fenced file's: `sendable`); `Agent::start` with the
+   rules, the editor's unsaved edits, less a fenced file's: `sendable`; and core's
+   `generated_regions_line` when the file holds a spellbook region); `Agent::start` with the
    way back, once the live task is findable by its helpers (`TaskRunner::start_with` inserts it in
    the `before_the_agent` step: an agent may call back before `start` returns). An instruction in a fenced file is refused (`TaskRefused::Fenced`). A start that
    fails is recorded `failed` and said (`TaskRefused::NotStarted`).
@@ -167,7 +172,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    - `Tool` → `answer_tool_call` (`tool_calls.rs`): the arguments read (`tool_call_of`; a
      missing one is an error result naming it), paths checked (`project_relative`, the fences,
      never a path `is_never_written` names), then the editor. `write_file` journals the file's text before
-     once (`Journal::keep_before`), counts the file as the task's, and answers `written: …`;
+     once (`Journal::keep_before`), counts the file as the task's, and answers `written: …` (`written_text`, with
+     `generated_regions_line` added when the text holds a spellbook region);
      `Written::MovedOn` answers an error with the file's text now. `ask` sets the task `asking`
      while it waits.
    - `Permission` (and the `permission` tool) → `answer_permission` (`permissions.rs`): the
@@ -204,7 +210,8 @@ person's verdict on each command asked about, the `Cancel`.
 gate stays in front), `--settings` (the two hooks, `PostToolUse` and `Stop`, each `'<apprentice>'
 hook <event>` (`helper_command`: POSIX single quotes, `'\''` for a quote in the path, since Claude Code runs a hook
 through a shell, Git Bash on Windows; `/` in the path on every system); then `permissions`: `deny` holds the five
-tools and every fence as `Read(./…)` (a `dir/**` fence also as `Read(./dir)`, each rule once,
+tools and every fence as `Read(./…)` (from `Fences::deny_patterns`, so `.sorcerer/` as each of its
+entries but the notes; a `dir/**` fence also as `Read(./dir)`, each rule once,
 and `Read(./link)` with `Read(./link/**)` for each fenced link, from the project's
 `FencedLinksCache` given by `with_links_cache`, else a fresh `Fences::fenced_links` walk),
 which Claude Code applies to Read, Grep, Glob, `@`-mentions and the file commands it parses
@@ -367,7 +374,7 @@ check to the start (so two *do this* at once start one task), refuses a second t
 `TaskRunner` over `task_deps` with an `LspEditor` (`editor_port.rs`, holding the server weakly),
 starts it with `TaskRunner::start_with`, giving it its first look (every open file's text now, `open_texts`) before its agent starts, and follows it on a
 thread. `open_texts` keeps only the files `Server::may_send_under` passes (inside the project,
-not `.sorcerer/` or `.git/`, allowed by the project's `Fences`, opened afresh; none when they do
+not `.sorcerer/` but its notes, nor `.git/` (`Server::relative`), allowed by the project's `Fences`, opened afresh; none when they do
 not open), so neither the first look, the unsaved edits nor the hook's diffs carry a fenced
 buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fenced file
 (`Server::may_send`). `LspEditor`:

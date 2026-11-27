@@ -10,6 +10,7 @@ use sorcerer_lsp::serve::unknown_method;
 use sorcerer_lsp::{Client, Product};
 
 use crate::adapters::jsonl_task_store::JsonlTaskStore;
+use crate::adapters::notes_dir::NotesDir;
 use crate::adapters::state_files::StateFiles;
 use crate::domain::task::TaskState;
 use crate::ports::task_store::TaskStore;
@@ -32,16 +33,27 @@ struct ApprenticeServer {
 
 impl ApprenticeServer {
     /// The server for the root the editor sent (the working directory when it sent none). A
-    /// task a server that died left running is recorded `interrupted`.
+    /// task a server that died left running is recorded `interrupted`, and notes kept in their
+    /// old place are moved to `.sorcerer/notes/`.
     fn start(cfg: ServerConfig, client: Client, root: Option<PathBuf>) -> ApprenticeServer {
         let root = root.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let server = Arc::new(Server::new(cfg, client, root));
         server.interrupt_what_was_left_running();
+        server.move_old_notes();
         ApprenticeServer { server }
     }
 }
 
 impl Server {
+    fn move_old_notes(&self) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        if let Ok(state) = StateFiles::for_project(&project) {
+            NotesDir::for_project(&project).move_from(&state.old_notes());
+        }
+    }
+
     fn interrupt_what_was_left_running(&self) {
         let Some(project) = self.project() else {
             return;

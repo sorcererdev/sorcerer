@@ -81,6 +81,8 @@ Some paths are fenced: no model is shown them, and no citation may point at them
 
 - `.env` and anything starting with `.env`, in any directory;
 - `.sorcerer/` (what the tools remember, including other findings and costs) and `.git/`;
+  the one exception is `.sorcerer/notes/`, your notes and apprentice's, which are read like
+  any file (a link in it onto a fenced path stays fenced, and so does a `.env` in it);
 - anything outside the project, including through a symbolic link;
 - your `not_evidence` paths.
 

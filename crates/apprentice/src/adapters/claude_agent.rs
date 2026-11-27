@@ -125,7 +125,8 @@ impl ClaudeAgent {
     /// The hooks (the person's edits after each tool call and at the end of the turn) and the
     /// permissions: the deny rules (the writers, `AskUserQuestion`, and every fence as a `Read`
     /// rule, which fences Grep, Glob and the file commands Claude Code recognises, such as
-    /// `cat .env`), every command asked about, and no file tool reading outside the project.
+    /// `cat .env`; `.sorcerer/` as each of its entries but the notes, since a deny rule takes no
+    /// exception), every command asked about, and no file tool reading outside the project.
     fn settings(&self) -> Value {
         let hook = |event: &str| json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": self.helper_command(&["hook", event]) }] }]);
         json!({
@@ -139,7 +140,7 @@ impl ClaudeAgent {
     }
 
     fn deny_rules(&self) -> Vec<String> {
-        let fenced_files = self.fences.patterns().into_iter().flat_map(|pattern| {
+        let fenced_files = self.fences.deny_patterns().into_iter().flat_map(|pattern| {
             let root_form = pattern
                 .strip_prefix("**/")
                 .map(|root_form| format!("Read(./{root_form})"));

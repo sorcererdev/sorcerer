@@ -265,15 +265,27 @@ fn every_command_reaches_the_permission_tool_and_every_fence_is_a_deny_rule() {
     for rule in [
         "Read(./**/.env*)",
         "Read(./.env*)",
-        "Read(./.sorcerer/**)",
+        "Read(./.sorcerer/state/**)",
+        "Read(./.sorcerer/state)",
+        "Read(./.sorcerer/config.toml)",
         "Read(./.git/**)",
         "Read(./.git)",
-        "Read(./.sorcerer)",
         "Read(./secrets)",
         "Read(./secrets/**)",
     ] {
         assert!(deny.contains(&json!(rule)), "{rule}: {deny:?}");
     }
+    // the notes are the one place in `.sorcerer/` a task may read
+    for open in ["Read(./.sorcerer/**)", "Read(./.sorcerer)"] {
+        assert!(!deny.contains(&json!(open)), "{open}: {deny:?}");
+    }
+    assert!(
+        !deny
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|rule| rule.contains(".sorcerer/notes")),
+        "{deny:?}"
+    );
     let mut once: Vec<&str> = deny.iter().filter_map(Value::as_str).collect();
     once.sort_unstable();
     once.dedup();

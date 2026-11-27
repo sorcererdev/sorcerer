@@ -286,3 +286,64 @@ fn a_clock_file_that_is_a_link_is_not_written_through() {
     );
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep me\n");
 }
+
+#[test]
+fn a_probe_directory_that_is_a_link_is_not_worked_through() {
+    let d = project();
+    let c = cache(d.path());
+    let victim = tempfile::TempDir::new().unwrap();
+    std::fs::write(victim.path().join("entry"), "keep me\n").unwrap();
+    let long_ago = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    set_directory_modified(victim.path(), long_ago).unwrap();
+    link_to(victim.path(), &d.path().join(".sorcerer/state/fence-probe")).unwrap();
+    let out = tempfile::TempDir::new().unwrap();
+    link_to(out.path(), &d.path().join("src/out")).unwrap();
+    assert_eq!(
+        c.fenced_links(&fences(d.path())),
+        vec![PathBuf::from("src/out")]
+    );
+    assert_eq!(
+        std::fs::read_to_string(victim.path().join("entry")).unwrap(),
+        "keep me\n"
+    );
+    let time = std::fs::metadata(victim.path())
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(time, long_ago);
+}
+
+#[test]
+fn a_state_directory_that_is_a_link_is_not_probed_through() {
+    let d = project();
+    let victim = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(d.path().join(".sorcerer")).unwrap();
+    link_to(victim.path(), &d.path().join(".sorcerer/state")).unwrap();
+    let c = cache(d.path());
+    let out = tempfile::TempDir::new().unwrap();
+    link_to(out.path(), &d.path().join("src/out")).unwrap();
+    assert_eq!(
+        c.fenced_links(&fences(d.path())),
+        vec![PathBuf::from("src/out")]
+    );
+    assert!(!victim.path().join("fence-probe").exists());
+}
+
+#[test]
+fn a_link_put_in_the_notes_after_the_first_ask_is_fenced_on_the_next() {
+    let d = project();
+    support::write(d.path(), ".sorcerer/notes/plan.md", "## Plan\n");
+    let c = cache(d.path());
+    age_directories(d.path());
+    let f = fences(d.path());
+    assert!(c.fenced_links(&f).is_empty());
+    link_to(
+        &d.path().join(".env"),
+        &d.path().join(".sorcerer/notes/env.md"),
+    )
+    .unwrap();
+    assert_eq!(
+        c.fenced_links(&f),
+        vec![PathBuf::from(".sorcerer/notes/env.md")]
+    );
+}

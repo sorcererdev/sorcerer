@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use sorcerer_core::domain::generated_regions::generated_regions_line;
+
 use crate::domain::budget::{day_allows, spent_today};
 use crate::domain::edits_text::{FileEdit, unsaved_edits_text};
 use crate::domain::log_text::usd;
@@ -149,6 +151,7 @@ fn place_of(order: &TaskOrder, deps: &TaskDeps) -> TaskPlace {
         notes: deps.context.notes_near(file, &order.text, order.line),
         rules: deps.context.rules(),
         unsaved: unsaved_edits_text(&sendable(&order.unsaved, deps)),
+        generated_regions: generated_regions_line([order.text.as_str()]),
     }
 }
 

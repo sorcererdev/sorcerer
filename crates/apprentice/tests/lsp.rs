@@ -1034,3 +1034,57 @@ fn a_tasks_line_shows_working_from_the_start() {
     assert_eq!(working.last(), Some(&vec![]));
     s.stop();
 }
+
+/// apprentice-notes-workable: a note is a file like any other. The person wrote a plan's heading
+/// and an instruction in a note under the old fenced place and got nothing; in `.sorcerer/notes/`
+/// it is offered.
+#[test]
+fn an_instruction_written_in_a_note_is_offered() {
+    const NOTE: &str = ".sorcerer/notes/plan.md";
+    let project = TempProject::with(&[(NOTE, "# Plan\n")]);
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::default()),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.open(NOTE);
+    s.settle(Duration::from_millis(100));
+    s.type_text(
+        NOTE,
+        "# Plan\n\n## Plan for implementation\n\nGive me the step by step files to update here.\n",
+    );
+    let marks = s.marks_until(NOTE, |marks| !marks.is_empty());
+    assert!(
+        marks[0].message.starts_with("apprentice: I can do this"),
+        "{marks:?}"
+    );
+    s.stop();
+}
+
+/// apprentice-notes-workable: notes kept in the old place move to `.sorcerer/notes/` when the
+/// server starts.
+#[test]
+fn notes_in_the_old_place_move_when_the_server_starts() {
+    const OLD: &str = ".sorcerer/state/apprentice/notes/t1-why.md";
+    let project = TempProject::with(&[("src/cart.py", CART), (OLD, "# Why\n\nIt reads twice.\n")]);
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::default()),
+            decider: None,
+            researcher: None,
+        },
+    );
+    s.open("src/cart.py");
+    s.settle(Duration::from_millis(100));
+    let moved = project.root.join(".sorcerer/notes/t1-why.md");
+    assert_eq!(
+        std::fs::read_to_string(&moved).unwrap(),
+        "# Why\n\nIt reads twice.\n"
+    );
+    assert!(!project.root.join(OLD).exists());
+    s.stop();
+}

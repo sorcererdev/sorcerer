@@ -59,7 +59,8 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   read strictly from `Language.rest`.
 - `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `RelatedFile` (path, whole
   text, `closeness`, the `names` it defines), `situation_text` (`left_for_room_lines` names the
-  related files left out for room), `session_text`, and the caps (`RELATED_FILES` 8,
+  related files left out for room; `generated_regions_lines` adds core's `GENERATED_REGIONS_LINE`
+  when the file, its test file or a related file holds a `spellbook:region`), `session_text`, and the caps (`RELATED_FILES` 8,
   `RELATED_FILES_BESIDE` 4 and `RELATED_FILES_BESIDE_IN_ALL` 6, `SESSION_LINES` 300,
   `NEW_FILE_NAMES` 20).
 - `context_choice.rs`: choosing related files whole under a step's budget:

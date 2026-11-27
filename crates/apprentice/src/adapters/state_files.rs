@@ -31,8 +31,9 @@ impl StateFiles {
         self.dir.join("tasks")
     }
 
-    /// `notes/`: the agent's notes.
-    pub fn notes(&self) -> PathBuf {
+    /// `notes/`: where notes were kept before they moved to `.sorcerer/notes/`
+    /// ([`NotesDir`](crate::adapters::notes_dir::NotesDir)), so they can be moved on start.
+    pub fn old_notes(&self) -> PathBuf {
         self.dir.join("notes")
     }
 

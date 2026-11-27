@@ -11,6 +11,7 @@ pub mod facts;
 pub mod fences;
 pub mod fingerprint;
 pub mod fnv;
+pub mod generated_regions;
 pub mod language;
 pub mod name_forms;
 pub mod paths;

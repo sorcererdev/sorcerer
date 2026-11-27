@@ -61,7 +61,7 @@ impl ClaudeCodeResearcher {
         let cap = r.cap_usd.to_string();
         let prompt = FENCE_PROMPT
             .trim()
-            .replace("{fences}", &self.fences.patterns().join(", "));
+            .replace("{fences}", &self.fences.described());
         [
             "-p",
             "--output-format",
@@ -95,7 +95,7 @@ impl ClaudeCodeResearcher {
     /// a link out of the root or onto a fenced file is denied by its own name, and so is
     /// everything under it (measured 2026-11-17).
     fn deny_rules(&self) -> Vec<String> {
-        let fenced_files = self.fences.patterns().into_iter().flat_map(|pattern| {
+        let fenced_files = self.fences.deny_patterns().into_iter().flat_map(|pattern| {
             let root_form = pattern
                 .strip_prefix("**/")
                 .map(|root_form| format!("Read(./{root_form})"));
