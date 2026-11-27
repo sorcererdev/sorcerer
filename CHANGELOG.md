@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+- **Fourteen more languages.** Sorcerer ships TypeScript, TSX, JavaScript, Go, Java, C#, Bash,
+  SQL, HTML, CSS, Markdown, YAML, TOML and JSON beside Python and Rust, each as data under
+  `crates/sorcerer-core/library/languages/` with a pinned grammar. The code languages are
+  reviewed by scry, conjured in (with their test file and imports where the language has a
+  convention), and get spellbook's holes, anchors and fixes and lackey's stub offers; the config
+  and markup formats get rules, generators, owned regions (in `<!-- -->` or `/* */` where the
+  comment closes) and lackey's comments. The user book's new Languages chapter has the table
+  and each language's limits.
+- **A language with no units is never reviewed or loaded by scry or conjure.** Editing a README,
+  a `package.json` or a stylesheet costs nothing and downloads nothing (`skipped (no units)`).
+- **Existing projects:** `.html`, `.css`, `.md`, `.toml`, `.yml` and `.json` files now have a
+  language, so `spellbook check` and the doctors load their grammars (a download on first use)
+  and lackey cuts comments and hunks in them; Markdown is still cut by paragraph.
+- **The release carries 16 grammars on each of 5 platforms** (160 files, about 28 MB a platform;
+  SQL's is the largest at about 13 MB). The release job fails on a library over the 20 MB scry
+  downloads, and the smoke test checks that a TypeScript grammar is downloaded too.
+- **New language keys** for a language of your own: `grammar.dir` (a repository holding two
+  grammars), `comment_end` (closed comments), `@preamble`, `@prose`/`@heading` captures,
+  `[imports] separator` and `{= dir =}`, `[test] dir_replace`. See Adding a language.
+- **`spellbook holes` lists a hole once** when a generated file deleted by hand is generated
+  again (it listed each hole twice).
+
 ## 0.3.1 — 2026-11-27
 
 - **A newcomer can start from the README.** The README links the user book and each tool's

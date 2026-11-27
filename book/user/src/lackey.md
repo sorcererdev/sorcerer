@@ -71,8 +71,9 @@ Everything a newcomer needs, in order. The rest of this chapter is reference.
    VS Code: install the **Lackey** extension (`code --install-extension sorcererdev.lackey`).
    More in [In Neovim](#in-neovim) and [In VS Code](#in-vs-code).
 
-6. **Your first offer.** Open a Python or Rust file in a git repository and, on a line of its
-   own at the end of the file (not inside a function), write a request for something new:
+6. **Your first offer.** Open a file of a code language sorcerer ships ([Languages](languages.md);
+   Python here) in a git repository and, on a line of its own at the end of the file (not inside
+   a function), write a request for something new, in the language's comment:
 
    ```python
    # Add a median(prices) function that returns the middle price.

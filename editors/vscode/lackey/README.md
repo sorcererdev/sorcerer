@@ -16,9 +16,9 @@ finds them uses Jev (`JEV_API_KEY`; free sign-up at [typesafe.ai](https://typesa
 `export JEV_API_KEY=…` in your shell profile and restart VS Code); without it only empty
 function bodies are offered.
 
-**Your first offer.** In a Python or Rust file, on a line of its own at the end (not inside a
-function), write `# Add a median(prices) function that returns the middle price.` and stop
-typing. About two seconds later a faint `lackey: I can do this · ~$0.50 · sonnet` hint appears;
+**Your first offer.** In a Python file (or any code language sorcerer ships, in its own comment),
+on a line of its own at the end (not inside a function), write `# Add a median(prices) function
+that returns the middle price.` and stop typing. About two seconds later a faint `lackey: I can do this · ~$0.50 · sonnet` hint appears;
 `ctrl+m a` runs it. A comment inside a function that describes a change may be read as an aside
 and get no offer: put the request above the function, or label it with `ctrl+m l`. The whole
 path is in [Getting started](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/lackey.md#getting-started).
