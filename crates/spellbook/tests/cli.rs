@@ -361,6 +361,38 @@ fn check_json_is_the_report_with_each_findings_fixes() {
 }
 
 #[test]
+fn check_texts_checks_what_is_not_on_disk_and_saves_nothing() {
+    let dir = bistro_with_a_sqlite_command();
+    let close = "src/bistro/booking/commands/close_table.py";
+    let open = "src/bistro/booking/commands/open_table.py";
+    let asked = serde_json::json!({ "files": [
+        { "path": close, "text": "from dataclasses import dataclass\n" },
+        { "path": open, "text": "import os\nimport sqlite3\n" },
+    ] });
+    write_file(dir.path(), "texts.json", &asked.to_string());
+    let (code, out, err) = run(dir.path(), &["check", "--texts", "texts.json", "--json"]);
+    assert_eq!(code, 1, "{out}{err}");
+    let printed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let findings = printed["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 1, "{out}");
+    assert_eq!(findings[0]["file"], open);
+    assert_eq!(findings[0]["line"], 2);
+    assert_eq!(findings[0]["severity"], "error");
+    assert!(!dir.path().join(open).exists(), "nothing is written");
+    assert!(
+        !dir.path()
+            .join(".sorcerer/state/spellbook/report.json")
+            .exists(),
+        "no report is saved"
+    );
+    let outside = serde_json::json!({ "files": [{ "path": "../x.py", "text": "" }] });
+    write_file(dir.path(), "texts.json", &outside.to_string());
+    let (code, _, err) = run(dir.path(), &["check", "--texts", "texts.json"]);
+    assert_eq!(code, 2);
+    assert!(err.contains("../x.py is outside the project"), "{err}");
+}
+
+#[test]
 fn check_on_named_files_checks_only_those() {
     let dir = bistro_with_a_sqlite_command();
     write_file(

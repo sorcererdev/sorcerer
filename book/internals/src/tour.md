@@ -9,7 +9,8 @@ Sorcerer is a Cargo workspace. The libraries are:
 | `sorcerer-lsp` | the language-server host: handshake, main loop, delayed jobs, the client's senders | nothing of ours |
 
 Products (scry, conjure, spellbook) depend on them and never on each other. A product that needs
-another's results reads a versioned file under `.sorcerer/state/`.
+another's results reads a versioned file under `.sorcerer/state/`, or runs the other's program
+and reads its JSON (conjure checks a change with `spellbook check --texts - --json`).
 
 Core is synchronous and makes no model calls. Everything that spends money lives in
 `sorcerer-models`, behind a trait with a recorded double, so no test calls a model.

@@ -80,6 +80,7 @@ fn run_with_env(dir: &Path, env: &MapEnv, rest: &[&str], reply: &str) -> (i32, S
                 reply: reply.clone(),
                 ledger: ledger.clone(),
             }),
+            checker: Box::new(NotChecking),
             ledger,
             name_case: conjure::domain::edits::NameCase::Matters,
             clock: Arc::new(FixedClock::at("2026-11-22T12:00:00Z".parse().unwrap())),
@@ -225,6 +226,7 @@ fn doctor_lists_each_row_in_order() {
             "config",
             "languages",
             "scry findings",
+            "spellbook rules",
             "ledger",
             "records",
             "trust"
@@ -247,12 +249,34 @@ fn doctor_lists_each_row_in_order() {
         "no file here is in a language sorcerer knows"
     );
     assert_eq!(row(&got, "scry findings").unwrap(), "no file");
+    assert_eq!(
+        row(&got, "spellbook rules").unwrap(),
+        "not checked: this project has no .sorcerer/spellbook/rules.toml"
+    );
     assert_eq!(row(&got, "ledger").unwrap(), "0 rows, 0 of them conjure's");
     assert_eq!(row(&got, "records").unwrap(), "0 changes, 0 lines skipped");
     assert_eq!(row(&got, "trust").unwrap(), "not needed");
     let none = rows(d.path(), &Env::default());
     assert!(row(&none, "git").unwrap_err().contains("git-scm.com"));
     assert!(row(&none, "provider").is_err());
+}
+
+#[test]
+fn doctor_says_whether_changes_are_checked_against_spellbooks_rules() {
+    let d = git_project();
+    write(d.path(), ".sorcerer/spellbook/rules.toml", "");
+    let home = tempfile::tempdir().unwrap();
+    let got = rows(d.path(), &good_env(home.path()));
+    assert_eq!(
+        row(&got, "spellbook rules").unwrap(),
+        "not checked: spellbook is not installed"
+    );
+    let got = rows(d.path(), &good_env(home.path()).on_path("spellbook"));
+    let found = row(&got, "spellbook rules").unwrap();
+    assert!(
+        found.ends_with("spellbook: changes are checked against .sorcerer/spellbook/rules.toml"),
+        "{found}"
+    );
 }
 
 #[test]

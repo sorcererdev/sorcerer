@@ -145,15 +145,17 @@ fn run_command(
             files,
             since,
             baseline,
+            texts,
             json,
         } => {
             if baseline {
                 return check::record_baseline(&wire(project)?, json, out);
             }
-            let scope = match since {
-                Some(rev) => check::CheckScope::Since(rev),
-                None if files.is_empty() => check::CheckScope::Project,
-                None => check::CheckScope::Files(relative_to_root(&project, cwd, &files)?),
+            let scope = match (since, texts) {
+                (_, Some(texts)) => check::CheckScope::Texts(check::texts_to_check(cwd, &texts)?),
+                (Some(rev), None) => check::CheckScope::Since(rev),
+                (None, None) if files.is_empty() => check::CheckScope::Project,
+                (None, None) => check::CheckScope::Files(relative_to_root(&project, cwd, &files)?),
             };
             check::check(&wire(project)?, &scope, json, out)
         }

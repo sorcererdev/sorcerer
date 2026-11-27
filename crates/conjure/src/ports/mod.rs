@@ -4,5 +4,6 @@
 pub mod change_store;
 pub mod clock;
 pub mod project_context;
+pub mod rule_checker;
 pub mod writer;
 // spellbook:end ports-modules

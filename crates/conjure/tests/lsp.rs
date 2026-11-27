@@ -215,6 +215,7 @@ fn served_with(dir: &Path, script: Arc<Script>, setup: Setup) -> Served {
                 attempt,
             }) as Box<dyn Writer>)
         }),
+        checker: Box::new(|_| Box::new(support::NotChecking)),
     };
     let (server_end, editor_end) = Connection::memory();
     let server = std::thread::spawn(move || serve(server_end, cfg).unwrap());
@@ -744,6 +745,7 @@ fn the_server_tracks_text() {
             at: Mutex::new("2026-11-22T12:00:00Z".parse().unwrap()),
         }),
         wire: Box::new(|_, _, _, _| anyhow::bail!("no writer")),
+        checker: Box::new(|_| Box::new(support::NotChecking)),
     };
     let server = std::thread::spawn(move || serve(server_end, cfg).unwrap());
     let init = Request::new(

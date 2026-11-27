@@ -390,6 +390,7 @@ impl Server {
             attempt,
             situation: again.map(|again| again.situation.clone()),
         };
+        let checker = (self.cfg.checker)(&project);
         let deps = ChangeDeps {
             project: &project,
             view: &*view,
@@ -397,6 +398,7 @@ impl Server {
             fences: &fences,
             config: &config,
             writer: &*writer,
+            checker: &*checker,
             ledger: &ledger,
             clock: &*self.cfg.clock,
             cancel,

@@ -6,6 +6,7 @@ mod change_rig;
 mod fixed_clock;
 mod git_fixtures;
 mod project_fixtures;
+mod rule_checkers;
 
 #[allow(unused_imports)]
 pub use change_rig::*;
@@ -15,3 +16,5 @@ pub use fixed_clock::*;
 pub use git_fixtures::*;
 #[allow(unused_imports)]
 pub use project_fixtures::*;
+#[allow(unused_imports)]
+pub use rule_checkers::*;

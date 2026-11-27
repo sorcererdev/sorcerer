@@ -6,6 +6,7 @@
 mod check;
 mod find_site;
 mod request_and_result;
+mod rules_check;
 mod run_conjure;
 mod situation;
 mod write;

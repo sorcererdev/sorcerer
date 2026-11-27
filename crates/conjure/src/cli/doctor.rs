@@ -1,6 +1,6 @@
 //! `conjure doctor`: whether conjure can run in a project. It prints a row for each thing
 //! conjure needs (git, a model provider, its settings, the languages, scry's findings, the
-//! ledger and the records), each `ok` or `FAIL` with what it found, and last whether the
+//! checker of spellbook's rules, the ledger and the records), each `ok` or `FAIL` with what it found, and last whether the
 //! editor's server needs the project trusted.
 //!
 //! It tries the real adapters (the provider, the grammars), so it lives with the wiring's
@@ -24,11 +24,13 @@ use sorcerer_models::adapters::providers::default_provider_for;
 
 use crate::adapters::jsonl_change_store::JsonlChangeStore;
 use crate::adapters::scry_files::read_findings;
+use crate::adapters::spellbook_checker::SpellbookChecker;
 use crate::domain::config::{ConjureConfig, PRODUCT, conjure_config};
 use crate::domain::language_tables::{imports_table, test_table};
 use crate::domain::log_text::count;
 use crate::domain::scry_notes::FindingsRead;
 use crate::ports::change_store::ChangeStore;
+use crate::ports::rule_checker::RuleChecker;
 
 /// Prints the doctor's rows. The exit code is 2 when any row failed, else 0.
 pub(super) fn doctor(
@@ -53,7 +55,9 @@ pub struct DoctorRow {
 }
 
 /// Whether conjure can run in the project, a row for each thing it needs, in this order: `git`,
-/// `provider`, `config`, `languages`, `scry findings`, `ledger`, `records`, `trust`.
+/// `provider`, `config`, `languages`, `scry findings`, `spellbook rules`, `ledger`, `records`,
+/// `trust`. Changes not checked against spellbook's rules is not a failure: conjure works
+/// without spellbook.
 pub fn doctor_rows(project: &Project, env: &dyn Env, cache: &GrammarCache) -> Vec<DoctorRow> {
     let row = |name, result| DoctorRow { name, result };
     let config = conjure_config(project);
@@ -63,6 +67,10 @@ pub fn doctor_rows(project: &Project, env: &dyn Env, cache: &GrammarCache) -> Ve
         row("config", config_row(&config)),
         row("languages", languages_row(project, cache)),
         row("scry findings", Ok(scry_findings_row(project))),
+        row(
+            "spellbook rules",
+            Ok(SpellbookChecker::for_project(project, env).describe()),
+        ),
         row("ledger", ledger_row(project)),
         row("records", records_row(project)),
         row("trust", trust_row(project, TrustList::user(env).as_ref())),

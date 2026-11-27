@@ -35,7 +35,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 use sorcerer_models::adapters::providers::default_provider_for;
-use support::{FixedClock, git, project_with_vendored_grammars, test_cache};
+use support::{FixedClock, NotChecking, git, project_with_vendored_grammars, test_cache};
 use tempfile::TempDir;
 
 /// What `CONJURE_RECORD` asks for: nothing (replay only), or the live writer for the cases with
@@ -408,6 +408,7 @@ fn run_case(
         fences: &fences,
         config: &config,
         writer: &writer,
+        checker: &NotChecking,
         ledger: &ledger,
         clock: &clock,
         cancel: &cancel,
