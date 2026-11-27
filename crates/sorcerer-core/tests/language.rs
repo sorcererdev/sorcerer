@@ -10,10 +10,26 @@ fn open(d: &Path) -> Project {
     Project::open(d).unwrap()
 }
 
+/// The languages under `crates/sorcerer-core/library/languages/`, in name order: what ships.
+fn shipped_dirs() -> Vec<String> {
+    let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/languages");
+    let mut names: Vec<String> = std::fs::read_dir(library)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
 #[test]
-fn ships_python_and_rust() {
+fn ships_every_language_in_the_library() {
     let d = support::git_project();
-    assert_eq!(open(d.path()).languages.names(), vec!["python", "rust"]);
+    let project = open(d.path());
+    let names = project.languages.names();
+    assert_eq!(names, shipped_dirs());
+    assert!(names.contains(&"python") && names.contains(&"rust"));
 }
 
 #[test]
@@ -70,14 +86,14 @@ fn a_project_language_with_files_and_grammar_is_a_new_language() {
     let d = support::git_project();
     support::write(
         d.path(),
-        ".sorcerer/languages/go/language.toml",
-        "files = [\"**/*.go\"]\ngrammar = { git = \"https://github.com/tree-sitter/tree-sitter-go\", rev = \"abc\" }\n",
+        ".sorcerer/languages/kotlin/language.toml",
+        "files = [\"**/*.kt\"]\ngrammar = { git = \"https://github.com/tree-sitter/tree-sitter-kotlin\", rev = \"abc\" }\n",
     );
     let p = open(d.path());
-    assert_eq!(p.languages.names(), vec!["go", "python", "rust"]);
-    let go = p.languages.for_path(Path::new("cmd/main.go")).unwrap();
-    assert_eq!(go.unit_separator, ".");
-    assert!(matches!(&go.grammar, GrammarSource::Git { rev, .. } if rev == "abc"));
+    assert!(p.languages.names().contains(&"kotlin"));
+    let kotlin = p.languages.for_path(Path::new("app/Main.kt")).unwrap();
+    assert_eq!(kotlin.unit_separator, ".");
+    assert!(matches!(&kotlin.grammar, GrammarSource::Git { rev, .. } if rev == "abc"));
 }
 
 #[test]
@@ -85,13 +101,13 @@ fn a_local_grammar_path_is_relative_to_the_layer() {
     let d = support::git_project();
     support::write(
         d.path(),
-        ".sorcerer/languages/go/language.toml",
-        "files = [\"**/*.go\"]\ngrammar = { path = \"grammar\" }\n",
+        ".sorcerer/languages/kotlin/language.toml",
+        "files = [\"**/*.kt\"]\ngrammar = { path = \"grammar\" }\n",
     );
     let p = open(d.path());
-    let want = p.root.join(".sorcerer/languages/go/grammar");
+    let want = p.root.join(".sorcerer/languages/kotlin/grammar");
     assert!(
-        matches!(&p.languages.get("go").unwrap().grammar, GrammarSource::Local(g) if *g == want)
+        matches!(&p.languages.get("kotlin").unwrap().grammar, GrammarSource::Local(g) if *g == want)
     );
 }
 
@@ -100,11 +116,11 @@ fn a_project_language_without_a_grammar_is_an_error_naming_it() {
     let d = support::git_project();
     support::write(
         d.path(),
-        ".sorcerer/languages/go/language.toml",
-        "files = [\"**/*.go\"]\n",
+        ".sorcerer/languages/kotlin/language.toml",
+        "files = [\"**/*.kt\"]\n",
     );
     let e = Project::open(d.path()).unwrap_err().to_string();
-    assert!(e.contains("go") && e.contains("grammar"), "{e}");
+    assert!(e.contains("kotlin") && e.contains("grammar"), "{e}");
 }
 
 #[test]
@@ -138,7 +154,7 @@ fn assemble_without_a_project_dir_is_the_shipped_set() {
     let d = tempfile::TempDir::new().unwrap();
     assert_eq!(
         Languages::assemble(d.path(), &[]).unwrap().names(),
-        vec!["python", "rust"]
+        shipped_dirs()
     );
 }
 
@@ -173,4 +189,118 @@ fn a_project_layer_that_names_a_grammar_makes_it_the_projects() {
         ls.get("python").unwrap().grammar_origin(),
         GrammarOrigin::Project
     );
+}
+
+#[test]
+fn a_grammar_may_name_its_folder_in_the_repository() {
+    let d = support::git_project();
+    support::write(
+        d.path(),
+        ".sorcerer/languages/kotlin/language.toml",
+        "files = [\"**/*.kt\"]\ngrammar = { git = \"https://example.com/g\", rev = \"abcdef1\", dir = \"kotlin\" }\n",
+    );
+    let p = open(d.path());
+    assert!(matches!(
+        &p.languages.get("kotlin").unwrap().grammar,
+        GrammarSource::Git { dir: Some(dir), .. } if dir == "kotlin"
+    ));
+}
+
+#[test]
+fn a_grammar_folder_that_climbs_out_is_refused() {
+    for dir in ["../up", "/abs", ""] {
+        let d = support::git_project();
+        support::write(
+            d.path(),
+            ".sorcerer/languages/kotlin/language.toml",
+            &format!(
+                "files = [\"**/*.kt\"]\ngrammar = {{ git = \"https://example.com/g\", rev = \"abcdef1\", dir = \"{dir}\" }}\n"
+            ),
+        );
+        let e = Project::open(d.path()).unwrap_err().to_string();
+        assert!(e.contains("optional dir"), "{dir}: {e}");
+    }
+}
+
+#[test]
+fn a_closed_comment_has_an_end_mark() {
+    let d = support::git_project();
+    support::write(
+        d.path(),
+        ".sorcerer/languages/page/language.toml",
+        "files = [\"**/*.page\"]\ngrammar = { path = \"g\" }\ncomment = \"<!--\"\ncomment_end = \"-->\"\n",
+    );
+    let p = open(d.path());
+    let marks = p.languages.get("page").unwrap().comment_marks().unwrap();
+    assert_eq!(marks.around("note"), "<!-- note -->");
+    assert_eq!(
+        marks.inside("  <!-- spellbook:end x -->"),
+        Some("spellbook:end x")
+    );
+    assert_eq!(marks.inside("<!-- open"), None);
+    assert_eq!(marks.without_end("a — why -->"), "a — why");
+    let python = p.languages.get("python").unwrap().comment_marks().unwrap();
+    assert_eq!(python.around("note"), "# note");
+    assert_eq!(python.inside("    # note"), Some("note"));
+    assert!(
+        !p.languages
+            .get("python")
+            .unwrap()
+            .rest
+            .contains_key("comment_end")
+    );
+}
+
+#[test]
+fn a_language_without_comment_has_no_comment_marks() {
+    let d = support::git_project();
+    support::write(
+        d.path(),
+        ".sorcerer/languages/data/language.toml",
+        "files = [\"**/*.data\"]\ngrammar = { path = \"g\" }\n",
+    );
+    assert_eq!(
+        open(d.path())
+            .languages
+            .get("data")
+            .unwrap()
+            .comment_marks(),
+        None
+    );
+}
+
+#[test]
+fn a_language_has_units_when_its_queries_capture_one() {
+    let d = support::git_project();
+    support::write(
+        d.path(),
+        ".sorcerer/languages/data/language.toml",
+        "files = [\"**/*.data\"]\ngrammar = { path = \"g\" }\n",
+    );
+    support::write(
+        d.path(),
+        ".sorcerer/languages/data/queries/textobjects.scm",
+        "; (pair) @definition.function is not a capture: the line is a comment\n(comment) @comment.outer\n",
+    );
+    support::write(
+        d.path(),
+        ".sorcerer/languages/sections/language.toml",
+        "files = [\"**/*.sections\"]\ngrammar = { path = \"g\" }\n",
+    );
+    support::write(
+        d.path(),
+        ".sorcerer/languages/sections/queries/units.scm",
+        "(section (title) @unit.name) @unit.section\n",
+    );
+    let p = open(d.path());
+    assert!(!p.languages.get("data").unwrap().has_unit_captures());
+    assert!(p.languages.get("sections").unwrap().has_unit_captures());
+    assert!(p.languages.get("python").unwrap().has_unit_captures());
+    assert!(
+        p.languages
+            .with_units_for_path(Path::new("a.data"))
+            .is_none()
+    );
+    assert!(p.languages.for_path(Path::new("a.data")).is_some());
+    assert!(p.languages.with_units_for_path(Path::new("a.py")).is_some());
 }

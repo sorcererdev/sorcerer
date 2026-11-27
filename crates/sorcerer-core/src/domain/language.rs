@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use include_dir::{Dir, include_dir};
 
+use crate::domain::unit::is_unit_capture;
 use crate::{Error, Result};
 
 /// The shipped languages, embedded in the binary.
@@ -26,6 +27,7 @@ const CORE_KEYS: &[&str] = &[
     "files",
     "grammar",
     "comment",
+    "comment_end",
     "unit_words",
     "unit_separator",
     "unit",
@@ -34,8 +36,15 @@ const CORE_KEYS: &[&str] = &[
 /// Where a grammar's sources come from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GrammarSource {
-    /// `grammar = { git = "…", rev = "…" }`: fetched at that revision.
-    Git { url: String, rev: String },
+    /// `grammar = { git = "…", rev = "…" }`: fetched at that revision. `dir` names the folder
+    /// of the repository that holds the grammar (its `src/parser.c`), for a repository that
+    /// holds more than one: `grammar = { git = "…", rev = "…", dir = "tsx" }` builds
+    /// `tsx/src`. Without it the grammar is the repository's own `src`.
+    Git {
+        url: String,
+        rev: String,
+        dir: Option<String>,
+    },
     /// `grammar = { path = "…" }`: a directory holding `parser.c` (or a
     /// checkout with `src/parser.c`), relative to its layer's directory.
     Local(PathBuf),
@@ -68,8 +77,12 @@ pub struct Language {
     /// Globs over project-relative paths: which files are this language's.
     pub files: Vec<String>,
     pub grammar: GrammarSource,
-    /// How a line comment starts, such as `#` or `//`.
+    /// How a comment starts, such as `#`, `//` or `<!--`. `None` when the language has no
+    /// comments (no allow comments, no owned regions, no answer kept as a comment).
     pub comment: Option<String>,
+    /// How a comment ends, for a language whose comments are closed (`-->`, `*/`); `None` for
+    /// a comment that runs to the end of the line.
+    pub comment_end: Option<String>,
     /// How to tell a model what a unit is called in this language, used in prompts that ask
     /// it to name one: "a top-level class or function name (Name) or a method (Class.method)".
     pub unit_words: Option<String>,
@@ -118,6 +131,94 @@ impl Language {
             _ => GrammarOrigin::Project,
         }
     }
+}
+
+/// How a language writes a comment: what opens it and, for a closed comment such as
+/// `<!-- … -->` or `/* … */`, what ends it. A line comment (`#`, `//`) has no end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommentMarks {
+    pub start: String,
+    pub end: Option<String>,
+}
+
+impl CommentMarks {
+    /// A comment that runs to the end of its line, opened by `start`.
+    pub fn line(start: &str) -> CommentMarks {
+        CommentMarks {
+            start: start.to_string(),
+            end: None,
+        }
+    }
+
+    /// The text as one comment on one line: `# note` for `#`, `<!-- note -->` for `<!--` and
+    /// `-->`.
+    pub fn around(&self, text: &str) -> String {
+        match &self.end {
+            Some(end) => format!("{} {text} {end}", self.start),
+            None => format!("{} {text}", self.start),
+        }
+    }
+
+    /// The text of a line that is one whole comment, without the marks and the spaces beside
+    /// them; `None` when the line is not one.
+    ///
+    /// Example: with `<!--` and `-->`, `  <!-- spellbook:end x -->` is `spellbook:end x`; with
+    /// `#`, `# note` is `note` and `x = 1` is `None`.
+    pub fn inside<'a>(&self, line: &'a str) -> Option<&'a str> {
+        let after_start = line.trim().strip_prefix(self.start.as_str())?;
+        let inner = match &self.end {
+            Some(end) => after_start.strip_suffix(end.as_str())?,
+            None => after_start,
+        };
+        Some(inner.trim())
+    }
+
+    /// The text with a closing mark at its end taken off: `rule — why -->` is `rule — why`.
+    /// A line comment's text is returned as it is.
+    pub fn without_end<'a>(&self, text: &'a str) -> &'a str {
+        match &self.end {
+            Some(end) => text
+                .trim_end()
+                .strip_suffix(end.as_str())
+                .map_or(text, str::trim_end),
+            None => text,
+        }
+    }
+}
+
+impl Language {
+    /// How this language writes a comment, from `comment` (and `comment_end`); `None` when it
+    /// has no comments, such as a data format without any.
+    pub fn comment_marks(&self) -> Option<CommentMarks> {
+        Some(CommentMarks {
+            start: self.comment.clone()?,
+            end: self.comment_end.clone(),
+        })
+    }
+
+    /// Whether this language's queries capture any unit (`@definition.function`,
+    /// `@unit.section`, …), read from the query texts without loading the grammar. A language
+    /// without them, such as a config format or markup, has no units: scry and conjure never
+    /// load its grammar.
+    pub fn has_unit_captures(&self) -> bool {
+        self.queries
+            .values()
+            .any(|text| captures_written_in(text).any(is_unit_capture))
+    }
+}
+
+/// The capture names a query text writes (`@name`, `@definition.function`), comment lines
+/// (`; …`) left out.
+fn captures_written_in(text: &str) -> impl Iterator<Item = &str> {
+    text.lines()
+        .filter(|line| !line.trim_start().starts_with(';'))
+        .flat_map(|line| line.split('@').skip(1))
+        .map(|after| {
+            let end = after
+                .find(|c: char| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '-')))
+                .unwrap_or(after.len());
+            &after[..end]
+        })
 }
 
 impl Loaded {
@@ -206,6 +307,14 @@ impl Languages {
             .and_then(|(n, _)| self.by_name.get(n))
     }
 
+    /// The language a file belongs to, as [`Languages::for_path`], but only when that language
+    /// has units ([`Language::has_unit_captures`]): what scry reviews and conjure writes in. A
+    /// README or a config file gives `None` without its grammar being loaded.
+    pub fn with_units_for_path(&self, rel: &Path) -> Option<&Language> {
+        self.for_path(rel)
+            .filter(|language| language.has_unit_captures())
+    }
+
     /// Makes a language build its grammar from other sources, such as sources vendored for
     /// tests or an offline mirror, and forgets the grammar already loaded. Does nothing when
     /// there is no language with that name.
@@ -288,6 +397,7 @@ fn merge(name: &str, layers: Vec<(&str, Layer)>) -> Result<Language> {
         files: keys.files()?,
         grammar: keys.grammar()?,
         comment: keys.string("comment")?,
+        comment_end: keys.string("comment_end")?,
         unit_words: keys.string("unit_words")?,
         unit_separator: keys.string("unit_separator")?.unwrap_or_else(|| ".".into()),
         unit_name: keys.unit_name()?,
@@ -346,9 +456,10 @@ impl CoreKeys<'_> {
             .map_err(|e| self.error(format!("files: {}", e.message())))
     }
 
-    /// `grammar`: required, either `{ git, rev }` or `{ path }`.
+    /// `grammar`: required, either `{ git, rev }` (with an optional `dir`) or `{ path }`.
     fn grammar(&self) -> Result<GrammarSource> {
-        let wrong_shape = || self.error("grammar must be { git, rev } or { path }".into());
+        let wrong_shape =
+            || self.error("grammar must be { git, rev } (with an optional dir) or { path }".into());
         match self.table.get("grammar") {
             Some(toml::Value::Table(grammar)) => grammar_of(grammar).ok_or_else(wrong_shape),
             Some(_) => Err(wrong_shape()),
@@ -407,12 +518,24 @@ impl CoreKeys<'_> {
     }
 }
 
-/// The grammar's source from its table: `{ git, rev }` or `{ path }`, nothing else.
+/// The grammar's source from its table: `{ git, rev }` (with an optional `dir`) or `{ path }`,
+/// nothing else. A `dir` must be a plain relative folder (`tsx`, `grammars/block`): one that
+/// is absolute or climbs out with `..` is refused, like any other wrong shape.
 fn grammar_of(g: &toml::Table) -> Option<GrammarSource> {
     let s = |k: &str| g.get(k).and_then(toml::Value::as_str).map(String::from);
-    match (s("git"), s("rev"), s("path")) {
-        (Some(url), Some(rev), None) => Some(GrammarSource::Git { url, rev }),
-        (None, None, Some(path)) => Some(GrammarSource::Local(PathBuf::from(path))),
+    match (s("git"), s("rev"), s("path"), s("dir")) {
+        (Some(url), Some(rev), None, dir) if dir.as_deref().is_none_or(is_plain_folder) => {
+            Some(GrammarSource::Git { url, rev, dir })
+        }
+        (None, None, Some(path), None) => Some(GrammarSource::Local(PathBuf::from(path))),
         _ => None,
     }
+}
+
+/// A relative folder inside a repository: `tsx` or `grammars/block`, not `/abs`, `../up` or ``.
+fn is_plain_folder(dir: &str) -> bool {
+    !dir.is_empty()
+        && Path::new(dir)
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
 }
