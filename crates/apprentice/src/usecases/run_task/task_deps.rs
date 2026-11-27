@@ -12,6 +12,7 @@ use sorcerer_core::ports::ledger::Ledger;
 use crate::domain::config::ApprenticeConfig;
 use crate::domain::log_text::title_of;
 use crate::domain::task::{TaskFile, TaskRecord, TaskState};
+use crate::domain::token_cost::{TokenUsage, UsageSeen};
 use crate::ports::agent::Agent;
 use crate::ports::clock::Clock;
 use crate::ports::editor::Editor;
@@ -36,6 +37,9 @@ pub struct TaskDeps {
     pub fences: Fences,
     pub root: PathBuf,
     pub config: ApprenticeConfig,
+    /// A model's price, `[input, output]` dollars per million tokens, for what a stopped task
+    /// is charged; `None` for a model with no known price.
+    pub price_of: fn(&str) -> Option<[f64; 2]>,
 }
 
 /// A task while it runs.
@@ -47,6 +51,8 @@ pub struct LiveTask {
     /// Whether the agent spoke through a medium in this turn: if it did not, its final text is
     /// posted so nothing it said is lost.
     spoke: AtomicBool,
+    /// The tokens the stream showed so far, call by call.
+    used: Mutex<UsageSeen>,
     pub cancel: Cancel,
 }
 
@@ -57,6 +63,7 @@ impl LiveTask {
             title: title_of(&record.instruction),
             record: Mutex::new(record),
             spoke: AtomicBool::new(false),
+            used: Mutex::new(UsageSeen::default()),
             cancel: Cancel::default(),
         }
     }
@@ -83,6 +90,16 @@ impl LiveTask {
                 });
             }
         });
+    }
+
+    /// One call's tokens, as the stream showed them.
+    pub fn used(&self, message_id: &str, model: &str, usage: TokenUsage) {
+        lock(&self.used).saw(message_id, model, usage);
+    }
+
+    /// What the calls seen so far cost; `None` when none was seen or one cannot be priced.
+    pub fn cost_seen(&self, price_of: fn(&str) -> Option<[f64; 2]>) -> Option<f64> {
+        lock(&self.used).cost(price_of)
     }
 
     pub fn spoke(&self) {

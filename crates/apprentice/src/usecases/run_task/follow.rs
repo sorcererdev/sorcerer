@@ -66,11 +66,16 @@ fn saw(live: &LiveTask, event: &AgentEvent, deps: &TaskDeps) {
                 live.spoke();
             }
             let activity = activity_of(name, input, parent.as_deref(), &deps.root);
-            let spent = live.record().cost_usd;
+            let spent = live.cost_seen(deps.price_of).unwrap_or(0.0);
             deps.editor
                 .progress(&live.id, &status_text(&live.title, &activity, spent));
             let _ = deps.journal.write(&live.id, "tool", &activity);
         }
+        AgentEvent::Used {
+            message_id,
+            model,
+            usage,
+        } => live.used(message_id, model, *usage),
         AgentEvent::Text { .. } | AgentEvent::Finished(_) => {}
     }
 }

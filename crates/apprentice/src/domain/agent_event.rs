@@ -4,6 +4,8 @@
 
 use serde_json::Value;
 
+use crate::domain::token_cost::{TokenUsage, usage_of};
+
 /// One thing the agent did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentEvent {
@@ -19,6 +21,13 @@ pub enum AgentEvent {
     Text {
         text: String,
         parent: Option<String>,
+    },
+    /// One call of the agent (or a subagent) used these tokens; a message the stream repeats
+    /// carries the same id.
+    Used {
+        message_id: String,
+        model: String,
+        usage: TokenUsage,
     },
     /// The turn ended.
     Finished(Finished),
@@ -63,7 +72,7 @@ fn started(message: &Value) -> Option<AgentEvent> {
 fn assistant_events(message: &Value) -> Vec<AgentEvent> {
     let parent = message["parent_tool_use_id"].as_str().map(String::from);
     let blocks = message["message"]["content"].as_array();
-    blocks
+    let blocks = blocks
         .into_iter()
         .flatten()
         .filter_map(|block| match block["type"].as_str() {
@@ -80,8 +89,17 @@ fn assistant_events(message: &Value) -> Vec<AgentEvent> {
                 })
             }
             _ => None,
-        })
-        .collect()
+        });
+    blocks.chain(used(&message["message"])).collect()
+}
+
+/// The tokens a message's call used, when it says.
+fn used(message: &Value) -> Option<AgentEvent> {
+    Some(AgentEvent::Used {
+        message_id: message["id"].as_str()?.to_string(),
+        model: message["model"].as_str().unwrap_or_default().to_string(),
+        usage: usage_of(&message["usage"])?,
+    })
 }
 
 fn finished(message: &Value) -> Finished {
@@ -124,6 +142,28 @@ mod tests {
                     parent: None
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn a_message_says_the_tokens_its_call_used() {
+        let line = json!({
+            "type": "assistant",
+            "message": { "id": "msg_1", "model": "claude-sonnet-5-5", "content": [],
+                         "usage": { "input_tokens": 2, "output_tokens": 141 } },
+        })
+        .to_string();
+        assert_eq!(
+            events_of_line(&line),
+            [AgentEvent::Used {
+                message_id: "msg_1".into(),
+                model: "claude-sonnet-5-5".into(),
+                usage: TokenUsage {
+                    input: 2,
+                    output: 141,
+                    ..TokenUsage::default()
+                },
+            }]
         );
     }
 
