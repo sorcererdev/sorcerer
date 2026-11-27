@@ -4,8 +4,9 @@
 # linux: a bare ubuntu:24.04 container (no Rust, no C compiler); the README's shell lines (scry, conjure, spellbook and
 #   lackey; the last three get `--version`, no live call: lackey needs a signed-in claude); one
 #   live review of the bistro demo with a planted bug (scripts/smoke-review, at most $0.20).
-# windows: the README's PowerShell lines; `scry doctor` on the bistro demo; no live review.
-# Both check that the grammar was downloaded, not compiled.
+# windows: the README's PowerShell lines; `scry doctor` on the bistro demo with a TypeScript
+#   corner (corpus/languages/typescript/base); no live review.
+# Both check that every grammar was downloaded, not compiled, typescript's among them.
 name: smoke
 on:
   workflow_dispatch:
@@ -79,6 +80,7 @@ jobs:
         run: |
           $work = Join-Path $env:RUNNER_TEMP bistro
           Copy-Item -Recurse corpus/scry/bistro/base $work
+          Copy-Item -Recurse corpus/languages/typescript/base (Join-Path $work web)
           Set-Location $work
           git init -q -b main
           git add -A
@@ -87,4 +89,5 @@ jobs:
           $code = $LASTEXITCODE
           $doctor
           if ($code -ne 0) { throw "doctor exited $code" }
-          if (-not ($doctor | Select-String -Pattern '^languages +ok .*downloaded')) { throw "the languages row does not say downloaded" }
+          if (-not ($doctor | Select-String -Pattern '^languages +ok .*typescript.*downloaded')) { throw "the languages row does not name typescript as downloaded" }
+          if ($doctor | Select-String -Pattern '^languages .*built with') { throw "a grammar was built, not downloaded" }

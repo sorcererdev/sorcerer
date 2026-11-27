@@ -1,22 +1,25 @@
 # Adding a language
 
-Sorcerer ships Python and Rust. Any language with a tree-sitter grammar can be added with
-two files and no code: the engine knows no language, it reads them.
+Sorcerer ships sixteen languages ([Languages](languages.md) lists them and what each tool does in
+each). Any other language with a tree-sitter grammar can be added with two files and no code:
+the engine knows no language, it reads them.
 
-Say your project has Go. Write `.sorcerer/languages/go/language.toml`:
+Say your project has Kotlin. Write `.sorcerer/languages/kotlin/language.toml`:
 
 ```toml
-# Which files are Go.
-files = ["**/*.go"]
+# Which files are Kotlin.
+files = ["**/*.kt", "**/*.kts"]
 # The grammar: fetched at this commit, compiled once into your cache, and loaded when a
 # tool needs it. You need a C compiler (see below).
-grammar = { git = "https://github.com/tree-sitter/tree-sitter-go", rev = "<a commit>" }
+grammar = { git = "https://github.com/fwcd/tree-sitter-kotlin", rev = "<a commit>" }
 comment = "//"
 ```
 
-Then copy the grammar's own `queries/tags.scm` into `.sorcerer/languages/go/queries/`.
-That is enough: tools find the *units* of a Go file (its functions, methods and types),
-which is what scry reads and reports on.
+Then write a `queries/tags.scm` in `.sorcerer/languages/kotlin/queries/` that captures its
+functions and classes as `@definition.function` and `@definition.class`, each with its `@name`
+(a grammar that ships a `tags.scm` can be copied as it is). That is enough: tools find the
+*units* of a Kotlin file (its functions, methods and classes), which is what scry reads and
+reports on. The shipped languages' folders are the worked examples: copy the nearest one.
 
 A language whose queries capture no unit (no `@definition.function`, `@definition.class` and the
 like: a config format such as TOML, a markup language such as Markdown) still has its comments,
@@ -76,7 +79,7 @@ Conjure needs two facts about a language, and takes both from the language file:
 # the extension. Python ships "{= dir =}/{= stem =}__test.py"; Rust's tests are in the file
 # itself, so it ships "{= dir =}/{= stem =}.rs". Leave it out and conjure says no test file is
 # known for the language.
-tests_for = "{= dir =}/{= stem =}_test.go"
+tests_for = "{= dir =}/{= stem =}Test.kt"
 
 [imports]
 # Where an import's file may be: `{= path =}` is the import's words joined by `/`, so
@@ -84,7 +87,7 @@ tests_for = "{= dir =}/{= stem =}_test.go"
 # exists wins; the import is then tried once more without its last word, which may be a name
 # inside a module rather than a module. Python ships four (`{= path =}.py`, `{= path =}/__init__.py`
 # and the same under `src/`).
-resolve = ["{= path =}.go"]
+resolve = ["src/main/kotlin/{= path =}.kt"]
 # Leading words that name no folder: Rust's `use crate::a::b` is `src/a/b.rs`.
 drop_first = []
 ```

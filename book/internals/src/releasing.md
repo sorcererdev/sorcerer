@@ -35,7 +35,13 @@ The files:
   `windows-2022`, so the grammars need no newer glibc than `scry`; macOS builds for 11.0, or
   10.12 on Intel) it runs `cargo run --release -p sorcerer-core --example build-grammars --
   grammars` and uploads the libraries and their `.sha256` files as `artifacts-grammars-*`,
-  which the release attaches beside the binaries: ten files for two languages. The release is
+  which the release attaches beside the binaries: 32 files a runner for the sixteen languages,
+  160 in a release, about 28 MB a platform (SQL's library is the largest, about 13 MB, then
+  C#'s at 7 MB). `examples/build-grammars.rs` prints each library with its size and fails on
+  one over `LIBRARY_CAP` (20 MB, in `adapters/grammar.rs`), the most `GrammarCache::user`
+  downloads, so a release never carries a grammar every user would have to compile. The
+  workflow also runs by hand (`workflow_dispatch`, Actions → build-grammars → Run workflow on
+  any branch) as a dry run whose libraries stay in the run's artifacts. The release is
   not published unless every one built (`fail-fast: false`, so every runner still reports).
   When one fails: re-run the failed job from the Actions page if it looks flaky; otherwise fix
   it on main, delete the tag (`git push --delete origin v<version>`, `git tag -d
@@ -70,11 +76,13 @@ The files:
 - **`.github/workflows/smoke.yml`**: run by hand after a release (Actions, smoke, with the
   version). On a bare `ubuntu:24.04` container it installs with the README's shell line,
   installs conjure, spellbook and lackey with their lines too, checks that no `cc` and no `cargo` are there and that `scry --version`, `conjure --version`, `spellbook --version` and `lackey --version` are the version (no lackey task runs: it needs a signed-in `claude`), and
-  runs `scripts/smoke-review`: the bistro demo with case b01's planted bug, one live review
+  runs `scripts/smoke-review`: the bistro demo with case b01's planted bug and a TypeScript
+  corner (`corpus/languages/typescript/base` under `web/`), one live review
   through the Anthropic API (secrets `ANTHROPIC_API_KEY`, `JEV_API_KEY`; at most $0.20),
-  where doctor's languages row must say `downloaded` and `scry` must exit 1. On
+  where doctor's languages row must name `typescript` as `downloaded`, no grammar may say
+  `built with`, and `scry` must exit 1. On
   `windows-latest` it installs the four with the PowerShell lines, checks their versions and runs `scry doctor` on the bistro
-  demo, whose languages row must say `downloaded`.
+  demo with the same TypeScript corner, under the same two checks of the languages row.
 
 A rehearsal without a tag: `dist plan` lists every file; `dist build --artifacts=local
 --target <this machine>` builds this machine's archive in `target/distrib/`.

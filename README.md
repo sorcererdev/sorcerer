@@ -12,11 +12,16 @@ one core and talk through files in `.sorcerer/`.
 **The user book** has a chapter for each: [Scry](book/user/src/scry.md) (and
 [in your editor](book/user/src/editor.md)), [Conjure](book/user/src/conjure.md),
 [Spellbook](book/user/src/spellbook.md), [Lackey](book/user/src/lackey.md), plus
-[what Sorcerer is](book/user/src/what-sorcerer-is.md) and
-[configuration](book/user/src/configuration.md). Here to try Lackey? Go to
+[what Sorcerer is](book/user/src/what-sorcerer-is.md),
+[languages](book/user/src/languages.md) and [configuration](book/user/src/configuration.md). Here to try Lackey? Go to
 [Get started > Lackey](#lackey), then [its chapter](book/user/src/lackey.md).
 
-**Status:** scry, conjure, spellbook and lackey (the newest, an early release); Python and Rust; Windows, macOS and Linux; early (0.3).
+**Status:** scry, conjure, spellbook and lackey (the newest, an early release); Windows, macOS and Linux; early (0.3).
+
+**Languages:** Python, Rust, TypeScript, TSX, JavaScript, Go, Java, C#, Bash and SQL are reviewed
+and conjured in; HTML, CSS, Markdown, YAML, TOML and JSON get spellbook's rules, generators and
+regions and lackey's comments (JSON has no comments, so no regions). [Languages](book/user/src/languages.md) has what each tool does in
+each; any other tree-sitter language is [two files away](book/user/src/adding-a-language.md).
 
 ## Install
 

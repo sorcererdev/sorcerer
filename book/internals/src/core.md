@@ -86,8 +86,8 @@ such as `<!-- … -->`; `None` for a language with no `comment`), with `around(t
 `inside(line)` (the text of a line that is one whole comment) and `without_end(text)`: spellbook's
 allow comments and region markers and lackey's kept answers write and read comments through it. Every other table stays in `Language::rest` for the product that owns it;
 the product reads it with the same strictness as its config table.
-The shipped languages carry conjure's `[test]` and `[imports]` tables there and an
-`imports.scm` beside `tags.scm`; core compiles the query like any other, and it adds no unit
+Most shipped code languages carry conjure's `[test]` and `[imports]` tables there and an
+`imports.scm` beside `tags.scm` (the table in the user book's Languages chapter says which); core compiles the query like any other, and it adds no unit
 because it captures only `@import.path`.
 
 `Languages::for_path(rel)` gives the first language, in name order, whose `files` globs

@@ -8,14 +8,15 @@
 //! the way scry would, into a cache at the directory given, so each library has the very name
 //! scry asks the release for (`<name>-<key>.<dylib|so|dll>`). Beside each it writes
 //! `<file>.sha256` (`<64 hex digits>  <file name>`), then removes the fetched sources, and
-//! prints each library's file name. The release job runs it once on each platform's runner.
-//! It exits 1 naming the language when one fails.
+//! prints each library's file name and size. The release job runs it once on each platform's
+//! runner. It exits 1 naming the language when one fails to build or is larger than scry
+//! downloads (`LIBRARY_CAP`, 20 MB): such a release would send every user to a C compiler.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use sorcerer_core::adapters::env::SystemEnv;
-use sorcerer_core::adapters::grammar::{GrammarCache, build_if_absent, sha256_hex};
+use sorcerer_core::adapters::grammar::{GrammarCache, LIBRARY_CAP, build_if_absent, sha256_hex};
 use sorcerer_core::adapters::platform::compiler::c_compiler;
 use sorcerer_core::domain::language::Languages;
 
@@ -26,8 +27,9 @@ fn main() -> anyhow::Result<()> {
     let shipped = shipped_languages()?;
     for name in shipped.names() {
         let library = build_one(&shipped, name, &out).with_context(|| format!("grammar {name}"))?;
+        let size = size_under_the_cap(&library).with_context(|| format!("grammar {name}"))?;
         write_sum_beside(&library)?;
-        println!("{}", file_name(&library));
+        println!("{}  {}", file_name(&library), size_text(size));
     }
     remove_fetched_sources(&out)
 }
@@ -49,6 +51,30 @@ fn build_one(shipped: &Languages, name: &str, out: &Path) -> anyhow::Result<Path
         &language.grammar,
         compiler.as_ref(),
     )?)
+}
+
+/// The library's size in bytes, or an error when scry would refuse to download it.
+fn size_under_the_cap(library: &Path) -> anyhow::Result<u64> {
+    let size = std::fs::metadata(library)?.len();
+    if size > LIBRARY_CAP {
+        bail!(
+            "{} is {}, over the {} scry downloads",
+            file_name(library),
+            size_text(size),
+            size_text(LIBRARY_CAP)
+        );
+    }
+    Ok(size)
+}
+
+/// A size as the release job's log shows it: `13.4 MB`, or `52 KB` under a megabyte.
+fn size_text(bytes: u64) -> String {
+    let megabytes = bytes as f64 / (1024.0 * 1024.0);
+    if megabytes < 1.0 {
+        format!("{} KB", bytes.div_ceil(1024))
+    } else {
+        format!("{megabytes:.1} MB")
+    }
 }
 
 /// Writes `<library>.sha256`, the way the release's other checksum files read.
