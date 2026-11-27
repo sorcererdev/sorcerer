@@ -22,7 +22,6 @@ use serde_json::{Value, json};
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::platform::paths::canonical;
 use sorcerer_core::adapters::trust_list::TrustList;
-use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
 use sorcerer_lsp::uri_of;
 use support::{commit, errand, git_project, write};
@@ -178,11 +177,7 @@ impl Default for Setup {
 
 fn open_with_vendored_grammars(root: &Path) -> anyhow::Result<Project> {
     let mut project = Project::open(root)?;
-    for name in ["python", "rust"] {
-        project
-            .languages
-            .override_grammar(name, GrammarSource::Local(support::vendored(name)));
-    }
+    support::point_at_test_grammars(&mut project.languages);
     Ok(project)
 }
 
@@ -2078,6 +2073,12 @@ fn an_untrusted_projects_own_grammar_is_never_loaded_for_actions() {
         dir.path(),
         ".sorcerer/languages/toy/language.toml",
         "files = [\"**/*.toy\"]\ngrammar = { path = \"g\" }\n",
+    );
+    // a language with units, so conjure offers in it
+    write(
+        dir.path(),
+        ".sorcerer/languages/toy/queries/tags.scm",
+        "(toy) @definition.function\n",
     );
     write(dir.path(), "src/a.toy", "toy\n");
     let s = served(dir.path(), Script::replying(&[]));

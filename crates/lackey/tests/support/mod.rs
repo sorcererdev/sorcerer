@@ -10,6 +10,8 @@ mod model_doubles;
 mod recording_editor;
 mod scripted_agent;
 mod temp_project;
+#[path = "../../../sorcerer-core/tests/support/test_grammars.rs"]
+mod test_grammars;
 
 #[allow(unused_imports)]
 pub use fixed_clock::*;
@@ -25,3 +27,5 @@ pub use recording_editor::*;
 pub use scripted_agent::*;
 #[allow(unused_imports)]
 pub use temp_project::*;
+#[allow(unused_imports)]
+pub use test_grammars::*;

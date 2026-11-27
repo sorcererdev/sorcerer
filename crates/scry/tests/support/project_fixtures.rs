@@ -10,13 +10,6 @@ use sorcerer_core::domain::errand::Errand;
 use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
 
-/// Core's vendored grammar sources for NAME (no network).
-pub fn vendored(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../sorcerer-core/tests/grammars")
-        .join(name)
-}
-
 /// A grammar cache shared by every test in this process (built once).
 pub fn test_cache() -> GrammarCache {
     GrammarCache::at(Path::new(env!("CARGO_TARGET_TMPDIR")).join("grammar-cache"))
@@ -26,10 +19,7 @@ pub fn test_cache() -> GrammarCache {
 /// a view of it.
 pub fn project_with_vendored_grammars(dir: &Path) -> (Arc<Project>, FilesView) {
     let mut p = Project::open(dir).unwrap();
-    for name in ["python", "rust"] {
-        p.languages
-            .override_grammar(name, GrammarSource::Local(vendored(name)));
-    }
+    super::point_at_test_grammars(&mut p.languages);
     let p = Arc::new(p);
     let v = FilesView::new(p.clone(), test_cache());
     (p, v)

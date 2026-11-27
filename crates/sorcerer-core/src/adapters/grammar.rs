@@ -699,6 +699,14 @@ fn aside(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// Fetches a `{ git, rev }` grammar's repository into the cache's `src/` without compiling it,
+/// and returns the checkout, as a build would fetch it (the same checks on the URL and the
+/// revision). `scripts/test-grammars` fetches the shipped grammars for the tests this way.
+#[doc(hidden)]
+pub fn fetch_checkout(cache: &GrammarCache, name: &str, url: &str, rev: &str) -> Result<PathBuf> {
+    fetch(cache, name, url, rev)
+}
+
 /// Fetches the grammar's repository at one commit into `<cache>/src/<name>-<first 7 of rev>`,
 /// once, and returns that directory.
 ///

@@ -23,7 +23,6 @@ use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::platform::dirs::user_dir_vars;
 use sorcerer_core::adapters::trust_list::TrustList;
-use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::uri_of;
@@ -95,11 +94,7 @@ impl Default for Setup {
 /// The project at a root with its grammars on the vendored sources.
 fn open_with_vendored_grammars(root: &Path) -> anyhow::Result<Project> {
     let mut project = Project::open(root)?;
-    for name in ["python", "rust"] {
-        project
-            .languages
-            .override_grammar(name, GrammarSource::Local(support::vendored(name)));
-    }
+    support::point_at_test_grammars(&mut project.languages);
     Ok(project)
 }
 

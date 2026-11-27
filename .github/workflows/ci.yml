@@ -18,6 +18,14 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # the shipped grammars that are not vendored (all but Python and Rust), fetched at their
+      # pins for the tests, which never touch the network; cached until a pin changes
+      - uses: actions/cache@v4
+        with:
+          path: target/test-grammars
+          key: test-grammars-${{ runner.os }}-${{ hashFiles('crates/sorcerer-core/library/languages/*/language.toml') }}
+      - run: scripts/test-grammars
+        shell: bash
       - run: cargo test --workspace --no-fail-fast
       # the checks below read the source, which is the same on every platform
       - if: matrix.os == 'ubuntu-latest'

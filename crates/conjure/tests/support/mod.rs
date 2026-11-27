@@ -8,6 +8,8 @@ mod fixed_clock;
 mod git_fixtures;
 mod project_fixtures;
 mod rule_checkers;
+#[path = "../../../sorcerer-core/tests/support/test_grammars.rs"]
+mod test_grammars;
 
 #[allow(unused_imports)]
 pub use change_rig::*;
@@ -21,3 +23,5 @@ pub use git_fixtures::*;
 pub use project_fixtures::*;
 #[allow(unused_imports)]
 pub use rule_checkers::*;
+#[allow(unused_imports)]
+pub use test_grammars::*;

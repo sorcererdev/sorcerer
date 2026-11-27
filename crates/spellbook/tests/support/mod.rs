@@ -7,6 +7,8 @@ mod fix_fixtures;
 mod fixed_clock;
 mod plan_rig;
 mod project_fixtures;
+#[path = "../../../sorcerer-core/tests/support/test_grammars.rs"]
+mod test_grammars;
 
 #[allow(unused_imports)]
 pub use bistro_fixtures::*;
@@ -18,3 +20,5 @@ pub use fixed_clock::*;
 pub use plan_rig::*;
 #[allow(unused_imports)]
 pub use project_fixtures::*;
+#[allow(unused_imports)]
+pub use test_grammars::*;

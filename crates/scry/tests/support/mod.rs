@@ -11,6 +11,8 @@ mod project_fixtures;
 mod store_fixtures;
 mod stub_decider;
 mod stub_reviewer;
+#[path = "../../../sorcerer-core/tests/support/test_grammars.rs"]
+mod test_grammars;
 
 pub use doubles::*;
 pub use fixed_clock::*;
@@ -19,3 +21,5 @@ pub use project_fixtures::*;
 pub use store_fixtures::*;
 pub use stub_decider::*;
 pub use stub_reviewer::*;
+#[allow(unused_imports)]
+pub use test_grammars::*;
