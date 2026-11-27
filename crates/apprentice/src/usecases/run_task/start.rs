@@ -66,12 +66,19 @@ impl TaskRefused {
 /// 3. Builds its first message: the instruction, where it was written, the unit around it,
 ///    scry's open findings near it, the project's rules, the editor's unsaved edits (a fenced
 ///    file's are left out).
-/// 4. Starts the agent, whose helper processes come back through `way_back`; a failure to start
+/// 4. Hands the live task to `before_the_agent`, which makes it findable by the agent's
+///    helpers (and gives it its first look) before the agent can call back.
+/// 5. Starts the agent, whose helper processes come back through `way_back`; a failure to start
 ///    is recorded `failed`.
+///
+/// Example: an agent whose first act is a `write_file` reaches the server while `start`
+/// returns; its request finds the task because step 4 ran first, where it used to be answered
+/// `no task t0`.
 pub fn start_task(
     order: &TaskOrder,
     way_back: WayBack,
     deps: &TaskDeps,
+    before_the_agent: impl FnOnce(&Arc<LiveTask>),
 ) -> Result<StartedTask, TaskRefused> {
     refuse_a_spent_day(deps)?;
     if !deps.fences.allows(&deps.root.join(&order.file)) {
@@ -100,6 +107,7 @@ pub fn start_task(
         root: deps.root.clone(),
         way_back,
     };
+    before_the_agent(&live);
     match deps.agent.start(&request) {
         Ok(running) => Ok(StartedTask { live, running }),
         Err(why) => {

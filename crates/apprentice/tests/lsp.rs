@@ -396,6 +396,32 @@ fn a_stub_is_offered_by_rule_with_no_jev() {
 }
 
 #[test]
+fn a_stub_typed_before_the_server_saw_the_file_is_offered() {
+    // VS Code starts the server without waiting; a buffer edited meanwhile (or restored
+    // unsaved) is opened with the edit already in it
+    let project = TempProject::with(&[("src/cart.py", "def total(cart):\n    return 1\n")]);
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::default()),
+            decider: None,
+            researcher: None,
+        },
+    );
+    s.open_unsaved(
+        "src/cart.py",
+        "def total(cart):\n    return 1\n\n\ndef tax(cart):\n    pass\n",
+    );
+    let marks = s.marks_until("src/cart.py", |marks| !marks.is_empty());
+    assert!(
+        marks[0].message.starts_with("apprentice: I can do this"),
+        "{marks:?}"
+    );
+    assert_eq!(marks[0].range.start.line, 4);
+    s.stop();
+}
+
+#[test]
 fn a_stub_and_its_comment_on_one_line_offer_one_row_of_each() {
     let project = TempProject::with(&[("src/cart.py", "def total(cart):\n    return 1\n")]);
     let jev = Arc::new(StubJev::saying("instruction", 0.9, 0.9));

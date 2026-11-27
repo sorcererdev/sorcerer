@@ -72,7 +72,7 @@ impl Product for ApprenticeServer {
     }
 
     fn opened(&mut self, path: &Path) {
-        self.server.look_from_now(path);
+        self.server.look_from_open(path);
         self.server.publish(path);
     }
 

@@ -6,14 +6,31 @@ use std::path::Path;
 use std::sync::Arc;
 
 use sorcerer_core::Cancel;
+use sorcerer_lsp::line_edits::same_text;
 
 use super::server_state::{Server, lock};
 
 impl Server {
-    /// A file opened: its text now is the first look.
-    pub(super) fn look_from_now(&self, path: &Path) {
-        if let Some((_, text)) = self.client.text_of(path) {
-            lock(&self.looks).entry(path.to_path_buf()).or_insert(text);
+    /// A file opened: its first look is its text on the disk, so what the person typed before
+    /// the server saw the file is still theirs to triage, at a look scheduled as if they had
+    /// just typed it. A file not on the disk starts at its text now.
+    ///
+    /// Example: the editor starts the server while the person types `def tax(cart): pass`, and
+    /// opens the file with that line already in it; the look starts at the saved text without
+    /// it, so the stub is found and offered once the idle time passes. Without this the line
+    /// would be the first look itself, never a change, and never offered.
+    pub(super) fn look_from_open(self: &Arc<Self>, path: &Path) {
+        let Some((_, text)) = self.client.text_of(path) else {
+            return;
+        };
+        let saved = std::fs::read_to_string(path).ok();
+        let unsaved = saved.as_ref().is_some_and(|saved| !same_text(saved, &text));
+        let first_look = saved.filter(|_| unsaved).unwrap_or(text);
+        lock(&self.looks)
+            .entry(path.to_path_buf())
+            .or_insert(first_look);
+        if unsaved {
+            self.typed(path);
         }
     }
 

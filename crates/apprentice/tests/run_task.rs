@@ -70,6 +70,44 @@ fn replies_text(agent: &ScriptedAgent) -> Vec<String> {
 }
 
 #[test]
+fn an_agent_that_calls_back_before_its_start_returns_finds_its_task() {
+    // the race CI's loaded machines hit: the first call came before the task was findable and
+    // was answered `no task t…`, so the write never landed
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let editor = Arc::new(RecordingEditor::at(&project.root));
+    let agent = Arc::new(ScriptedAgent {
+        plays_before_start_returns: true,
+        ..ScriptedAgent::playing(vec![
+            Step::Tool(
+                "write_file",
+                json!({ "path": "src/cancel.txt", "text": "def handle(self):\n    refuse()\n" }),
+            ),
+            Step::Finish(0.2),
+        ])
+    });
+    let runner = TaskRunner::open(project.deps(editor.clone(), agent.clone())).unwrap();
+    let record = runner.run(&order()).unwrap();
+    assert_eq!(
+        replies_text(&agent),
+        ["written: src/cancel.txt (in the editor, unsaved)"]
+    );
+    assert_eq!(record.state, TaskState::Done);
+}
+
+#[test]
+fn an_agent_that_does_not_start_leaves_no_task_running() {
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let editor = Arc::new(RecordingEditor::at(&project.root));
+    let agent = Arc::new(ScriptedAgent {
+        fails: true,
+        ..ScriptedAgent::default()
+    });
+    let runner = TaskRunner::open(project.deps(editor, agent)).unwrap();
+    assert!(runner.start(&order()).is_err());
+    assert!(runner.all_live().is_empty());
+}
+
+#[test]
 fn a_task_that_writes_a_file_lands_it_in_the_editor_and_finishes_done() {
     let run = run(
         vec![
