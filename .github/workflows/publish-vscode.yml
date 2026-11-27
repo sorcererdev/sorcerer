@@ -1,7 +1,8 @@
 # Publishes the Scry, Conjure, Spellbook and Lackey VS Code extensions to the Marketplace (VSCE_PAT) and Open VSX
 # (OVSX_PAT). Called by the generated release.yml after the release is announced
 # (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone; also run by
-# hand (Actions, publish-vscode) to publish again.
+# hand (Actions, publish-vscode) to publish again. From a release it also attaches each .vsix
+# to the release, for VS Code forks when Open VSX does not list an extension yet.
 name: publish-vscode
 on:
   workflow_call:
@@ -29,6 +30,14 @@ jobs:
       - run: npx @vscode/vsce publish -p "$VSCE_PAT"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Attach the .vsix to the release
+        if: ${{ inputs.plan != '' }}
+        run: |
+          npx @vscode/vsce package
+          gh release upload "$TAG" *.vsix --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ fromJson(inputs.plan).announcement_tag }}
       - run: npx ovsx publish -p "$OVSX_PAT"
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}

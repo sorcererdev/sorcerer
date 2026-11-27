@@ -138,10 +138,25 @@ fn the_doctor_names_what_tasks_need() {
         ]
     );
     assert!(out.contains("JEV_API_KEY is not set"), "{out}");
+    let jev = out.lines().find(|line| line.starts_with("jev")).unwrap();
+    assert!(
+        jev.contains(" warn ") && jev.contains("typesafe.ai"),
+        "{jev}"
+    );
     assert!(
         out.contains("$2.00 a task, $5.00 a day, $0.20 a day of triage"),
         "{out}"
     );
+}
+
+#[test]
+fn a_doctor_warning_does_not_fail_the_doctor() {
+    let project = TempProject::with(&[]);
+    let (code, out, _) = run(&project, &["doctor"], &wiring(Vec::new()));
+    let warned = out.lines().any(|line| line.contains(" warn "));
+    let failed = out.lines().any(|line| line.contains(" FAIL "));
+    assert!(warned, "{out}");
+    assert_eq!(code, if failed { 2 } else { 0 }, "{out}");
 }
 
 #[test]

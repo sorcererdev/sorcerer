@@ -103,11 +103,6 @@ pub fn section_text(text: &str, span: Span) -> Option<String> {
         span.start as usize - 1,
         (span.end as usize).min(lines.len()),
     );
-    let is_heading = |line: &str| {
-        prose_marks()
-            .iter()
-            .any(|mark| line.starts_with(mark.as_str()))
-    };
     let heading = (0..start).rev().find(|&n| is_heading(lines[n]))?;
     let section_end = (end..lines.len())
         .find(|&n| is_heading(lines[n]))
@@ -179,6 +174,14 @@ struct ProseFile {
 }
 
 /// The marks a heading line starts with in prose, from `library/prose.toml`.
+/// Whether a line of prose is a heading: it starts with one of the marks in
+/// `library/prose.toml` (`# Questions`, say).
+pub fn is_heading(line: &str) -> bool {
+    prose_marks()
+        .iter()
+        .any(|mark| line.starts_with(mark.as_str()))
+}
+
 fn prose_marks() -> Vec<String> {
     toml::from_str::<ProseFile>(SHIPPED_PROSE)
         .map(|file| file.heading_marks)

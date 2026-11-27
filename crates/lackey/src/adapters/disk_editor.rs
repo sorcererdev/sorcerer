@@ -14,6 +14,7 @@ use sorcerer_core::domain::paths::forward_slashes;
 use crate::adapters::notes_dir::NotesDir;
 use crate::domain::edits_text::FileEdit;
 use crate::domain::mediums::{Ask, MarkSeverity};
+use crate::domain::prompt::WritesLand;
 use crate::domain::status::TaskProgress;
 use crate::domain::task::TaskRecord;
 use crate::ports::editor::{Asked, Editor, Written};
@@ -49,6 +50,10 @@ impl DiskEditor {
 }
 
 impl Editor for DiskEditor {
+    fn writes_land(&self) -> WritesLand {
+        WritesLand::OnTheDisk
+    }
+
     fn notify(&self, text: &str) {
         self.say(text.to_string());
     }

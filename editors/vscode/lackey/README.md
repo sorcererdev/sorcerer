@@ -12,7 +12,16 @@ Everything it makes is a change in your editor, unsaved, that you review, edit a
 your `PATH`). Tasks count against your Claude usage; lackey caps each one (2.00 dollars of
 usage by default, `budget_per_task`) and `lackey cost` shows what it spent. Answering
 questions and checking claims use the provider in your Sorcerer config, and the triage that
-finds them uses Jev (`JEV_API_KEY`); without it only empty function bodies are offered.
+finds them uses Jev (`JEV_API_KEY`; free sign-up at [typesafe.ai](https://typesafe.ai), then
+`export JEV_API_KEY=…` in your shell profile and restart VS Code); without it only empty
+function bodies are offered.
+
+**Your first offer.** In a Python or Rust file, on a line of its own at the end (not inside a
+function), write `# Add a median(prices) function that returns the middle price.` and stop
+typing. About two seconds later a faint `lackey: I can do this · ~$0.50 · sonnet` hint appears;
+`ctrl+m a` runs it. A comment inside a function that describes a change may be read as an aside
+and get no offer: put the request above the function, or label it with `ctrl+m l`. The whole
+path is in [Getting started](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/lackey.md#getting-started).
 
 The extension is thin: it starts `lackey lsp` for each workspace folder and VS Code does most
 of the rest. **Marks** are diagnostics of source `lackey` (the Problems panel, the squiggles,
@@ -42,6 +51,7 @@ would offer on the cursor's line:
 | keys | does |
 |---|---|
 | `ctrl+m a` | `lackey: do this`, whatever its price |
+| `ctrl+m o` | `lackey: Open the answer`: a long answer, beside your code |
 | `ctrl+m q` | `lackey: Stop this task` |
 | `ctrl+m d` | `lackey: Show diff` |
 | `ctrl+m z` | `lackey: Undo this task` |
@@ -63,7 +73,9 @@ deny. With VS Code's *Do Not Disturb* on, the notification is hidden in the noti
 
 ## Install
 
-Install the extension from the Marketplace (VS Code forks such as VSCodium get it from Open VSX):
+Install the extension from the Marketplace. VS Code forks such as VSCodium and Cursor use Open
+VSX, which does not list Lackey yet: install the `.vsix` attached to the GitHub release (each
+release after 0.3.0) with `codium --install-extension lackey-<version>.vsix`.
 
 ```sh
 code --install-extension sorcererdev.lackey
@@ -85,6 +97,7 @@ Or with Rust: `cargo install sorcerer-lackey`.
 
 The extension finds `lackey` from the `lackey.path` user setting, then `PATH`, then
 `~/.cargo/bin` and `~/.local/bin`. With none it offers to download it, or tells you the install
-line above. lackey needs `claude` on your PATH (signed in) and a project you have trusted
-(`lackey trust` in it); `lackey doctor` checks both. See the
+line above. lackey needs `claude` on your PATH (run `claude` once and log in) and, if the
+project's own `.sorcerer/config.toml` runs a program or sends your key somewhere, that you trust
+it (`lackey trust`). `lackey doctor` checks both, and says whether trust is needed. See the
 [user book](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/lackey.md).

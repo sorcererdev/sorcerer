@@ -12,22 +12,97 @@ checked by them. It is an early release, the newest of the tools.
 **It runs Claude Code on your own subscription.** Each task is one Claude Code session
 (`claude -p`) on your own login, so you need Claude Code installed and signed in (`claude` on your
 PATH); tasks count against your Claude usage (see [Usage and the caps](#usage-and-the-caps)).
-`lackey doctor` checks that `claude` is there.
 
-Install it with the release's installer. macOS and Linux:
+## Getting started
 
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-lackey-installer.sh | sh
-```
+Everything a newcomer needs, in order. The rest of this chapter is reference.
 
-Windows (PowerShell):
+1. **Install lackey.** macOS and Linux:
 
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-lackey-installer.ps1 | iex"
-```
+   ```sh
+   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-lackey-installer.sh | sh
+   ```
 
-Or with Rust: `cargo install sorcerer-lackey`. The installers put `lackey` in
-`~/.local/bin`.
+   Windows (PowerShell):
+
+   ```powershell
+   powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-lackey-installer.ps1 | iex"
+   ```
+
+   Or with Rust: `cargo install sorcerer-lackey`. The installers put `lackey` in
+   `~/.local/bin` and end with a `source` line: run it (or open a new terminal), then
+   `lackey --version`.
+
+2. **Install Claude Code and log in once.** Install it as
+   [its docs](https://docs.anthropic.com/en/docs/claude-code) say (for example
+   `npm install -g @anthropic-ai/claude-code`), then run `claude` once in a terminal and log in
+   when it asks (`/login`; a Claude subscription or an Anthropic Console account). Lackey never
+   logs in for you: until `claude` works in your terminal, no task can start.
+
+3. **Get a Jev key.** Jev is what reads what you write and tells a question from an
+   instruction from an aside. Sign up at [typesafe.ai](https://typesafe.ai) (free), create an
+   API key, and put it in your shell profile (`~/.zshrc`, `~/.bashrc`):
+
+   ```sh
+   export JEV_API_KEY=your-key
+   ```
+
+   (Windows: `setx JEV_API_KEY your-key`.) Then open a new terminal, and quit and restart your
+   editor so it starts with the key. Without it lackey offers only functions whose body is
+   empty, and answers nothing you write.
+
+4. **Check.** In your project, run `lackey doctor`. Every row should say `ok`. A `FAIL` row
+   means lackey cannot do that part (`claude FAIL` means no task can run); a `warn` row means it
+   runs but does less (`jev warn`: no key, so nothing you write is classified). Each row says what
+   to do.
+
+5. **Turn it on in your editor.** Neovim, with [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+   ```lua
+   {
+     "sorcererdev/sorcerer.nvim",
+     opts = {
+       scry = { enabled = false },   -- drop this line if you installed scry too
+       lackey = { enabled = true },
+     },
+   }
+   ```
+
+   VS Code: install the **Lackey** extension (`code --install-extension sorcererdev.lackey`).
+   More in [In Neovim](#in-neovim) and [In VS Code](#in-vs-code).
+
+6. **Your first offer.** Open a Python or Rust file in a git repository and, on a line of its
+   own at the end of the file (not inside a function), write a request for something new:
+
+   ```python
+   # Add a median(prices) function that returns the middle price.
+   ```
+
+   Stop typing. About two seconds later a faint hint appears on the line:
+   `lackey: I can do this · ~$0.50 · sonnet`. Press `<leader>ma` (VS Code: `ctrl+m a`) to run
+   it. The status line says what the task does; if it wants to run a command it asks you first
+   (*Allow once* or *Deny*; denying is fine). Its change lands in your buffer, unsaved. When it
+   ends, a `✦ lackey: …` mark sits on the changed line: `<leader>md` (`ctrl+m d`) shows the
+   diff, `<leader>mz` (`ctrl+m z`) undoes the task, and saving the file keeps it.
+
+7. **Ask a question.** Write `# Where is total called with a non-zero discount?` and save:
+   the answer appears on the line, with the code it cites, for about a cent.
+
+**What gets an offer.** Lackey offers a task when Jev reads your words as an instruction you
+want done now. What reads that way: a request for something new (`# Add …`, `# Make … return
+…`) on a line of its own, a sentence asking for a change in a docstring, or a function whose
+body is `pass` or empty (always offered). What may not: a comment inside a function body that
+describes the change, such as `# Make average return 0.0 for an empty list instead of
+raising.`, which Jev can read as an aside about the code beside it; then nothing appears, and
+`<leader>ma` says `lackey: no offer on this line`. What helps: put the request above the
+function, start it with what to do, or make the function a stub. If it really was an
+instruction, label it (`<leader>ml`, then *this was an instruction*): the label is recorded in
+`.sorcerer/state/lackey/labels.jsonl`, the measure lackey's cuts are tuned on, but it runs
+nothing.
+
+**`.sorcerer/` appears in your project** on the first run. Commit `config.toml` (your
+settings, if you make one) and `notes/` if you like; `state/` holds what lackey remembers and
+ignores itself (its own `.gitignore`).
 
 ## In your editor
 
@@ -50,7 +125,7 @@ The server is `lackey lsp`, one per project. It works on two clocks:
   asks); anything else is nothing and shows nothing. A body that does nothing yet is an
   instruction without asking. A triage costs about $0.00016 (3,800 input tokens) and a tenth of
   a second; Jev is cheap, not free: it has its own cap (`triage_per_day`). Without
-  `JEV_API_KEY` only the empty bodies are offered.
+  `JEV_API_KEY` (free at [typesafe.ai](https://typesafe.ai)) only the empty bodies are offered.
 
   Only your typing is triaged. Left out are the lines a Sorcerer tool landed in the file in the
   last ten minutes (spellbook's fixes and syncs, a conjure step, a lackey task: each notes
@@ -109,7 +184,7 @@ cancellations · 1 file · $0.71` (on a file other than the one you asked in, `�
 in place of the count), with *Show diff* (the file before the task against now, in your
 editor's diff view), *Undo this task* (every file back to its text before, in one undoable edit;
 a file you edited since is left alone and named; a final newline your editor added, or its line
-endings, are not an edit) and *Show journal*. Review the hunks with your
+endings, are not an edit; the task's marks go with it) and *Show journal*. Review the hunks with your
 usual tools (gitsigns, the SCM view); saving every file it changed keeps the task, and its marks
 go. A task the server was running when it stopped is recorded `interrupted`. If the server ends
 while a task runs (the editor closes or crashes, or its server is killed), the agent stops after
@@ -122,11 +197,19 @@ the current window, and the diff as a file); grey suggested lines are a message 
 
 ## In Neovim
 
-Install [sorcerer.nvim](https://github.com/sorcererdev/sorcerer.nvim) and turn lackey on:
+Install [sorcerer.nvim](https://github.com/sorcererdev/sorcerer.nvim) and turn lackey on. scry
+is on by default, so if you did not install scry turn it off, or the plugin says `scry` is not
+on the path:
 
 ```lua
-require("sorcerer").setup({ lackey = { enabled = true } })
+require("sorcerer").setup({
+  scry = { enabled = false },   -- drop this line if you installed scry too
+  lackey = { enabled = true },
+})
 ```
+
+The plugin binds the keys below for you (a key you already mapped is left alone and
+`:checkhealth sorcerer` names it).
 
 The plugin starts `lackey lsp` on every buffer under a project root, reporting each edit at
 once (`debounce_text_changes = 0`, so a task never writes over what you typed a moment ago and
@@ -139,7 +222,7 @@ are your code-action key's. The keys:
 
 | key | does |
 |---|---|
-| `<leader>ma` | `lackey: do this` on the line, whatever its price |
+| `<leader>ma` | `lackey: do this` on the line, whatever its price; on a line with no offer it says `lackey: no offer on this line` and why |
 | `<leader>mo` | `lackey: Open the answer`: a long answer, beside your code |
 | `<leader>mq` | `lackey: Stop this task` |
 | `<leader>md` | `lackey: Show diff` |
@@ -157,8 +240,10 @@ answered: put it in your status line to see it there. `:checkhealth sorcerer` ch
 ## In VS Code
 
 Install the **Lackey** extension (`sorcererdev.lackey`) from the Extensions view (the
-Marketplace; VS Code forks such as VSCodium use Open VSX), or `code --install-extension
-sorcererdev.lackey`. It finds `lackey` from the `lackey.path` user setting, then your
+Marketplace), or `code --install-extension sorcererdev.lackey`. VS Code forks such as VSCodium
+and Cursor use Open VSX, which does not list Lackey yet: install the `.vsix` attached to the
+release (each release after 0.3.0) with `codium --install-extension lackey-<version>.vsix`, or build it
+from a clone (`npx @vscode/vsce package` in `editors/vscode/lackey`). It finds `lackey` from the `lackey.path` user setting, then your
 PATH, `~/.cargo/bin` and `~/.local/bin`; with none it offers to download the release of its own
 version (checked against its sha256), or says the install line above, once per version.
 
@@ -313,10 +398,10 @@ local day a row.
 | command | what it does |
 |---|---|
 | `lackey lsp` | the editor's server; your editor's client starts it |
-| `lackey FILE:LINE "instruction"` | one task from the terminal: its changes are written to the disk, what it said is printed when it ends, and its questions take their default (so a command is never allowed from the terminal). For trying the harness without an editor |
+| `lackey FILE:LINE "instruction"` | one task from the terminal: its changes are written to the disk (the agent is told so, and says so), what it said is printed when it ends, and its questions take their default (so a command is never allowed from the terminal). For trying the harness without an editor |
 | `lackey cost [--since YYYY-MM-DD] [--json]` | what it spent, a day a row: triage, answers, checks, tasks |
 | `lackey log [N]` | the last tasks: id, state, files, cost, place, title |
-| `lackey doctor` | whether it can run here: `claude` (tasks need it), the provider (questions and claims), Jev's key, the config, the ledger, the records, trust |
+| `lackey doctor` | whether it can run here: `claude` (tasks need it), the provider (questions and claims), Jev's key, the config, the ledger, the records, trust. Each row is `ok`, `warn` (lackey runs but does less: no provider answers no question, no `JEV_API_KEY` offers only empty bodies; get a free key at typesafe.ai) or `FAIL`; it exits 2 only on a `FAIL` |
 | `lackey trust [--revoke]` | trusts the project for the editor's server, as `scry trust` does |
 | `lackey mcp`, `lackey hook EVENT` | the helpers a task's agent runs; not for you |
 
@@ -326,7 +411,8 @@ Notes live in `.sorcerer/notes/`: a task's notes (`t3-why-is-it-slow.md`) and th
 you open (`r12.md`). It is the one place in `.sorcerer/` that is not fenced, so a note is a file
 like any other. Write in one and lackey works on it as it does on your code: what you type
 is triaged (a heading and *Give me the step by step files to update here.* is offered as a task),
-a question is researched when you save, and *do this* may write its answer into the note. You can
+a question is researched when you save (a heading typed with the paragraph under it is that
+paragraph's section, not a region of its own, so a question under `# Questions` is answered once), and *do this* may write its answer into the note. You can
 add notes of your own there too. Git sees the directory, so your notes can be committed with
 the code.
 

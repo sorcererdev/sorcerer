@@ -33,7 +33,7 @@ export function keysByName(keys: readonly Key[]): Record<string, string> {
 // The eight keys, the same as the Neovim plugin's `<leader>m` keys, by the titles the
 // lackey server gives its actions (crates/lackey/src/adapters/lsp/commands.rs).
 export const KEYS: readonly Key[] = [
-  { command: 'lackey.keys.do', key: 'ctrl+m a', title: 'lackey: do this', prefix: true, none: 'lackey: nothing to do on this line' },
+  { command: 'lackey.keys.do', key: 'ctrl+m a', title: 'lackey: do this', prefix: true, none: 'lackey: no offer on this line: it was not read as an instruction. Ask for something new (`# Add a median(prices) function …`) or label it (ctrl+m l)' },
   { command: 'lackey.keys.stop', key: 'ctrl+m q', title: 'lackey: Stop this task', none: 'lackey: no task is running' },
   { command: 'lackey.keys.showDiff', key: 'ctrl+m d', title: 'lackey: Show diff', none: 'lackey: no task changed this line' },
   { command: 'lackey.keys.undoTask', key: 'ctrl+m z', title: 'lackey: Undo this task', none: 'lackey: no task to undo on this line' },

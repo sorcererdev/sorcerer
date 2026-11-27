@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::domain::edits_text::FileEdit;
 use crate::domain::mediums::{Ask, MarkSeverity};
+use crate::domain::prompt::WritesLand;
 use crate::domain::status::TaskProgress;
 use crate::domain::task::TaskRecord;
 
@@ -33,6 +34,11 @@ pub enum Asked {
 /// What a medium needs of the editor. Every call is made from a task's threads; one that waits
 /// on the person (`ask`, `write_file`) blocks only the calling thread.
 pub trait Editor: Send + Sync {
+    /// Where `write_file` lands, so the agent is told: an editor's buffer unless the editor
+    /// says otherwise.
+    fn writes_land(&self) -> WritesLand {
+        WritesLand::InTheEditor
+    }
     /// A short message, once.
     fn notify(&self, text: &str);
     /// A line in the margin of a file (relative to the root), with hover text. A mark lives

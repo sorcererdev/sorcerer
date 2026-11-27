@@ -8,6 +8,7 @@ use similar::{DiffOp, DiffTag, TextDiff};
 use sorcerer_core::domain::unit::Span;
 
 use crate::domain::region::{Region, RegionPlace};
+use crate::domain::triage_context::is_heading;
 
 /// A hunk of more lines than this is not a region: too much for one question.
 pub const HUNK_LINES: u32 = 40;
@@ -154,7 +155,9 @@ fn runs_of(lines: &[u32]) -> Vec<Span> {
 /// The regions the changed lines of a file make, in file order, each once:
 ///
 /// 1. a comment block (comments on neighbouring lines, joined) touching a changed line;
-/// 2. in a file no language covers, a paragraph (lines between blank lines) touching one;
+/// 2. in a file no language covers, a paragraph (lines between blank lines) touching one; a
+///    paragraph that is only headings is left out when the change touches another paragraph,
+///    which reads it as its section;
 /// 3. a unit whose body does nothing yet, when its lines changed;
 /// 4. the rest of a changed run, outside comments, when it holds a letter and is at most 40
 ///    lines.
@@ -178,19 +181,29 @@ pub fn regions_of(file: &str, text: &str, changed: &[Span], shape: &Shape) -> Ve
         }
     };
     let blocks = comment_blocks(&shape.comments);
-    for run in changed
+    let runs: Vec<Span> = changed
         .iter()
         .filter(|run| run.start as usize <= lines.len())
-    {
+        .copied()
+        .collect();
+    for run in &runs {
         for block in blocks.iter().filter(|block| overlaps(block, run)) {
             add(*block, RegionPlace::Comment);
         }
-        if !shape.has_language {
-            for paragraph in paragraphs_touching(&lines, *run) {
-                add(paragraph, RegionPlace::Prose);
-            }
-            continue;
+    }
+    if !shape.has_language {
+        // over every run at once: a heading and the question under it are two runs, the
+        // blank line between them not being the person's typing
+        let paragraphs = runs
+            .iter()
+            .flat_map(|run| paragraphs_touching(&lines, *run))
+            .collect();
+        for paragraph in without_lone_headings(&lines, paragraphs) {
+            add(paragraph, RegionPlace::Prose);
         }
+    }
+    let code_runs: &[Span] = if shape.has_language { &runs } else { &[] };
+    for run in code_runs {
         let stubs = shape
             .units
             .iter()
@@ -279,6 +292,24 @@ fn paragraphs_touching(lines: &[&str], run: Span) -> Vec<Span> {
         line = end + 1;
     }
     found
+}
+
+/// The paragraphs less those made only of headings, when any other is left: the heading is
+/// then the section of the paragraph under it (Jev is told it), not a region of its own.
+///
+/// Example: a new note `# Questions`, a blank line, then `What does average return?` gives
+/// one region, the question, so it is answered once; a heading typed alone stays a region.
+fn without_lone_headings(lines: &[&str], paragraphs: Vec<Span>) -> Vec<Span> {
+    let only_headings = |paragraph: &Span| {
+        (paragraph.start..=paragraph.end).all(|line| is_heading(lines[line as usize - 1]))
+    };
+    if paragraphs.iter().all(only_headings) {
+        return paragraphs;
+    }
+    paragraphs
+        .into_iter()
+        .filter(|paragraph| !only_headings(paragraph))
+        .collect()
 }
 
 /// The smallest unit holding the span.
@@ -403,6 +434,21 @@ mod tests {
             (regions[0].place, regions[0].lines),
             (RegionPlace::Prose, span(1, 2))
         );
+    }
+
+    #[test]
+    fn a_heading_over_a_new_question_is_its_section_not_a_second_region() {
+        let text = "# Questions\n\nWhat does average return for one price?\n";
+        let regions = regions_of(
+            "mine.md",
+            text,
+            &[span(1, 1), span(3, 3)],
+            &Shape::default(),
+        );
+        let lines: Vec<Span> = regions.iter().map(|region| region.lines).collect();
+        assert_eq!(lines, [span(3, 3)]);
+        let alone = regions_of("mine.md", "# Ideas\n", &[span(1, 1)], &Shape::default());
+        assert_eq!(alone.len(), 1, "a heading typed alone is still a region");
     }
 
     #[test]

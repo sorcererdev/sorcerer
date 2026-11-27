@@ -78,8 +78,11 @@ connections answered at once; past that a connection is closed unanswered.
   that is a link onto `.claude/settings.json` is refused.
 - `budget.rs` (`spent_today`, `triage_spent_today`, `day_allows`, `triage_allows`),
   `estimate.rs` (`estimate_usd`: the median after five tasks), `log_text.rs` (`usd`,
-  `title_of`, `offer_title`, `done_text`, `task_mark_text`, `task_line`), `prompt.rs`
-  (`EDITOR_RULES`, `TaskPlace`, `task_prompt`).
+  `title_of`: the first sentence, ended only by `.`, `?` or `!` before a space or the end,
+  without the comment marks in front (`without_comment_marks`); `offer_title`, `done_text`,
+  `task_mark_text`, `task_line`), `prompt.rs` (`EDITOR_RULES`; `WritesLand` and `agent_rules`,
+  which adds `ON_THE_DISK` for a task from the terminal so its closing notify does not call the
+  change unsaved; `TaskPlace`, `task_prompt`).
 - `region.rs`: `Region` (id from the file and the squashed text, `RegionPlace`: comment,
   prose, stub, hunk), `found_in` (where its lines are now, nearest its old place; `None` once
   they changed), `region_id`.
@@ -88,8 +91,10 @@ connections answered at once; past that a connection is closed unanswered.
   once `layout_free` takes out whitespace, brackets, commas, semicolons and quote marks, a line
   of layout only; a deletion is the line after it unless every deleted line is still in the
   file), `regions_of` (comment
-  blocks touching a change; prose paragraphs where no language covers the file; stubs; the rest
-  as hunks of at most 40 lines with a letter in them).
+  blocks touching a change; prose paragraphs where no language covers the file, less one made
+  only of headings when the run touches another (`without_lone_headings`, with
+  `triage_context::is_heading`), so a new note's `# Questions` over a question is not a second
+  region answered twice; stubs; the rest as hunks of at most 40 lines with a letter in them).
 - `triage.rs`: `Kind`, `Triaged`, `KIND_CUT` (0.25: the kinds other than aside together) and
   `ADDRESSED_CUT` (0.12: "do you want it answered, checked or done now"), `free_kind` (a stub
   is an instruction), `questions_for` (the four questions, sharing the region's `text`,
@@ -135,7 +140,8 @@ notes' one writer: `write_task_note`, `write_answer`, each made new, never throu
 only in the project's own directory; `move_from` moves notes from the old `notes/` under the
 state directory, only when no link stands on its way (`is_inside_as_spelled`), which `LackeyServer::start` and `wiring::notes_dir` call; a new kind of note
 is one more method naming its file), `disk_editor.rs` (`DiskEditor`, the command line's
-editor), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
+editor; its `writes_land` is `OnTheDisk`, which `start_task` turns into the agent's rules with
+`agent_rules`; the `Editor` trait's default is `InTheEditor`), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
 `COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `git_session.rs`
 (`GitSession`: the merge base with `origin/HEAD`, `main` or `master` through core's
 `CodebaseView`, `changed_since` less what the `Fences` refuse, each file's `diff`, a file git
@@ -145,7 +151,9 @@ does not track as `added_file_diff`, until the budget), `json_region_store.rs`,
 server, below).
 
 **Command line** (`src/cli/`): `run_cli.rs` (`main`, `main_with`, `Wiring`), `arguments.rs`,
-`run.rs` (`lackey FILE:LINE "…"`), `mcp.rs`, `hook.rs`, `cost.rs`, `log.rs`, `doctor.rs`,
+`run.rs` (`lackey FILE:LINE "…"`), `mcp.rs`, `hook.rs`, `cost.rs`, `log.rs`, `doctor.rs`
+(`doctor_rows`, a `DoctorRow` each with a `Finding`: `Ok`, `Warn` or `Fail`; no provider and
+no `JEV_API_KEY` are `Warn`, printed `warn`, and only a `Fail` makes the exit code 2),
 `trust.rs`, `lsp.rs` (`lackey lsp`), `console.rs`, `format.rs`.
 
 ## A task, end to end
@@ -230,7 +238,7 @@ with `--strict-mcp-config`, `--allowedTools` (`ALLOWED_TOOLS`: the mediums, Read
 Agent, Task, TodoWrite, WebSearch, WebFetch; never a command tool, since a tool allowed there is
 never asked about; naming Grep and Glob also brings them back on macOS and Linux, where Claude
 Code otherwise searches through `Bash`), `--permission-prompt-tool mcp__lackey__permission`,
-`--append-system-prompt` (`EDITOR_RULES`). The environment drops
+`--append-system-prompt` (`agent_rules`: `EDITOR_RULES`, plus `ON_THE_DISK` from the terminal). The environment drops
 `CLAUDECODE`, sets `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and the three `LACKEY_*` variables
 (`way_back_env`). Every command the agent runs inherits them too, the token included: that is the
 agent's own trust (it may call the tools anyway), and the hooks need them there. The

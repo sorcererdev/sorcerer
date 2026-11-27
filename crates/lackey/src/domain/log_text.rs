@@ -20,25 +20,46 @@ pub fn seconds_text(seconds: f64) -> String {
     }
 }
 
-/// A task's title: the instruction's first sentence, its first letter lowered, cut at 48
-/// characters with `…`.
+/// A task's title: the instruction's first sentence, without the comment marks in front of
+/// it, its first letter lowered, cut at 48 characters with `…`. A sentence ends at `.`, `?` or
+/// `!` followed by a space or the end, so `0.0` does not end one.
 ///
 /// Example: `Cancelling less than two hours before the slot should be refused.` is
-/// `cancelling less than two hours before the slot…`.
+/// `cancelling less than two hours before the slot…`, and
+/// `# Make average return 0.0 for an empty list.` is
+/// `make average return 0.0 for an empty list`.
 pub fn title_of(instruction: &str) -> String {
     let squashed = instruction.split_whitespace().collect::<Vec<_>>().join(" ");
-    let first_sentence = squashed
-        .split_inclusive(['.', '?', '!'])
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(['.', '?', '!'])
-        .trim();
+    let first_sentence = first_sentence(without_comment_marks(&squashed));
     let lowered = lowered_first_letter(first_sentence);
     if lowered.chars().count() <= TITLE_CHARACTERS {
         return lowered;
     }
     let kept: String = lowered.chars().take(TITLE_CHARACTERS - 1).collect();
     format!("{}…", kept.trim_end())
+}
+
+/// The text after the punctuation a comment starts with (`#`, `//`, `--`, `/*`), and with the
+/// marks that close one (`*/`, `-->`) taken off its end. Quotes, backticks and brackets stay:
+/// they can start the instruction itself.
+fn without_comment_marks(text: &str) -> &str {
+    let is_mark = |c: char| c.is_ascii_punctuation() && !"`'\"([{<".contains(c);
+    text.trim_start_matches(is_mark)
+        .trim_end_matches(|c: char| c.is_ascii_punctuation() && "*/->".contains(c))
+        .trim()
+}
+
+/// The first sentence, without its closing `.`, `?` or `!`.
+fn first_sentence(text: &str) -> &str {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let end = chars
+        .windows(2)
+        .find(|pair| ".?!".contains(pair[0].1) && pair[1].1 == ' ')
+        .map_or(text.len(), |pair| pair[1].0);
+    text[..end]
+        .trim_end()
+        .trim_end_matches(['.', '?', '!'])
+        .trim()
 }
 
 fn lowered_first_letter(text: &str) -> String {
@@ -177,6 +198,16 @@ mod tests {
         );
         let long = title_of("Cancelling less than two hours before the slot should be refused.");
         assert_eq!(long, "cancelling less than two hours before the slot…");
+    }
+
+    #[test]
+    fn a_title_drops_the_comment_mark_and_keeps_a_number_whole() {
+        assert_eq!(
+            title_of("# Make average return 0.0 for an empty list. Then test it."),
+            "make average return 0.0 for an empty list"
+        );
+        assert_eq!(title_of("// Refuse late ones */"), "refuse late ones");
+        assert_eq!(title_of("`total` should round?"), "`total` should round");
     }
 
     #[test]
