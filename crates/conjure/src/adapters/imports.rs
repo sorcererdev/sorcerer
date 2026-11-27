@@ -15,7 +15,7 @@ use tree_sitter::{QueryCursor, StreamingIterator};
 
 use crate::domain::language_tables::{ImportsTable, imports_table};
 use crate::domain::situation::{
-    RELATED_FILES, RELATED_FILES_BESIDE, RELATED_FILES_BESIDE_IN_ALL, RELATED_LINES,
+    RELATED_FILES, RELATED_FILES_BESIDE, RELATED_FILES_BESIDE_IN_ALL, RELATED_LINES, RelatedFile,
 };
 use sorcerer_core::domain::templates::fill;
 
@@ -48,7 +48,14 @@ pub fn related_files(
     let with_nearby = with_nearby_files(view, lang, file, &imported, allowed)?;
     let files = with_nearby
         .into_iter()
-        .map(|path| Ok((path.clone(), first_lines(&view.text(&path)?))))
+        .map(|path| {
+            let text = view.text(&path)?;
+            Ok(RelatedFile {
+                lines_in_all: text.lines().count(),
+                text: first_lines(&text),
+                path,
+            })
+        })
         .collect::<Result<Vec<_>>>()?;
     Ok(RelatedFiles { files, left_out })
 }

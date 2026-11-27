@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ExecuteCommandRequest } from 'vscode-languageclient/node';
 import { folderHere, vscodeAsker } from './asker';
-import { endText, stopsInFile } from './holes';
+import { endText, holesOnEndLine, stopsInFile } from './holes';
 import { startHoleSession } from './holeSession';
 import { type ApplyReply, type Asker, type Given, newFlow, type Server, type Stop } from './newFlow';
 import { registerFix } from './fixCommand';
@@ -67,7 +67,7 @@ function serverOf(client: LanguageClient): Server {
 // show the first hole:
 // 1. with stops, `spellbook.holeSession` on and `spellbook.conjureHoles` off, the first hole's
 //    file (once shown) becomes a hole session;
-// 2. otherwise, or when the session could not start, the end line is said;
+// 2. the end line is said always; with a session it counts no holes (the session says them);
 // 3. with `spellbook.conjureHoles` on, conjure fills the first hole.
 // The end line is `ended(written, holes)`: a fix says its own.
 export async function finish(folder: vscode.WorkspaceFolder, reply: ApplyReply, asker: Asker,
@@ -76,10 +76,8 @@ export async function finish(folder: vscode.WorkspaceFolder, reply: ApplyReply, 
   const conjureHoles = settings.get<boolean>('conjureHoles', false);
   const sessionWanted = settings.get<boolean>('holeSession', true) && !conjureHoles;
   const started = sessionWanted && (reply.stops ?? []).length > 0 && await holeSessionStarted(folder, reply.stops ?? [], reply.changed ?? []);
-  if (!started) {
-    const holes = reply.holes.filter(hole => hole.source === 'placeholder').length;
-    vscode.window.setStatusBarMessage(ended(reply.written.length, holes), 10_000);
-  }
+  const holes = reply.holes.filter(hole => hole.source === 'placeholder').length;
+  vscode.window.setStatusBarMessage(ended(reply.written.length, holesOnEndLine(started, holes)), 10_000);
   if (reply.first && conjureHoles) await conjureFirst(folder, reply.first, asker);
 }
 

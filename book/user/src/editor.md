@@ -29,7 +29,8 @@ You edit `cancel.rs` and save.
   so the unit is again what you committed, and the finding is resolved at the next save, with
   no model call. The same holds when the code comes back another way, such as `git checkout --
   .` with no save: the finding is resolved when the file is next opened (or saved, or shown
-  after a pass), and the next `scry` run resolves it too. Redo the change and the next save
+  after a pass), or, when the file is open, as soon as the editor reloads it from disk; the
+  next `scry` run resolves it too. Redo the change and the next save
   reviews it again, so the finding returns.
 
 A finding shows only after it passed the nitpick screen and, where it makes a claim that can

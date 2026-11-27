@@ -377,7 +377,8 @@ sees the placeholders gone on the next save. The editor side is sorcerer.nvim's
 float in `spellbook_plan.lua`, apply, then conjure's `conjure.conjure [uri, line]` on the first
 hole when `conjure_holes` is set); it knows only the replies above. After the apply, `finish`
 says the end line (`M.end_text`: `spellbook: wrote …`, or after a fix `spellbook: fixed … ·
-changed N files`) whether or not a session starts, then hands the stops of the opened file to
+changed N files`, naming the changed files no window shows, from `not_shown`, as `· x.py not
+shown, unsaved`) whether or not a session starts, then hands the stops of the opened file to
 `spellbook_holes.lua` (`M.start`), unless the reply's `holes` has no placeholder to fill: one extmark a stop
 (UTF-16 converted to bytes, gravity set so typed text stays inside), buffer-local `<Tab>`/`<S-Tab>`
 in insert and select mode, each stop selected in select mode the way Neovim's `vim/snippet.lua`
@@ -446,7 +447,10 @@ action, `fix.ts` `preferredFix`). `fixHere` refuses a dirty buffer (`dirtyText`)
 `fix ... · 2 files changed` title. The apply is `client.sendRequest(ExecuteCommandRequest)`, which
 does not stop the language client answering the server's `workspace/applyEdit` meanwhile: that
 request is what the apply waits for. `finish` then says `fixedText` (`fix.ts`) and starts the hole
-session even in a changed file, which is unsaved by then.
+session even in a changed file, which is unsaved by then. The end line is said whether or not a
+session starts; with one it counts no holes (`holesOnEndLine`, `holes.ts`), since the session's
+line says them. `fixedText` names the changed files no tab holds (`notShown` in `fix.ts`, over
+`inATab` in `fixCommand.ts`, which reads `vscode.window.tabGroups`).
 
 The fix actions are `kind = "quickfix"` with `isPreferred` on the first (`fix_action` in
 `adapters/lsp/code_actions.rs`); conjure's are `refactor.rewrite`. VS Code orders the menu by that.

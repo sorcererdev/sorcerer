@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { LanguageClient } from 'vscode-languageclient/node';
 import { folderHere } from './asker';
-import { dirtyText, type FixAction, fixArgument, fixedText, preferredFix } from './fix';
+import { dirtyText, type FixAction, fixArgument, fixedText, notShown, preferredFix } from './fix';
 import { finish, flowIn, type AskerFor } from './newCommand';
 
 // registerFix makes the two commands of a finding's fix: `spellbook.fix` (the command of the
@@ -35,7 +35,9 @@ async function fixHere(clientFor: (folder: vscode.WorkspaceFolder) => LanguageCl
   const version = document?.version ?? 0;
   const reply = await flowIn(clientFor, folder, asker, { generator, inputs, missing, fix: { ...fix, version } });
   if (!reply) return;
-  await finish(folder, reply, asker, (written, holes) => fixedText(fix.rule, fix.file, (reply.changed ?? []).length, written, holes));
+  const changed = reply.changed ?? [];
+  await finish(folder, reply, asker, (written, holes) =>
+    fixedText(fix.rule, fix.file, changed.length, written, holes, notShown(changed, path => inATab(folder, path))));
 }
 
 // fixOnLine asks the servers for the code actions on the cursor's line, as the lightbulb does,
@@ -59,4 +61,11 @@ function asFixAction(item: vscode.Command | vscode.CodeAction): FixAction {
   const action = item as vscode.CodeAction;
   if (typeof item.command === 'object' || 'kind' in item) return { title: item.title, isPreferred: action.isPreferred, command: action.command };
   return { title: item.title, command: item as vscode.Command };
+}
+
+// inATab says whether a tab in any group shows the file (a path from the folder's root).
+function inATab(folder: vscode.WorkspaceFolder, path: string): boolean {
+  const uri = vscode.Uri.joinPath(folder.uri, ...path.split('/')).toString();
+  return vscode.window.tabGroups.all.some(group => group.tabs.some(tab =>
+    tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri));
 }

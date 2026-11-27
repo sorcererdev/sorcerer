@@ -25,6 +25,7 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::path_of;
 
+use super::changes::{LandedFile, names_told_apart};
 use super::marks::{Mark, MarkKind};
 use super::{Server, lock, project_file};
 use crate::adapters::editor_view::EditorView;
@@ -156,12 +157,13 @@ impl Server {
         let Some(shown) = shown.as_ref().filter(|s| s.change.id == mark.change_id) else {
             return Vec::new();
         };
-        shown
-            .change
-            .files
+        let files = &shown.change.files;
+        let paths: Vec<String> = files.iter().map(LandedFile::relative_text).collect();
+        files
             .iter()
-            .filter(|file| file.editor_path != mark.path)
-            .map(|file| (file.relative_text(), file.name()))
+            .zip(names_told_apart(&paths))
+            .filter(|(file, _)| file.editor_path != mark.path)
+            .map(|(file, name)| (file.relative_text(), name))
             .collect()
     }
 

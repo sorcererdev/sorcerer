@@ -49,7 +49,8 @@ Conjure is in five layers (see [Architecture](architecture.md)).
 - `language_tables.rs` (its path templates filled with core's `templates::fill`, `{= name =}`): `TestTable`, `ImportsTable`,
   `test_table`, `imports_table`, `tests_path`: the language file's `[test]` and `[imports]`,
   read strictly from `Language.rest`.
-- `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `situation_text`,
+- `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `RelatedFile` (path, first
+  lines, `lines_in_all`; `related_heading` says when a file is cut short), `situation_text`,
   `session_text`, and the caps (`RELATED_FILES` 8, `RELATED_FILES_BESIDE` 4 and `RELATED_FILES_BESIDE_IN_ALL` 6, `RELATED_LINES` 120, `SESSION_LINES` 300,
   `NEW_FILE_NAMES` 20).
 - `scry_notes.rs`: conjure's own reading of scry's findings file: `StoredFinding`,
@@ -179,7 +180,8 @@ person must hear goes through `Client::say`, and an error answers only a malform
    over the same view, and runs `conjure_change`. A refusal is its sentence; `NotAnswered` is
    also recorded `failed` (`failed_record`).
 3. **Landed.** `land`: no files is shown at once as no change and recorded `no-change`. The step
-   ends with one `window/showMessage` (Info) from `step_text` in `changes.rs` (`changed_text`,
+   ends with one `window/showMessage` (Info) from `step_text` in `changes.rs` (`changed_text`, naming each file by `names_told_apart`, which
+the mark's *Show `<file>`* titles use too (`other_files` in `commands.rs`),
    `no_change_text`), sent for no change and, in `confirm_landed`, for a change that landed whole;
    refusals and partial landings send their own Warning instead. Otherwise
    `moved_on` refuses to send when a file the change edits moved on since it was read (an open

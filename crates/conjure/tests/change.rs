@@ -8,7 +8,7 @@ use conjure::adapters::scry_files::read_findings;
 use conjure::domain::change_prompt::CHANGE_SYSTEM;
 use conjure::domain::rules::{RULES_CAP, rules_text};
 use conjure::domain::scry_notes::{FindingsRead, ScryNote, StoredFinding, notes_near};
-use conjure::domain::situation::{Situation, situation_text};
+use conjure::domain::situation::{RelatedFile, Situation, situation_text};
 use sorcerer_core::domain::unit::Span;
 use support::*;
 
@@ -43,7 +43,11 @@ fn fixed_situation() -> Situation {
         module: "class Cancel:\n    def handle(self):\n        pass\n".into(),
         test_file: Some("src/cancel__test.py".into()),
         test_text: Some("def test_cancel():\n    assert True\n".into()),
-        related: vec![("src/models.py".into(), "class Booking:\n    pass\n".into())],
+        related: vec![RelatedFile {
+            path: "src/models.py".into(),
+            text: "class Booking:\n    pass\n".into(),
+            lines_in_all: 2,
+        }],
         session: "diff --git a/x b/x\n+changed\n".into(),
         finding_asked: Some(note("handle returns before refunding", false)),
         notes: vec![note("a note", false), note("an old note", true)],
@@ -63,6 +67,27 @@ fn the_prompt_is_as_recorded() {
     }
     let golden = std::fs::read_to_string(&path).unwrap();
     assert_eq!(recorded, golden, "UPDATE_GOLDEN=1 rewrites the golden file");
+}
+
+/// conjure-walk2-fixes: a related file cut at 120 lines gave no sign of it, and a writer
+/// rewrote such a file "in full" from the part it saw. The heading says when only a part is
+/// shown.
+#[test]
+fn a_related_file_cut_short_says_how_much_of_it_is_shown() {
+    let s = Situation {
+        related: vec![RelatedFile {
+            path: "src/slot.rs".into(),
+            text: "x\n".repeat(120),
+            lines_in_all: 340,
+        }],
+        ..fixed_situation()
+    };
+    let text = situation_text(&s);
+    assert!(
+        text.contains("Related file src/slot.rs (only its first 120 of 340 lines are shown):"),
+        "{text}"
+    );
+    assert!(situation_text(&fixed_situation()).contains("Related file src/models.py:\n"));
 }
 
 #[test]

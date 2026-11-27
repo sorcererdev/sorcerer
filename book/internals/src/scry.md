@@ -602,7 +602,10 @@ language is ignored without a word.
 
 **Publishing.** One thread, started with the server (`start_publisher`), publishes in the
 order it is asked, so the main loop never waits on a parse or a grammar build and a close
-always lands after the open before it. `Publish::File(path)` is sent at an open and at a save,
+always lands after the open before it. `Publish::File(path)` is sent at an open, at a save, and at a change that leaves the buffer
+as the file on disk (`ScryServer::changed`, compared with `sorcerer_lsp::line_edits::same_text`:
+the editor reloaded a file put back by git, which Neovim says with a change only, or an undo
+back to the saved text; scry tracks text for this alone),
 `Publish::Clear(path)` at a close (an empty list), `Publish::AllOpen` for every open document,
 and `Publish::After(f)` runs `f` once everything asked before it is published. For a file that is open and the project's,
 `Server::diagnostics_for` reads the store afresh (`JsonFindingStore::at`, so a read creates

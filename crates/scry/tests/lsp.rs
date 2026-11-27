@@ -207,6 +207,18 @@ impl Served {
         self.document("textDocument/didClose", path);
     }
 
+    /// The editor's buffer now holds TEXT, sent whole, as Neovim sends a buffer it reloaded
+    /// from disk.
+    fn change(&self, path: &Path, version: i32, text: &str) {
+        self.notify(
+            "textDocument/didChange",
+            json!({
+                "textDocument": { "uri": uri_of(path).as_str(), "version": version },
+                "contentChanges": [{ "text": text }]
+            }),
+        );
+    }
+
     fn document(&self, method: &str, path: &Path) {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         self.notify(
@@ -2153,6 +2165,57 @@ fn a_unit_put_back_outside_the_editor_clears_its_finding_when_the_file_is_opened
     );
     assert_eq!(s.asks(), 1);
     s.stop();
+}
+
+/// A file put back by git while the editor has it open: the editor reloads the buffer and says
+/// so with a change only (no open, no save). The buffer matching the disk again is when the
+/// finding is settled, with no review call.
+#[test]
+fn a_unit_put_back_while_its_file_is_open_clears_its_finding_at_the_reload() {
+    let dir = changed_project();
+    let s = served_with(dir.path(), bug_reviewer(), with_progress());
+    reviewed_and_settled(&s, &orders(&dir));
+    // put back as HEAD has it, by git, with no save; the editor reloads the open buffer
+    write(dir.path(), "orders.py", ORDERS);
+    s.change(&orders(&dir), 2, ORDERS);
+    assert!(
+        s.diagnostics_until(&orders(&dir), WAIT, <[Diagnostic]>::is_empty)
+            .is_some(),
+        "the stale finding stayed after the reload"
+    );
+    let project = Project::open(dir.path()).unwrap();
+    assert_eq!(
+        support::read_store(&project).findings[0].status,
+        scry::domain::finding::Status::Resolved
+    );
+    assert_eq!(s.asks(), 1);
+    s.stop();
+}
+
+/// Typing that leaves the buffer unlike the file on disk publishes nothing: what scry shows is
+/// placed on the saved text, so it waits for the save.
+#[test]
+fn typing_that_differs_from_the_disk_publishes_nothing() {
+    let dir = changed_project();
+    let s = served_with(dir.path(), bug_reviewer(), with_progress());
+    reviewed_and_settled(&s, &orders(&dir));
+    s.change(&orders(&dir), 2, "x = 1\n");
+    assert!(
+        s.next_diagnostics(&orders(&dir), Duration::from_millis(500))
+            .is_none(),
+        "a publish for an unsaved buffer"
+    );
+    s.stop();
+}
+
+/// FILE opened and saved (on a server set up `with_progress`), its pass ended with its one finding shown, and every message the
+/// pass sent taken, so the test sees only what comes after.
+fn reviewed_and_settled(s: &Served, file: &Path) {
+    s.open(file);
+    s.save(file);
+    assert!(s.progress("end", WAIT).is_some());
+    assert!(s.diagnostics_until(file, WAIT, |d| d.len() == 1).is_some());
+    s.all_within(QUIET);
 }
 
 // ---- a pass the per-pass budget cut short ----

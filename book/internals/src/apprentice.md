@@ -137,7 +137,9 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    becomes the status line (`activity_of`, `status_text`, `Editor::progress`, through
    `show_activity`) and a journal line, and a medium's call marks the turn as spoken. A command
    the person was asked about is shown by its verdict (`LiveTask::take_command_verdict`):
-   claude's stream may show the call after the answer. A message's `Used` is kept on the
+   claude's stream may show the call after the answer. When it shows the call first, the answer
+   that follows is not kept (`Verdicts` in `task_deps.rs` counts the calls shown before their
+   answer), so a later run of the same command is never shown by an old verdict. A message's `Used` is kept on the
    `LiveTask`; the status line's amount is `LiveTask::cost_seen`. `Finished` closes the agent's input;
    when the turn used no medium its final text is posted (`notify` when it is one line of at
    most 200 characters, else `note`).

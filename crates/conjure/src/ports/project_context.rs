@@ -5,12 +5,13 @@
 use std::path::{Path, PathBuf};
 
 use crate::domain::scry_notes::FindingsRead;
+use crate::domain::situation::RelatedFile;
 
 /// The files a file imports (with the files beside them), and the imports left out because
 /// models may not read them.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct RelatedFiles {
-    pub files: Vec<(PathBuf, String)>,
+    pub files: Vec<RelatedFile>,
     pub left_out: Vec<PathBuf>,
 }
 

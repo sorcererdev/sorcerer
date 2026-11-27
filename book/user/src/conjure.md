@@ -124,6 +124,8 @@ VS Code's Problems panel. One change is marked at a time.
   situation the writer read, its reply as it came, and what the code said about the function
   before.
 - *conjure: Show `<file>`*, one for each other changed file, opens it with the change selected.
+  Two changed files that share a name are told by their paths (`Show src/ports/mod.rs`, `Show
+  src/ports/walk_in_log/mod.rs`), as in the step's message.
 
 **When a mark goes away.** Saving a changed file keeps the change: that file's mark goes, and the
 other files keep theirs, now ending ` · kept: a file was saved, so no Undo`, until each is saved
@@ -204,7 +206,9 @@ of changes; `conjure log` shows what the editor recorded.
 For the function at the line, in this order, each part cut as shown:
 
 - the whole file, and its test file, or where its tests would go (`[test]` in the language file);
-- the files it imports, at most 8, their first 120 lines each (`[imports]` and `imports.scm`);
+- the files it imports, at most 8, their first 120 lines each (`[imports]` and `imports.scm`); a
+  longer file's heading says so (`only its first 120 of 340 lines are shown`), so the writer does
+  not take the part for the whole;
 - near each imported file, the files in its folder that use a name it defines, then the file one
   folder up that names its folder (at most 4 for one import, 6 in all, 120 lines each): a port's
   adapters and contract test come with the port, and so does the file that declares the ports
@@ -303,7 +307,8 @@ conjure: today's budget ($3.00) is spent. Conjuring resumes tomorrow; "conjure c
 - call a model in a test: its tests and its eval replay recorded replies.
 
 `conjure doctor` prints a row for git, the provider and what its aliases mean, your settings, the
-languages (and whether each has its test and import tables), scry's findings file, the ledger,
+languages (and whether each has its test and import tables), scry's findings file, whether changes
+are checked against spellbook's rules, the ledger,
 the records and whether the editor's server needs the project trusted. `conjure trust` puts the
 project on the same trust list as `scry trust`, for a project whose config runs code or moves
 your key.
