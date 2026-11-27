@@ -76,7 +76,7 @@ impl ClaudeAgent {
     /// one) and the task's text goes on standard input, so the line stays short.
     pub fn args(&self, request: &TaskRequest) -> Vec<String> {
         let settings = self.settings().to_string();
-        let mcp = self.mcp_config(request).to_string();
+        let mcp = self.mcp_config().to_string();
         let permission_tool = format!("{TOOL_PREFIX}{PERMISSION_TOOL}");
         [
             "-p",
@@ -159,14 +159,16 @@ impl ClaudeAgent {
         })
     }
 
-    /// One stdio MCP server, `apprentice mcp`, with the way back in its environment.
-    fn mcp_config(&self, request: &TaskRequest) -> Value {
+    /// One stdio MCP server, `apprentice mcp`. The way back (port, token, task) is not in it:
+    /// this is a command-line argument, which any local user can read (`ps`,
+    /// `/proc/<pid>/cmdline`), so the server finds it in the environment it inherits from
+    /// `claude`, which `command` sets.
+    fn mcp_config(&self) -> Value {
         json!({
             "mcpServers": {
                 SERVER_NAME: {
                     "command": forward_slashes(&self.me),
                     "args": ["mcp"],
-                    "env": way_back_env(request).into_iter().collect::<serde_json::Map<String, Value>>(),
                 }
             }
         })
@@ -187,22 +189,20 @@ impl ClaudeAgent {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .envs(self.envs.iter().map(|(name, value)| (name, value)))
-            .envs(
-                way_back_env(request)
-                    .into_iter()
-                    .map(|(name, value)| (name, value.as_str().unwrap_or_default().to_string())),
-            )
+            .envs(way_back_env(request))
             .env_remove("CLAUDECODE")
             .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1");
         command
     }
 }
 
-fn way_back_env(request: &TaskRequest) -> Vec<(String, Value)> {
-    vec![
-        (PORT_VAR.into(), json!(request.way_back.port.to_string())),
-        (TOKEN_VAR.into(), json!(request.way_back.token)),
-        (TASK_VAR.into(), json!(request.task)),
+/// The way back, for `claude`'s environment; its MCP server and hooks inherit it. Every command
+/// the agent runs inherits it too: the same trust as the agent, which may call the tools anyway.
+fn way_back_env(request: &TaskRequest) -> [(&'static str, String); 3] {
+    [
+        (PORT_VAR, request.way_back.port.to_string()),
+        (TOKEN_VAR, request.way_back.token.clone()),
+        (TASK_VAR, request.task.clone()),
     ]
 }
 
@@ -367,10 +367,9 @@ mod tests {
         );
         let mcp: Value = serde_json::from_str(&at("--mcp-config")).unwrap();
         assert_eq!(mcp["mcpServers"]["apprentice"]["args"], json!(["mcp"]));
-        assert_eq!(
-            mcp["mcpServers"]["apprentice"]["env"]["APPRENTICE_TASK"],
-            "t1"
-        );
+        assert_eq!(mcp["mcpServers"]["apprentice"]["env"], Value::Null);
+        let token = request(root.path()).way_back.token;
+        assert!(!args.iter().any(|arg| arg.contains(&token)), "{args:?}");
         let settings: Value = serde_json::from_str(&at("--settings")).unwrap();
         assert_eq!(
             settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"],

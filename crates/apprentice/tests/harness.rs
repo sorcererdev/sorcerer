@@ -39,7 +39,7 @@ impl Fake {
     }
 
     fn envs(&self) -> Vec<(String, String)> {
-        ["SCRIPT:script.json", "ARGS:args", "STDIN:stdin", "LOG:log"]
+        ["SCRIPT:script.json", "ARGS:args", "STDIN:stdin", "LOG:log", "TOKEN:token"]
             .iter()
             .map(|pair| {
                 let (var, file) = pair.split_once(':').unwrap();
@@ -189,6 +189,12 @@ fn the_flags_and_the_first_message_are_the_designs() {
         "AskUserQuestion",
     ] {
         assert!(deny.contains(&json!(tool)), "{tool}");
+    }
+    // the way back is in the child's environment, never on its command line (world-readable)
+    let token = std::fs::read_to_string(fake.file("token")).unwrap();
+    assert_eq!(token.len(), 32, "{token}");
+    for arg in &args {
+        assert!(!arg.contains(&token), "the token is in {arg}");
     }
     let stdin: Value =
         serde_json::from_str(&std::fs::read_to_string(fake.file("stdin")).unwrap()).unwrap();

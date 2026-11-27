@@ -20,6 +20,10 @@ use serde_json::{Value, json};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     write_to_env_file("FAKE_APPRENTICE_ARGS", &args.join("\n"));
+    write_to_env_file(
+        "FAKE_APPRENTICE_TOKEN",
+        &std::env::var("APPRENTICE_TOKEN").unwrap_or_default(),
+    );
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let mut first = String::new();

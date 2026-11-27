@@ -152,13 +152,17 @@ which Claude Code applies to Read, Grep, Glob, `@`-mentions and the file command
 (`cat .env`, `head`, `cp .env x`); `ask` is `ASKED_TOOLS`, `Bash`, `PowerShell` and `Monitor`,
 so every command reaches the permission tool, even the ones Claude Code otherwise runs unasked
 as read-only; `blockReadsOutsideWorkingDirectories` makes the file tools refuse paths outside
-the project), `--mcp-config` (one stdio server, `apprentice mcp`, with the way back in its `env`)
+the project), `--mcp-config` (one stdio server, `apprentice mcp`; the way back is not in it,
+since an argument is readable by any local user through `ps` or `/proc/<pid>/cmdline`: the server
+inherits it from `claude`'s environment)
 with `--strict-mcp-config`, `--allowedTools` (`ALLOWED_TOOLS`: the mediums, Read, Grep, Glob,
 Agent, Task, TodoWrite, WebSearch, WebFetch; never a command tool, since a tool allowed there is
 never asked about; naming Grep and Glob also brings them back on macOS and Linux, where Claude
 Code otherwise searches through `Bash`), `--permission-prompt-tool mcp__apprentice__permission`,
 `--append-system-prompt` (`EDITOR_RULES`). The environment drops
-`CLAUDECODE`, sets `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and the three `APPRENTICE_*` variables. The
+`CLAUDECODE`, sets `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and the three `APPRENTICE_*` variables
+(`way_back_env`). Every command the agent runs inherits them too, the token included: that is the
+agent's own trust (it may call the tools anyway), and the hooks need them there. The
 child starts with core's `platform::process::start` (a process group or a job object, so a stop
 ends everything it started). The task goes on standard input as one line,
 `{"type":"user","message":{"role":"user","content":…}}` (`user_message_line`); a reader thread
@@ -207,10 +211,12 @@ permissions. `a_command_naming_a_fenced_path_is_refused_even_when_allowed_always
 (harness) and `allowing_a_search_always_does_not_allow_a_recursive_one` and
 `a_version_1_grant_of_a_bare_program_no_longer_lets_it_run` (`run_task.rs`) pin the exact lines.
 
-**Still to confirm against the real `claude`** (the tests run the fake): a `PostToolUse` hook
-given inline through `--settings` under `-p`. Seen working: the stdin framing of
-`--input-format stream-json`, the permission tool's input (`tool_name`, `input`) and its answer
-obeyed, the MCP tools, the cost and session in `result`.
+**Seen working against the real `claude`** (2.1.331, haiku; the tests run the fake): the stdin
+framing of `--input-format stream-json`, the permission tool's input (`tool_name`, `input`) and
+its answer obeyed, the MCP tools, the cost and session in `result`; and, on 2026-11-26, the
+`PostToolUse` hook given inline through `--settings` under `-p`: a line added to a file the task
+had written reached the agent after its next tool call (the journal's *edits fed*), and the MCP
+server found the way back in the environment it inherited, with no `env` in `--mcp-config`.
 
 ## The server
 
