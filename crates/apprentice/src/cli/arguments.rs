@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "apprentice",
     version,
-    about = "A coding agent whose whole interface is your editor (prototype)",
+    about = "A coding agent whose whole interface is your editor",
     args_conflicts_with_subcommands = true
 )]
 pub(super) struct Cli {

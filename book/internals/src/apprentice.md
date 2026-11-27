@@ -1,9 +1,11 @@
 # Apprentice
 
 `crates/apprentice`: a coding agent whose whole interface is the editor. Package
-`sorcerer-apprentice` (`publish = false`, `dist = false`: not on crates.io and not in a release
-until the subscription question is asked), library `apprentice`, binary `apprentice`, and the
-test program `apprentice-fake-claude`. The design is
+`sorcerer-apprentice` (on crates.io and in the release, like scry, conjure and spellbook), library
+`apprentice`, binary `apprentice`, and the test program `apprentice-fake-claude`. The test program
+has `required-features = ["fake-claude"]`, which only the crate's dev-dependency on itself turns
+on: `cargo test` and `cargo build --features fake-claude` build it, while `cargo install` builds
+`apprentice` alone, and so does the release (`[package.metadata.dist.binaries]` lists only it). The design is
 `apprentice-prototype-design-2026-11-26.md` in the planning notes.
 
 ## The shape
@@ -442,8 +444,8 @@ server's `apprentice.*` commands, which the language client registers. `binary.t
 `download.ts`, `offer.ts`, `working.ts` and `inline.ts` are byte-identical copies of scry's and
 conjure's (CI `diff`s them; `Working` also shows a `$(sync~spin)` status bar item from the pure
 `statusText` while anything is drawn, and leaves the grey text still, since cycling every
-editor's decorations ten times a second costs more than it shows); with no binary the offer finds no release (a 404) and says the
-`cargo install` line once per version. Permission questions are the language client's own
+editor's decorations ten times a second costs more than it shows); with no binary it offers the release of its own version, as scry's
+does, or says the installer line (`INSTALL_LINE`) once per version. Permission questions are the language client's own
 `window/showMessageRequest` handler, a notification with buttons; a closed one answers `null`,
 which the server reads as `Answer::Closed`, a deny.
 
@@ -482,7 +484,7 @@ measured the context strategies against live Jev; the corpus's `README.md` says 
 
 The VS Code extension (`editors/vscode/apprentice/`): `npm run test:unit` covers the pure
 files (`keys`, `marks`, `ghost`, `diff`, the copies, and `package.test.ts`: the manifest, the
-chords, the version, the publish matrix). `npm run test:e2e` (`test/e2e/run.ts`) makes a git
+chords, the version). `npm run test:e2e` (`test/e2e/run.ts`) makes a git
 project with `cart.py`, its config naming `apprentice-fake-claude` as the `claude` runner,
 trusts it in a config directory of the run's own, and launches VS Code with the real `apprentice
 lsp`. `test/e2e/apprentice.test.ts` writes the fake's script (`FAKE_APPRENTICE_SCRIPT`) before

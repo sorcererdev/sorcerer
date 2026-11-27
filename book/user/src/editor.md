@@ -110,8 +110,10 @@ one key to `false`, to bind none; a key you already mapped is left alone and lis
 (`~/.local/bin`); started from a launcher it often cannot, so give `cmd = { "/full/path/to/scry",
 "lsp" }`.
 
-Apprentice (a prototype) is off too (`apprentice = { enabled = true }`); build it with `cargo
-install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice`. Its keys are
+Apprentice is off too (`apprentice = { enabled = true }`); install it with
+`sorcerer-apprentice-installer` (the same line with `apprentice` for `scry`) or `cargo install
+sorcerer-apprentice`. It runs Claude Code (`claude -p`) on your own subscription, so `claude` must
+be installed and signed in. Its keys are
 `<leader>ma` (do this), `mq` (stop; q for quit, since `ms` is spellbook sync), `md` (show diff), `mz` (undo the task), `mj` (journal), `mx`
 (dismiss) and `ml` (label); see [Apprentice](apprentice.md#in-neovim).
 
@@ -131,8 +133,10 @@ the grey `⟳ scry: reviewing…` after a unit's first line is the extension's (
 theme's `editorCodeLens.foreground` colour, italic, so a theme can change it), with a spinning
 `$(sync~spin)` in the status bar while it is drawn.
 
-**Apprentice** (a prototype) is not on the Marketplace: install its `.vsix` and build the
-program with `cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice`.
+**Apprentice** (`sorcererdev.apprentice`) installs the same way, from the Marketplace (Open VSX
+for forks), and so does its program (`sorcerer-apprentice-installer`, or `cargo install
+sorcerer-apprentice`); it runs Claude Code (`claude -p`) on your own subscription, so `claude`
+must be installed and signed in.
 Its keys are `ctrl+m a` (do this), `q` (stop), `d` (show diff), `z` (undo the task), `j`
 (journal), `x` (dismiss) and `l` (label); see [Apprentice](apprentice.md#in-vs-code).
 

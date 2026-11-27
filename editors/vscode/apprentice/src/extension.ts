@@ -14,9 +14,10 @@ import { BeforeTexts } from './showDiff';
 import { registerTaskMarks } from './taskMarks';
 import { parseWorking, spelledAs, type WorkingUnit } from './working';
 
-// apprentice is a prototype: no release carries it yet (ruling Q1, 2026-11-26), so it is built
-// from source; the offer below finds no release and says this line once per version
-const INSTALL_LINE = 'cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice';
+const INSTALL_LINE =
+  process.platform === 'win32'
+    ? 'powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.ps1 | iex"'
+    : "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.sh | sh";
 
 // the sorcerer/… notifications this extension draws; the server sends them only to an editor
 // that lists them, and falls back to what every editor shows otherwise
@@ -231,15 +232,15 @@ function offerText(version: string, bytes: number): string {
 }
 
 function installText(): string {
-  return `Build apprentice with: ${INSTALL_LINE}, or set apprentice.path in your user settings, then reload the window.`;
+  return `Install apprentice with: ${INSTALL_LINE} (or cargo install sorcerer-apprentice), or set apprentice.path in your user settings, then reload the window.`;
 }
 
 function noTargetText(): string {
-  return `apprentice has no prebuilt binary for ${process.platform} ${process.arch}; build it with: ${INSTALL_LINE}`;
+  return `apprentice has no prebuilt binary for ${process.platform} ${process.arch}; install it with: cargo install sorcerer-apprentice`;
 }
 
 function noReleaseText(version: string): string {
-  return `apprentice ${version} is not installed, and it is a prototype no release carries yet. ${installText()}`;
+  return `apprentice ${version} has no release to download. ${installText()}`;
 }
 
 function unreachableText(version: string, err: unknown): string {

@@ -1628,6 +1628,7 @@ dependencies = [
  "serde",
  "serde_json",
  "similar 3.2.1",
+ "sorcerer-apprentice",
  "sorcerer-core",
  "sorcerer-lsp",
  "sorcerer-models",

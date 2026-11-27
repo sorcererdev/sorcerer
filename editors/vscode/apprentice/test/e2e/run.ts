@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   const apprentice = process.env.APPRENTICE_E2E_BINARY ?? join(TARGET, `apprentice${EXE}`);
   const fake = process.env.APPRENTICE_E2E_FAKE_CLAUDE ?? join(TARGET, `apprentice-fake-claude${EXE}`);
   for (const [name, path] of [['apprentice', apprentice], ['apprentice-fake-claude', fake]]) {
-    if (!existsSync(path)) throw new Error(`no ${name} at ${path}: run cargo build -p sorcerer-apprentice, or set APPRENTICE_E2E_*`);
+    if (!existsSync(path)) throw new Error(`no ${name} at ${path}: run cargo build -p sorcerer-apprentice --features fake-claude, or set APPRENTICE_E2E_*`);
   }
   // the native realpath: it spells a Windows short name (RUNNER~1) as the server will
   const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'ap-e2e-')));

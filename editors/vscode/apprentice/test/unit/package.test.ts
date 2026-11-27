@@ -37,13 +37,3 @@ test('each_chord_calls_its_command_in_an_editor_only', () => {
   }
   assert.equal(keybindings.length, KEYS.length);
 });
-
-// No registry takes the prototype until the subscription question is asked (ruling Q1,
-// 2026-11-26): the publish workflow does not list it, and npm refuses it as private.
-test('the_publish_workflow_leaves_the_prototype_out', () => {
-  const workflow = readFileSync(join(EXTENSION, '..', '..', '..', '.github', 'workflows', 'publish-vscode.yml'), 'utf8');
-  const matrix = /extension: \[([^\]]*)\]/.exec(workflow);
-  assert.ok(matrix, 'publish-vscode.yml has an extension matrix');
-  assert.deepEqual(matrix[1].split(',').map(name => name.trim()), ['scry', 'conjure', 'spellbook']);
-  assert.equal(manifest.private, true);
-});

@@ -1,11 +1,10 @@
 {
   "name": "apprentice",
   "displayName": "Apprentice",
-  "description": "Apprentice in VS Code (a prototype): a coding agent whose whole interface is your editor. It answers and checks what you write, offers what you ask for, and works in your buffers when you accept",
+  "description": "A coding agent whose whole interface is your editor: it answers and checks what you write, offers what you ask for, and works in your buffers when you accept. Runs Claude Code (claude -p) on your own subscription",
   "publisher": "sorcererdev",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/sorcererdev/sorcerer",
