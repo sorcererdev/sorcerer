@@ -174,6 +174,11 @@ platform where it was needed:
 - `compiler.rs`: `c_compiler(env)`, the first of `cc`, `gcc`, `clang` on PATH as a
   `CCompiler { program, flags }`; `shared_library_extension()` (`dylib`, `so`, `dll`);
   `compiler_hint()`, what to install on this platform.
+- `local_connect.rs`: `connect_local(port, within)` connects to `127.0.0.1:port`. A port
+  nothing listens on is refused at once everywhere: Windows by default retries a refused
+  connect for about two seconds, so there the socket is made with `socket2` and told no SYN
+  retransmissions (`WSAIoctl` with `SIO_TCP_INITIAL_RTO`). Apprentice's helpers reach their
+  server with it (`ask_loopback`), and read a refusal as the server having ended.
 - `process.rs`: `process::start(command)` starts a program in a group of its own (a process
   group on Unix, a job object on Windows, through the `process-wrap` crate) and returns a
   `Running`; `Running::stop()` ends the program and everything it started, then waits. A

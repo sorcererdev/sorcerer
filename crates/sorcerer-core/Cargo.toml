@@ -26,6 +26,11 @@ ignore.workspace = true
 grep-regex.workspace = true
 grep-searcher.workspace = true
 
+# Windows only: a refused local connect fails at once (adapters/platform/local_connect.rs).
+[target.'cfg(windows)'.dependencies]
+socket2 = "0.6"
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO"] }
+
 [dev-dependencies]
 serde.workspace = true
 anyhow.workspace = true
