@@ -1,0 +1,7 @@
+package booking
+
+// {= name|sentence =}.
+func {= ? helper: ident | the helper's name =}(value {= ? value_type: type | what value holds =}) {
+	var limit any = {= ? limit: expr | the largest value allowed =}
+	{= ? body: block | what the helper does with value under limit =}
+}

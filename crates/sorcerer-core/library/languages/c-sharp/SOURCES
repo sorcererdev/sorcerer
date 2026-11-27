@@ -1,0 +1,17 @@
+# C#: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-c-sharp 0.24.0, git d4bbe18103c3380c6454085e589d2610938da142. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/c_sharp/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+tags.scm         tree-sitter/tree-sitter-c-sharp v0.24.0  d4bbe18103c3380c6454085e589d2610938da142  queries/tags.scm  MIT (queries/LICENSE-tree-sitter-c-sharp)
+calls.scm        sorcerer's own (not vendored): struct, enum, record and constructor definitions; a method call and `new X(…)` as `@reference.call`.
+lists.scm        sorcerer's own (not vendored): `@parameters` and `@arguments`, the lists anchors put items into.
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, `throw new NotImplementedException(…)`.
+preamble.scm     sorcerer's own (not vendored): `@preamble`, a file-scoped `namespace A;`.
+imports.scm      sorcerer's own (not vendored): `@import.path`, a `using`'s name (for the "end of imports" anchor; conjure has no `[imports]` table for C#, see below).
+# changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of? and #not-any-of? and
+# nothing else):
+#   tags.scm: removed the two `namespace_declaration` patterns (`@definition.module` and `@module`):
+#   a namespace would name every class `Ns.Class`, and a file-scoped namespace would span the whole
+#   file. Also removed the `@reference.send` method-call pattern (calls.scm marks it `@reference.call`).
+#   textobjects.scm: none (byte-for-byte the pinned upstream file).
+# C# `[test]` and `[imports]` are left out: a test layout is a solution's convention, and a
+# `using` names a namespace, not a file.

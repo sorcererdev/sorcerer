@@ -1,0 +1,11 @@
+--- a/src/main/java/booking/service/CloseTable.java
++++ b/src/main/java/booking/service/CloseTable.java
+@@ -5,6 +5,8 @@ import java.util.List;
+ 
+ public class CloseTable {
+     public List<Booking> closeTable(List<Booking> bookings, int table) {
++        // which bookings stay open?
+         throw new UnsupportedOperationException("not implemented");
++        var kept = bookings.size();
+     }
+ }

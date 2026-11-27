@@ -1,0 +1,11 @@
+namespace Reservations;
+
+/// <summary>{= name|sentence =}.</summary>
+internal static class {= name|pascal =}
+{
+    internal static void {= ? helper: ident | the helper's name =}({= ? value_type: type | what value holds =} value)
+    {
+        object limit = {= ? limit: expr | the largest value allowed =};
+        {= ? body: block | what the helper does with value under limit =}
+    }
+}

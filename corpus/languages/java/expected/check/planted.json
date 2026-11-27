@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-println-in-booking",
+    "file": "src/main/java/booking/service/CloseTable.java",
+    "line": 8,
+    "severity": "error",
+    "message": "booking code does not print: write it through a helper",
+    "fingerprint": "6dcf6ff"
+  }
+]

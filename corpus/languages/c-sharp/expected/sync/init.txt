@@ -1,0 +1,2 @@
+sync (1 file changed)
+  ~ Reservations/Registry.cs  (region files: set up, 2 items)

@@ -1,0 +1,12 @@
+--- a/Reservations/CloseTable.cs
++++ b/Reservations/CloseTable.cs
+@@ -5,6 +5,8 @@ namespace Reservations;
+ public class Closer
+ {
+     public List<Booking> CloseTable(List<Booking> bookings, int table)
+     {
++        // which bookings stay open?
+         throw new System.NotImplementedException("not implemented");
++        var kept = bookings.Count;
+     }
+ }

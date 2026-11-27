@@ -1,0 +1,11 @@
+--- a/Reservations/CloseTable.cs
++++ b/Reservations/CloseTable.cs
+@@ -5,6 +5,7 @@ namespace Reservations;
+ public class Closer
+ {
+     public List<Booking> CloseTable(List<Booking> bookings, int table)
+     {
++        Console.WriteLine("closing " + table);
+         throw new System.NotImplementedException("not implemented");
+     }
+ }

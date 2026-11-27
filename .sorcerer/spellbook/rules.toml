@@ -144,8 +144,8 @@ files    = "crates/{crate}/src/**.rs"
 # "Bash" is Claude Code's tool name in lackey's permission and status code, not the language.
 exclude  = ["crates/lackey/src/adapters/claude_agent.rs", "crates/lackey/src/domain/status.rs", "crates/lackey/src/usecases/run_task/permissions.rs"]
 match    = { any = [
-  { kind = "string_literal", regex = "(?i)^\"(python|rust|bash|sql)\"$|\\.(py|rs|sh|bash|sql)\"$" },
-  { kind = "raw_string_literal", regex = "(?i)\\.(py|rs|sh|bash|sql)\"#*$" },
+  { kind = "string_literal", regex = "(?i)^\"(bash|c-sharp|go|java|python|rust|sql)\"$|\\.(bash|cs|go|java|py|rs|sh|sql)\"$" },
+  { kind = "raw_string_literal", regex = "(?i)\\.(bash|cs|go|java|py|rs|sh|sql)\"#*$" },
 ] }
 message  = "the engine names no language or file extension: a language is files under crates/sorcerer-core/library/languages/<name>/"
 severity = "error"

@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again in Registry.cs, before its namespace line, aliasing the two files.
+mode = "init files"
+exit = 0
+patch = "unmarked.patch"

@@ -1,0 +1,4 @@
+comment 8-8 in CloseTable.closeTable
+  |         // which bookings stay open?
+hunk 10-10 in CloseTable.closeTable
+  |         var kept = bookings.size();

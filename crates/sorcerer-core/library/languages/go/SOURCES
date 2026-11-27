@@ -1,0 +1,21 @@
+# Go: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-go 0.25.0, git 1547678a9da59885853f5f5cc8a99cc203fa2e2c. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/go/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+tags.scm         tree-sitter/tree-sitter-go v0.25.0  1547678a9da59885853f5f5cc8a99cc203fa2e2c  queries/tags.scm  MIT (queries/LICENSE-tree-sitter-go)
+calls.scm        sorcerer's own (not vendored): `T{…}` composite literals as `@reference.call`.
+lists.scm        sorcerer's own (not vendored): `@parameters` and `@arguments`, the lists anchors put items into.
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, `panic("hole …")` and `panic("not implemented")`.
+preamble.scm     sorcerer's own (not vendored): `@preamble`, the `package` clause.
+imports.scm      sorcerer's own (not vendored): `@import.path`, an import's path (for the "end of imports" anchor; conjure has no `[imports]` table for Go, see below).
+# changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of? and #not-any-of? and
+# nothing else; a pattern using another predicate or directive is removed):
+#   tags.scm: the two doc-comment patterns (`(comment)* @doc . (function_declaration …)`, and the
+#   method one) use #strip! and #set-adjacent!; each is replaced by its definition pattern alone,
+#   without the `@doc` comments. The patterns that capture only a `@name` and no definition or call
+#   (`@reference.type`, the package name, imports, var, const, interface and struct type names) are
+#   dropped: nothing reads them.
+#   textobjects.scm: `(block (_) @statement.outer)` became `(statement_list (_) @statement.outer)`:
+#   this grammar's block holds one statement_list, so the upstream pattern captured the list, and
+#   an empty-body check (`stub`) needs the statements themselves.
+# Go `[imports]` is left out: an import names a module path (a folder of files, under a prefix
+# only go.mod knows), not a file.

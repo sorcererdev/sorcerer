@@ -1,0 +1,4 @@
+comment 9-9 in Closer.CloseTable
+  |         // which bookings stay open?
+hunk 11-11 in Closer.CloseTable
+  |         var kept = bookings.Count;

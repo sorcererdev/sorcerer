@@ -1,0 +1,13 @@
+# One rule, with a fix: the booking service logs through a helper, never System.out.println.
+[rules.no-println-in-booking]
+files   = "src/main/java/booking/**/*.java"
+match   = { kind = "method_invocation", regex = "^System\\.out\\.println\\(" }
+message = "booking code does not print: write it through a helper"
+
+[[rules.no-println-in-booking.fixes]]
+generator = "thing"
+label     = "Write it through a new helper"
+with      = { name = "audit" }
+replace   = [
+  { enclosing = ["expression_statement"], text = "{= ? audit_call: stmt | the same as {= finding =} through the helper =}" },
+]
