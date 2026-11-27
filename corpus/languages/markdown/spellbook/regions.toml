@@ -1,0 +1,6 @@
+# README.md links each guide under docs/.
+[regions.guides]
+file    = "README.md"
+query   = { glob = "docs/*.md" }
+item    = "- [{= stem =}](docs/{= stem =}.md)"
+init_at = "after last line matching ^## Guides"

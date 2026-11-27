@@ -1,0 +1,5 @@
+# One rule: the cascade does the work, not !important.
+[rules.no-important]
+files   = "**/*.css"
+match   = { kind = "important" }
+message = "!important beats the cascade instead of using it: raise the selector's specificity or reorder"

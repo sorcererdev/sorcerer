@@ -1,0 +1,6 @@
+# index.html links each page of the site.
+[regions.pages]
+file    = "index.html"
+query   = { glob = "pages/*.html" }
+item    = "<p><a href=\"pages/{= stem =}.html\">{= stem =}</a></p>"
+init_at = "after last line matching <body>"

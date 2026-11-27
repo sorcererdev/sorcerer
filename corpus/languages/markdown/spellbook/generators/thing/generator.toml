@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A guide with a hole where its text goes"
+description = "docs/NAME.md: a guide whose body is a hole"
+language    = "markdown"
+examples    = ["spellbook new thing --set name=deposits"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The guide (deposits, events)"
+
+[[edits]]
+create   = "docs/{= name =}.md"
+template = "thing.md.dt"

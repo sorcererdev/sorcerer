@@ -1,0 +1,2 @@
+sync (1 file changed)
+  ~ site.css  (region sheets: set up, 2 items)

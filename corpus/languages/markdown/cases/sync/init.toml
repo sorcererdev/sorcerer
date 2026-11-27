@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again under "## Guides" in README.md, listing the two guides.
+mode = "init guides"
+exit = 0
+patch = "unmarked.patch"

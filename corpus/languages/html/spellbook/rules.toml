@@ -1,0 +1,5 @@
+# One rule: every image says what it shows.
+[rules.img-needs-alt]
+files   = "**/*.html"
+match   = { kind = "start_tag", regex = "^<img\\b", not = { regex = "\\balt\\s*=" } }
+message = "an <img> needs an alt text saying what it shows"

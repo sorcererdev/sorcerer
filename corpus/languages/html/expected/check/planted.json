@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "img-needs-alt",
+    "file": "pages/menu.html",
+    "line": 9,
+    "severity": "error",
+    "message": "an <img> needs an alt text saying what it shows",
+    "fingerprint": "e4da60e"
+  }
+]

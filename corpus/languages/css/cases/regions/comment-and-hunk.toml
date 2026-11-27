@@ -1,0 +1,3 @@
+# A question typed as a comment above a rule, and a declaration below it.
+file  = "styles/tables.css"
+patch = "comment-and-hunk.patch"

@@ -1,0 +1,6 @@
+# The Markdown language corpus: a tiny README and its guides, which every shipped-language
+# harness runs on (core's parses, spellbook's cases, lackey's cut regions). Markdown has no units,
+# so no [conjure]. No model, no network. See corpus/languages/README.md.
+name     = "markdown"
+language = "markdown"
+base     = "base"

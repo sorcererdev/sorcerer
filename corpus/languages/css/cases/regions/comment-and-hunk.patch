@@ -1,0 +1,11 @@
+--- a/styles/tables.css
++++ b/styles/tables.css
+@@ -4,6 +4,8 @@
+   width: 100%;
+ }
+ 
++/* is half a rem enough padding on a phone? */
+ .table td {
+   padding: 0.5rem;
++  vertical-align: top;
+ }

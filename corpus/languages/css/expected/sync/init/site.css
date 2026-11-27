@@ -1,0 +1,14 @@
+/* spellbook:region sheets (from styles/*.css; edit .sorcerer/spellbook/regions.toml, not this block) */
+@import "styles/forms.css";
+@import "styles/tables.css";
+/* spellbook:end sheets */
+:root {
+  --ink: #222;
+  --paper: #fffdf8;
+}
+
+body {
+  color: var(--ink);
+  background: var(--paper);
+  font-family: Georgia, serif;
+}

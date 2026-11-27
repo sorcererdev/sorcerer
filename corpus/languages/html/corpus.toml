@@ -1,0 +1,6 @@
+# The HTML language corpus: a tiny site every shipped-language harness runs on (core's parses,
+# spellbook's cases, lackey's cut regions). HTML has no units, so no [conjure]. No model, no
+# network. See corpus/languages/README.md.
+name     = "html"
+language = "html"
+base     = "base"

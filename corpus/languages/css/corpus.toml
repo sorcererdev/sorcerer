@@ -1,0 +1,6 @@
+# The CSS language corpus: a tiny stylesheet set every shipped-language harness runs on (core's
+# parses, spellbook's cases, lackey's cut regions). CSS has no units, so no [conjure]. No model,
+# no network. See corpus/languages/README.md.
+name     = "css"
+language = "css"
+base     = "base"

@@ -1149,7 +1149,7 @@ fn a_binary_file_and_a_directory_named_by_the_reply_are_not_text() {
     let d = cart_project();
     std::fs::create_dir_all(d.path().join("assets")).unwrap();
     std::fs::write(d.path().join("assets/logo.png"), [0xff, 0xfe, 0x00, 0x80]).unwrap();
-    let reply = "<goal>g</goal>\n<file path=\"assets/logo.png\">\ntext\n</file>\n<file path=\"src/shop\">\ntext\n</file>\n<file path=\"docs/notes.md\">\nhello\n</file>\n";
+    let reply = "<goal>g</goal>\n<file path=\"assets/logo.png\">\ntext\n</file>\n<file path=\"src/shop\">\ntext\n</file>\n<file path=\"docs/notes.txt\">\nhello\n</file>\n";
     let rig = Rig::new(d.path(), reply);
     let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
     let reasons: std::collections::BTreeMap<_, _> = change.dropped.iter().cloned().collect();

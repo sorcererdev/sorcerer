@@ -1,0 +1,14 @@
+--- a/pages/menu.html
++++ b/pages/menu.html
+@@ -6,9 +6,11 @@
+   </head>
+   <body>
+     <h1>Menu</h1>
++    <!-- should the menu say what is vegetarian? -->
+     <ul>
+       <li>Soup of the day</li>
+       <li>Roast chicken</li>
++      <li>Apple tart</li>
+     </ul>
+   </body>
+ </html>

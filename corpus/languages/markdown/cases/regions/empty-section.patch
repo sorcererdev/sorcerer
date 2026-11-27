@@ -1,0 +1,10 @@
+--- a/README.md
++++ b/README.md
+@@ -12,3 +12,7 @@
+ ## Building
+ 
+ Run `make` and then `make test`.
++
++## Deploying
++
++Fill this in

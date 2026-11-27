@@ -1,0 +1,11 @@
+--- a/site.css
++++ b/site.css
+@@ -1,8 +1,3 @@
+-/* spellbook:region sheets (from styles/*.css; edit .sorcerer/spellbook/regions.toml, not this block) */
+-@import "styles/forms.css";
+-@import "styles/tables.css";
+-/* spellbook:end sheets */
+-
+ :root {
+   --ink: #222;
+   --paper: #fffdf8;

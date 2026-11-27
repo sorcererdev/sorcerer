@@ -40,7 +40,7 @@ fn a_path_finds_its_language() {
     assert_eq!(name("src/a.py").as_deref(), Some("python"));
     assert_eq!(name("src/lib.rs").as_deref(), Some("rust"));
     assert_eq!(name("a.py").as_deref(), Some("python"));
-    assert_eq!(name("README.md"), None);
+    assert_eq!(name("README.txt"), None);
 }
 
 #[test]

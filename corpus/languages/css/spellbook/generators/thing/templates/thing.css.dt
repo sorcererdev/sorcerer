@@ -1,0 +1,6 @@
+/* The {= name =} styles. */
+.{= name =} {
+  padding: {= ? spacing: expr | the space inside it =};
+}
+
+{= ? rules: block | the rules for the parts inside it =}

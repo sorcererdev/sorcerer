@@ -1,0 +1,3 @@
+# An instruction typed under an empty heading (the triage corpus's docs scenario): one prose region.
+file  = "README.md"
+patch = "empty-section.patch"
