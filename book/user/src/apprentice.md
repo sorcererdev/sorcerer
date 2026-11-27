@@ -61,7 +61,7 @@ words. A checkout or a pull (`.git/HEAD` moved) starts every look over, saying n
 
 **While a task runs**, the status line says what it does (`apprentice: refuse late
 cancellations · reading booking.py · $0.00`, then `writing cancel_booking.py`, `running uv`,
-`subagent: reading routes.py`), and the place it writes shows `⟳ apprentice: writing…`. A
+`subagent: reading routes.py`; `getting ready` while the agent loads its own tools), and the place it writes shows `⟳ apprentice: writing…`. A
 command waiting for your permission says `waiting for you: ls`, then `running ls`, or `denied:
 ls` when you said no. The amount is what the calls seen so far would cost at the model's price. Its
 changes land in your buffers, unsaved, each one undoable with your editor's undo. A question it
@@ -71,7 +71,8 @@ runs.
 
 **When it ends**: one message, `apprentice: done · refuse late cancellations · 1 file · $0.71 ·
 1m35s`, and on the first changed line of each file it changed a mark, `✦ apprentice: refuse late
-cancellations · 1 file · $0.71`, with *Show diff* (the file before the task against now, in your
+cancellations · 1 file · $0.71` (on a file other than the one you asked in, `· other file ·`
+in place of the count), with *Show diff* (the file before the task against now, in your
 editor's diff view), *Undo this task* (every file back to its text before, in one undoable edit;
 a file you edited since is left alone and named; a final newline your editor added, or its line
 endings, are not an edit) and *Show journal*. Review the hunks with your

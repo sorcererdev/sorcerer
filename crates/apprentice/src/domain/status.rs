@@ -36,6 +36,8 @@ fn doing_of(name: &str, input: &Value, root: &Path) -> String {
             "Agent" | "Task" => "starting a subagent".to_string(),
             "WebSearch" => "searching the web".to_string(),
             "WebFetch" => "reading the web".to_string(),
+            // Claude Code loading its own tools' definitions: nothing the person asked about
+            "ToolSearch" => "getting ready".to_string(),
             other => format!("using {other}"),
         },
     }
@@ -114,6 +116,11 @@ mod tests {
             ("mcp__apprentice__ask", json!({}), "asking you"),
             ("Agent", json!({}), "starting a subagent"),
             ("TodoWrite", json!({}), "using TodoWrite"),
+            (
+                "ToolSearch",
+                json!({ "query": "select:x" }),
+                "getting ready",
+            ),
         ];
         for (name, input, said) in cases {
             assert_eq!(activity_of(name, &input, None, root), said, "{name}");

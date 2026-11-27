@@ -114,6 +114,8 @@ impl Server {
             .to_string()
     }
 
+    /// The `✦` marks of the finished tasks on a file. The file the task was asked in counts the
+    /// files (`· 2 files ·`); any other file says `· other file ·`, whatever order they were written in.
     fn task_marks(&self, path: &Path, line_range: &dyn Fn(u32, u32) -> Range) -> Vec<Diagnostic> {
         lock(&self.shown)
             .iter()
@@ -121,14 +123,13 @@ impl Server {
                 shown
                     .files
                     .iter()
-                    .enumerate()
-                    .filter(|(_, file)| !file.settled && file.editor_path == path)
-                    .map(move |(n, file)| Diagnostic {
+                    .filter(|file| !file.settled && file.editor_path == path)
+                    .map(move |file| Diagnostic {
                         range: line_range(file.first_changed_line, file.first_changed_line),
                         severity: Some(DiagnosticSeverity::INFORMATION),
                         code: Some(NumberOrString::String("task".into())),
                         source: Some(SOURCE.into()),
-                        message: task_mark_text(&shown.record, n == 0),
+                        message: task_mark_text(&shown.record, file.relative == shown.record.file),
                         data: Some(json!({ "task": shown.record.id })),
                         ..Diagnostic::default()
                     })

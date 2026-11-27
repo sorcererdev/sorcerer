@@ -50,7 +50,9 @@ pub fn follow_task(started: StartedTask, deps: &TaskDeps) -> TaskRecord {
     finish_task(&live, ending, deps)
 }
 
-/// One thing the agent did: the session's id kept, a tool call shown on the status line.
+/// One thing the agent did: the session's id kept, a tool call shown on the status line and
+/// journaled. A command is journaled by the permission tool, which every command goes through,
+/// so the journal never says `running ls` for a command still waiting or denied.
 fn saw(live: &LiveTask, event: &AgentEvent, deps: &TaskDeps) {
     match event {
         AgentEvent::Started { session_id } => {
@@ -71,7 +73,10 @@ fn saw(live: &LiveTask, event: &AgentEvent, deps: &TaskDeps) {
                 _ => activity_of(name, input, parent.as_deref(), &deps.root),
             };
             show_activity(live, &activity, deps);
-            let _ = deps.journal.write(&live.id, "tool", &activity);
+            // a command's lines are the permission tool's: waiting, then the answer
+            if command.is_empty() {
+                let _ = deps.journal.write(&live.id, "tool", &activity);
+            }
         }
         AgentEvent::Used {
             message_id,

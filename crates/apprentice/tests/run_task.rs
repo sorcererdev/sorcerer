@@ -420,6 +420,30 @@ fn a_command_is_asked_once_and_remembered_for_the_project() {
     );
 }
 
+#[test]
+fn the_journal_says_a_command_waits_then_the_answer_not_that_it_runs() {
+    let command = "ls -a && cat CLAUDE.md";
+    // as claude does it in practice: the stream shows the call first, then asks
+    let run = run(
+        vec![
+            tool_use("Bash", json!({ "command": command })),
+            Step::Bash("ls -a && cat CLAUDE.md"),
+            Step::Finish(0.1),
+        ],
+        &["Deny"],
+    );
+    let journal = run
+        .project
+        .state(&format!("tasks/{}/journal.md", run.record.id));
+    assert!(!journal.contains("running ls"), "{journal}");
+    let waiting = journal
+        .find("## tool\n\nwaiting for you: ls")
+        .expect(&journal);
+    let asked = journal.find("## permission").expect(&journal);
+    let denied = journal.find("## tool\n\ndenied: ls").expect(&journal);
+    assert!(waiting < asked && asked < denied, "{journal}");
+}
+
 /// The person ruled: allowing one search never opens the door to a search of the whole tree.
 #[test]
 fn the_status_line_says_a_command_waits_and_was_denied_not_that_it_runs() {
