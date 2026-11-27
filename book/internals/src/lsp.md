@@ -1,7 +1,8 @@
 # The language-server host
 
 `crates/sorcerer-lsp` is everything about being a language server that is not about one
-product. Scry's server (`scry lsp`) is the first product on it; conjure's server is next, and
+product. Scry's server (`scry lsp`) is the first product on it (it tracks text only to republish
+a buffer that matches the disk again); conjure's server is next, and
 uses what the host added for it (the open documents' text, `apply_edit`); spellbook's server (`spellbook lsp`) plugs
 in the same way (`tracks_text` false, execute commands, code actions, `publish`, `show_document`,
 `apply_edit`), and added one thing: a request answered later, through a `Reply`, so `spellbook.apply`

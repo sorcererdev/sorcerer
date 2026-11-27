@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use lsp_server::{Connection, ResponseError};
 use lsp_types::ServerCapabilities;
 use serde_json::Value;
+use sorcerer_lsp::line_edits::same_text;
 use sorcerer_lsp::serve::unknown_method;
 use sorcerer_lsp::{Client, Jobs, Product};
 
@@ -64,8 +65,24 @@ impl<W: Wiring + 'static> Product for ScryServer<W> {
         commands::capabilities()
     }
 
+    /// The text is tracked only to see a buffer come back to the file on disk (below).
+    fn tracks_text() -> bool {
+        true
+    }
+
     fn opened(&mut self, path: &Path) {
         self.server.publish(Publish::File(path.to_path_buf()));
+    }
+
+    /// A change that leaves the buffer as the file on disk is shown again: the editor reloaded
+    /// a file put back by git (Neovim says so with a change, no open or save), or the person
+    /// undid back to the saved text. What scry shows is placed on the saved text, so typing
+    /// that leaves the buffer unlike the disk publishes nothing and waits for the save.
+    fn changed(&mut self, path: &Path, _version: i32, text: &str) {
+        let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+        if same_text(text, &on_disk) {
+            self.server.publish(Publish::File(path.to_path_buf()));
+        }
     }
 
     fn closed(&mut self, path: &Path) {
