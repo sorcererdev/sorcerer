@@ -73,6 +73,11 @@ pub(super) enum Cmd {
         /// Record today's findings as known debt in .sorcerer/spellbook/baseline.toml
         #[arg(long, conflicts_with_all = ["files", "since"])]
         baseline: bool,
+        /// Check texts not on disk instead: a JSON file (`-` for standard input) of
+        /// {"files": [{"path": …, "text": …}]}, each text read as the file at its path. Only the
+        /// rules run (no regions), and nothing is saved
+        #[arg(long, value_name = "FILE", conflicts_with_all = ["files", "since", "baseline"])]
+        texts: Option<PathBuf>,
         /// Print the findings as JSON (for an agent or a script)
         #[arg(long)]
         json: bool,

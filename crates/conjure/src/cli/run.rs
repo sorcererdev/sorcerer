@@ -17,6 +17,7 @@ use super::RunArgs;
 use crate::adapters::wiring::Wire;
 use crate::domain::config::ConjureConfig;
 use crate::domain::record::Attempt;
+use crate::domain::spellbook_findings::RulesOutcome;
 use crate::usecases::conjure_change::{
     ChangeDeps, ChangeRequest, ChangedFile, ConjuredChange, conjure_change,
 };
@@ -49,6 +50,7 @@ pub(super) fn conjure_here(
         fences: &fences,
         config,
         writer: &*wired.writer,
+        checker: &*wired.checker,
         ledger: &*wired.ledger,
         clock: &*wired.clock,
         cancel: &cancel,
@@ -142,7 +144,8 @@ fn change_text(change: &ConjuredChange, model: &str) -> String {
     };
     let files: String = change.files.iter().map(file_text).collect();
     format!(
-        "{head}{files}{}{}",
+        "{head}{}{files}{}{}",
+        asked_again_text(&change.rules),
         dropped_text(change),
         footer_text(change, model)
     )
@@ -169,6 +172,21 @@ fn parses_text(file: &ChangedFile) -> String {
         (true, None) => "parses".into(),
         (true, Some(line)) => format!("does not parse (line {line})"),
     }
+}
+
+/// `asked again: the first answer broke commands-use-ports (src/a.rs:36)`, when it did.
+fn asked_again_text(rules: &RulesOutcome) -> String {
+    let RulesOutcome::AskedAgain(broken) = rules else {
+        return String::new();
+    };
+    let places: Vec<String> = broken
+        .iter()
+        .map(|finding| format!("{} ({}:{})", finding.rule, finding.file, finding.line))
+        .collect();
+    format!(
+        "asked again: the first answer broke {}\n",
+        places.join(", ")
+    )
 }
 
 fn dropped_text(change: &ConjuredChange) -> String {

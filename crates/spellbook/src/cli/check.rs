@@ -1,13 +1,15 @@
-//! `spellbook check [FILE…] [--since REV] [--baseline] [--json]`: the rules run over the project
-//! (or the named files, or what changed since a commit), and the baseline of known debt.
+//! `spellbook check [FILE…] [--since REV] [--baseline] [--texts FILE] [--json]`: the rules run
+//! over the project (or the named files, what changed since a commit, or texts not on disk yet),
+//! and the baseline of known debt.
 
-use std::io::Write;
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::adapters::baseline_toml::{BASELINE_FILE, write_baseline};
 use crate::adapters::wiring::Wired;
@@ -17,6 +19,7 @@ use crate::domain::rule::{Rule, Severity};
 use crate::usecases::check_files::check_files;
 use crate::usecases::check_project::check_project;
 use crate::usecases::check_since::check_since;
+use crate::usecases::check_texts::check_texts;
 use crate::usecases::fixes_for::{FixOffer, fixes_for, region_fix_offer};
 
 use super::format::count;
@@ -29,6 +32,61 @@ pub(super) enum CheckScope {
     Files(Vec<PathBuf>),
     /// The lines changed since a commit, and every region; the report is left alone.
     Since(String),
+    /// Texts not on disk, by their paths (relative to the root, with `/`); only the rules run
+    /// and the report is left alone.
+    Texts(BTreeMap<String, String>),
+}
+
+/// `--texts`: what the JSON file (`-` for standard input) asks to check.
+#[derive(Deserialize)]
+struct TextsToCheck {
+    files: Vec<TextToCheck>,
+}
+
+#[derive(Deserialize)]
+struct TextToCheck {
+    path: String,
+    text: String,
+}
+
+/// The texts `--texts` names, by path. A path is taken as written, relative to the project root;
+/// one that is absolute or climbs out with `..` is an error, as is JSON of another shape.
+///
+/// Example: `{"files": [{"path": "src/a.py", "text": "import os\n"}]}` gives one text for
+/// `src/a.py`.
+pub(super) fn texts_to_check(cwd: &Path, from: &Path) -> Result<BTreeMap<String, String>> {
+    let json = if from == Path::new("-") {
+        let mut json = String::new();
+        std::io::stdin().read_to_string(&mut json)?;
+        json
+    } else {
+        std::fs::read_to_string(cwd.join(from))
+            .map_err(|e| anyhow!("--texts {}: {e}", from.display()))?
+    };
+    let asked: TextsToCheck = serde_json::from_str(&json)
+        .map_err(|e| anyhow!("--texts: not {{\"files\": [{{\"path\", \"text\"}}]}}: {e}"))?;
+    asked
+        .files
+        .into_iter()
+        .map(|file| {
+            if inside_the_project(&file.path) {
+                Ok((file.path.replace('\\', "/"), file.text))
+            } else {
+                Err(anyhow!("--texts: {} is outside the project", file.path))
+            }
+        })
+        .collect()
+}
+
+fn inside_the_project(path: &str) -> bool {
+    let path = Path::new(path);
+    !path.as_os_str().is_empty()
+        && path.components().all(|part| {
+            matches!(
+                part,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
 }
 
 /// Runs the checks and prints one row for each finding, then whether the conventions hold.
@@ -46,10 +104,15 @@ pub(super) fn check(
         CheckScope::Project => check_project(&checking.deps())?,
         CheckScope::Files(files) => check_files(&checking.deps(), files)?,
         CheckScope::Since(rev) => check_since(&checking.deps(), rev)?,
+        CheckScope::Texts(texts) => check_texts(&checking.deps(), texts.clone())?,
     };
+    // the fixes read the disk, which the texts are not on yet
     let offers: Vec<Vec<FixOffer>> = found
         .iter()
-        .map(|finding| offers_for(wired, &checking.rules, finding))
+        .map(|finding| match scope {
+            CheckScope::Texts(_) => Vec::new(),
+            _ => offers_for(wired, &checking.rules, finding),
+        })
         .collect();
     if as_json {
         let report = CheckJson {

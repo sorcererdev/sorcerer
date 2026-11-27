@@ -5,6 +5,7 @@ pub mod apply_plan;
 pub mod check_files;
 pub mod check_project;
 pub mod check_since;
+pub mod check_texts;
 pub mod choices_for;
 pub mod fixes_for;
 pub mod list_generators;

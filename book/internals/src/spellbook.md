@@ -124,7 +124,8 @@ work), `planned_view.rs` (`PlannedView`: a `CodebaseView` that answers
 question on), `fixes_for.rs`
 (`FixOffer`, `fixes_for`, `region_fix_offer`), `plan_fix.rs` (`FixDeps`, `FindingAt`, `plan_fix`), `apply_plan.rs`
 (`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, which carries `regions`, `off` and `baseline`, `check_files`), `check_project.rs`
-(`check_project`), `check_since.rs` (`check_since(deps, rev)`).
+(`check_project`), `check_since.rs` (`check_since(deps, rev)`), `check_texts.rs`
+(`check_texts(deps, texts)`: texts not on disk, over a `PlannedView`).
 
 `adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
 `load_generator`, which follows `[[uses]]` with `uses_agree`: each used generator there and
@@ -535,7 +536,10 @@ contract grows by `files[].region`, `files[].set_up`, `notes`, the two finding c
    takes `view.changed_since(rev)` (still on disk), runs `rule_findings_of_files` on them and keeps a
    finding when its line is in `added_lines(text_at(rev), text)` (`domain/change.rs`, a line diff with
    `\r\n` folded; a file absent at `rev` is all new), adds `regions_out_of_step(deps, None)` (every
-   region), sorts and marks; it writes no report.
+   region), sorts and marks; it writes no report. `check_texts(deps, texts)`
+   (`usecases/check_texts.rs`) lays the texts over the view as a `PlannedView`, runs
+   `rule_findings_of_files` on their paths with `CheckDeps { view, ..deps }`, sorts and marks; no
+   regions, no report. It is what `check --texts` runs for conjure.
 4. `QueryRules::findings_in` (`adapters/query_rules.rs`) parses the file with `Loaded::parse`,
    compiles each rule's query once for each language (`sorcerer_core::domain::query::compile`, which
    refuses predicates tree-sitter would skip; the cache is per `QueryRules`, so per command or per
@@ -545,7 +549,9 @@ The server's `file_diagnostics` calls `check_files` for the one file, so a save 
 and the findings; a rules file that does not load is said once with `Client::say_once`.
 `lsp/findings.rs::finding_mark` makes an existing finding a Hint ending ` (existing)`.
 
-`cli/check.rs` turns the flags into a `CheckScope` (`Project`, `Files`, `Since`) for `check`, and
+`cli/check.rs` turns the flags into a `CheckScope` (`Project`, `Files`, `Since`, `Texts`, the
+last read by `texts_to_check` from the `--texts` file or standard input, refusing a path that is
+absolute or climbs out; its findings offer no fixes) for `check`, and
 `--baseline` into `record_baseline`: `check_project`, `Baseline::of`, `change_to` the old one,
 `write_baseline`, and `baselined_text`. `is_blocking` (an error not existing) sets the exit code;
 `verdict_text` counts the existing; a whole-project check adds the paid-off line from `change_to`.

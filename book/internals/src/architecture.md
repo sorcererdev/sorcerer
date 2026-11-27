@@ -83,10 +83,10 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
 
 **sorcerer-conjure** (library and program `conjure`) has the same five layers:
 `usecases/` (`conjure_change/`, `report_cost.rs`, `show_log.rs`), `domain/` (`config`,
-`language_tables`, `change_prompt`, `situation`, `scry_notes`, `rules`, `reply`,
-`edits`, `record`, `budget`, `log_text`), `ports/` (`writer`, `change_store`, `clock`,
-`project_context`), `adapters/` (`provider_writer`, `research_writer`, `imports`, `scry_files`,
-`steering_files`, `project_context`, `jsonl_change_store`, `system_clock`, `wiring`) and `cli/`.
+`language_tables`, `change_prompt`, `situation`, `scry_notes`, `rules`, `spellbook_findings`,
+`reply`, `edits`, `record`, `budget`, `log_text`), `ports/` (`writer`, `change_store`, `clock`,
+`project_context`, `rule_checker`), `adapters/` (`provider_writer`, `research_writer`, `imports`,
+`scry_files`, `steering_files`, `spellbook_checker`, `project_context`, `jsonl_change_store`, `system_clock`, `wiring`) and `cli/`.
 Its path templates are filled with core's `templates::fill`.
 [Conjure](conjure.md) says what each file holds.
 
@@ -97,7 +97,7 @@ Its path templates are filled with core's `templates::fill`.
 `rule`, `rule_query`), `ports/` (`generators`, `grammars`, `workspace`, `generation_store`,
 `holes_store`, `clock`, `rule_runner`, `report_store`), `usecases/` (`list_generators`,
 `choices_for`, `plan_generation`, `apply_plan`, `open_holes`, `check_files`,
-`check_project`), `adapters/` (`generator_dir`, `cached_grammars`, `disk_workspace`,
+`check_project`, `check_texts`), `adapters/` (`generator_dir`, `cached_grammars`, `disk_workspace`,
 `jsonl_generation_store`, `json_holes`, `json_report`, `rules_toml`, `query_rules`, `checking`,
 `system_clock`, `wiring`, and `lsp/`, the editor server) and `cli/`. Its use cases may not load a grammar (that is core's adapter work), so
 they parse through the `Grammars` port. [Spellbook](spellbook.md) says what each file holds.

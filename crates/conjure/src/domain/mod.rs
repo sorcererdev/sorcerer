@@ -12,4 +12,5 @@ pub mod reply;
 pub mod rules;
 pub mod scry_notes;
 pub mod situation;
+pub mod spellbook_findings;
 // spellbook:end domain-modules

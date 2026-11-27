@@ -26,7 +26,14 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   its facts so the server can record a call that failed).
 - `conjure_change/run_conjure.rs`: `conjure_change(request, deps)` and `refuse_a_spent_day`. Its
   story: `find_site` (`find_site.rs`, with `Site`: the unit at the cursor, through
-  `CodebaseView::units` and `facts`), `refuse_a_spent_day`, the situation, one write, the check.
+  `CodebaseView::units` and `facts`), `refuse_a_spent_day`, the situation, `written_and_checked`
+  (one write, the check, the rules it breaks, as an `Answer`), then `within_the_rules`: an answer
+  that breaks none is kept; else, when the day allows, one more write on the situation plus
+  `broken_rules_text` (each break with its line, from `line_as_written`), the two errands added by
+  `both_calls`; a second break is `held_back` (no files, `held_back_text` as the goal).
+- `conjure_change/rules_check.rs`: `rules_broken_by(files, deps)`: the new texts through
+  `ChangeDeps::checker`; only when they have an error, the old texts too; `rules_broken` between
+  them. Texts that cannot be checked break nothing.
 - `conjure_change/situation.rs`: `situation_for` gathers the test file (`tests_path`), the
   related files, the session (`session_of`: `changed_since("HEAD")`, each diff, new files), scry's
   notes and the finding asked for, and the rules, then `situation_text`.
@@ -54,10 +61,16 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   host's `sorcerer_lsp::line_edits` (`in_base_line_endings`, `line_edits`, `LineEdit`,
   `first_changed_line`, `lines_changed`), which moved there for apprentice
   ([The language-server host](lsp.md#what-the-host-owns)).
+- `spellbook_findings.rs`: conjure's reading of `spellbook check --json`: `RuleFinding`,
+  `RulesRead` (`Checked`, `NotChecked(why)`), `RulesOutcome` (`Kept`, `AskedAgain`, `HeldBack`, on
+  `ConjuredChange::rules`), `findings_of_check_json`, `rules_broken` (errors in the new texts that
+  no old finding of the same rule and fingerprint excuses, one for one), `any_error`,
+  `broken_rules_text`, `held_back_text`.
 - `record.rs`: `ChangeRecord`, `Choice`, `Attempt`, `Trigger`, `change_id`. `budget.rs`:
   `day_allows`. `log_text.rs`: `record_line`, `usd`, `count`.
 
-**Ports** (`src/ports/`): `writer.rs` (`Writer`, `Written`), `change_store.rs` (`ChangeStore`),
+**Ports** (`src/ports/`): `writer.rs` (`Writer`, `Written`), `rule_checker.rs` (`RuleChecker`:
+`findings_in(texts)`, `describe` for the doctor), `change_store.rs` (`ChangeStore`),
 `clock.rs` (`Clock`), `project_context.rs` (`ProjectContext`: related files (`RelatedFiles`: the files and those left
 out by a fence), parse errors, scry's findings, the rules; the four things that need grammars or scry's files, so a use case
 asks a port and never touches an adapter).
@@ -65,7 +78,11 @@ asks a port and never touches an adapter).
 **Adapters** (`src/adapters/`): `provider_writer.rs` (`ProviderWriter`: one `Provider::complete`
 and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `Researcher`),
 `imports.rs` (`related_files`, from `imports.scm` and `[imports]`), `scry_files.rs`
-(`read_findings`), `steering_files.rs` (`project_rules`), `project_context.rs` (`FilesContext`,
+(`read_findings`), `steering_files.rs` (`project_rules`), `spellbook_checker.rs`
+(`SpellbookChecker::for_project`: the `spellbook` beside the running program, else on PATH, none
+without `.sorcerer/spellbook/rules.toml`; `findings_in` runs `spellbook check --texts - --json` in
+the root with the texts as JSON on its input, exit 0 or 1 read, anything else `NotChecked` with
+its first error line), `project_context.rs` (`FilesContext`,
 the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.rs` (`Wired`,
 `live`, `writer_for`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`, a picture of one
 moment: a file not open is read from the disk once and answered as first read, so a change is
@@ -104,6 +121,14 @@ made against what the writer was shown and a disk that moved on meanwhile is see
    writer's text in the base's line endings, `line_edits` against the base, `parse_errors`
    from the `ProjectContext`. A file equal to its base is left out; no files is "no change".
 
+5. **The rules.** `rules_broken_by` asks the `RuleChecker` (spellbook, live) about the files'
+   new texts and, when they have an error, their old ones; an error the old texts did not have is
+   a break. `within_the_rules` keeps an answer with none, asks once more with the breaks named
+   (`RulesOutcome::AskedAgain`), and holds back a second break (`RulesOutcome::HeldBack`: no
+   files, so the server shows and records it as no change; its goal names the rules). Products do
+   not link each other, so the seam is spellbook's program and its JSON, read by conjure's own
+   `spellbook_findings.rs`.
+
 The command line prints the change and stops. The editor's server lands `ChangedFile::edits`
 through `workspace/applyEdit` and records `ChangeRecord`s; neither the use case, the command line
 nor the server writes to the person's files (the editor applies the edit; the server writes only
@@ -113,9 +138,10 @@ under `.sorcerer/state/`).
 
 `adapters/lsp/conjure_server.rs`: `serve(connection, ServerConfig)` plugs `ConjureServer` into the host
 (`sorcerer_lsp::serve`) as a product that tracks text (`tracks_text() -> true`, so the host keeps
-each open document's version and text). `ServerConfig { open, cache, trust, clock, wire }`;
+each open document's version and text). `ServerConfig { open, cache, trust, clock, wire, checker }`;
 `wire: WireWriter` builds an attempt's writer over the editor's view (`writer_for` live, a
-scripted writer in the tests). `ServerConfig` is in `server_config.rs`. The shared `Server` (`server_state.rs`) holds the `Client`, the root, `published` (the
+scripted writer in the tests); `checker: CheckerFor` builds the project's `RuleChecker`
+(`SpellbookChecker` live, `NotChecking` in the tests). `ServerConfig` is in `server_config.rs`. The shared `Server` (`server_state.rs`) holds the `Client`, the root, `published` (the
 `Mark`s published per editor path, for the actions on a line), `shown` (the one change marked
 now, a `Shown { change: LandedChange, state: ShownState, settled }`) and `running` (the `Cancel`
 of the change being conjured or undone; one at a time). `ShownState` is `Open` (Undo and Try
@@ -279,7 +305,9 @@ small editor that keeps buffers and applies the edits it is sent, checking versi
 answer before it reports its changes as Neovim does; a `Script` of replies, a gate to hold a
 call, a clock that ticks a second per read), `tests/lsp_process.rs` (`conjure lsp` as a process),
 `tests/related.rs` (the vendored grammars), `tests/cli.rs` (`main_with` with a `Wired` of
-doubles), `tests/eval.rs` (the corpora, below). `UPDATE_GOLDEN=1` rewrites the golden prompt. No test calls a model or the network (the eval replays recordings).
+doubles), `tests/rules_check.rs` (asked again, held back, an old break, a warning, over
+`ForbiddenWord`, a `RuleChecker` double in `tests/support/rule_checkers.rs` that finds each line
+holding a word), `tests/eval.rs` (the corpora, below). `UPDATE_GOLDEN=1` rewrites the golden prompt. No test calls a model or the network (the eval replays recordings).
 
 ## The eval
 

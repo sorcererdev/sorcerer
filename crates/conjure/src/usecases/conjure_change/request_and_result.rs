@@ -14,8 +14,10 @@ use sorcerer_core::ports::view::CodebaseView;
 use crate::domain::config::ConjureConfig;
 use crate::domain::edits::{DropReason, LineEdit, NameCase};
 use crate::domain::record::Attempt;
+use crate::domain::spellbook_findings::RulesOutcome;
 use crate::ports::clock::Clock;
 use crate::ports::project_context::ProjectContext;
+use crate::ports::rule_checker::RuleChecker;
 use crate::ports::writer::Writer;
 
 /// What to conjure.
@@ -42,6 +44,8 @@ pub struct ChangeDeps<'a> {
     pub fences: &'a Fences,
     pub config: &'a ConjureConfig,
     pub writer: &'a dyn Writer,
+    /// The project's checked rules (spellbook's), run over a change before it lands.
+    pub checker: &'a dyn RuleChecker,
     pub ledger: &'a dyn Ledger,
     pub clock: &'a dyn Clock,
     pub cancel: &'a Cancel,
@@ -82,6 +86,10 @@ pub struct ConjuredChange {
     pub goal: Option<String>,
     pub files: Vec<ChangedFile>,
     pub dropped: Vec<(String, DropReason)>,
+    /// What conjure did about the project's checked rules: kept the first answer, asked once
+    /// more, or held the change back (then `files` is empty and `goal` says why).
+    pub rules: RulesOutcome,
+    /// The call, or both calls when conjure asked again: their costs and times added.
     pub errand: Errand,
 }
 

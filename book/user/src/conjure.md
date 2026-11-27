@@ -194,7 +194,8 @@ first line is `no change · <goal>`.
 
 The exit code is 0 when a change was conjured (or none was needed) and 2 when conjure could not
 run: the cursor is in no function (`put the cursor in a function to conjure`), the day's
-budget is spent, the model failed, or the arguments are wrong. Each call is recorded in the
+budget is spent, the model failed, or the arguments are wrong. A change held back by your
+spellbook rules (below) is `no change · held back: …`, exit 0. Each call is recorded in the
 ledger, so `conjure cost` and `scry cost` share one account. The command line keeps no record
 of changes; `conjure log` shows what the editor recorded.
 
@@ -231,6 +232,28 @@ paths that fail these are dropped and named in `not written:`. A file the writer
 keeps its last version, whatever the spelling (`src/a.py` and `./src//a.py` are one file; `SRC/a.py` is too where your
 file system ignores case, as macOS and Windows do by default, and another file where it does not), and a file equal to what is there is no change. A file with CRLF line
 endings stays CRLF, and only the lines the writer changed are edited. An editor that keeps a new file with CRLF lines (VS Code on Windows) still counts as having landed the change, and Undo restores it without changing its line endings.
+
+### A change keeps your spellbook rules
+
+When the project has spellbook rules (`.sorcerer/spellbook/rules.toml`) and `spellbook` is
+installed (beside `conjure`, or on PATH), conjure checks each answer against them before it lands,
+with `spellbook check --texts - --json`: the new texts are checked as the files they would become,
+and nothing is written. Only an `error` the change adds counts; a finding the code already had, a
+`warn` and a `hint` do not.
+
+An answer that breaks a rule is not used. Conjure asks the writer once more, with the situation
+and, after it, each broken rule, its line of code and its message, and the instruction to add
+what the code lacks (a method on a port, an adapter) where it belongs, or to change nothing and
+say what is missing. The command line then prints `asked again: the first answer broke
+commands-use-ports (src/booking/commands/seat_walk_in.rs:36)`. When the second answer breaks a
+rule too, nothing lands: `conjure: no change · held back: it breaks commands-use-ports at
+seat_walk_in.rs:36 (Commands and queries talk to ports, not the file system (ports & adapters)),
+asked twice`. Asking again is a second call: its cost is added to the change's, and it is not
+made when the first call spent the day's budget (the change is held back instead).
+
+Without spellbook, or without rules, changes are not checked, and `conjure doctor`'s
+`spellbook rules` row says so (`not checked: spellbook is not installed`). It is never a
+failure: conjure works without spellbook.
 
 Conjure itself writes nothing to your project, and only its own memory under
 `.sorcerer/state/conjure/`.

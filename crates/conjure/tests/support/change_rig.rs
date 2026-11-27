@@ -4,7 +4,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use super::{
-    FixedClock, commit, errand, git_project, project_with_vendored_grammars, test_cache, write,
+    FixedClock, NotChecking, commit, errand, git_project, project_with_vendored_grammars,
+    test_cache, write,
 };
 use conjure::adapters::project_context::FilesContext;
 use conjure::domain::config::{ConjureConfig, conjure_config};
@@ -39,9 +40,13 @@ impl StubWriter {
 
 impl Writer for StubWriter {
     fn write(&self, situation: &str, _: &Cancel) -> sorcerer_models::Result<Written> {
-        self.seen.lock().unwrap().push(situation.into());
+        let mut seen = self.seen.lock().unwrap();
+        seen.push(situation.into());
+        // replies separated by a line `---next---` are answered in turn, the last one again
+        let replies: Vec<&str> = self.reply.split("---next---\n").collect();
+        let text = replies[(seen.len() - 1).min(replies.len() - 1)];
         Ok(Written {
-            text: self.reply.clone(),
+            text: text.to_string(),
             errand: errand("conjure", "haiku", 0.001),
         })
     }
@@ -60,6 +65,7 @@ pub struct Rig {
     pub fences: Fences,
     pub config: ConjureConfig,
     pub writer: StubWriter,
+    pub checker: NotChecking,
     pub ledger: JsonlLedger,
     pub clock: FixedClock,
     pub cancel: Cancel,
@@ -83,6 +89,7 @@ impl Rig {
             view,
             context,
             writer: StubWriter::replying(reply),
+            checker: NotChecking,
             clock: FixedClock::at("2026-11-22T12:00:00Z".parse().unwrap()),
             cancel: Cancel::default(),
             name_case: if sorcerer_core::adapters::platform::paths::names_ignore_case(dir) {
@@ -101,6 +108,7 @@ impl Rig {
             fences: &self.fences,
             config: &self.config,
             writer: &self.writer,
+            checker: &self.checker,
             ledger: &self.ledger,
             clock: &self.clock,
             cancel: &self.cancel,

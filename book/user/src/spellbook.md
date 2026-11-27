@@ -225,7 +225,9 @@ fails red until the holes are filled.
 
 Who fills them: you, by hand; an agent such as Claude Code, which reads `spellbook new --json`
 or `spellbook holes --json` and finds every hole with its file, line and instruction; or conjure
-in the editor.
+in the editor. Conjure checks its fill against the project's rules before it lands, so a hole a fix
+left (`port_call: the same as std::fs::write(…) through self.clock`) is not filled by putting the
+forbidden code back.
 
 ## `spellbook new`
 
@@ -442,6 +444,21 @@ count, so a checkout with `\r\n` is not all new. Every owned region is checked a
 whatever lines changed, since a new file makes a list stale without touching it. The baseline still
 applies. `--since` leaves `report.json` alone (it is a part of the project), takes no files, and a
 commit git does not know stops with git's sentence, exit 2. `--json` adds `"since": "main"`.
+
+**Checking a change before it is written: `--texts`.**
+
+```
+$ spellbook check --texts - --json < texts.json
+```
+
+`--texts FILE` (`-` for standard input) checks texts that are not on disk yet: a JSON object
+`{"files": [{"path": "src/booking/commands/seat_walk_in.rs", "text": "…"}]}`, each text read as
+the file at its path (relative to the root). Only the rules run, not the regions (a new file
+leaves a list for `sync`, which is not a broken rule); the baseline still marks what is existing;
+nothing is written and `report.json` is left alone; a finding offers no fixes (they read the
+disk). The exit codes are `check`'s. A path that is absolute or climbs out with `..` stops with
+exit 2. Conjure uses it to check a change before it lands
+([Conjure](conjure.md#a-change-keeps-your-spellbook-rules)); an agent can too.
 
 **The project's say: `[spellbook.rules]`.** How strict to be with each rule is the team's choice,
 in `.sorcerer/config.toml`, over the rule's own `severity`:
