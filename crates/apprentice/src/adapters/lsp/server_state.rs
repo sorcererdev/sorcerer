@@ -18,6 +18,7 @@ use crate::domain::mediums::MarkSeverity;
 use super::asks::PendingAsk;
 use super::server_config::ServerConfig;
 use super::tasks::ShownTask;
+use super::working::WorkingOn;
 
 /// The server, shared by the main loop, the idle jobs, the task's thread and its helpers'.
 pub(super) struct Server {
@@ -42,6 +43,8 @@ pub(super) struct Server {
     pub told_unsaved: Mutex<HashMap<String, HashSet<PathBuf>>>,
     /// Each running task's progress line.
     pub progress: Mutex<HashMap<String, WorkDone>>,
+    /// What is being worked on now (a task, a question, a claim), by its key, drawn on its line.
+    pub working: Mutex<HashMap<String, WorkingOn>>,
     /// The finished tasks still marked.
     pub shown: Mutex<Vec<ShownTask>>,
     /// The marks a task's agent put, by the editor's path.
@@ -75,6 +78,7 @@ impl Server {
             written: Mutex::default(),
             told_unsaved: Mutex::default(),
             progress: Mutex::default(),
+            working: Mutex::default(),
             shown: Mutex::default(),
             said: Mutex::default(),
             asks: Mutex::default(),

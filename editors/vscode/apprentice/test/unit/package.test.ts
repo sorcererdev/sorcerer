@@ -29,7 +29,7 @@ test('the_binary_setting_is_read_from_user_settings_only_and_not_in_restricted_m
   assert.deepEqual(manifest.capabilities.untrustedWorkspaces.restrictedConfigurations, ['apprentice.path']);
 });
 
-test('the_seven_chords_call_the_seven_commands_in_an_editor_only', () => {
+test('each_chord_calls_its_command_in_an_editor_only', () => {
   const { commands, keybindings } = manifest.contributes;
   for (const { command, key } of KEYS) {
     assert.ok(commands.some((c: { command: string }) => c.command === command), command);

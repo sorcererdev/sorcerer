@@ -42,7 +42,7 @@ pub enum ReplyVerdict {
     Holds,
     DoesNotHold,
     CannotTell,
-    /// The call failed; nothing is shown and it is not asked again at this text.
+    /// The call failed: the line says why, and the next save asks again.
     Failed,
 }
 
@@ -65,9 +65,14 @@ impl RegionRecord {
         }
     }
 
-    /// Whether it waits for an answer on save: a question or a claim with none yet.
+    /// Whether it waits for an answer on save: a question or a claim with none yet, or whose
+    /// last call failed.
     pub fn waits_for_a_reply(&self) -> bool {
-        matches!(self.acting_kind(), Some(Kind::Question | Kind::Claim)) && self.reply.is_none()
+        let unanswered = self
+            .reply
+            .as_ref()
+            .is_none_or(|reply| reply.verdict == ReplyVerdict::Failed);
+        matches!(self.acting_kind(), Some(Kind::Question | Kind::Claim)) && unanswered
     }
 }
 

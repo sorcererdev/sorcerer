@@ -313,12 +313,34 @@ servers land are told apart through the host's `tool_edits` note: `triage` reads
 `lines_tools_landed` for the file into `Look::landed_by_tools`, and `persons_changed_lines`
 leaves those lines out (with moved lines, reflows and blank lines, which is what
 format-on-save makes). `answer_on_save` builds
-`AnswerDeps` (the researcher over core's `FilesView` of the disk, which the save just wrote) and
-writes a long answer as a note too.
+`AnswerDeps` (the researcher over core's `FilesView` of the disk, which the save just wrote, and
+a `LineWatch` as its `ReplyWatch` port, `ports/reply_watch.rs`) and writes a long answer as a
+note (`write_note`), which it does not open: *Open the answer* (`open_answer`,
+`apprentice.openAnswer`) sends `sorcerer/note` when the person asks. `answer_saved`
+(`usecases/answer_regions.rs`) tells the watch `begins` before each call (`false` when that
+region is already being answered, by an earlier save's job still running: `Jobs` runs two
+`save:<path>` jobs at once) and `ends` after its reply is stored, and re-reads the record
+(`still_waiting`) before calling, so a save that found it waiting while another answered it
+spends nothing. A `Failed` reply still `waits_for_a_reply`, so the next save asks again.
+
+**What is being worked on** (`working.rs`): `Server::working` maps a key (a task's id, a
+region's id) to a `WorkingOn`: its `WorkingPlace` (file, line, text) and, for an answer or a
+check, its own `WorkDone` status line (`researching: <the question>`). `work_begins`,
+`work_moves` and `work_ends` change the map and send every place at once with the host's
+`Client::show_working_each` (`sorcerer/working`, each place with its own text), so a question
+answered while a task runs keeps both lines. `LineWatch` draws `⟳ apprentice: researching…` (a
+claim: `checking…`) on the region's line; `start_task` draws `⟳ apprentice: working…` on the
+instruction's line from the moment the task is live (`TASK_WORKING`, ended again when its agent
+fails to start), `LspEditor::progress` moves the text to what the agent does
+(`⟳ apprentice: reading booking.py`), `write_for_task` moves it to `⟳ apprentice: writing…` at
+the first changed line, and `task_finished` ends it.
 
 **The marks** (`publisher.rs`): one publish per file joins the regions' marks
 (`region_mark`: an answer or a verdict Information with its cost and time and the citations as
-`relatedInformation`, else in the message; an instruction a Hint with the offer's price; an
+`relatedInformation`, else in the message, a long answer its first sentence and how to open the
+rest, by the editor's key from `initializationOptions.keys.openAnswer` (`Client::key_for`,
+`open_answer_hint`); a failed one a Warning saying why and `save to ask again` (`failed_text`);
+an instruction a Hint with the offer's price; an
 offer inside a larger offering region, a comment inside a stub, is not drawn:
 `inside_another_offer`), the
 finished tasks' (`task_marks`, code `task`, `data.task`; the file whose relative path is the
@@ -327,11 +349,12 @@ questions' (`ask_marks`). Ranges end at the end of the last line (`lines_of`, UT
 
 **The actions** (`commands.rs`): `code_actions` gives, per line, the found regions' actions
 once (`regions_actions`: the offer of the offering region spanning the most lines while no task
-runs, *Show code* and *Keep this answer* of the first answered region, one *Dismiss* and the
+runs, *Show code*, *Open the answer* (a long
+one) and *Keep this answer* of the first answered region, one *Dismiss* and the
 four labels carrying every region's id: `apprentice.dismiss [ids…]`, `apprentice.label [word,
 ids…]`), the pending questions' options (`ask_actions`), a marked task's *Show diff*,
-*Undo this task*, *Show journal*, and *Stop this task* while one runs. `execute` routes the ten
-`apprentice.*` commands; the slow ones (*do this*, *Dismiss*, a label) go to a thread.
+*Undo this task*, *Show journal*, and *Stop this task* while one runs. `execute` routes the
+eleven `apprentice.*` commands; the slow ones (*do this*, *Dismiss*, a label) go to a thread.
 
 **A task from the editor** (`tasks.rs`). `do_region` makes a `TaskOrder` (the region's text, its
 place now, the open files' unsaved edits) and `start_task`, holding `Server::runner` from the
@@ -356,7 +379,7 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
   editor adds (Neovim's `eol`) or its line endings are not the person's edit, here, in
   `edits_since_task_looked` and in `undo_of`. The edit goes out through
   `Client::apply_tool_edit`, noted as a tool's. The task's look and the server's look move to the new text, the text is kept
-  for undo (`written`), and `show_working` draws `⟳ apprentice: writing…` at the first changed
+  for undo (`written`), and `work_moves` draws `⟳ apprentice: writing…` at the first changed
   line.
 - `edits_since_look` → `edits_since_task_looked`: each open file against the task's look, the
   look moved to now.
@@ -369,8 +392,8 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
   `<task>-<n>` from the `asks_put` counter, never reused.
 - `mark` keeps a `SaidMark`; `ghost` and `note` send `sorcerer/ghost` and `sorcerer/note` to an
   editor that handles them (`Client::notify_sorcerer`), else a message and `show_document`.
-- `progress` starts the task's `WorkDone` and reports on it; `finished` → `task_finished`: the
-  progress line ends, `clear_working`, a `ShownTask` per file it changed (the before-text from
+- `progress` starts the task's `WorkDone` and reports on it, and moves its working text;
+  `finished` → `task_finished`: the progress line ends, `work_ends`, a `ShownTask` per file it changed (the before-text from
   the journal, the after-text from `written`, the first changed line) and its marks published,
   then the done message, once: it is the person's cue to look at the marks.
 
@@ -389,14 +412,19 @@ client gets the fallbacks above. Both clients also set `drawsWorking`, run the s
 actions from keys by title, and leave marks, the picker, edits and progress to the editor.
 
 **Neovim** (sorcerer.nvim, `lua/sorcerer/apprentice.lua`): `client_config` adds the handlers to
-`working.lua`'s config; `attach` starts the server with `debounce_text_changes = 0` on every
+`working.lua`'s config and tells the server the open-answer key (`init_options.keys`); `attach` starts the server with `debounce_text_changes = 0` on every
 file buffer under the project root; `ghost` draws `virt_lines` extmarks (cleared on
 `TextChanged` of that line), `note` `vsplit`s, `show_diff` opens a tab with a scratch buffer of
 the before-text and the live buffer, both `diffthis`. The keys are in `lua/sorcerer/keys.lua`.
+`working.lua` (shared with scry and conjure) spins a leading `⟳` through braille frames: one
+`vim.uv` timer (`keep_timer`, 90 ms) runs while any client has a mark drawn, and each `tick`
+rewrites, by extmark id, only the marks in buffers a window shows; `working.animate = false`
+stops it.
 
 **VS Code** (`editors/vscode/apprentice/`). `src/extension.ts` starts one `apprentice lsp` per
 workspace folder (`startFor`, every file under the folder) with `initializationOptions: {
-drawsWorking: true, handles: [...] }`. VS Code's client holds a whole-text `didChange` back up
+drawsWorking: true, handles: [...], keys: keysByName(KEYS) }` (the `ctrl+m o` chord as
+`openAnswer`, so a long answer's mark names it). VS Code's client holds a whole-text `didChange` back up
 to 250 ms (the server's sync is `Full`); the `didChange` middleware follows each change with the
 notification `$/apprentice/sendEditsNow`, which the server ignores but which makes the client
 send the pending change first, as Neovim's `debounce_text_changes = 0` does. The handlers:
@@ -409,10 +437,12 @@ a fresh query per diff) against the live file. `src/taskMarks.ts` (over the pure
 in `src/marks.ts`) draws the gutter sparkle on diagnostics of source `apprentice`, code `task`.
 `src/keys.ts` (`KEYS`, `actionsFor`: exact titles, or a prefix for the offer and the labels) and
 `src/keyActions.ts` (`vscode.executeCodeActionProvider` at the cursor; the labels in a
-QuickPick) make the `ctrl+m a/q/d/z/j/x/l` commands, `apprentice.keys.*`, named apart from the
+QuickPick) make the `ctrl+m a/q/d/z/j/x/o/l` commands, `apprentice.keys.*`, named apart from the
 server's `apprentice.*` commands, which the language client registers. `binary.ts`,
 `download.ts`, `offer.ts`, `working.ts` and `inline.ts` are byte-identical copies of scry's and
-conjure's (CI `diff`s them); with no binary the offer finds no release (a 404) and says the
+conjure's (CI `diff`s them; `Working` also shows a `$(sync~spin)` status bar item from the pure
+`statusText` while anything is drawn, and leaves the grey text still, since cycling every
+editor's decorations ten times a second costs more than it shows); with no binary the offer finds no release (a 404) and says the
 `cargo install` line once per version. Permission questions are the language client's own
 `window/showMessageRequest` handler, a notification with buttons; a closed one answers `null`,
 which the server reads as `Answer::Closed`, a deny.

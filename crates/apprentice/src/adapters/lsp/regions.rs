@@ -30,6 +30,7 @@ use crate::usecases::label_region::{dismiss_region, label_region};
 use crate::usecases::triage_regions::{Look, TriageDeps, triage_change};
 
 use super::server_state::Server;
+use super::working::LineWatch;
 
 impl Server {
     /// The project's region store.
@@ -95,9 +96,11 @@ impl Server {
         triage_change(&look, &deps, cancel);
     }
 
-    /// The saved file's questions answered and claims checked, then its marks published; a
-    /// fenced file has none.
-    pub(super) fn answer_on_save(&self, path: &Path) {
+    /// The saved file's questions answered and claims checked, each shown on its line while
+    /// it is worked on, then its marks published; a fenced file has none. A long answer is
+    /// written as a note for the person to open (*Open the answer*): no window opens unasked,
+    /// since the person may be typing.
+    pub(super) fn answer_on_save(self: &Arc<Self>, path: &Path) {
         let (Some(project), Some(file)) = (self.trusted_project(), self.relative(path)) else {
             return;
         };
@@ -112,6 +115,12 @@ impl Server {
             return;
         };
         let view = self.cfg.disk_view(&project);
+        let text = self.text_now(path);
+        let watch = LineWatch {
+            server: Arc::clone(self),
+            path: path.to_path_buf(),
+            text: text.clone(),
+        };
         let deps = AnswerDeps {
             researcher: (self.cfg.researcher)(&project, view.clone()),
             decider: (self.cfg.decider)(&project),
@@ -122,8 +131,8 @@ impl Server {
             ledger: Arc::new(ledger),
             clock: self.cfg.clock.clone(),
             config: Self::config(&project),
+            watch: Arc::new(watch),
         };
-        let text = self.text_now(path);
         let replied = answer_saved(&file, &text, &deps, &Cancel::default());
         for record in replied
             .iter()
@@ -133,6 +142,19 @@ impl Server {
             let _ = self.write_note(&record.region.id, &record.region.text, &reply.text);
         }
         self.publish(path);
+    }
+
+    /// *Open the answer*: a long answer's note, beside the code.
+    pub(super) fn open_answer(&self, id: &str) {
+        let Some((_, record)) = self.record(id) else {
+            return;
+        };
+        let Some(reply) = record.reply.as_ref().filter(|reply| reply.long) else {
+            return;
+        };
+        if let Some(path) = self.write_note(id, &record.region.text, &reply.text) {
+            self.open_note(&path);
+        }
     }
 
     /// The records of a file in the editor now, each with where its text is (from 1).
@@ -261,15 +283,19 @@ impl Server {
         );
     }
 
-    /// A long answer, also as a note beside the code.
-    pub(super) fn write_note(&self, id: &str, title: &str, text: &str) -> Option<()> {
+    /// A long answer, written as a note (`notes/<region>.md`); answers where.
+    pub(super) fn write_note(
+        &self,
+        id: &str,
+        title: &str,
+        text: &str,
+    ) -> Option<std::path::PathBuf> {
         let project = self.project()?;
         let notes = StateFiles::for_project(&project).ok()?.notes();
         std::fs::create_dir_all(&notes).ok()?;
         let path = notes.join(format!("{id}.md"));
         std::fs::write(&path, format!("# {}\n\n{text}\n", title.trim())).ok()?;
-        self.open_note(&path);
-        Some(())
+        Some(path)
     }
 
     /// Opens a note beside the code (`sorcerer/note`), else over it.

@@ -35,3 +35,15 @@ export function forDocument(units: WorkingUnit[], uri: string): WorkingUnit[] {
 export function spelledAs(units: WorkingUnit[], spell: (uri: string) => string): WorkingUnit[] {
   return units.map(unit => ({ ...unit, uri: spell(unit.uri) }));
 }
+
+// statusText is the status bar's text while units are worked on: the spinning icon and the
+// first unit's text without its own `⟳`, and how many more there are; undefined when none is.
+//
+// Example: two units `⟳ apprentice: researching…` and `⟳ apprentice: working…` give
+// `$(sync~spin) apprentice: researching… (+1)`.
+export function statusText(units: readonly WorkingUnit[]): string | undefined {
+  const first = units[0];
+  if (!first) return undefined;
+  const more = units.length > 1 ? ` (+${units.length - 1})` : '';
+  return `$(sync~spin) ${first.text.replace(/^\u27f3\s*/, '')}${more}`;
+}

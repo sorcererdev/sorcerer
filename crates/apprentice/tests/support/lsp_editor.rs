@@ -96,7 +96,8 @@ pub fn served(dir: &Path, doubles: Doubles) -> Served {
     });
     let options = json!({
         "drawsWorking": true,
-        "handles": ["sorcerer/ghost", "sorcerer/note", "sorcerer/showDiff"]
+        "handles": ["sorcerer/ghost", "sorcerer/note", "sorcerer/showDiff"],
+        "keys": { "openAnswer": "<leader>mo" }
     });
     let id = s.request(
         "initialize",
@@ -297,6 +298,24 @@ impl Served {
                     && n.params["message"].as_str().is_some_and(|text| text.starts_with(start)))
             })
             .count()
+    }
+
+    /// Every notification of a method sent so far and not yet taken, after letting the server
+    /// run a little; they are taken.
+    pub fn notifications(&self, method: &str) -> Vec<Value> {
+        self.settle(Duration::from_millis(300));
+        let mut inbox = self.inbox.borrow_mut();
+        let (taken, kept): (Vec<Message>, Vec<Message>) = inbox
+            .drain(..)
+            .partition(|m| matches!(m, Message::Notification(n) if n.method == method));
+        *inbox = kept.into();
+        taken
+            .into_iter()
+            .filter_map(|m| match m {
+                Message::Notification(n) => Some(n.params),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The next notification of a method.

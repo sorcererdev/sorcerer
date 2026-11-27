@@ -30,6 +30,7 @@ use crate::usecases::run_task::TaskOrder;
 
 use super::editor_port::LspEditor;
 use super::server_state::{Server, lock};
+use super::working::TASK_WORKING;
 
 /// A finished task, still marked.
 #[derive(Debug, Clone)]
@@ -97,8 +98,8 @@ impl Server {
         self.start_task(order);
     }
 
-    /// Starts a task on a thread, unless one runs; its first look is every open file now, in
-    /// place before the agent starts (its first `write_file` is checked against it). The
+    /// Starts a task on a thread, unless one runs; its line says `⟳ apprentice: working…` from
+    /// now to its end. Its first look is every open file now, in place before the agent starts (its first `write_file` is checked against it). The
     /// check and the start are under one hold of `runner`, so two *do this* at once start one
     /// task, and the runner kept is always the running task's (a stop reaches it).
     pub(super) fn start_task(self: &Arc<Self>, order: TaskOrder) {
@@ -121,12 +122,22 @@ impl Server {
             }
         };
         let first_look = self.open_texts();
+        let asked_at = self.editor_path(Path::new(&order.file));
+        let mut begun = None;
         let started = runner.start_with(&order, |id| {
             lock(&self.task_looks).insert(id.to_string(), first_look);
+            self.work_begins(id, &asked_at, order.line, TASK_WORKING, None);
+            begun = Some(id.to_string());
         });
         let started = match started {
             Ok(started) => started,
-            Err(refused) => return self.client.say(MessageType::WARNING, &refused.text()),
+            Err(refused) => {
+                // an agent that did not start shows no work
+                if let Some(id) = begun {
+                    self.work_ends(&id);
+                }
+                return self.client.say(MessageType::WARNING, &refused.text());
+            }
         };
         *current = Some(runner.clone());
         drop(current);
@@ -187,7 +198,7 @@ impl Server {
         if let Some(line) = lock(&self.progress).remove(&task.id) {
             line.end(None);
         }
-        self.client.clear_working();
+        self.work_ends(&task.id);
         lock(&self.task_looks).remove(&task.id);
         lock(&self.told_unsaved).remove(&task.id);
         let written = lock(&self.written).remove(&task.id).unwrap_or_default();

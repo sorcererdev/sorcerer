@@ -853,3 +853,184 @@ fn an_editor_with_no_picker_is_asked_a_permission_on_the_instructions_line() {
     assert_eq!(allowed["behavior"], "allow", "{allowed}");
     s.stop();
 }
+
+/// The units of each `sorcerer/working` sent so far: (line from 0, text).
+fn working_sent(s: &Served) -> Vec<Vec<(u64, String)>> {
+    s.notifications("sorcerer/working")
+        .iter()
+        .map(|params| {
+            params["units"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|unit| {
+                    (
+                        unit["line"].as_u64().unwrap(),
+                        unit["text"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn question_served(
+    project: &TempProject,
+    researcher: StubResearcher,
+) -> (Served, Arc<StubResearcher>) {
+    let researcher = Arc::new(researcher);
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::default()),
+            decider: Some(Arc::new(StubJev::saying("question", 0.95, 0.9))),
+            researcher: Some(researcher.clone()),
+        },
+    );
+    (s, researcher)
+}
+
+const CART: &str = "def total(cart):\n    return sum(cart)\n";
+const ASKED: &str = "def total(cart):\n    # why is the tax not in here?\n    return sum(cart)\n";
+
+/// 2026-11-27: the person saved a question and a note window opened 15 s later with no sign that
+/// anything ran. Now its line says `researching…` from the start of the call to its end, the
+/// status line says what is researched, and a long answer waits behind a key: no window opens.
+#[test]
+fn a_question_being_researched_says_so_on_its_line_and_a_long_answer_opens_only_when_asked() {
+    let project = TempProject::with(&[("src/cart.py", CART)]);
+    let (s, _) = question_served(
+        &project,
+        StubResearcher::replying("LONG: Tax is added at checkout (src/cart.py:1). Then more.")
+            .taking(Duration::from_millis(400)),
+    );
+    s.open("src/cart.py");
+    s.settle(Duration::from_millis(100));
+    s.type_text("src/cart.py", ASKED);
+    state_holds(&project, &s, "regions.json", "why is the tax");
+    s.save("src/cart.py");
+    let marks = s.marks_until("src/cart.py", |marks| !marks.is_empty());
+    assert!(
+        marks[0]
+            .message
+            .contains("<leader>mo opens the whole answer"),
+        "{}",
+        marks[0].message
+    );
+    assert_eq!(
+        working_sent(&s),
+        vec![
+            vec![(1, "\u{27f3} apprentice: researching\u{2026}".to_string())],
+            vec![]
+        ]
+    );
+    let progress: Vec<String> = s
+        .notifications("$/progress")
+        .iter()
+        .filter_map(|p| p["value"]["title"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(progress, vec!["apprentice"]);
+    assert!(
+        s.notifications("sorcerer/note").is_empty(),
+        "no window opens unasked"
+    );
+    s.run_action("src/cart.py", 2, "apprentice: Open the answer");
+    let note = s.notification("sorcerer/note");
+    assert!(note["uri"].as_str().unwrap().ends_with(".md"), "{note}");
+    s.stop();
+}
+
+/// 2026-11-27: an answer failed and showed nothing; the region was never asked again. Now the
+/// failure is on the line with why, and the next save asks again.
+#[test]
+fn a_failed_answer_says_why_on_its_line_and_the_next_save_asks_again() {
+    let project = TempProject::with(&[("src/cart.py", CART)]);
+    let (s, researcher) = question_served(
+        &project,
+        StubResearcher::replying("Tax is added at checkout (src/cart.py:1).")
+            .failing(1, "Reached maximum budget ($0.25) (error_max_budget_usd)"),
+    );
+    s.open("src/cart.py");
+    s.settle(Duration::from_millis(100));
+    s.type_text("src/cart.py", ASKED);
+    state_holds(&project, &s, "regions.json", "why is the tax");
+    s.save("src/cart.py");
+    let marks = s.marks_until("src/cart.py", |marks| !marks.is_empty());
+    assert!(
+        marks[0].message.starts_with(
+            "apprentice: could not answer: claude: Reached maximum budget ($0.25) (error_max_budget_usd) · save to ask again"
+        ),
+        "{}",
+        marks[0].message
+    );
+    s.save("src/cart.py");
+    let marks = s.marks_until("src/cart.py", |marks| {
+        marks
+            .iter()
+            .any(|mark| mark.message.starts_with("apprentice: Tax is added"))
+    });
+    assert_eq!(marks.len(), 1);
+    assert_eq!(researcher.prompts.lock().unwrap().len(), 2);
+    s.stop();
+}
+
+/// 2026-11-27: the person edited and saved again while the first answer ran, and two research
+/// calls ran at once. A question already being researched is not researched again.
+#[test]
+fn a_second_save_while_a_question_is_researched_does_not_research_it_again() {
+    let project = TempProject::with(&[("src/cart.py", CART)]);
+    let (s, researcher) = question_served(
+        &project,
+        StubResearcher::replying("Tax is added at checkout (src/cart.py:1).")
+            .taking(Duration::from_millis(600)),
+    );
+    s.open("src/cart.py");
+    s.settle(Duration::from_millis(100));
+    s.type_text("src/cart.py", ASKED);
+    state_holds(&project, &s, "regions.json", "why is the tax");
+    s.save("src/cart.py");
+    s.settle(Duration::from_millis(150));
+    s.save("src/cart.py");
+    s.marks_until("src/cart.py", |marks| !marks.is_empty());
+    s.settle(Duration::from_millis(900));
+    assert_eq!(researcher.prompts.lock().unwrap().len(), 1);
+    s.stop();
+}
+
+/// 2026-11-27: a task's line said nothing until its first write (20 s of reading and asking).
+/// Now it says it is working from the moment the task starts.
+#[test]
+fn a_tasks_line_shows_working_from_the_start() {
+    let text = "# Notes\n\n## Example\n";
+    let asked = "# Notes\n\n## Example\n\nFill this in\n";
+    let project = TempProject::with(&[("NOTES.md", text)]);
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::playing(vec![
+                tool_use("Read", json!({ "file_path": "NOTES.md" })),
+                Step::Finish(0.05),
+            ])),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.open("NOTES.md");
+    s.settle(Duration::from_millis(100));
+    s.type_text("NOTES.md", asked);
+    state_holds(&project, &s, "regions.json", "Fill this in");
+    s.settle(Duration::from_millis(200));
+    s.run_action("NOTES.md", 5, "apprentice: do this");
+    s.shown_message("apprentice: done");
+    let working = working_sent(&s);
+    assert_eq!(
+        working.first(),
+        Some(&vec![(
+            4,
+            "\u{27f3} apprentice: working\u{2026}".to_string()
+        )]),
+        "{working:?}"
+    );
+    assert_eq!(working.last(), Some(&vec![]));
+    s.stop();
+}

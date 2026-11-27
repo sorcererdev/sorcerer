@@ -94,7 +94,8 @@ nearest directory upward holding `.sorcerer/`, else `.git`. Signs show one mark 
 line by issue type (an issue type with no mark of its own gets `•`), tint the line number, and
 dim a stale finding; Neovim's own sign and virtual text are turned off for scry's diagnostics
 so nothing is drawn twice. No text in your buffer moves, not even the grey `⟳ scry: reviewing…`
-(virtual text, in the `SorcererWorking` highlight, linked to `Comment`). `require("sorcerer").status()` gives
+(virtual text, in the `SorcererWorking` highlight, linked to `Comment`; its `⟳` spins while the
+review runs, and `working = { animate = false }` in setup keeps it still). `require("sorcerer").status()` gives
 `scry: reviewing 2 units` or an empty string, for your status line; any LSP progress display
 (fidget, `vim.lsp.status()`) shows the same. `:checkhealth sorcerer` says whether `scry` is on
 your PATH and its version.
@@ -127,7 +128,8 @@ settings only: a workspace's `.vscode/settings.json` cannot choose the program t
 runs, and in Restricted Mode the setting is not read at all. It starts one `scry lsp` per workspace
 folder. The diagnostics, the lightbulb and the progress in the status bar are VS Code's own;
 the grey `⟳ scry: reviewing…` after a unit's first line is the extension's (a text decoration in the
-theme's `editorCodeLens.foreground` colour, italic, so a theme can change it).
+theme's `editorCodeLens.foreground` colour, italic, so a theme can change it), with a spinning
+`$(sync~spin)` in the status bar while it is drawn.
 
 **Apprentice** (a prototype) is not on the Marketplace: install its `.vsix` and build the
 program with `cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice`.

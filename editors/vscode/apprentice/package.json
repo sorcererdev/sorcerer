@@ -68,6 +68,10 @@
         "title": "Apprentice: Dismiss"
       },
       {
+        "command": "apprentice.keys.openAnswer",
+        "title": "Apprentice: Open the answer"
+      },
+      {
         "command": "apprentice.keys.label",
         "title": "Apprentice: This was\u2026"
       }
@@ -101,6 +105,11 @@
       {
         "command": "apprentice.keys.dismiss",
         "key": "ctrl+m x",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "apprentice.keys.openAnswer",
+        "key": "ctrl+m o",
         "when": "editorTextFocus"
       },
       {

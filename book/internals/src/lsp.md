@@ -119,7 +119,11 @@ thread.
   after that line. It is sent only to an editor whose `initializationOptions` hold
   `drawsWorking: true` (`Abilities::draws_working`, read in `serve::abilities_of`); to any other
   both calls do nothing. `clear_working` sends the empty list only when something is shown. The
-  clients clear it themselves when the server exits.
+  clients clear it themselves when the server exits. `show_working_each(places)` is the same
+  with a text per place (`WorkingPlace`), for a server doing two things at once (apprentice).
+- `key_for(action)`: the editor's key for an action by name, from
+  `initializationOptions.keys` (`Abilities::keys`), so a mark can name it (`<leader>mo opens the
+  whole answer`); `None` when the editor named none.
 - `notify_sorcerer(method, params) -> bool`: a `sorcerer/…` notification of the product's own
   (apprentice's `sorcerer/ghost`, `sorcerer/note`, `sorcerer/showDiff`), sent only to an editor
   whose `initializationOptions.handles` lists the method (`Abilities::handles`, read in

@@ -51,6 +51,18 @@ pub(crate) struct Abilities {
     /// `initializationOptions.handles`: the `sorcerer/…` notifications it handles beyond
     /// `sorcerer/working`, such as `sorcerer/ghost`. Only Sorcerer's own editor extensions say so.
     pub handles: Vec<String>,
+    /// `initializationOptions.keys`: the editor's key for each action, by name
+    /// (`{ "openAnswer": "<leader>mo" }`). Only Sorcerer's own editor extensions say so.
+    pub keys: std::collections::BTreeMap<String, String>,
+}
+
+/// One place a server works on, for [`Client::show_working_each`]: a file, the line from 1,
+/// and the text written after it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkingPlace {
+    pub path: PathBuf,
+    pub line: u32,
+    pub text: String,
 }
 
 struct Shared {
@@ -165,21 +177,45 @@ impl Client {
     /// Example: `show_working("⟳ scry: reviewing…", &[(orders_py, 12)])`, and when the work is
     /// over, `clear_working()`.
     pub fn show_working(&self, text: &str, places: &[(PathBuf, u32)]) {
+        let units: Vec<WorkingPlace> = places
+            .iter()
+            .map(|(path, line)| WorkingPlace {
+                path: path.clone(),
+                line: *line,
+                text: text.to_string(),
+            })
+            .collect();
+        self.show_working_each(&units);
+    }
+
+    /// [`Client::show_working`] with a text of its own at each place, for a server doing two
+    /// things at once (apprentice researching a question while a task works further down).
+    ///
+    /// Example: `show_working_each(&[WorkingPlace { path: readme, line: 65, text:
+    /// "⟳ apprentice: researching…".into() }])`; an empty list ends what was shown.
+    pub fn show_working_each(&self, places: &[WorkingPlace]) {
         if !self.shared.abilities.draws_working {
             return;
         }
         let units: Vec<Value> = places
             .iter()
-            .map(|(path, line)| {
+            .map(|place| {
                 serde_json::json!({
-                    "uri": uri_of(path),
-                    "line": line.saturating_sub(1),
-                    "text": text,
+                    "uri": uri_of(&place.path),
+                    "line": place.line.saturating_sub(1),
+                    "text": place.text,
                 })
             })
             .collect();
         lock(&self.shared.state).working_shown = !units.is_empty();
         self.notify("sorcerer/working", serde_json::json!({ "units": units }));
+    }
+
+    /// The key the editor binds to an action, by the action's name (`openAnswer`), as the
+    /// editor writes it (`<leader>mo`), from `initializationOptions.keys`; `None` when it named
+    /// none. A message can then say which key to press.
+    pub fn key_for(&self, action: &str) -> Option<String> {
+        self.shared.abilities.keys.get(action).cloned()
     }
 
     /// Ends what [`Client::show_working`] showed. Says nothing when nothing is shown.
