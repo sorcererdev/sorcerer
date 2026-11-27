@@ -50,12 +50,15 @@ impl Server {
         let options: Vec<&str> = ask.options.iter().map(String::as_str).collect();
         let question = Question::of(&ask.question);
         if question.rest.is_some() {
-            self.client
-                .say(MessageType::INFO, &format!("apprentice asks: {}", ask.question));
+            self.client.say(
+                MessageType::INFO,
+                &format!("apprentice asks: {}", ask.question),
+            );
         }
-        self.client.ask(&question.picker_text(), &options, move |picked| {
-            let _ = sender.send(picked);
-        });
+        self.client
+            .ask(&question.picker_text(), &options, move |picked| {
+                let _ = sender.send(picked);
+            });
         answer.recv_timeout(wait).ok()
     }
 
@@ -65,7 +68,10 @@ impl Server {
         };
         let (sender, answer) = crossbeam_channel::bounded(1);
         let pending = PendingAsk {
-            id: format!("{task}-{}", self.asks_put.fetch_add(1, Ordering::SeqCst) + 1),
+            id: format!(
+                "{task}-{}",
+                self.asks_put.fetch_add(1, Ordering::SeqCst) + 1
+            ),
             editor_path: self.root.join(file),
             line: *line,
             question: ask.question.clone(),
@@ -160,7 +166,10 @@ mod tests {
     #[test]
     fn a_question_of_several_lines_shows_its_first_and_keeps_the_rest_for_the_hover() {
         let question = Question::of("apprentice wants to run: cat > n.txt <<EOF\none\nEOF");
-        assert_eq!(question.first_line, "apprentice wants to run: cat > n.txt <<EOF");
+        assert_eq!(
+            question.first_line,
+            "apprentice wants to run: cat > n.txt <<EOF"
+        );
         assert_eq!(
             question.mark_text(),
             "apprentice asks: apprentice wants to run: cat > n.txt <<EOF …\none\nEOF"

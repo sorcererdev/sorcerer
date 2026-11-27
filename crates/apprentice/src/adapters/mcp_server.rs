@@ -160,9 +160,7 @@ mod tests {
             task: "t".into(),
         };
         drop(closed);
-        let call = |id: u64| {
-            json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": "notify", "arguments": { "text": "hi" } } })
-        };
+        let call = |id: u64| json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": "notify", "arguments": { "text": "hi" } } });
         let input = [call(1), call(2)].map(|m| m.to_string()).join("\n");
         let mut output = Vec::new();
         serve_mcp(input.as_bytes(), &mut output, &way).unwrap();

@@ -447,7 +447,10 @@ fn an_agent_whose_server_has_ended_stops_after_its_next_tool_call() {
     let mut running = agent(&project, &fake).start(&request).unwrap();
     running.close_input();
     while running.next_event(Duration::from_secs(10)) != NextEvent::Ended {
-        assert!(started.elapsed() < Duration::from_secs(10), "it never ended");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "it never ended"
+        );
     }
     assert!(
         started.elapsed() < Duration::from_secs(4),
