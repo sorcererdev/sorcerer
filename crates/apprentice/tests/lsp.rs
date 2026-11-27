@@ -234,7 +234,11 @@ fn saving_every_file_a_task_changed_keeps_it() {
     assert_eq!(marks[0].severity, Some(lsp_types::DiagnosticSeverity::HINT));
     s.run_action(FILE, 5, "apprentice: do this");
     s.shown_message("apprentice: done");
-    assert_eq!(s.shown_count("apprentice: done"), 0, "the done message, once");
+    assert_eq!(
+        s.shown_count("apprentice: done"),
+        0,
+        "the done message, once"
+    );
     s.marks_until(FILE, |marks| {
         marks.iter().any(|m| m.message.starts_with("\u{2726}"))
     });
@@ -518,7 +522,9 @@ fn a_write_over_unsaved_edits_the_agent_has_not_seen_is_refused_once_with_the_ed
     let replies = agent.replies();
     assert!(replies[0].is_error, "{}", replies[0].text);
     assert!(
-        replies[0].text.ends_with(&format!("Its text now:\n{renamed}")),
+        replies[0]
+            .text
+            .ends_with(&format!("Its text now:\n{renamed}")),
         "{}",
         replies[0].text
     );

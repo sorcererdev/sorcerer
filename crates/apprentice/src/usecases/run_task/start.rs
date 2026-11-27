@@ -52,7 +52,9 @@ impl TaskRefused {
                 usd(*cap)
             ),
             TaskRefused::NotStarted(why) => format!("apprentice: the task did not start: {why}"),
-            TaskRefused::Fenced(file) => format!("apprentice: {file} is fenced; no task starts in it"),
+            TaskRefused::Fenced(file) => {
+                format!("apprentice: {file} is fenced; no task starts in it")
+            }
         }
     }
 }

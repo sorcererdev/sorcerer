@@ -307,7 +307,10 @@ fn a_write_to_an_agents_or_a_tools_config_is_refused() {
         .iter()
         .map(|path| Step::Tool("write_file", json!({ "path": path, "text": "x" })))
         .chain([
-            Step::Tool("write_file", json!({ "path": "src/envrc.txt", "text": "x" })),
+            Step::Tool(
+                "write_file",
+                json!({ "path": "src/envrc.txt", "text": "x" }),
+            ),
             Step::Finish(0.0),
         ])
         .collect();
@@ -321,7 +324,11 @@ fn a_write_to_an_agents_or_a_tools_config_is_refused() {
             reply.text
         );
     }
-    assert!(!replies[never.len()].is_error, "{}", replies[never.len()].text);
+    assert!(
+        !replies[never.len()].is_error,
+        "{}",
+        replies[never.len()].text
+    );
     assert_eq!(run.record.files.len(), 1);
 }
 

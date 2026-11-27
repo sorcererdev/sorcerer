@@ -194,7 +194,11 @@ mod tests {
         let started = std::time::Instant::now();
         let mut answer = String::new();
         let _ = BufReader::new(&mut idle).read_line(&mut answer);
-        assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
         assert!(answer.is_empty(), "{answer}");
     }
 
@@ -224,7 +228,9 @@ mod tests {
             .collect();
         std::thread::sleep(Duration::from_millis(50));
         let mut extra = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
-        extra.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        extra
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let started = std::time::Instant::now();
         let mut answer = String::new();
         let _ = BufReader::new(&mut extra).read_line(&mut answer);

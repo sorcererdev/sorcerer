@@ -39,16 +39,22 @@ impl Fake {
     }
 
     fn envs(&self) -> Vec<(String, String)> {
-        ["SCRIPT:script.json", "ARGS:args", "STDIN:stdin", "LOG:log", "TOKEN:token"]
-            .iter()
-            .map(|pair| {
-                let (var, file) = pair.split_once(':').unwrap();
-                (
-                    format!("FAKE_APPRENTICE_{var}"),
-                    self.file(file).to_string_lossy().into_owned(),
-                )
-            })
-            .collect()
+        [
+            "SCRIPT:script.json",
+            "ARGS:args",
+            "STDIN:stdin",
+            "LOG:log",
+            "TOKEN:token",
+        ]
+        .iter()
+        .map(|pair| {
+            let (var, file) = pair.split_once(':').unwrap();
+            (
+                format!("FAKE_APPRENTICE_{var}"),
+                self.file(file).to_string_lossy().into_owned(),
+            )
+        })
+        .collect()
     }
 
     fn args(&self) -> Vec<String> {
