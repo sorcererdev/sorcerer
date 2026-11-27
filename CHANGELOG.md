@@ -10,6 +10,14 @@
   subscription, so it needs `claude` installed and signed in; `apprentice doctor` checks.
   The test program `apprentice-fake-claude` is built only with the `fake-claude` feature, so it
   is in neither the release nor `cargo install`.
+- **Apprentice starts tasks fast in a large project.** The symbolic links it denies by name are
+  kept between tasks; a task's start walks again only the folders that changed since the last
+  one, and checks every known link afresh, so a link made since the last task is still denied.
+  The look for links now follows only the project's own `.gitignore` and `.ignore` files (not a
+  global gitignore or `.git/info/exclude`) and skips `.sorcerer/`, which is fenced as a whole.
+  A project that is not a git repository now honours its `.gitignore` there too, so a link in a
+  folder it leaves out is no longer named. On a file system that does not move a folder's time
+  when an entry changes (FAT on Windows), nothing is kept and every task walks the whole project.
 - **Adopting `spellbook check` on code with debt.** `spellbook check --baseline` records today's
   findings in `.sorcerer/spellbook/baseline.toml`; they show as `(existing)` and never fail, so only
   new breakage does. `spellbook check --since main` judges a branch on the lines it touched.

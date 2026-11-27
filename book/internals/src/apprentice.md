@@ -131,7 +131,8 @@ editor), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` a
 (`GitSession`: the merge base with `origin/HEAD`, `main` or `master` through core's
 `CodebaseView`, `changed_since` less what the `Fences` refuse, each file's `diff`, a file git
 does not track as `added_file_diff`, until the budget), `json_region_store.rs`,
-`system_clock.rs`, `wiring.rs` (`live_agent`, `task_deps`, `WireAgent`), and `lsp/` (the
+`system_clock.rs`, `wiring.rs` (`live_agents`: the agent builder, holding one core
+`FencedLinksCache` per project root for the server's life; `task_deps`, `WireAgent`), and `lsp/` (the
 server, below).
 
 **Command line** (`src/cli/`): `run_cli.rs` (`main`, `main_with`, `Wiring`), `arguments.rs`,
@@ -203,7 +204,9 @@ person's verdict on each command asked about, the `Cancel`.
 gate stays in front), `--settings` (the two hooks, `PostToolUse` and `Stop`, each `'<apprentice>'
 hook <event>` (`helper_command`: POSIX single quotes, `'\''` for a quote in the path, since Claude Code runs a hook
 through a shell, Git Bash on Windows; `/` in the path on every system); then `permissions`: `deny` holds the five
-tools and every fence as `Read(./…)` (a `dir/**` fence also as `Read(./dir)`, each rule once),
+tools and every fence as `Read(./…)` (a `dir/**` fence also as `Read(./dir)`, each rule once,
+and `Read(./link)` with `Read(./link/**)` for each fenced link, from the project's
+`FencedLinksCache` given by `with_links_cache`, else a fresh `Fences::fenced_links` walk),
 which Claude Code applies to Read, Grep, Glob, `@`-mentions and the file commands it parses
 (`cat .env`, `head`, `cp .env x`); `ask` is `ASKED_TOOLS`, `Bash`, `PowerShell` and `Monitor`,
 so every command reaches the permission tool, even the ones Claude Code otherwise runs unasked

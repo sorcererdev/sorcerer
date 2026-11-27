@@ -18,7 +18,7 @@ use sorcerer_models::ports::decider::Decider;
 use sorcerer_models::ports::researcher::Researcher;
 
 use crate::adapters::system_clock::SystemClock;
-use crate::adapters::wiring::{WireAgent, live_agent};
+use crate::adapters::wiring::{WireAgent, live_agents};
 use crate::domain::config::PRODUCT;
 use crate::ports::clock::Clock;
 
@@ -58,7 +58,7 @@ impl ServerConfig {
             cache: GrammarCache::user(&*env),
             trust: TrustList::user(&*env),
             clock: Arc::new(SystemClock),
-            agent: Arc::new(live_agent),
+            agent: live_agents(),
             decider: Box::new(move |project| {
                 let ledger: Arc<dyn Ledger> = Arc::new(JsonlLedger::for_project(project).ok()?);
                 let jev = Jev::from_env(&project.config.decide, &*for_jev, Some(ledger)).ok()?;

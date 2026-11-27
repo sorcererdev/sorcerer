@@ -6,10 +6,12 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use serde_json::{Value, json};
+use sorcerer_core::adapters::fenced_links_cache::FencedLinksCache;
 use sorcerer_core::adapters::platform::process::{self, Running as Process};
 use sorcerer_core::domain::config::ProviderConfig;
 use sorcerer_core::domain::fences::Fences;
@@ -50,6 +52,8 @@ pub struct ClaudeAgent {
     /// This program, which the agent runs as its MCP server and its hooks.
     me: PathBuf,
     fences: Fences,
+    /// The project's fenced links kept between tasks; without one, each task walks the tree.
+    links: Option<Arc<FencedLinksCache>>,
     envs: Vec<(String, String)>,
 }
 
@@ -61,8 +65,16 @@ impl ClaudeAgent {
             runner: cfg.runner.clone().unwrap_or_else(|| "claude".into()),
             me,
             fences,
+            links: None,
             envs: Vec::new(),
         }
+    }
+
+    /// The agent taking the fenced links from the project's cache, so starting a task walks
+    /// only the directories that changed since the last one.
+    pub fn with_links_cache(mut self, links: Arc<FencedLinksCache>) -> ClaudeAgent {
+        self.links = Some(links);
+        self
     }
 
     /// Extra environment variables for the child (tests point the fake at its script).
@@ -140,7 +152,7 @@ impl ClaudeAgent {
                 .chain(root_form)
                 .chain(directory)
         });
-        let fenced_links = self.fences.fenced_links().into_iter().flat_map(|link| {
+        let fenced_links = self.fenced_links().into_iter().flat_map(|link| {
             [
                 format!("Read(./{})", forward_slashes(&link)),
                 format!("Read(./{}/**)", forward_slashes(&link)),
@@ -157,6 +169,14 @@ impl ClaudeAgent {
             }
             once
         })
+    }
+
+    /// The links to deny by name: from the cache when there is one, else from a walk.
+    fn fenced_links(&self) -> Vec<PathBuf> {
+        match &self.links {
+            Some(cache) => cache.fenced_links(&self.fences),
+            None => self.fences.fenced_links(),
+        }
     }
 
     /// One stdio MCP server, `apprentice mcp`. The way back (port, token, task) is not in it:
@@ -327,6 +347,7 @@ mod tests {
             runner: "claude".into(),
             me: PathBuf::from("/usr/local/bin/apprentice"),
             fences: Fences::new(root.into(), &["docs/plans".into()]).unwrap(),
+            links: None,
             envs: Vec::new(),
         }
     }

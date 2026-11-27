@@ -13,7 +13,7 @@ use sorcerer_core::ports::env::Env;
 
 use crate::adapters::jsonl_task_store::JsonlTaskStore;
 use crate::adapters::state_files::StateFiles;
-use crate::adapters::wiring::{WireAgent, live_agent, system_clock};
+use crate::adapters::wiring::{WireAgent, live_agents, system_clock};
 use crate::ports::clock::Clock;
 
 use super::arguments::{Cli, Cmd};
@@ -30,7 +30,7 @@ impl Wiring {
     /// The live agent (`claude`) and the system clock.
     pub fn live() -> Wiring {
         Wiring {
-            agent: Arc::new(live_agent),
+            agent: live_agents(),
             clock: system_clock(),
         }
     }

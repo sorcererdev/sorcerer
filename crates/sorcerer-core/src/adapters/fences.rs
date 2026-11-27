@@ -25,15 +25,12 @@ impl Fences {
         }
     }
 
-    /// The symlinks in the project (outside `.git/`) that lead out of it or onto a fenced path,
-    /// relative to the root. A researcher that cannot check each path itself (`claude -p`)
-    /// is told to deny these by name.
+    /// The symlinks in the project that lead out of it or onto a fenced path, relative to the
+    /// root. A researcher that cannot check each path itself (`claude -p`) is told to deny these
+    /// by name. The walk is [`link_walk`]'s; a caller that asks at every task start keeps a
+    /// [`FencedLinksCache`](crate::adapters::fenced_links_cache::FencedLinksCache) instead.
     pub fn fenced_links(&self) -> Vec<PathBuf> {
-        ignore::WalkBuilder::new(&self.root)
-            .hidden(false)
-            .follow_links(false)
-            .filter_entry(|e| e.file_name() != ".git")
-            .build()
+        link_walk(&self.root, |_| true)
             .flatten()
             .filter(|e| e.path_is_symlink())
             .filter_map(|e| {
@@ -60,6 +57,39 @@ impl Fences {
             .ok()
             .map(Path::to_path_buf)
     }
+}
+
+/// The entries of the walk for fenced links: everything under the root that `keep` keeps (it is
+/// given each path relative to the root, and a directory it refuses is not entered), without
+/// following links, leaving out every `.git` and the root's `.sorcerer/` (both fenced as a whole,
+/// so no link in them needs naming), and the paths that the project's own `.gitignore` and
+/// `.ignore` files leave out. Only files inside the project decide what is walked: no ignore
+/// file above the root, no `.git/info/exclude`, no global excludes file. That keeps the walk's
+/// result a function of the tree alone, which the cache relies on.
+///
+/// Each item is an entry, or the error of a directory or ignore file that could not be read
+/// (the caller decides what an unread directory means; the cache walks it again next time).
+///
+/// Example: with `target/` in the root's `.gitignore`, `target/out -> /etc` is not walked, while
+/// `src/out -> /etc` is.
+pub(crate) fn link_walk(
+    root: &Path,
+    keep: impl Fn(&Path) -> bool + Send + Sync + 'static,
+) -> impl Iterator<Item = std::result::Result<ignore::DirEntry, ignore::Error>> {
+    let root_for_filter = root.to_path_buf();
+    ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .follow_links(false)
+        .parents(false)
+        .git_global(false)
+        .git_exclude(false)
+        .require_git(false)
+        .filter_entry(move |e| {
+            let fenced_whole =
+                e.file_name() == ".git" || (e.depth() == 1 && e.file_name() == ".sorcerer");
+            !fenced_whole && e.path().strip_prefix(&root_for_filter).is_ok_and(&keep)
+        })
+        .build()
 }
 
 /// The path with every symlink and `..` resolved; `None` when that cannot be done for certain.

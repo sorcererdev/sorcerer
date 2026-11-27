@@ -64,6 +64,57 @@ fn make_link(target: &Path, link: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Sets a directory's modification time. The fenced-links cache's probe sets its directory's
+/// time back to see whether adding an entry moves it, and tests set a tree's times back so the
+/// cache trusts them. Windows opens a directory only with the backup-semantics flag.
+///
+/// Example: `set_directory_modified(&root.join("src"), UNIX_EPOCH + one_day)`.
+pub fn set_directory_modified(dir: &Path, time: std::time::SystemTime) -> std::io::Result<()> {
+    open_directory_for_times(dir)?.set_modified(time)
+}
+
+#[cfg(unix)]
+fn open_directory_for_times(dir: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(dir)
+}
+
+#[cfg(windows)]
+fn open_directory_for_times(dir: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    std::fs::OpenOptions::new()
+        .access_mode(FILE_WRITE_ATTRIBUTES)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(dir)
+}
+
+/// Takes away everyone's right to list a directory, for tests; `allow_listing` gives it back.
+/// Windows keeps listing rights in access lists, which this does not touch, so there it does
+/// nothing and a test that needs an unlistable directory checks that `read_dir` fails first.
+#[doc(hidden)]
+pub fn forbid_listing(dir: &Path) -> std::io::Result<()> {
+    set_listing(dir, false)
+}
+
+/// Gives back what [`forbid_listing`] took away.
+#[doc(hidden)]
+pub fn allow_listing(dir: &Path) -> std::io::Result<()> {
+    set_listing(dir, true)
+}
+
+#[cfg(unix)]
+fn set_listing(dir: &Path, allowed: bool) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = if allowed { 0o755 } else { 0o000 };
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode))
+}
+
+#[cfg(windows)]
+fn set_listing(_dir: &Path, _allowed: bool) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// Whether the path is plain ASCII, which every program reads the same way. A path with other
 /// characters (a user named `日本`) can reach a Windows tool, such as MinGW's `ld`, with its
 /// letters turned into `?`.

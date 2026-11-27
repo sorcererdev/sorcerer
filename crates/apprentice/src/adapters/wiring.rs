@@ -2,10 +2,12 @@
 //! ledger, the system clock, the project's context. The editor is the caller's: the server's,
 //! or the command line's disk editor.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use sorcerer_core::adapters::fenced_links_cache::FencedLinksCache;
 use sorcerer_core::adapters::grammar::GrammarCache;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::config::ProviderConfig;
@@ -28,15 +30,34 @@ use crate::usecases::run_task::TaskDeps;
 /// Builds the agent for a project; the tests give a scripted one or the fake `claude`.
 pub type WireAgent = Arc<dyn Fn(&Project) -> Result<Arc<dyn Agent>> + Send + Sync>;
 
-/// The live agent: `claude` from `[model.providers.claude] runner`, else on PATH, with this
-/// program as its helpers.
-pub fn live_agent(project: &Project) -> Result<Arc<dyn Agent>> {
-    let me = std::env::current_exe()?;
-    Ok(Arc::new(ClaudeAgent::new(
-        &claude_settings(project),
-        me,
-        Fences::for_project(project)?,
-    )))
+/// The live agents: `claude` from `[model.providers.claude] runner`, else on PATH, with this
+/// program as its helpers. They share one fenced-links cache per project root for as long as
+/// the returned builder lives (the server's life), so a task's start walks only what changed.
+pub fn live_agents() -> WireAgent {
+    let caches: Mutex<HashMap<PathBuf, Arc<FencedLinksCache>>> = Mutex::new(HashMap::new());
+    Arc::new(move |project| {
+        let links = links_cache_for(&caches, project)?;
+        let me = std::env::current_exe()?;
+        let agent = ClaudeAgent::new(&claude_settings(project), me, Fences::for_project(project)?)
+            .with_links_cache(links);
+        Ok(Arc::new(agent) as Arc<dyn Agent>)
+    })
+}
+
+/// The project's fenced-links cache, made on its first task.
+fn links_cache_for(
+    caches: &Mutex<HashMap<PathBuf, Arc<FencedLinksCache>>>,
+    project: &Project,
+) -> Result<Arc<FencedLinksCache>> {
+    let mut caches = caches
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(cache) = caches.get(&project.root) {
+        return Ok(cache.clone());
+    }
+    let cache = Arc::new(FencedLinksCache::for_project(project)?);
+    caches.insert(project.root.clone(), cache.clone());
+    Ok(cache)
 }
 
 /// The `[model.providers.claude]` table, or the defaults.
