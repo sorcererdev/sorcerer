@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A module with one helper, a hole of every kind the language has"
+description = "src/booking/NAME.rs: a helper whose name, type, value and body are holes"
+language    = "rust"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The module (audit, report)"
+
+[[edits]]
+create   = "src/booking/{= name|snake =}.rs"
+template = "thing.rs.dt"

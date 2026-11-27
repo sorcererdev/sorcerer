@@ -1,0 +1,6 @@
+# src/booking/mod.rs declares each module of the service.
+[regions.modules]
+file    = "src/booking/mod.rs"
+query   = { glob = "src/booking/*.rs", exclude = ["src/booking/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = "end of imports"

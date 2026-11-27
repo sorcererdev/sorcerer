@@ -6,6 +6,8 @@ mod change_rig;
 mod deciders;
 mod fixed_clock;
 mod git_fixtures;
+#[path = "../../../sorcerer-core/tests/support/language_corpora.rs"]
+mod language_corpora;
 mod project_fixtures;
 mod rule_checkers;
 #[path = "../../../sorcerer-core/tests/support/test_grammars.rs"]
@@ -19,6 +21,8 @@ pub use deciders::*;
 pub use fixed_clock::*;
 #[allow(unused_imports)]
 pub use git_fixtures::*;
+#[allow(unused_imports)]
+pub use language_corpora::*;
 #[allow(unused_imports)]
 pub use project_fixtures::*;
 #[allow(unused_imports)]

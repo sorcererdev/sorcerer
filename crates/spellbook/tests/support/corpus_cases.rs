@@ -411,6 +411,7 @@ pub fn run_check_case(dir: &Path, corpus: &CorpusFile, id: &str) {
     let got = serde_json::to_string_pretty(&found).unwrap() + "\n";
     let path = dir.join(format!("expected/check/{id}.json"));
     if blessing() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, got).unwrap();
         return;
     }

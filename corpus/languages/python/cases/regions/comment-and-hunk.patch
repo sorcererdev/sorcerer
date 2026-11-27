@@ -1,0 +1,9 @@
+--- a/booking/close_table.py
++++ b/booking/close_table.py
+@@ -4,4 +4,6 @@ from booking.models import Booking
+ 
+ 
+ def close_table(bookings: list[Booking], table: int) -> list[Booking]:
++    # which bookings stay open?
+     pass
++    kept = [b for b in bookings if not b.is_for(table)]

@@ -1,0 +1,6 @@
+"""{= name|sentence =}."""
+
+
+def {= ? helper: ident | the helper's name =}(value: {= ? value_type: type | what value holds =}) -> None:
+    limit = {= ? limit: expr | the largest value allowed =}
+    {= ? body: block | what the helper does with value under limit =}

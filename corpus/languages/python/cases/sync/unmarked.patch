@@ -1,0 +1,8 @@
+--- a/booking/__init__.py
++++ b/booking/__init__.py
+@@ -1,5 +1 @@
+ """The booking service."""
+-# spellbook:region modules (from booking/*.py; edit .sorcerer/spellbook/regions.toml, not this block)
+-from . import close_table
+-from . import models
+-# spellbook:end modules

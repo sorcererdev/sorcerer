@@ -1,0 +1,9 @@
+--- a/src/booking/close_table.rs
++++ b/src/booking/close_table.rs
+@@ -4,5 +4,6 @@ use crate::booking::models::Booking;
+ 
+ pub fn close_table(bookings: Vec<Booking>, table: u32) -> Vec<Booking> {
++    println!("closing {table}");
+     todo!()
+ }
+ 

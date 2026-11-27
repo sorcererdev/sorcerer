@@ -5,6 +5,8 @@
 
 mod fixed_clock;
 mod grammars;
+#[path = "../../../sorcerer-core/tests/support/language_corpora.rs"]
+mod language_corpora;
 mod lsp_editor;
 mod model_doubles;
 mod recording_editor;
@@ -17,6 +19,8 @@ mod test_grammars;
 pub use fixed_clock::*;
 #[allow(unused_imports)]
 pub use grammars::*;
+#[allow(unused_imports)]
+pub use language_corpora::*;
 #[allow(unused_imports)]
 pub use lsp_editor::*;
 #[allow(unused_imports)]

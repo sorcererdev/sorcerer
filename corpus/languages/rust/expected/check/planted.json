@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-println-in-booking",
+    "file": "src/booking/close_table.rs",
+    "line": 6,
+    "severity": "error",
+    "message": "booking code does not print: write it through a helper",
+    "fingerprint": "1884635"
+  }
+]

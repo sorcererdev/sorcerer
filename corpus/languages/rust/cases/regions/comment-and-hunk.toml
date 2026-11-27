@@ -1,0 +1,3 @@
+# A question typed as a comment above the stub's body, and a line of code in a finished function.
+file  = "src/booking/models.rs"
+patch = "comment-and-hunk.patch"

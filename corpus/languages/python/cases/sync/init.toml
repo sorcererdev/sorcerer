@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again in booking/__init__.py, after its docstring, listing the two modules.
+mode = "init modules"
+exit = 0
+patch = "unmarked.patch"

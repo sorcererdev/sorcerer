@@ -1,0 +1,33 @@
+# The print() becomes a hole saying what it did, and the helper module is written beside it.
+patch = "planted.patch"
+at    = "booking/close_table.py:7"
+
+[[holes]]
+name = "audit_call"
+kind = "block"
+file = "booking/close_table.py"
+line = 7
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "booking/audit.py"
+line = 6
+
+[[holes]]
+name = "helper"
+kind = "ident"
+file = "booking/audit.py"
+line = 4
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "booking/audit.py"
+line = 5
+
+[[holes]]
+name = "value_type"
+kind = "type"
+file = "booking/audit.py"
+line = 4

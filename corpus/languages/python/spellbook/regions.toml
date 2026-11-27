@@ -1,0 +1,6 @@
+# booking/__init__.py names each module of the service (tests left out).
+[regions.modules]
+file    = "booking/__init__.py"
+query   = { glob = "booking/*.py", exclude = ["booking/__init__.py", "booking/*__test.py"] }
+item    = "from . import {= stem =}"
+init_at = "end of imports"

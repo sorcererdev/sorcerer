@@ -1,0 +1,9 @@
+src/booking/close_table.rs:5-7 function close_table stub
+src/booking/close_table.rs:10-17 module tests
+src/booking/close_table.rs:14-16 method tests::keeps_the_other_tables
+src/booking/mod.rs:3-3 module close_table stub
+src/booking/mod.rs:4-4 module models stub
+src/booking/models.rs:3-5 class Booking
+src/booking/models.rs:7-11 impl Booking
+src/booking/models.rs:8-10 method Booking::is_for
+src/lib.rs:3-3 module booking stub

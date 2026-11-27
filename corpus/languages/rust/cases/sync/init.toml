@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again in src/booking/mod.rs, after its doc comment, declaring the two modules.
+mode = "init modules"
+exit = 0
+patch = "unmarked.patch"
