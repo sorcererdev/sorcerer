@@ -6,7 +6,7 @@ mod support;
 use std::sync::Arc;
 
 use apprentice::adapters::task_runner::TaskRunner;
-use apprentice::domain::agent_event::AgentEvent;
+use apprentice::domain::agent_event::{AgentEvent, Finished};
 use apprentice::domain::task::TaskState;
 use apprentice::usecases::run_task::{TaskOrder, TaskRefused};
 use serde_json::{Value, json};
@@ -607,6 +607,22 @@ fn a_stopped_task_is_charged_its_cap() {
     let record = runner.follow(started);
     assert_eq!(record.state, TaskState::Stopped);
     assert_eq!(record.cost_usd, 2.0);
+}
+
+#[test]
+fn a_result_without_a_cost_is_charged_the_cap() {
+    let run = run(
+        vec![Step::Event(AgentEvent::Finished(Finished {
+            cost_usd: None,
+            session_id: Some("s1".into()),
+            is_error: false,
+            text: "done".into(),
+            turns: 2,
+        }))],
+        &[],
+    );
+    assert_eq!(run.record.state, TaskState::Done);
+    assert_eq!(run.record.cost_usd, 2.0);
 }
 
 #[test]

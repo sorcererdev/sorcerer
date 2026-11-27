@@ -185,8 +185,8 @@ told to carry on with its default.
 
 On a subscription you pay no dollars per call: the numbers are *usage*. The cost Claude Code
 reports (`total_cost_usd`) is what the same calls would have cost on the API; it is the only
-number Claude reports, so it is the one apprentice records, caps and shows. A task you stop is
-charged its whole cap, since its end cannot be seen.
+number Claude reports, so it is the one apprentice records, caps and shows. A task you stop, or one
+whose end reports no cost, is charged its whole cap, since its end cannot be seen.
 
 Every call is a row of the project's ledger (`.sorcerer/state/ledger.jsonl`) under product
 `apprentice`: `decide` (Jev's triage), `answer`, `check`, `task`. `apprentice cost` prints them a

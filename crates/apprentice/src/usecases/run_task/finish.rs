@@ -27,7 +27,7 @@ pub const TASK_VERB: &str = "task";
 /// Records the task's end, its errand and tells the editor.
 ///
 /// 1. The record: the state (`done`, `failed`, `stopped`), the cost, the turns, the end time.
-///    A task that reported no cost (stopped, or ended early) is charged its whole cap, as every
+///    A task that reported no cost (stopped, ended early, or a result without one) is charged its whole cap, as every
 ///    call the suite cannot see the end of is.
 /// 2. The ledger: one errand, product `apprentice`, verb `task`.
 /// 3. The editor: the done message and the marks on the files it changed.
@@ -39,7 +39,7 @@ pub fn finish_task(live: &LiveTask, ending: Ending, deps: &TaskDeps) -> TaskReco
         record.ended = Some(now);
         match &ending {
             Ending::Finished(finished) => {
-                record.cost_usd = finished.cost_usd.unwrap_or(0.0);
+                record.cost_usd = finished.cost_usd.unwrap_or(cap);
                 record.turns = finished.turns;
                 record.session_id = finished.session_id.clone().or(record.session_id.take());
                 if finished.is_error {

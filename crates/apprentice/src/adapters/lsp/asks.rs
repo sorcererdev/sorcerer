@@ -2,6 +2,7 @@
 //! action per option, until the person picks one or the wait ends.
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
@@ -57,7 +58,7 @@ impl Server {
         };
         let (sender, answer) = crossbeam_channel::bounded(1);
         let pending = PendingAsk {
-            id: format!("{task}-{}", lock(&self.asks).len() + 1),
+            id: format!("{task}-{}", self.asks_put.fetch_add(1, Ordering::SeqCst) + 1),
             editor_path: self.root.join(file),
             line: *line,
             question: ask.question.clone(),

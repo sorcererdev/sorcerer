@@ -140,7 +140,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
 4. **Finish** (`finish.rs`, `finish_task`): the state (`done`, `failed`, `stopped`), the cost
-   (the reported one; a stop or an early end is charged the whole `budget_per_task`), the
+   (the reported one; a stop, an early end or a result with no `total_cost_usd` is charged
+   the whole `budget_per_task`), the
    record, one ledger errand (product `apprentice`, verb `task`), the done message
    (`done_text`) and `Editor::finished`.
 

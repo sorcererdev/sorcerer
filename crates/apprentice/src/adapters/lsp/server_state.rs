@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use sorcerer_core::domain::fences::Fences;
@@ -46,6 +47,9 @@ pub(super) struct Server {
     /// The marks a task's agent put, by the editor's path.
     pub said: Mutex<HashMap<PathBuf, Vec<SaidMark>>>,
     pub asks: Mutex<Vec<PendingAsk>>,
+    /// How many questions have been put on a line: each one's id is `<task>-<count>`, never
+    /// reused, even when two subagents ask at once and an earlier question is gone.
+    pub asks_put: AtomicU64,
 }
 
 /// A mark the agent put with `mark`.
@@ -74,6 +78,7 @@ impl Server {
             shown: Mutex::default(),
             said: Mutex::default(),
             asks: Mutex::default(),
+            asks_put: AtomicU64::new(0),
         }
     }
 
