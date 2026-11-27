@@ -287,8 +287,9 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
 - `mark` keeps a `SaidMark`; `ghost` and `note` send `sorcerer/ghost` and `sorcerer/note` to an
   editor that handles them (`Client::notify_sorcerer`), else a message and `show_document`.
 - `progress` starts the task's `WorkDone` and reports on it; `finished` → `task_finished`: the
-  progress line ends, `clear_working`, the done message, and a `ShownTask` per file it changed
-  (the before-text from the journal, the after-text from `written`, the first changed line).
+  progress line ends, `clear_working`, a `ShownTask` per file it changed (the before-text from
+  the journal, the after-text from `written`, the first changed line) and its marks published,
+  then the done message, once: it is the person's cue to look at the marks.
 
 *Show diff* sends `sorcerer/showDiff { uri, before, title }` (else shows the journal's
 before-file). *Undo this task* plans each file with the host's `undo_of` (from

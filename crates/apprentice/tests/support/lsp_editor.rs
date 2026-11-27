@@ -255,6 +255,20 @@ impl Served {
         note.params["message"].as_str().unwrap().to_string()
     }
 
+    /// How many messages starting with `start` were shown and not yet taken, after letting the
+    /// server run a little.
+    pub fn shown_count(&self, start: &str) -> usize {
+        self.settle(Duration::from_millis(300));
+        self.inbox
+            .borrow()
+            .iter()
+            .filter(|m| {
+                matches!(m, Message::Notification(n) if n.method == "window/showMessage"
+                    && n.params["message"].as_str().is_some_and(|text| text.starts_with(start)))
+            })
+            .count()
+    }
+
     /// The next notification of a method.
     pub fn notification(&self, method: &str) -> Value {
         let message = self
