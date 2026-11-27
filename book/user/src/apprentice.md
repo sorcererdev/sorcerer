@@ -129,8 +129,16 @@ reading and searching your files, running commands. What it may not do:
   `git grep`, `git log -p`, `git show`, `git diff`, `find … -exec`, `xargs`, `cp -r`, `tar` and
   the others in apprentice's list (`crates/apprentice/library/tree-readers.toml`), however the
   program is spelled (`rg.exe`, `C:\tools\GREP.EXE`). Those can
-  read `.env` without naming it, so each run is yours to allow once. A test run that loads
-  `.env` itself can read it too: allow it only if that is fine.
+  read `.env` without naming it, so each run is yours to allow once.
+
+  **Always on a test runner or a build tool runs your project's code without asking.** `uv run
+  pytest -q`, `make test` or `npm test` run whatever the project's code says, and the agent
+  writes that code: a `conftest.py`, a `Makefile` target, a package script. Once you have
+  allowed such a command always, the next task can change that code (in your buffer, which you
+  then save, or on the disk when the task runs from the terminal) and run it unasked, and that
+  code can read `.env` or send anything anywhere: the fences bind the agent's own tools, not the
+  programs it runs. This is the risk *always* accepts; allow a test runner once instead when
+  that matters to you.
 
   A `permissions.json` from before (which remembered first words, such as `grep`) is rewritten
   the first time it is read: a remembered program name on its own (`grep`, `ls`) and a tree
