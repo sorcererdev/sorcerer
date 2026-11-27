@@ -37,8 +37,8 @@ test('a_windows_server_uri_is_spelled_as_vs_code_names_the_document', () => {
 });
 
 test('the_status_bar_spins_while_anything_is_worked_on_and_names_the_first', () => {
-  const units = [{ uri: 'file:///a.py', line: 1, text: '\u27f3 apprentice: researching\u2026' }, { uri: 'file:///a.py', line: 9, text: '\u27f3 apprentice: working\u2026' }];
-  assert.equal(statusText(units), '$(sync~spin) apprentice: researching\u2026 (+1)');
-  assert.equal(statusText(units.slice(0, 1)), '$(sync~spin) apprentice: researching\u2026');
+  const units = [{ uri: 'file:///a.py', line: 1, text: '\u27f3 lackey: researching\u2026' }, { uri: 'file:///a.py', line: 9, text: '\u27f3 lackey: working\u2026' }];
+  assert.equal(statusText(units), '$(sync~spin) lackey: researching\u2026 (+1)');
+  assert.equal(statusText(units.slice(0, 1)), '$(sync~spin) lackey: researching\u2026');
   assert.equal(statusText([]), undefined);
 });

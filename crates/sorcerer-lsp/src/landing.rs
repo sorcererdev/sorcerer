@@ -3,7 +3,7 @@
 //! created and then filled), whether a file moved on since its text was read, and the undo of a
 //! change as one edit. Nothing is written to disk here; the editor applies the edit.
 //!
-//! conjure lands its one change this way, and apprentice each `write_file` of a task.
+//! conjure lands its one change this way, and lackey each `write_file` of a task.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

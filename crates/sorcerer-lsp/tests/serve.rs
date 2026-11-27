@@ -937,12 +937,12 @@ fn working_each_sends_every_place_with_its_own_text() {
         sorcerer_lsp::WorkingPlace {
             path: shop().join("a.py"),
             line: 3,
-            text: "⟳ apprentice: researching…".into(),
+            text: "⟳ lackey: researching…".into(),
         },
         sorcerer_lsp::WorkingPlace {
             path: shop().join("b.py"),
             line: 1,
-            text: "⟳ apprentice: working…".into(),
+            text: "⟳ lackey: working…".into(),
         },
     ]);
     let a = uri(&shop().join("a.py"));
@@ -950,8 +950,8 @@ fn working_each_sends_every_place_with_its_own_text() {
     assert_eq!(
         working_notes(&editor),
         vec![json!({ "units": [
-            { "uri": a, "line": 2, "text": "⟳ apprentice: researching…" },
-            { "uri": b, "line": 0, "text": "⟳ apprentice: working…" },
+            { "uri": a, "line": 2, "text": "⟳ lackey: researching…" },
+            { "uri": b, "line": 0, "text": "⟳ lackey: working…" },
         ] })]
     );
     editor.stop();

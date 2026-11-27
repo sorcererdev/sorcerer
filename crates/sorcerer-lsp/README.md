@@ -4,7 +4,7 @@ The language-server host for Sorcerer's programs: the connection, delayed jobs, 
 
 ## Who uses it
 
-`scry lsp`, `conjure lsp`, `spellbook lsp` and `apprentice lsp`. No async runtime: it is synchronous, over `lsp-server`.
+`scry lsp`, `conjure lsp`, `spellbook lsp` and `lackey lsp`. No async runtime: it is synchronous, over `lsp-server`.
 
 ## Main parts
 

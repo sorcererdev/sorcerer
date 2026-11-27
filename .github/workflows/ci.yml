@@ -70,13 +70,13 @@ jobs:
     # server's is Python, which VS Code's client cannot start on Windows), windows runs the
     # download suite against the real scry built here and served as a local release. conjure:
     # ubuntu and windows run its one suite, the real conjure with a fake claude. spellbook:
-    # ubuntu and windows run its one suite, the real spellbook, no model. apprentice: ubuntu and
-    # windows run its one suite, the real apprentice with its fake claude (built only with the
+    # ubuntu and windows run its one suite, the real spellbook, no model. lackey: ubuntu and
+    # windows run its one suite, the real lackey with its fake claude (built only with the
     # fake-claude feature); ubuntu also packages it as a .vsix artifact, to try a branch.
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        extension: [scry, conjure, spellbook, apprentice]
+        extension: [scry, conjure, spellbook, lackey]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     defaults:
@@ -103,11 +103,11 @@ jobs:
           for f in binary download offer; do
             diff editors/vscode/scry/src/$f.ts editors/vscode/spellbook/src/$f.ts
           done
-      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'apprentice'
+      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'lackey'
         working-directory: .
         run: |
           for f in binary download offer working inline; do
-            diff editors/vscode/scry/src/$f.ts editors/vscode/apprentice/src/$f.ts
+            diff editors/vscode/scry/src/$f.ts editors/vscode/lackey/src/$f.ts
           done
       # the VS Code the e2e suites run, kept a week: a cold download or the stable-version
       # lookup times out now and then, and with a cached build @vscode/test-electron falls back
@@ -132,8 +132,8 @@ jobs:
           cargo build -p sorcerer-models --bin fake-claude
       - if: matrix.extension == 'spellbook'
         run: cargo build -p sorcerer-spellbook
-      - if: matrix.extension == 'apprentice'
-        run: cargo build -p sorcerer-apprentice --features fake-claude
+      - if: matrix.extension == 'lackey'
+        run: cargo build -p sorcerer-lackey --features fake-claude
       - if: matrix.os == 'ubuntu-latest'
         run: xvfb-run -a npm run test:e2e
       - if: matrix.os == 'windows-latest' && matrix.extension == 'scry'
@@ -144,13 +144,13 @@ jobs:
         run: npm run test:e2e
       - if: matrix.os == 'windows-latest' && matrix.extension == 'spellbook'
         run: npm run test:e2e
-      - if: matrix.os == 'windows-latest' && matrix.extension == 'apprentice'
+      - if: matrix.os == 'windows-latest' && matrix.extension == 'lackey'
         run: npm run test:e2e
-      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'apprentice'
+      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'lackey'
         run: npm run package
-      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'apprentice'
+      - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'lackey'
         uses: actions/upload-artifact@v4
         with:
-          name: apprentice-vsix
-          path: editors/vscode/apprentice/*.vsix
+          name: lackey-vsix
+          path: editors/vscode/lackey/*.vsix
           if-no-files-found: error

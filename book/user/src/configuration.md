@@ -2,7 +2,7 @@
 
 Everything is optional. With no `.sorcerer/config.toml`, the tools use their defaults
 (see [What sorcerer is](what-sorcerer-is.md)). Each tool reads its own table (`[scry]`,
-`[conjure]`, `[spellbook]`, `[apprentice]`) and refuses keys it does not know; a top-level
+`[conjure]`, `[spellbook]`, `[lackey]`) and refuses keys it does not know; a top-level
 table no tool knows is reported as a warning, since it is probably a typo.
 
 ## `[conjure]`
@@ -36,10 +36,10 @@ commands-use-ports = "warn"
 
 See [Spellbook](spellbook.md).
 
-## `[apprentice]`
+## `[lackey]`
 
 `model`, `budget_per_task`, `budget_per_day`, `triage_per_day`, `max_turns`,
-`ask_timeout_seconds`, `estimate_start`: see [Apprentice](apprentice.md#usage-and-the-caps).
+`ask_timeout_seconds`, `estimate_start`: see [Lackey](lackey.md#usage-and-the-caps).
 
 ## `[model]`
 

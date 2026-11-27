@@ -112,7 +112,7 @@ Its path templates are filled with core's `templates::fill`.
 `system_clock`, `wiring`, and `lsp/`, the editor server) and `cli/`. Its use cases may not load a grammar (that is core's adapter work), so
 they parse through the `Grammars` port. [Spellbook](spellbook.md) says what each file holds.
 
-**sorcerer-apprentice** (library and program `apprentice`) has the
+**sorcerer-lackey** (library and program `lackey`) has the
 same five layers and depends on core, models and `sorcerer-lsp`. `domain/` (`config`, `task`,
 `agent_event`, `status`, `mediums`, `loopback_message`, `edits_text`, `permissions`, `paths`,
 `budget`, `estimate`, `log_text`, `prompt`, `region`, `cutting`, `triage`, `region_record`,
@@ -121,7 +121,7 @@ same five layers and depends on core, models and `sorcerer-lsp`. `domain/` (`con
 (`run_task/`, `triage_regions`, `answer_regions`, `label_region`, `offer_task`, `end_task`,
 `report_cost`, `show_log`), `adapters/` (`claude_agent`, `loopback`, `helper_way`,
 `mcp_server`, `hooks`, `task_runner`, the stores, `project_context`, `grammar_syntax`,
-`disk_editor`, `wiring`, and `lsp/`, the editor server) and `cli/`. [Apprentice](apprentice.md) says what each file holds.
+`disk_editor`, `wiring`, and `lsp/`, the editor server) and `cli/`. [Lackey](lackey.md) says what each file holds.
 
 **sorcerer-lsp** is a flat crate: `src/{lib,serve,client,jobs,uri}.rs`, with no layer
 directories. All of it is adapter code (a connection, threads, the protocol's types), and
@@ -187,7 +187,7 @@ platform where it was needed:
 - `local_connect.rs`: `connect_local(port, within)` connects to `127.0.0.1:port`. A port
   nothing listens on is refused at once everywhere: Windows by default retries a refused
   connect for about two seconds, so there the socket is made with `socket2` and told no SYN
-  retransmissions (`WSAIoctl` with `SIO_TCP_INITIAL_RTO`). Apprentice's helpers reach their
+  retransmissions (`WSAIoctl` with `SIO_TCP_INITIAL_RTO`). Lackey's helpers reach their
   server with it (`ask_loopback`), and read a refusal as the server having ended.
 - `process.rs`: `process::start(command)` starts a program in a group of its own (a process
   group on Unix, a job object on Windows, through the `process-wrap` crate) and returns a
@@ -222,7 +222,7 @@ directory. CI runs both, and tests the workspace on ubuntu, macOS and Windows.
 
 `.gitattributes` checks every text file out with LF on every platform, and leaves the eval's
 recordings (`corpus/scry/*/{reviews,jev,bare}/`, `checks.json`, `corpus/conjure/*/replies/`,
-`corpus/apprentice/*/{jev,scenarios}/`) and `*.patch` files
+`corpus/lackey/*/{jev,scenarios}/`) and `*.patch` files
 byte for byte, so a recording key made on macOS matches on Windows.
 
 ## The rule, checked
