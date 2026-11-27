@@ -49,7 +49,9 @@ three systems; pipes and sockets would be two.
 - `tree_readers.rs`: `TreeReaders` (`shipped`, `reads_tree`) over
   `library/tree-readers.toml`, the commands that read whole trees: each a program, a
   subcommand for one that has them, and `always` or the `options` that make it one. It is
-  data because sorcerer's code names no tool.
+  data because sorcerer's code names no tool. A word is matched by `program_name`: its file
+  name, unquoted, lower case, less a Windows suffix (`.exe`, `.cmd`, `.bat`, `.com`), so
+  `C:\tools\RG.EXE` is `rg`.
 - `paths.rs`: `project_relative` (conjure's `lexical_relative`, copied), `is_sorcerers_own`.
 - `budget.rs` (`spent_today`, `triage_spent_today`, `day_allows`, `triage_allows`),
   `estimate.rs` (`estimate_usd`: the median after five tasks), `log_text.rs` (`usd`,

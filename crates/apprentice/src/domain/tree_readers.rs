@@ -45,7 +45,8 @@ impl TreeReaders {
     }
 
     /// Whether the command reads a tree: some word of it is a listed program (by its file
-    /// name, so `/usr/bin/grep` and `env grep` count), and the words after it make it one.
+    /// name, so `/usr/bin/grep`, `env grep` and Windows' `GREP.EXE` count), and the words after
+    /// it make it one.
     ///
     /// Example: `grep -rn KEY .` and `git log -p` read trees; `grep KEY src/app.txt`, `git log
     /// --oneline` and `make test` do not.
@@ -78,9 +79,23 @@ impl Reader {
     }
 }
 
-/// The program a word runs: its file name, so a path to it counts.
-fn program_name(word: &str) -> &str {
-    word.rsplit(['/', '\\']).next().unwrap_or(word)
+/// Suffixes Windows runs a program by, which name no tool themselves.
+const PROGRAM_SUFFIXES: [&str; 4] = [".exe", ".cmd", ".bat", ".com"];
+
+/// The program a word runs, as the list names it: its file name (a path to it counts), without
+/// quotes, without a Windows program suffix, in lower case. Lower case is right on Windows and
+/// only stricter elsewhere: a `GREP` that is not grep is merely never allowed always.
+///
+/// Example: `C:\tools\RG.EXE`, `"rg.exe"` and `/usr/bin/rg` all name `rg`.
+fn program_name(word: &str) -> String {
+    let unquoted = word.trim_matches(['"', '\'']);
+    let file = unquoted.rsplit(['/', '\\']).next().unwrap_or(unquoted);
+    let lower = file.to_lowercase();
+    PROGRAM_SUFFIXES
+        .iter()
+        .find_map(|suffix| lower.strip_suffix(suffix))
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| lower.clone(), str::to_string)
 }
 
 /// Where the subcommand is: the first argument that is not an option (`git -C x log` is
@@ -138,6 +153,15 @@ mod tests {
             "find . -name x -exec cat {} +",
             "xargs cat",
             "cp -r . /tmp/x",
+            // Windows spells the program with its suffix, in any case, often quoted
+            "rg.exe KEY",
+            "RG KEY",
+            "GREP.EXE -r KEY .",
+            "C:\\tools\\grep.exe -r KEY .",
+            "\"C:\\Program Files\\ripgrep\\rg.exe\" KEY",
+            "git.cmd grep KEY",
+            "Git.Bat log -p",
+            "xargs.com cat",
         ] {
             assert!(readers.reads_tree(command), "{command}");
         }
@@ -149,8 +173,26 @@ mod tests {
             "find . -name x",
             "cp a b",
             "make test",
+            "grep.exe KEY src/app.txt",
+            "rgx KEY",
+            "rg.exe.txt KEY",
         ] {
             assert!(!readers.reads_tree(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn a_program_is_named_without_its_path_suffix_or_case() {
+        for (word, name) in [
+            ("grep", "grep"),
+            ("/usr/bin/grep", "grep"),
+            ("C:\\tools\\RG.EXE", "rg"),
+            ("git.cmd", "git"),
+            ("\"rg.exe\"", "rg"),
+            ("'x.bat'", "x"),
+            ("tar.gz", "tar.gz"),
+        ] {
+            assert_eq!(program_name(word), name, "{word}");
         }
     }
 }

@@ -122,6 +122,19 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_spelling_of_a_tree_reader_is_never_allowed_always() {
+        for command in ["rg.exe KEY", "GREP.EXE -r KEY .", "C:\\tools\\rg.exe KEY"] {
+            assert_eq!(always_for(command, readers()), None, "{command}");
+            let hand_edited = AllowedCommands::default().with(command);
+            assert!(!hand_edited.allows(command, readers()), "{command}");
+        }
+        assert_eq!(
+            always_for("uv.exe run pytest -q", readers()).as_deref(),
+            Some("uv.exe run pytest -q")
+        );
+    }
+
+    #[test]
     fn only_the_exact_command_line_runs_unasked() {
         let allowed = AllowedCommands::default().with("grep KEY src");
         assert!(allowed.allows("grep KEY src", readers()));

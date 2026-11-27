@@ -123,7 +123,8 @@ reading and searching your files, running commands. What it may not do:
   *Always* is never offered for a command that chains others (`&&`, `;`, `|`, a redirect), has a
   glob in an argument (`cat s*/keys.txt`), or reads a whole tree: a recursive `grep`, `rg`,
   `git grep`, `git log -p`, `git show`, `git diff`, `find … -exec`, `xargs`, `cp -r`, `tar` and
-  the others in apprentice's list (`crates/apprentice/library/tree-readers.toml`). Those can
+  the others in apprentice's list (`crates/apprentice/library/tree-readers.toml`), however the
+  program is spelled (`rg.exe`, `C:\tools\GREP.EXE`). Those can
   read `.env` without naming it, so each run is yours to allow once. A test run that loads
   `.env` itself can read it too: allow it only if that is fine.
 
