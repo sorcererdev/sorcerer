@@ -1,5 +1,5 @@
 # One rule: the stack names the exact version of each image, never latest.
 [rules.no-latest-image]
 files   = "docker-compose.yml"
-match   = { kind = "block_mapping_pair", regex = "^image:\\s*\\S+:latest$" }
+match   = { kind = "block_mapping_pair", regex = "^image:\\s*\\S+:latest\\s*$" }
 message = "pin the image to a version: :latest changes under you"
