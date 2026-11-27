@@ -997,12 +997,10 @@ fn a_second_save_while_a_question_is_researched_does_not_research_it_again() {
     s.stop();
 }
 
-/// 2026-11-27: "Fill this in" under a heading was read as an aside (0.99), so no offer came and
-/// the do-this key did nothing for eight minutes. A line not offered can still be done when the
-/// person asks: `do this anyway`, which also labels it an instruction. And the task's line says
-/// it is working from the start, not only once it writes.
+/// 2026-11-27: a task's line said nothing until its first write (20 s of reading and asking).
+/// Now it says it is working from the moment the task starts.
 #[test]
-fn a_line_read_as_an_aside_can_be_done_anyway_and_its_task_shows_working_from_the_start() {
+fn a_tasks_line_shows_working_from_the_start() {
     let text = "# Notes\n\n## Example\n";
     let asked = "# Notes\n\n## Example\n\nFill this in\n";
     let project = TempProject::with(&[("NOTES.md", text)]);
@@ -1013,7 +1011,7 @@ fn a_line_read_as_an_aside_can_be_done_anyway_and_its_task_shows_working_from_th
                 tool_use("Read", json!({ "file_path": "NOTES.md" })),
                 Step::Finish(0.05),
             ])),
-            decider: Some(Arc::new(StubJev::saying("aside", 0.99, 0.3))),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
             researcher: None,
         },
     );
@@ -1022,14 +1020,7 @@ fn a_line_read_as_an_aside_can_be_done_anyway_and_its_task_shows_working_from_th
     s.type_text("NOTES.md", asked);
     state_holds(&project, &s, "regions.json", "Fill this in");
     s.settle(Duration::from_millis(200));
-    let titles = s.titles("NOTES.md", 5);
-    assert!(
-        titles
-            .iter()
-            .any(|t| t.starts_with("apprentice: do this anyway · ")),
-        "{titles:?}"
-    );
-    s.run_action("NOTES.md", 5, "apprentice: do this anyway");
+    s.run_action("NOTES.md", 5, "apprentice: do this");
     s.shown_message("apprentice: done");
     let working = working_sent(&s);
     assert_eq!(
@@ -1041,10 +1032,5 @@ fn a_line_read_as_an_aside_can_be_done_anyway_and_its_task_shows_working_from_th
         "{working:?}"
     );
     assert_eq!(working.last(), Some(&vec![]));
-    assert!(
-        project
-            .state("labels.jsonl")
-            .contains("\"person\":\"instruction\"")
-    );
     s.stop();
 }

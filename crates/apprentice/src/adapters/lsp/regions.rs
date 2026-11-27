@@ -157,22 +157,6 @@ impl Server {
         }
     }
 
-    /// *Do this anyway*: a region apprentice did not offer (it read it as an aside, say) done
-    /// because the person asked, and labelled an instruction, so the corpus learns from it.
-    pub(super) fn do_anyway(self: &Arc<Self>, id: &str) {
-        if let Some((project, record)) = self.record(id)
-            && let Some(regions) = self.region_store(&project)
-        {
-            let _ = label_region(
-                &record,
-                Some(Kind::Instruction),
-                regions.as_ref(),
-                self.cfg.clock.as_ref(),
-            );
-        }
-        self.do_region(id);
-    }
-
     /// The records of a file in the editor now, each with where its text is (from 1).
     pub(super) fn records_found(&self, path: &Path) -> Vec<(RegionRecord, u32, u32)> {
         let (Some(project), Some(file)) = (self.project(), self.relative(path)) else {

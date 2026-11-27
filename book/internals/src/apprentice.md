@@ -349,14 +349,12 @@ questions' (`ask_marks`). Ranges end at the end of the last line (`lines_of`, UT
 
 **The actions** (`commands.rs`): `code_actions` gives, per line, the found regions' actions
 once (`regions_actions`: the offer of the offering region spanning the most lines while no task
-runs, else *do this anyway* (`apprentice.doAnyway`, `do_anyway`: labels the largest
-undismissed region an instruction, then `do_region`), *Show code*, *Open the answer* (a long
+runs, *Show code*, *Open the answer* (a long
 one) and *Keep this answer* of the first answered region, one *Dismiss* and the
 four labels carrying every region's id: `apprentice.dismiss [ids…]`, `apprentice.label [word,
 ids…]`), the pending questions' options (`ask_actions`), a marked task's *Show diff*,
 *Undo this task*, *Show journal*, and *Stop this task* while one runs. `execute` routes the
-twelve `apprentice.*` commands; the slow ones (*do this*, *do this anyway*, *Dismiss*, a label)
-go to a thread.
+eleven `apprentice.*` commands; the slow ones (*do this*, *Dismiss*, a label) go to a thread.
 
 **A task from the editor** (`tasks.rs`). `do_region` makes a `TaskOrder` (the region's text, its
 place now, the open files' unsaved edits) and `start_task`, holding `Server::runner` from the

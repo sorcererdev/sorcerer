@@ -61,13 +61,9 @@ What you see, in the margin (diagnostics of source `apprentice`):
 | a question | `apprentice: <the answer>`, its cost and time; the cited code on hover. A long answer shows its first sentence and `<key> opens the whole answer`: it waits in a note until you open it, so no window opens while you type | *Show code*, *Open the answer* (a long one, beside your code), *Keep this answer* (written in below as a comment, or as a paragraph), *Dismiss* |
 | a claim | `apprentice: holds`, `does not hold: <why>` or `cannot tell: <why>` | *Show code*, *Dismiss*; a claim that does not hold also offers the task |
 | an instruction | a faint hint, `apprentice: I can do this · ~$0.50 · sonnet` | `apprentice: do this · ~$0.50 · sonnet`, *Dismiss* |
-| anything else you typed (an aside) | nothing | `apprentice: do this anyway · ~$0.50 · sonnet` |
 
 Nothing runs a task by itself: an instruction is only offered, with its price (the median of
-your finished tasks once there are five, else `estimate_start`). A line apprentice did not take
-for an instruction (a terse `Fill this in` under a heading can read as a note to yourself) still
-has *do this anyway*, so the do-this key works on any line you typed: asking is the go-ahead,
-and the line is labelled an instruction in the corpus. Every classified region also
+your finished tasks once there are five, else `estimate_start`). Every classified region also
 offers four labels, `apprentice: this was a question / a claim / an instruction / nothing`: a
 pick is a line of `.sorcerer/state/apprentice/labels.jsonl`, and so is a *Dismiss*. That file
 is the prototype's measure of whether apprentice understood you.
@@ -128,7 +124,7 @@ are your code-action key's. The keys:
 
 | key | does |
 |---|---|
-| `<leader>ma` | `apprentice: do this` on the line, whatever its price (or *do this anyway*) |
+| `<leader>ma` | `apprentice: do this` on the line, whatever its price |
 | `<leader>mo` | `apprentice: Open the answer`: a long answer, beside your code |
 | `<leader>mq` | `apprentice: Stop this task` |
 | `<leader>md` | `apprentice: Show diff` |
@@ -168,7 +164,7 @@ line a finished task changed. The keys, the same letters as Neovim's:
 
 | keys | does |
 |---|---|
-| `ctrl+m a` | `apprentice: do this` on the line, whatever its price (or *do this anyway*) |
+| `ctrl+m a` | `apprentice: do this` on the line, whatever its price |
 | `ctrl+m o` | `apprentice: Open the answer`: a long answer, beside your code |
 | `ctrl+m q` | `apprentice: Stop this task` |
 | `ctrl+m d` | `apprentice: Show diff` |

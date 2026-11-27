@@ -36,11 +36,6 @@ test('the_keys_are_neovims_letters_under_ctrl_m', () => {
   assert.deepEqual(KEYS.map(k => k.key), ['ctrl+m a', 'ctrl+m q', 'ctrl+m d', 'ctrl+m z', 'ctrl+m j', 'ctrl+m x', 'ctrl+m o', 'ctrl+m l']);
 });
 
-test('do_this_runs_do_this_anyway_on_a_line_apprentice_did_not_offer', () => {
-  const line = [{ title: 'apprentice: do this anyway · ~$0.50 · sonnet' }, { title: 'apprentice: Dismiss' }];
-  assert.deepEqual(actionsFor(line, key('apprentice.keys.do')), [line[0]]);
-});
-
 test('the_server_is_told_the_open_answer_chord_by_name', () => {
   assert.deepEqual(keysByName(KEYS), { openAnswer: 'ctrl+m o' });
 });
