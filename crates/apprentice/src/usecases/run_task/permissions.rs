@@ -56,8 +56,9 @@ pub fn answer_permission(
 /// The verdict on a tool call, and the permission tool's reply that says it.
 type Verdict = (CommandVerdict, LoopbackReply);
 
-/// The status line says where a command stands with the person, and the verdict is kept for
-/// when the stream shows the command (it may come after the answer).
+/// The status line and the journal say where a command stands with the person (`waiting for
+/// you: ls`, then `running ls` or `denied: ls`), and the verdict is kept for when the stream
+/// shows the command (it may come after the answer).
 fn say_where_the_command_stands(
     live: &LiveTask,
     command: &str,
@@ -68,7 +69,9 @@ fn say_where_the_command_stands(
         return;
     }
     live.command_verdict(command, verdict);
-    show_activity(live, &command_activity(command, verdict), deps);
+    let activity = command_activity(command, verdict);
+    show_activity(live, &activity, deps);
+    let _ = deps.journal.write(&live.id, "tool", &activity);
 }
 
 fn permission_reply(live: &LiveTask, tool: &str, input: &Value, deps: &TaskDeps) -> Verdict {

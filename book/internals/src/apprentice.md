@@ -43,7 +43,8 @@ connections answered at once; past that a connection is closed unanswered.
   `UsageSeen` (the calls by message id, the last usage of each; `cost` at a model's
   `[input, output]` price, cache reads at 0.1, writes at 1.25 or 2 times the input price;
   `None` when nothing was seen or a model has no price).
-- `status.rs`: `activity_of` (`reading booking.py`, `running make`, `subagent: …`),
+- `status.rs`: `activity_of` (`reading booking.py`, `running make`, `subagent: …`; Claude
+  Code's `ToolSearch` is `getting ready`),
   `CommandVerdict` and `command_activity` (`waiting for you: ls`, `running ls`, `denied: ls`),
   and `status_text`; the status line is derived, never written by the agent.
 - `mediums.rs`: the six tools and the permission tool (`tool_definitions`: names, descriptions,
@@ -153,7 +154,10 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
      file and line as `Ask::at`, so an editor with no picker is asked there. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
      or `{"behavior":"deny","message":…}`, with its `CommandVerdict`; the status line says
      `waiting for you: …` while the picker is up, then `running …` or `denied: …`
-     (`say_where_the_command_stands`), and the verdict is kept for the stream.
+     (`say_where_the_command_stands`, which journals each as a `tool` entry), and the verdict is
+     kept for the stream. Because every command goes through here, `saw` (`follow.rs`) journals
+     no command itself: the stream usually shows the call before the question, and the journal
+     would say `running ls` for a command still waiting.
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
 4. **Finish** (`finish.rs`, `finish_task`): the state (`done`, `failed`, `stopped`), the cost

@@ -61,7 +61,7 @@ words. A checkout or a pull (`.git/HEAD` moved) starts every look over, saying n
 
 **While a task runs**, the status line says what it does (`apprentice: refuse late
 cancellations · reading booking.py · $0.00`, then `writing cancel_booking.py`, `running uv`,
-`subagent: reading routes.py`), and the place it writes shows `⟳ apprentice: writing…`. A
+`subagent: reading routes.py`; `getting ready` while the agent loads its own tools), and the place it writes shows `⟳ apprentice: writing…`. A
 command waiting for your permission says `waiting for you: ls`, then `running ls`, or `denied:
 ls` when you said no. The amount is what the calls seen so far would cost at the model's price. Its
 changes land in your buffers, unsaved, each one undoable with your editor's undo. A question it
