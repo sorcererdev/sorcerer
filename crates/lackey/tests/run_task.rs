@@ -849,3 +849,75 @@ fn a_task_in_a_fenced_file_is_refused_and_fenced_unsaved_edits_are_left_out() {
     let prompt = agent.requests.lock().unwrap()[0].prompt.clone();
     assert!(!prompt.contains("sk_live"), "{prompt}");
 }
+
+/// lackey-notes-workable: a *do this* in a note may write the note; a task asked in a file
+/// with a spellbook region is told the region's lines come from files, and so is a write to one.
+#[test]
+fn a_task_writes_a_note_and_is_told_about_generated_regions() {
+    const MOD: &str = "// spellbook:region modules (from src/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)\npub mod a;\n// spellbook:end modules\n";
+    let line = "Lines inside a spellbook:region are generated from files: to add one, create the file, and saving adds its line.";
+    let project =
+        TempProject::with(&[("src/mod.rs", MOD), (".sorcerer/notes/plan.md", "# Plan\n")]);
+    let editor = Arc::new(RecordingEditor::at(&project.root));
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool(
+            "write_file",
+            json!({ "path": ".sorcerer/notes/plan.md", "text": "# Plan\n\n1. src/b.rs\n" }),
+        ),
+        Step::Tool(
+            "write_file",
+            json!({ "path": "src/mod.rs", "text": format!("{MOD}// b\n") }),
+        ),
+        Step::Finish(0.1),
+    ]));
+    let runner = TaskRunner::open(project.deps(editor, agent.clone())).unwrap();
+    let in_mod = TaskOrder {
+        file: "src/mod.rs".into(),
+        text: MOD.into(),
+        ..order()
+    };
+    runner.run(&in_mod).unwrap();
+    assert!(agent.requests.lock().unwrap()[0].prompt.contains(line));
+    assert_eq!(
+        replies_text(&agent),
+        [
+            "written: .sorcerer/notes/plan.md (in the editor, unsaved)".to_string(),
+            format!("written: src/mod.rs (in the editor, unsaved)\n{line}"),
+        ]
+    );
+}
+
+/// lackey-notes-workable review M2: a write follows a link, so where the link leads is judged
+/// too; a note that is a link onto `.claude/settings.json` is not a way to write it.
+#[test]
+fn a_write_through_a_link_into_a_never_written_file_is_refused() {
+    use sorcerer_core::adapters::platform::paths::link_to;
+    let project = TempProject::with(&[
+        ("src/cancel.txt", BOOKING),
+        (".claude/settings.json", "{}\n"),
+        (".sorcerer/notes/plan.md", "# Plan\n"),
+    ]);
+    let settings = project.root.join(".claude/settings.json");
+    link_to(&settings, &project.root.join(".sorcerer/notes/answer.md")).unwrap();
+    link_to(&settings, &project.root.join("src/answer.md")).unwrap();
+    let script = [".sorcerer/notes/answer.md", "src/answer.md"]
+        .iter()
+        .map(|path| {
+            Step::Tool(
+                "write_file",
+                json!({ "path": path, "text": "{\"hooks\":1}" }),
+            )
+        })
+        .chain([Step::Finish(0.0)])
+        .collect();
+    let run = run_with(project, script, &[], |_| {});
+    for reply in run.agent.replies() {
+        assert!(reply.is_error, "{}", reply.text);
+        assert!(
+            reply.text.contains("no task writes there"),
+            "{}",
+            reply.text
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{}\n");
+}

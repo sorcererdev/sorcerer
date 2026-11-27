@@ -17,8 +17,7 @@ use sorcerer_lsp::landing::{
 use sorcerer_lsp::line_edits::{first_changed_line, in_base_line_endings, line_edits, same_text};
 use sorcerer_lsp::uri_of;
 
-use crate::adapters::disk_editor::slug_of;
-use crate::adapters::state_files::StateFiles;
+use crate::adapters::notes_dir::NotesDir;
 use crate::domain::edits_text::FileEdit;
 use crate::domain::mediums::{Ask, MarkSeverity};
 use crate::domain::status::TaskProgress;
@@ -95,11 +94,7 @@ impl Editor for LspEditor {
     fn note(&self, task: &str, title: &str, text: &str) -> sorcerer_core::Result<PathBuf> {
         let server = self.server().ok_or_else(stopped_error)?;
         let project = server.project().ok_or_else(stopped_error)?;
-        let notes = StateFiles::for_project(&project)?.notes();
-        std::fs::create_dir_all(&notes).map_err(|e| sorcerer_core::Error::io(&notes, e))?;
-        let path = notes.join(format!("{task}-{}.md", slug_of(title)));
-        std::fs::write(&path, format!("# {title}\n\n{text}\n"))
-            .map_err(|e| sorcerer_core::Error::io(&path, e))?;
+        let path = NotesDir::for_project(&project).write_task_note(task, title, text)?;
         server.open_note(&path);
         Ok(path)
     }

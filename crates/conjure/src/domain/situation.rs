@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use globset::GlobSet;
+use sorcerer_core::domain::generated_regions::generated_regions_line;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 
@@ -77,6 +78,7 @@ pub fn situation_text(s: &Situation) -> String {
         test_file_lines(s),
         related_lines(s),
         left_for_room_lines(&s.left_for_room),
+        generated_regions_lines(s),
         session_lines(s),
         notes_lines(&s.notes),
         rules_lines(&s.rules),
@@ -183,6 +185,19 @@ fn related_lines(s: &Situation) -> Vec<String> {
 /// `Related file src/models.py:`.
 fn related_heading(file: &RelatedFile) -> String {
     format!("Related file {}:", forward_slashes(&file.path))
+}
+
+/// One line when a file the writer is shown holds a spellbook region, so it neither types a
+/// line into the region nor thinks it may not add one.
+fn generated_regions_lines(s: &Situation) -> Vec<String> {
+    let shown = [s.module.as_str()]
+        .into_iter()
+        .chain(s.test_text.as_deref())
+        .chain(s.related.iter().map(|file| file.text.as_str()));
+    match generated_regions_line(shown) {
+        Some(line) => vec![String::new(), line.to_string()],
+        None => vec![],
+    }
 }
 
 /// One line naming the related files and changes left out because the step had no room for

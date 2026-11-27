@@ -127,20 +127,33 @@ fn a_link_pointed_elsewhere_is_fenced_even_when_its_directory_looks_unchanged() 
     assert_eq!(c.fenced_links(&f), vec![PathBuf::from("src/deep/ok")]);
 }
 
+/// lackey-notes-workable review M1: git checks out a force-added ignored link, so the walk
+/// reads no ignore file and the cache names such a link from the first ask.
 #[test]
-fn an_ignore_file_edited_in_place_is_seen() {
+fn a_link_in_an_ignored_directory_is_named() {
     let d = project();
-    support::write(d.path(), ".gitignore", "build/\n");
+    support::write(d.path(), ".gitignore", "build/\n.sorcerer/notes/\n");
     support::write(d.path(), "build/keep.txt", "");
     let outside = tempfile::TempDir::new().unwrap();
     link_to(outside.path(), &d.path().join("build/out")).unwrap();
+    std::fs::create_dir_all(d.path().join(".sorcerer/notes")).unwrap();
+    link_to(
+        &d.path().join(".env"),
+        &d.path().join(".sorcerer/notes/env.md"),
+    )
+    .unwrap();
     let c = cache(d.path());
     age_directories(d.path());
     let f = fences(d.path());
-    assert!(c.fenced_links(&f).is_empty(), "build/ is ignored");
+    let wanted = vec![
+        PathBuf::from(".sorcerer/notes/env.md"),
+        PathBuf::from("build/out"),
+    ];
+    assert_eq!(sorted(c.fenced_links(&f)), wanted);
+    assert_eq!(sorted(f.fenced_links()), wanted);
     std::fs::write(d.path().join(".gitignore"), "").unwrap();
     age_directories(d.path());
-    assert_eq!(c.fenced_links(&f), vec![PathBuf::from("build/out")]);
+    assert_eq!(sorted(c.fenced_links(&f)), wanted);
 }
 
 #[test]
@@ -231,7 +244,7 @@ fn a_directory_unlistable_at_the_first_ask_is_walked_once_it_can_be_listed() {
 }
 
 #[test]
-fn an_ignore_file_that_ignores_itself_is_seen_when_edited_in_place() {
+fn a_link_beside_an_ignore_file_that_ignores_everything_is_named() {
     let d = project();
     support::write(d.path(), "tmp/.gitignore", "*\n");
     let outside = tempfile::TempDir::new().unwrap();
@@ -239,13 +252,12 @@ fn an_ignore_file_that_ignores_itself_is_seen_when_edited_in_place() {
     let c = cache(d.path());
     age_directories(d.path());
     let f = fences(d.path());
-    assert!(
-        c.fenced_links(&f).is_empty(),
-        "everything in tmp/ is ignored"
-    );
-    std::fs::write(d.path().join("tmp/.gitignore"), "*.log\n").unwrap();
-    age_directories(d.path());
     assert_eq!(c.fenced_links(&f), vec![PathBuf::from("tmp/out")]);
+    link_to(outside.path(), &d.path().join("tmp/out2")).unwrap();
+    assert_eq!(
+        sorted(c.fenced_links(&f)),
+        vec![PathBuf::from("tmp/out"), PathBuf::from("tmp/out2")]
+    );
 }
 
 /// A file system that does not change a directory's time when an entry is added (FAT on
@@ -285,4 +297,65 @@ fn a_clock_file_that_is_a_link_is_not_written_through() {
         vec![PathBuf::from("src/out")]
     );
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep me\n");
+}
+
+#[test]
+fn a_probe_directory_that_is_a_link_is_not_worked_through() {
+    let d = project();
+    let c = cache(d.path());
+    let victim = tempfile::TempDir::new().unwrap();
+    std::fs::write(victim.path().join("entry"), "keep me\n").unwrap();
+    let long_ago = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    set_directory_modified(victim.path(), long_ago).unwrap();
+    link_to(victim.path(), &d.path().join(".sorcerer/state/fence-probe")).unwrap();
+    let out = tempfile::TempDir::new().unwrap();
+    link_to(out.path(), &d.path().join("src/out")).unwrap();
+    assert_eq!(
+        c.fenced_links(&fences(d.path())),
+        vec![PathBuf::from("src/out")]
+    );
+    assert_eq!(
+        std::fs::read_to_string(victim.path().join("entry")).unwrap(),
+        "keep me\n"
+    );
+    let time = std::fs::metadata(victim.path())
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(time, long_ago);
+}
+
+#[test]
+fn a_state_directory_that_is_a_link_is_not_probed_through() {
+    let d = project();
+    let victim = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(d.path().join(".sorcerer")).unwrap();
+    link_to(victim.path(), &d.path().join(".sorcerer/state")).unwrap();
+    let c = cache(d.path());
+    let out = tempfile::TempDir::new().unwrap();
+    link_to(out.path(), &d.path().join("src/out")).unwrap();
+    assert_eq!(
+        c.fenced_links(&fences(d.path())),
+        vec![PathBuf::from("src/out")]
+    );
+    assert!(!victim.path().join("fence-probe").exists());
+}
+
+#[test]
+fn a_link_put_in_the_notes_after_the_first_ask_is_fenced_on_the_next() {
+    let d = project();
+    support::write(d.path(), ".sorcerer/notes/plan.md", "## Plan\n");
+    let c = cache(d.path());
+    age_directories(d.path());
+    let f = fences(d.path());
+    assert!(c.fenced_links(&f).is_empty());
+    link_to(
+        &d.path().join(".env"),
+        &d.path().join(".sorcerer/notes/env.md"),
+    )
+    .unwrap();
+    assert_eq!(
+        c.fenced_links(&f),
+        vec![PathBuf::from(".sorcerer/notes/env.md")]
+    );
 }

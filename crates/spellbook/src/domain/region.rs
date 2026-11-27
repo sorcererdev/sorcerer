@@ -28,7 +28,7 @@ use crate::domain::rule::{Severity, patterns_of, severity_of, string_of};
 pub const REGIONS_FILE: &str = ".sorcerer/spellbook/regions.toml";
 
 /// The word an opening marker carries after the comment marker.
-const OPENS: &str = "spellbook:region";
+const OPENS: &str = sorcerer_core::domain::generated_regions::REGION_OPENS;
 /// The word a closing marker carries after the comment marker.
 const ENDS: &str = "spellbook:end";
 

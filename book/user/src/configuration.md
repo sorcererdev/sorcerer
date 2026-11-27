@@ -81,6 +81,8 @@ Some paths are fenced: no model is shown them, and no citation may point at them
 
 - `.env` and anything starting with `.env`, in any directory;
 - `.sorcerer/` (what the tools remember, including other findings and costs) and `.git/`;
+  the one exception is `.sorcerer/notes/`, your notes and lackey's, which are read like
+  any file (a link in it onto a fenced path stays fenced, and so does a `.env` in it);
 - anything outside the project, including through a symbolic link;
 - your `not_evidence` paths.
 
@@ -88,10 +90,11 @@ When the model runs through sorcerer's own tools (Anthropic's API, an OpenAI-com
 server), every path is checked before it is read. When it runs through `claude -p`,
 Claude Code enforces the fences with deny rules, including one for each symbolic link
 that leads out of the project or onto a fenced path. The links are looked for in the whole
-project except the folders your project's own `.gitignore` and `.ignore` files leave out (a
-global gitignore or `.git/info/exclude` does not count), so a link to a secret under
-`node_modules/` or `target/` is not named: keep those folders free of such links. This holds in
-a project that is not a git repository too. A hard link to a secret is not a symbolic link and
+project, ignored folders included (`.gitignore` and `.ignore` do not count: git checks out an
+ignored link that was added with `git add -f`, and a link made in an ignored folder is still
+there to read through). Only `.git/` and `.sorcerer/` (but its notes) are skipped, both fenced
+whole. The first task in a large project walks it all once; later tasks walk only the folders
+that changed. This holds in a project that is not a git repository too. A hard link to a secret is not a symbolic link and
 is not found either: keep secrets out of the project. Claude Code cannot be told to refuse every path outside the
 project, though: there, only the instructions keep it inside. Keep secrets out of the
 project's files, or under a fenced path, either way.

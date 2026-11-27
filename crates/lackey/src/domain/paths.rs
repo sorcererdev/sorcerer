@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 
 use serde::Deserialize;
+use sorcerer_core::domain::fences::is_in_notes;
 
 /// The path the agent named, relative to the project root after lexical clean-up: `.`
 /// dropped, `..` taken as far as the root and no further; an absolute path only when it is
@@ -54,12 +55,15 @@ static NEVER_WRITTEN_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
 
 /// Whether no task writes the relative path: some part of it is named in
 /// `library/never-written.toml` (sorcerer's and git's own, and the config an agent, a shell or
-/// an editor obeys when it next starts), ignoring case.
+/// an editor obeys when it next starts), ignoring case. In the notes (`.sorcerer/notes/`) the
+/// `.sorcerer` it starts with does not count: a note is written like any file.
 ///
-/// Example: `.sorcerer/config.toml`, `.git/hooks/pre-commit` and `tools/.envrc` are never
-/// written; `src/envrc.txt` may be.
+/// Example: `.sorcerer/config.toml`, `.git/hooks/pre-commit`, `tools/.envrc` and
+/// `.sorcerer/notes/.envrc` are never written; `src/envrc.txt` and `.sorcerer/notes/plan.md`
+/// may be.
 pub fn is_never_written(relative: &Path) -> bool {
-    relative.components().any(|part| {
+    let sorcerer_part = usize::from(is_in_notes(relative));
+    relative.components().skip(sorcerer_part).any(|part| {
         let name = part.as_os_str().to_string_lossy().to_lowercase();
         NEVER_WRITTEN_NAMES.contains(&name)
     })
@@ -86,7 +90,19 @@ mod tests {
         for path in [".sorcerer/state/x", ".git/config", "a/.ENVRC", ".mcp.json"] {
             assert!(is_never_written(Path::new(path)), "{path}");
         }
-        for path in ["src/a.txt", "src/envrc.txt", "docs/mcp.json"] {
+        for path in [
+            ".sorcerer/notes/.envrc",
+            ".sorcerer/notes2/x.md",
+            ".sorcerer",
+        ] {
+            assert!(is_never_written(Path::new(path)), "{path}");
+        }
+        for path in [
+            "src/a.txt",
+            "src/envrc.txt",
+            "docs/mcp.json",
+            ".sorcerer/notes/plan.md",
+        ] {
             assert!(!is_never_written(Path::new(path)), "{path}");
         }
     }

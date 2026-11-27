@@ -71,7 +71,8 @@ fn claude_code_researcher_passes_fences_as_deny_rules() {
         serde_json::from_value(settings["permissions"]["deny"].clone()).unwrap();
     for rule in [
         "Read(./**/.env*)",
-        "Read(./.sorcerer/**)",
+        "Read(./.sorcerer/state/**)",
+        "Read(./.sorcerer/config.toml)",
         "Read(./.git/**)",
         "Read(./docs/plans/**)",
         "WebSearch",
@@ -79,7 +80,12 @@ fn claude_code_researcher_passes_fences_as_deny_rules() {
     ] {
         assert!(deny.contains(&rule.to_string()), "{rule} not in {deny:?}");
     }
+    assert!(
+        !deny.contains(&"Read(./.sorcerer/**)".to_string()),
+        "{deny:?}"
+    );
     assert!(at("--append-system-prompt").contains("docs/plans/**"));
+    assert!(at("--append-system-prompt").contains(".sorcerer/** (except .sorcerer/notes/)"));
     assert!(
         f.env().contains(&format!("PWD={}", p.root.display())),
         "{}",
