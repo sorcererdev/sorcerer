@@ -422,6 +422,35 @@ fn a_command_is_asked_once_and_remembered_for_the_project() {
 
 /// The person ruled: allowing one search never opens the door to a search of the whole tree.
 #[test]
+fn the_status_line_says_a_command_waits_and_was_denied_not_that_it_runs() {
+    let command = "ls -a && cat CLAUDE.md";
+    // claude asks first; its stream shows the call after the answer
+    let run = run(
+        vec![
+            Step::Bash("ls -a && cat CLAUDE.md"),
+            tool_use("Bash", json!({ "command": command })),
+            Step::Finish(0.1),
+        ],
+        &["Deny"],
+    );
+    let progress = run.editor.progress.lock().unwrap().clone();
+    assert!(
+        progress
+            .iter()
+            .any(|line| line.contains("waiting for you: ls")),
+        "{progress:?}"
+    );
+    assert!(
+        progress.iter().any(|line| line.contains("denied: ls")),
+        "{progress:?}"
+    );
+    assert!(
+        !progress.iter().any(|line| line.contains("running ls")),
+        "{progress:?}"
+    );
+}
+
+#[test]
 fn allowing_a_search_always_does_not_allow_a_recursive_one() {
     let run = run(
         vec![

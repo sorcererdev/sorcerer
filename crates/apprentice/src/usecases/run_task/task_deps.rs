@@ -1,6 +1,7 @@
 //! What a task runs with, and a running task's shared state: the follow loop and the helper
 //! processes' requests (each on a thread of its own) meet here.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -11,6 +12,7 @@ use sorcerer_core::ports::ledger::Ledger;
 
 use crate::domain::config::ApprenticeConfig;
 use crate::domain::log_text::title_of;
+use crate::domain::status::CommandVerdict;
 use crate::domain::task::{TaskFile, TaskRecord, TaskState};
 use crate::domain::token_cost::{TokenUsage, UsageSeen};
 use crate::ports::agent::Agent;
@@ -53,6 +55,9 @@ pub struct LiveTask {
     spoke: AtomicBool,
     /// The tokens the stream showed so far, call by call.
     used: Mutex<UsageSeen>,
+    /// The person's verdict on each command asked about, until the stream shows the command:
+    /// the stream may show it before the question or after the answer.
+    verdicts: Mutex<HashMap<String, CommandVerdict>>,
     pub cancel: Cancel,
 }
 
@@ -64,6 +69,7 @@ impl LiveTask {
             record: Mutex::new(record),
             spoke: AtomicBool::new(false),
             used: Mutex::new(UsageSeen::default()),
+            verdicts: Mutex::new(HashMap::new()),
             cancel: Cancel::default(),
         }
     }
@@ -100,6 +106,16 @@ impl LiveTask {
     /// What the calls seen so far cost; `None` when none was seen or one cannot be priced.
     pub fn cost_seen(&self, price_of: fn(&str) -> Option<[f64; 2]>) -> Option<f64> {
         lock(&self.used).cost(price_of)
+    }
+
+    /// The person's verdict on a command, as the permission question stands.
+    pub fn command_verdict(&self, command: &str, verdict: CommandVerdict) {
+        lock(&self.verdicts).insert(command.to_string(), verdict);
+    }
+
+    /// The verdict on a command the stream now shows, taken (each is shown once).
+    pub fn take_command_verdict(&self, command: &str) -> Option<CommandVerdict> {
+        lock(&self.verdicts).remove(command)
     }
 
     pub fn spoke(&self) {
