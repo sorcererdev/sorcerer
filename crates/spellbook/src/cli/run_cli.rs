@@ -16,7 +16,7 @@ use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
 use super::file_arguments::relative_to_root;
-use super::{check, doctor, fix, holes, list, lsp, new, show, sync, trust};
+use super::{check, doctor, fix, holes, list, lsp, new, rules, show, sync, trust};
 
 /// The program's entry: runs the command in the current directory, with the real files,
 /// grammars and clock.
@@ -140,6 +140,10 @@ fn run_command(
                 json,
             };
             sync::sync(&wire(project)?, &request, out, err)
+        }
+        Cmd::Rules { file, json } => {
+            let file = relative_to_root(&project, cwd, &[file])?.remove(0);
+            rules::rules(&wire(project)?, &file, json, out)
         }
         Cmd::Check {
             files,

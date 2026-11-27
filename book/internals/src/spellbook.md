@@ -579,6 +579,10 @@ The server's `file_diagnostics` calls `check_files` for the one file, so a save 
 and the findings; a rules file that does not load is said once with `Client::say_once`.
 `lsp/findings.rs::finding_mark` makes an existing finding a Hint ending ` (existing)`.
 
+`cli/rules.rs` (`spellbook rules FILE [--json]`) lists `Rule::applies_to` of the rules `checking()`
+loaded (turned-off ones are not in them): id, severity, message, why. Conjure's `SpellbookChecker::rules_for`
+reads it to tell its writer the rules up front.
+
 `cli/check.rs` turns the flags into a `CheckScope` (`Project`, `Files`, `Since`, `Texts`, the
 last read by `texts_to_check` from the `--texts` file or standard input, refusing a path that is
 absolute or climbs out; its findings offer no fixes) for `check`, and

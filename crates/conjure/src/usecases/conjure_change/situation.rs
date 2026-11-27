@@ -13,6 +13,7 @@ use super::{ChangeDeps, ChangeRefused, ChangeRequest, Site};
 use crate::domain::language_tables::tests_path;
 use crate::domain::scry_notes::{FindingsRead, ScryNote, StoredFinding, note_of, notes_near};
 use crate::domain::situation::{Situation, session_text, situation_text};
+use crate::domain::spellbook_findings::rules_for_the_file_text;
 
 /// The situation text for a site: everything the writer is shown.
 pub(super) fn situation_for(
@@ -43,7 +44,7 @@ pub(super) fn situation_for(
         |path, lines| fingerprint_now(deps, path, lines),
     );
     let finding_asked = finding_asked(request, &findings, deps)?;
-    Ok(situation_text(&Situation {
+    let situation = situation_text(&Situation {
         language: language.name.clone(),
         unit_words: language.unit_words.clone().unwrap_or_default(),
         file: site.file.clone(),
@@ -60,7 +61,9 @@ pub(super) fn situation_for(
         notes,
         rules: deps.context.rules(),
         left_out: without_repeats(left_out),
-    }))
+    });
+    let kept = rules_for_the_file_text(&deps.checker.rules_for(&site.file));
+    Ok(format!("{situation}{kept}"))
 }
 
 /// Whether a model may be shown the file; when not, it is named in `left_out`.

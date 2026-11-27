@@ -393,6 +393,31 @@ fn check_texts_checks_what_is_not_on_disk_and_saves_nothing() {
 }
 
 #[test]
+fn rules_lists_the_rules_that_look_at_a_file() {
+    let dir = bistro_with_a_sqlite_command();
+    let (code, out, err) = run(
+        dir.path(),
+        &[
+            "rules",
+            "--json",
+            "src/bistro/booking/commands/close_table.py",
+        ],
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    let printed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let rules = printed["rules"].as_array().unwrap();
+    let ports = rules
+        .iter()
+        .find(|rule| rule["id"] == "commands-use-ports")
+        .expect(&out);
+    assert_eq!(ports["severity"], "error");
+    write_file(dir.path(), "notes/readme.txt", "hello\n");
+    let (code, out, err) = run(dir.path(), &["rules", "notes/readme.txt"]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(out, "no rules look at notes/readme.txt\n");
+}
+
+#[test]
 fn check_on_named_files_checks_only_those() {
     let dir = bistro_with_a_sqlite_command();
     write_file(

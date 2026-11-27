@@ -16,7 +16,7 @@ use crate::domain::edits::DropReason;
 use crate::domain::record::{Attempt, change_id};
 use crate::domain::reply::read_reply;
 use crate::domain::spellbook_findings::{
-    RuleFinding, RulesOutcome, broken_rules_text, held_back_text,
+    RuleFinding, RulesOutcome, TIMED_OUT_NOTE, broken_rules_text, held_back_text,
 };
 
 /// Conjures one change: where the cursor is, whether the day can pay, what the writer reads,
@@ -37,7 +37,7 @@ pub fn conjure_change(
         Some(kept) => kept.clone(),
         None => situation::situation_for(&site, request, deps)?,
     };
-    let first = written_and_checked(&site, situation, deps)?;
+    let first = written_and_checked(&site, situation, Call::First, deps)?;
     let last = within_the_rules(&site, first, request.attempt, deps)?;
     Ok(ConjuredChange {
         id: change_id(deps.clock.now(), &request.file, request.line),
@@ -67,30 +67,52 @@ struct Answer {
     errand: Errand,
 }
 
+/// Which call of a change this is, for the ledger.
+#[derive(Clone, Copy)]
+enum Call {
+    First,
+    /// The call after a rules check broke the first answer.
+    Retry,
+}
+
 /// Asks the writer once on the situation and checks what it wrote.
 fn written_and_checked(
     site: &Site,
     situation: String,
+    call: Call,
     deps: &ChangeDeps,
 ) -> Result<Answer, ChangeRefused> {
-    let written = write::write_once(deps.writer, &situation, deps.cancel).map_err(|why| {
-        ChangeRefused::NotAnswered {
-            why,
-            unit: site.unit.name.clone(),
-            facts: site.facts.clone(),
-        }
+    let asked = match call {
+        Call::First => write::write_once(deps.writer, &situation, deps.cancel),
+        Call::Retry => write::write_retry(deps.writer, &situation, deps.cancel),
+    };
+    let written = asked.map_err(|why| ChangeRefused::NotAnswered {
+        why,
+        unit: site.unit.name.clone(),
+        facts: site.facts.clone(),
     })?;
     let reply = read_reply(&written.text);
     let (files, dropped) = check::checked_files(&reply, deps)?;
-    let broken = rules_broken_by(&files, deps);
+    let checked = rules_broken_by(&files, deps);
+    let (goal, rules) = if checked.timed_out {
+        (
+            Some(match reply.goal {
+                Some(goal) => format!("{goal} ({TIMED_OUT_NOTE})"),
+                None => format!("({TIMED_OUT_NOTE})"),
+            }),
+            RulesOutcome::NotChecked(TIMED_OUT_NOTE.to_string()),
+        )
+    } else {
+        (reply.goal, RulesOutcome::Kept)
+    };
     Ok(Answer {
         situation,
         reply: written.text,
-        goal: reply.goal,
+        goal,
         files,
         dropped,
-        broken,
-        rules: RulesOutcome::Kept,
+        broken: checked.broken,
+        rules,
         errand: written.errand,
     })
 }
@@ -119,14 +141,15 @@ fn within_the_rules(
             line
         ))
     );
-    let second = written_and_checked(site, situation, deps)?;
+    let second = written_and_checked(site, situation, Call::Retry, deps)?;
     let errand = both_calls(&first.errand, &second.errand);
     let second = Answer { errand, ..second };
     if second.broken.is_empty() {
-        return Ok(Answer {
-            rules: RulesOutcome::AskedAgain(first.broken),
-            ..second
-        });
+        let rules = match second.rules {
+            RulesOutcome::NotChecked(why) => RulesOutcome::NotChecked(why),
+            _ => RulesOutcome::AskedAgain(first.broken),
+        };
+        return Ok(Answer { rules, ..second });
     }
     Ok(held_back(second))
 }

@@ -291,6 +291,7 @@ lines of it. Fill it and it is gone. `spellbook holes FILE…` looks only at tho
 spellbook list                     the generators, a row each (a broken one is a row with its problem)
 spellbook show <generator>         its inputs and their choices now, the files it creates, its holes, its examples
 spellbook check [FILE…] [--json]   run the rules over the project (or the named files), and check its regions
+spellbook rules FILE [--json]       the rules that look at a file: id, severity, message, why (what conjure tells its writer)
 spellbook sync [--init NAME] [--check] [--plan] [--json]
                                    refresh the owned regions (see Owned regions below)
 spellbook doctor                   the config, the generators, the rules, the regions, the languages and their hole kinds,
@@ -468,6 +469,13 @@ nothing is written and `report.json` is left alone; a finding offers no fixes (t
 disk). The exit codes are `check`'s. A path that is absolute or climbs out with `..` stops with
 exit 2. Conjure uses it to check a change before it lands
 ([Conjure](conjure.md#a-change-keeps-your-spellbook-rules)); an agent can too.
+
+**The rules that look at a file: `spellbook rules FILE`.** One row for each rule whose `files` match
+the file (and whose `exclude` does not): `commands-use-ports  error  Commands talk to ports`, then
+its `why` indented under it; `no rules look at FILE` for none. `--json` prints
+`{"rules": [{"id", "severity", "message", "why"}]}` (`why` only when the rule has one); rules the
+project turned off in `[spellbook.rules]` are not listed. Exit 0. Conjure uses it to tell its writer
+the rules before it writes; you can read it before you write too.
 
 **The project's say: `[spellbook.rules]`.** How strict to be with each rule is the team's choice,
 in `.sorcerer/config.toml`, over the rule's own `severity`:

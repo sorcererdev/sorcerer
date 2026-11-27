@@ -410,6 +410,7 @@ fn cost_counts_a_day_of_changes_and_try_harder() {
         at("2026-11-22T10:00:00Z", "conjure", 0.002),
         at("2026-11-22T11:00:00Z", "conjure", 0.003),
         at("2026-11-22T11:30:00Z", "try-harder", 0.02),
+        at("2026-11-22T11:40:00Z", "conjure-retry", 0.005),
     ] {
         ledger.append(&e).unwrap();
     }
@@ -420,7 +421,7 @@ fn cost_counts_a_day_of_changes_and_try_harder() {
     assert_eq!(code, 0, "{err}");
     assert_eq!(
         out,
-        "day         changes  try harder  cost\n2026-11-21  1        0           $0.001\n2026-11-22  2        1           $0.025\n"
+        "day         changes  try harder  retries  cost\n2026-11-21  1        0           0        $0.001\n2026-11-22  2        1           1        $0.030\n"
     );
     let (_, out, _) = run(d.path(), &["cost", "--since", "2026-11-22"], "");
     assert!(!out.contains("2026-11-21"), "{out}");
@@ -428,6 +429,7 @@ fn cost_counts_a_day_of_changes_and_try_harder() {
     let json: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(json["days"][1]["changes"], 2);
     assert_eq!(json["days"][1]["try_harder"], 1);
+    assert_eq!(json["days"][1]["retries"], 1);
     let (code, _, err) = run(d.path(), &["cost", "--since", "soon"], "");
     assert_eq!(code, 2);
     assert!(err.contains("YYYY-MM-DD"), "{err}");

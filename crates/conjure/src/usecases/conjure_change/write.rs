@@ -13,3 +13,15 @@ pub(super) fn write_once(
 ) -> Result<Written, String> {
     writer.write(situation, cancel).map_err(|e| e.to_string())
 }
+
+/// Asks the writer again after a rules check broke its first answer; the ledger records the call
+/// as a retry.
+pub(super) fn write_retry(
+    writer: &dyn Writer,
+    situation: &str,
+    cancel: &Cancel,
+) -> Result<Written, String> {
+    writer
+        .write_retry(situation, cancel)
+        .map_err(|e| e.to_string())
+}

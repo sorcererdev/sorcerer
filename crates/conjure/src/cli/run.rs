@@ -174,10 +174,13 @@ fn parses_text(file: &ChangedFile) -> String {
     }
 }
 
-/// `asked again: the first answer broke commands-use-ports (src/a.rs:36)`, when it did.
+/// `asked again: the first answer broke commands-use-ports (src/a.rs:36)`, when it did; or
+/// `rules not checked: the check timed out`.
 fn asked_again_text(rules: &RulesOutcome) -> String {
-    let RulesOutcome::AskedAgain(broken) = rules else {
-        return String::new();
+    let broken = match rules {
+        RulesOutcome::AskedAgain(broken) => broken,
+        RulesOutcome::NotChecked(why) => return format!("{why}\n"),
+        _ => return String::new(),
     };
     let places: Vec<String> = broken
         .iter()

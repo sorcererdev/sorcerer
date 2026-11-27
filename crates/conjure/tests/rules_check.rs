@@ -152,3 +152,63 @@ fn an_answer_of_nothing_is_not_checked() {
     assert_eq!(change.rules, RulesOutcome::Kept);
     assert_eq!(rule.times_asked(), 1, "asked about no texts");
 }
+
+#[test]
+fn the_rules_of_the_file_are_in_the_first_situation_and_a_retry_is_its_own_verb() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), &then(SQLITE_REPLY, CART_REPLY));
+    let rule = ForbiddenWord::error("sqlite3", "commands-use-ports")
+        .told_up_front("Commands talk to ports", "Ports keep commands testable.");
+    let deps = ChangeDeps {
+        checker: &rule,
+        ..rig.deps()
+    };
+    conjure_change(&ask_at_total(), &deps).unwrap();
+    let seen = rig.writer.situations();
+    assert!(
+        seen[0].contains("The project's checked rules for this file"),
+        "{}",
+        seen[0]
+    );
+    assert!(
+        seen[0].contains(
+            "- commands-use-ports (error): Commands talk to ports Ports keep commands testable.\n"
+        ),
+        "{}",
+        seen[0]
+    );
+    assert!(seen[1].starts_with(&seen[0]), "the retry keeps them too");
+    assert_eq!(rig.writer.verbs(), ["conjure", "conjure-retry"]);
+}
+
+#[test]
+fn a_file_with_no_rules_adds_nothing_to_the_situation() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let rule = ForbiddenWord::error("sqlite3", "commands-use-ports");
+    let deps = ChangeDeps {
+        checker: &rule,
+        ..rig.deps()
+    };
+    conjure_change(&ask_at_total(), &deps).unwrap();
+    assert!(!rig.writer.situations()[0].contains("checked rules for this file"));
+    assert_eq!(rig.writer.verbs(), ["conjure"]);
+}
+
+#[test]
+fn a_check_that_times_out_lets_the_change_go_unchecked_and_says_so() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), SQLITE_REPLY);
+    let deps = ChangeDeps {
+        checker: &Hanging,
+        ..rig.deps()
+    };
+    let change = conjure_change(&ask_at_total(), &deps).unwrap();
+    assert_eq!(change.files.len(), 1, "the answer is used");
+    assert_eq!(
+        change.goal.as_deref(),
+        Some("total from the database (rules not checked: the check timed out)")
+    );
+    assert!(matches!(change.rules, RulesOutcome::NotChecked(_)));
+    assert_eq!(rig.writer.situations().len(), 1, "no second call");
+}

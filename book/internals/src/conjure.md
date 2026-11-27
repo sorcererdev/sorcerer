@@ -83,7 +83,12 @@ and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `R
 (`SpellbookChecker::for_project`: the `spellbook` beside the running program, else on PATH, none
 without `.sorcerer/spellbook/rules.toml`; `findings_in` runs `spellbook check --texts - --json` in
 the root with the texts as JSON on its input, exit 0 or 1 read, anything else `NotChecked` with
-its first error line), `project_context.rs` (`FilesContext`,
+its first error line; both calls go through `run_within`, which waits `CHECK_TIMEOUT` (10 s,
+`domain/spellbook_findings.rs`) and kills a program still running: `RulesRead::TimedOut`. `rules_broken_by`
+then returns `Checked { timed_out }`, `written_and_checked` ends the goal with `TIMED_OUT_NOTE` and
+sets `RulesOutcome::NotChecked`, and the answer is used unchecked (fail open; `tests/spellbook_timeout.rs`,
+the `Hanging` double in `tests/rules_check.rs`); `rules_for` runs `spellbook rules --json FILE` and reads `RuleNote`s,
+none on any failure), `project_context.rs` (`FilesContext`,
 the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.rs` (`Wired`,
 `live`, `writer_for`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`, a picture of one
 moment: a file not open is read from the disk once and answered as first read, so a change is
@@ -111,8 +116,10 @@ made against what the writer was shown and a disk that moved on meanwhile is see
 2. **The day.** `spent_since` over the ledger's `conjure` errands, the user's local day;
    `day_allows` refuses a first call at or over `budget_per_day`, and Try harder also when
    its $0.25 would pass it.
-3. **The situation** (unless the request carries one, as Try harder does), then `Writer::write`
-   once. `ProviderWriter` makes one plain call (`max_tokens` 8192, 120 s); `ResearchWriter` is a
+3. **The situation** (unless the request carries one, as Try harder does): `situation_for` ends
+   with `rules_for_the_file_text(deps.checker.rules_for(file))` (`domain/spellbook_findings.rs`):
+   the rules of the file up front, from `spellbook rules FILE --json` (`RuleChecker::rules_for`,
+   empty by default and when spellbook cannot say). Then `Writer::write` once. `ProviderWriter` makes one plain call (`max_tokens` 8192, 120 s); `ResearchWriter` is a
    researcher with Read, Grep and Glob, $0.25 and 300 s. Both record their errand in the ledger,
    a failed call too.
 4. **The check.** `read_reply`, then for each file `landing_of`: a path leaving the project
@@ -122,7 +129,10 @@ made against what the writer was shown and a disk that moved on meanwhile is see
    writer's text in the base's line endings, `line_edits` against the base, `parse_errors`
    from the `ProjectContext`. A file equal to its base is left out; no files is "no change".
 
-5. **The rules.** `rules_broken_by` asks the `RuleChecker` (spellbook, live) about the files'
+5. **The rules.** The call after a break is `Writer::write_retry` (default: `write`), which
+   `ProviderWriter` and `ResearchWriter` record under the verb `conjure-retry`
+   (`write_as`); `report_cost` counts those in `DayCost::retries`, apart from `changes`.
+   `rules_broken_by` asks the `RuleChecker` (spellbook, live) about the files'
    new texts and, when they have an error, their old ones; an error the old texts did not have is
    a break. `within_the_rules` keeps an answer with none, asks once more with the breaks named
    (`RulesOutcome::AskedAgain`), and holds back a second break (`RulesOutcome::HeldBack`: no

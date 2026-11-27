@@ -26,10 +26,30 @@ impl Writer for ResearchWriter {
     /// Read, Grep and Glob. The researcher records its own call in the ledger as a
     /// `try-harder` errand. Nothing it does writes a file.
     fn write(&self, situation: &str, cancel: &Cancel) -> sorcerer_models::Result<Written> {
+        self.write_as("try-harder", situation, cancel)
+    }
+
+    /// The same call, recorded as a `conjure-retry` errand.
+    fn write_retry(&self, situation: &str, cancel: &Cancel) -> sorcerer_models::Result<Written> {
+        self.write_as("conjure-retry", situation, cancel)
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+}
+
+impl ResearchWriter {
+    fn write_as(
+        &self,
+        verb: &str,
+        situation: &str,
+        cancel: &Cancel,
+    ) -> sorcerer_models::Result<Written> {
         let researched = self.researcher.research(
             Research {
                 product: PRODUCT.into(),
-                verb: "try-harder".into(),
+                verb: verb.into(),
                 prompt: format!("{CHANGE_SYSTEM}\n\n{situation}"),
                 model: self.model.clone(),
                 tools: vec![Tool::Read, Tool::Grep, Tool::Glob],
@@ -42,9 +62,5 @@ impl Writer for ResearchWriter {
             text: researched.answer,
             errand: researched.errand,
         })
-    }
-
-    fn model(&self) -> &str {
-        &self.model
     }
 }

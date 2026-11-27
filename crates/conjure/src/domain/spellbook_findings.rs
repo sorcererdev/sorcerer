@@ -39,7 +39,16 @@ pub enum RulesRead {
     /// Nothing could be said, and why: no spellbook installed, no rules in the project, or
     /// spellbook stopped (its sentence).
     NotChecked(String),
+    /// spellbook did not answer in time ([`CHECK_TIMEOUT`]); the change goes unchecked.
+    TimedOut,
 }
+
+/// How long conjure waits for spellbook to check a change's texts before it lets the change go
+/// unchecked.
+pub const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What the step says when the check timed out, after the goal.
+pub const TIMED_OUT_NOTE: &str = "rules not checked: the check timed out";
 
 /// What conjure did about the project's rules.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -51,6 +60,60 @@ pub enum RulesOutcome {
     AskedAgain(Vec<RuleFinding>),
     /// Both answers broke rules (these are the second's), so nothing lands.
     HeldBack(Vec<RuleFinding>),
+    /// The check timed out, so the answer was used without it (the sentence says why).
+    NotChecked(String),
+}
+
+/// One rule that looks at a file, as `spellbook rules FILE --json` prints it.
+///
+/// Example: `{ id: "commands-use-ports", severity: "error", message: "Commands talk to ports",
+/// why: Some("A command that opens files itself cannot be tested without them") }`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RuleNote {
+    pub id: String,
+    pub severity: String,
+    pub message: String,
+    #[serde(default)]
+    pub why: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RulesJson {
+    rules: Vec<RuleNote>,
+}
+
+/// The rules of `spellbook rules FILE --json`; other fields are ignored.
+pub fn rules_of_rules_json(json: &str) -> Result<Vec<RuleNote>, String> {
+    serde_json::from_str::<RulesJson>(json)
+        .map(|rules| rules.rules)
+        .map_err(|e| format!("spellbook's rules did not read: {e}"))
+}
+
+/// What the writer reads about the rules of the file it changes, before it writes: each rule
+/// with its message and why, and what to do when the code lacks what a rule asks for. Nothing
+/// for no rules.
+///
+/// Example: one rule gives a paragraph that begins `The project's checked rules for this file
+/// (a checker runs them on every change; …):` and then ``- commands-use-ports (error): Commands
+/// talk to ports``.
+pub fn rules_for_the_file_text(rules: &[RuleNote]) -> String {
+    if rules.is_empty() {
+        return String::new();
+    }
+    let rows: String = rules
+        .iter()
+        .map(|rule| {
+            let why = rule
+                .why
+                .as_deref()
+                .map(|why| format!(" {}", why.trim()))
+                .unwrap_or_default();
+            format!("- {} ({}): {}{why}\n", rule.id, rule.severity, rule.message)
+        })
+        .collect();
+    format!(
+        "\nThe project's checked rules for this file (a checker runs them on every change, and a change that breaks an error is not used):\n{rows}Keep them. When the code lacks what a rule asks for (a method on an interface, a module, an adapter), add it as part of the step, in the files where it belongs.\n"
+    )
 }
 
 #[derive(Deserialize)]
@@ -192,6 +255,20 @@ mod tests {
             [finding("ports", 36, "f1", "error")]
         );
         assert!(findings_of_check_json("not json").is_err());
+    }
+
+    #[test]
+    fn the_rules_json_reads_and_the_up_front_text_names_each_rule() {
+        let json = r#"{"rules": [{"id": "ports", "severity": "error", "message": "Talk to ports", "why": "Testable."}, {"id": "n", "severity": "warn", "message": "Name it"}]}"#;
+        let rules = rules_of_rules_json(json).unwrap();
+        let text = rules_for_the_file_text(&rules);
+        assert!(
+            text.contains("- ports (error): Talk to ports Testable.\n"),
+            "{text}"
+        );
+        assert!(text.contains("- n (warn): Name it\n"), "{text}");
+        assert_eq!(rules_for_the_file_text(&[]), "");
+        assert!(rules_of_rules_json("nope").is_err());
     }
 
     #[test]

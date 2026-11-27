@@ -47,6 +47,7 @@ fn cost_json_text(report: &CostReport) -> String {
                 "day": d.day.to_string(),
                 "changes": d.changes,
                 "try_harder": d.try_harders,
+                "retries": d.retries,
                 "cost": d.total_cost,
             })
         })
@@ -63,9 +64,10 @@ fn cost_table_text(report: &CostReport) -> String {
                 d.day.to_string(),
                 d.changes.to_string(),
                 d.try_harders.to_string(),
+                d.retries.to_string(),
                 usd(d.total_cost),
             ]
         })
         .collect();
-    table(&["day", "changes", "try harder", "cost"], &rows)
+    table(&["day", "changes", "try harder", "retries", "cost"], &rows)
 }
