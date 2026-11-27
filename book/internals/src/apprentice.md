@@ -185,6 +185,20 @@ loopback `Tool` request answered as one text block with `isError`. `apprentice h
 always exits 0. The `Stop` hook prints nothing: a stop's only way to say more is to refuse the
 stop, and a task that should go on is a new instruction.
 
+**A server that has ended.** `claude` runs in a process group (a job object on Windows) of its
+own, so killing `apprentice lsp` does not kill it. Its helpers notice instead: `HelperWay::ask`
+(`helper_way.rs`) answers `ServerAnswer::Gone` when the loopback port refuses the connection
+(nothing listens there any more). `serve_mcp` then fails the call with `SERVER_GONE` and exits,
+so every later `mcp__apprentice__*` call fails at once; `hook_output` prints
+`{"continue":false,"stopReason":…}`, which ends the agent's work after the tool call it follows
+(confirmed on `claude` 2.1.331 under `-p`: after a `Read` the hook stopped, no second call, the
+result came at once). The agent's input is the dead server's pipe, so it is closed too, and
+`claude` exits once its turn is over. Only a turn with no tool call at all could still spend, and
+the spend cap bounds it. Any other failure to connect (a timeout, a reset) stays an error reply:
+the server may only be busy. Tying the child's life to the server directly was not done: the
+Windows job object `process-wrap` makes has no kill-on-close flag, and nothing on Unix ends a
+process group when its parent dies without code per platform.
+
 ### Fences against the real `claude`
 
 Measured with `claude` 2.1.331 on haiku, on a copy of the bistro demo with a canary in `.env`
@@ -307,7 +321,9 @@ a `RecordingEditor` (buffers in memory, `person_edits` to type meanwhile, answer
 queue). `tests/harness.rs`: `ClaudeAgent` against `apprentice-fake-claude`
 (`tests/support/fake_claude.rs`), which writes its arguments and first input line to files,
 plays a script, really starts `apprentice mcp` from `--mcp-config` and really runs `apprentice
-hook` from `--settings`, logging each result. `tests/cli.rs`: `main_with` with a `Wiring` of
+hook` from `--settings`, logging each result; like the real one it stops at a hook's
+`continue: false` (`an_agent_whose_server_has_ended_stops_after_its_next_tool_call` points the
+way back at a closed port). `tests/cli.rs`: `main_with` with a `Wiring` of
 doubles. `tests/lsp.rs`: the server over `Connection::memory()` with a small editor
 (`tests/support/lsp_editor.rs`: buffers, versions checked, every `workspace/applyEdit` applied
 and reported, pickers answered from a queue), `StubJev` and `StubResearcher`

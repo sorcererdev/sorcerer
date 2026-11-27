@@ -408,3 +408,64 @@ fn a_runner_that_is_not_there_fails_the_start() {
         refused.text()
     );
 }
+
+/// S10: the server that runs the task is killed (here: nothing listens on its port, and the
+/// agent's input is closed, as a dead server's end of the pipe is). The agent's next tool call
+/// fails saying so and its MCP server exits; the hook after it stops the agent, so it plays
+/// none of its later steps and ends at once, not after its five-second sleep.
+#[test]
+fn an_agent_whose_server_has_ended_stops_after_its_next_tool_call() {
+    use apprentice::ports::agent::{Agent, NextEvent, TaskRequest, WayBack};
+    use std::time::{Duration, Instant};
+
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let fake = Fake::new(json!({
+        "steps": [
+            { "tool": "notify", "arguments": { "text": "starting" } },
+            { "builtin": "Read", "input": { "file_path": "src/cancel.txt" } },
+            { "sleep_ms": 5000 },
+            { "tool": "write_file", "arguments": { "path": "src/cancel.txt", "text": "gone\n" } },
+        ],
+    }));
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let request = TaskRequest {
+        task: "t1".into(),
+        prompt: "do it".into(),
+        system: String::new(),
+        model: "haiku".into(),
+        budget_usd: 0.5,
+        max_turns: 5,
+        root: project.root.clone(),
+        way_back: WayBack {
+            port,
+            token: "k".repeat(32),
+        },
+    };
+    let started = Instant::now();
+    let mut running = agent(&project, &fake).start(&request).unwrap();
+    running.close_input();
+    while running.next_event(Duration::from_secs(10)) != NextEvent::Ended {
+        assert!(started.elapsed() < Duration::from_secs(10), "it never ended");
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "{:?}",
+        started.elapsed()
+    );
+
+    let log = fake.log();
+    let notify = log.iter().find(|entry| entry["tool"] == "notify").unwrap();
+    assert_eq!(notify["result"]["is_error"], true, "{log:?}");
+    assert!(
+        notify["result"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("server has ended"),
+        "{log:?}"
+    );
+    let hook: Value = serde_json::from_str(log[1]["output"].as_str().unwrap()).unwrap();
+    assert_eq!(hook["continue"], false, "{log:?}");
+    assert_eq!(log.len(), 2, "no step after the hook ran: {log:?}");
+}

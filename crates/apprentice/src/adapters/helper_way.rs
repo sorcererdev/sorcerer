@@ -1,6 +1,8 @@
 //! How a helper process (the MCP server, a hook) knows its way back to the server: three
 //! environment variables the agent's process carries.
 
+use std::io::ErrorKind;
+
 use sorcerer_core::ports::env::Env;
 
 use crate::domain::loopback_message::{
@@ -28,15 +30,37 @@ impl HelperWay {
         })
     }
 
-    /// Asks the server; a server that cannot be reached is an error reply saying so.
-    pub fn ask(&self, body: RequestBody) -> LoopbackReply {
+    /// Asks the server. A port that refuses the connection means the server has ended (the
+    /// editor closed, or its server was killed) and is [`ServerAnswer::Gone`]; any other failure
+    /// to reach it is an error reply saying so.
+    ///
+    /// Example: after `kill -9` of `apprentice lsp`, nothing listens on its port, so every
+    /// helper's next request is `Gone` at once, and the helper ends the agent's work.
+    pub fn ask(&self, body: RequestBody) -> ServerAnswer {
         let request = LoopbackRequest {
             token: self.token.clone(),
             task: self.task.clone(),
             body,
         };
-        ask_loopback(self.port, &request).unwrap_or_else(|e| {
-            LoopbackReply::error(format!("apprentice's server cannot be reached: {e}"))
-        })
+        match ask_loopback(self.port, &request) {
+            Ok(reply) => ServerAnswer::Reply(reply),
+            Err(e) if e.kind() == ErrorKind::ConnectionRefused => ServerAnswer::Gone,
+            Err(e) => ServerAnswer::Reply(LoopbackReply::error(format!(
+                "apprentice's server cannot be reached: {e}"
+            ))),
+        }
     }
 }
+
+/// What a helper's request came back with.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ServerAnswer {
+    Reply(LoopbackReply),
+    /// Nothing listens on the port any more: the server that runs the task has ended, so the
+    /// task is over and the agent should stop.
+    Gone,
+}
+
+/// What the agent is told when the server has ended: in a tool's result, and as the reason the
+/// hook stops it.
+pub const SERVER_GONE: &str = "apprentice's server has ended (the editor closed or its server stopped): the task is over; stop now and do nothing more";

@@ -60,7 +60,10 @@ cancellations · 1 file · $0.71`, with *Show diff* (the file before the task ag
 editor's diff view), *Undo this task* (every file back to its text before, in one undoable edit;
 a file you edited since is left alone and named) and *Show journal*. Review the hunks with your
 usual tools (gitsigns, the SCM view); saving every file it changed keeps the task, and its marks
-go. A task the server was running when it stopped is recorded `interrupted`.
+go. A task the server was running when it stopped is recorded `interrupted`. If the server ends
+while a task runs (the editor closes or crashes, or its server is killed), the agent stops after
+its next tool call: that call fails, saying the task is over, and nothing more is read, run or
+spent.
 
 The editor clients: Neovim's is below; VS Code's comes in a later part of the prototype. Any other editor that speaks LSP
 gets the marks, the code actions, the questions in a list, the edits and the notes (opened over
@@ -112,8 +115,9 @@ reading and searching your files, running commands. What it may not do:
   globs are denied to it, as they are to every sorcerer tool, so it cannot read its own journal
   or the ledger. Claude Code's file tools (Read, Grep, Glob, and a file you `@`-mention) refuse
   them, and so do the commands Claude Code reads paths from, such as `cat .env`. Any command
-  that names a fenced path (`git show HEAD:.env`, `ls .git`) is refused before you are asked,
-  even one you allowed always. Nothing outside the project can be read with the file tools.
+  that names a fenced path plainly (`git show HEAD:.env`, `ls .git`) is refused before you are
+  asked, even one you allowed always; one that spells it some other way (`X=.env; cat $X`) is
+  caught by you, since every command is asked about. Nothing outside the project can be read with the file tools.
   apprentice itself never hands it a fenced file either: what you type in an open `.env`, a
   `not_evidence` file or a task's journal is left out of the edits it is fed and of its first
   message, a fenced file is never triaged, and an instruction written in one does not start.
