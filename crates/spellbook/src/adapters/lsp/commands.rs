@@ -7,8 +7,8 @@
 //!   `removed` (and `region` when a region's block is what changes), and the plan with the
 //!   `fix` it is. The generator `sync` is the owned regions' refresh (`sync_on_save.rs`)
 //! - `spellbook.apply [plan id]`: replies with `changed`, `written`, `skipped`, `refused`,
-//!   `holes`, `first` (the first hole's file and line) and `stops`, the holes in the order to
-//!   walk them; a plan's changed files are landed by the editor first (`landing.rs`)
+//!   `holes`, `first` (the first hole's file and line) and `stops`, the holes this plan wrote
+//!   in the order to walk them (each with the `generation` that left it); a plan's changed files are landed by the editor first (`landing.rs`)
 //!
 //! A reply is JSON the plugin reads; a refusal the person must hear is `{ "stop": "<sentence>" }`
 //! in the reply. An error answers only a malformed or unknown command.
@@ -44,7 +44,7 @@ use crate::usecases::list_generators::list_generators;
 use crate::usecases::plan_fix::{FindingAt, plan_fix};
 use crate::usecases::plan_generation::plan_generation;
 use crate::usecases::planned_view::PlannedView;
-use crate::usecases::sync_regions::{SYNC_GENERATOR, SyncMode};
+use crate::usecases::sync_regions::{NO_REGIONS, SYNC_GENERATOR, SyncMode};
 
 pub(super) const GENERATORS: &str = "spellbook.generators";
 pub(super) const CHOICES: &str = "spellbook.choices";
@@ -181,7 +181,8 @@ impl Server {
     /// sends its finding too; the sync needs only the inputs.
     ///
     /// Example: `["sync", { "region": "ports", "mode": "init", "file": "src/booking/ports/mod.rs" }]`
-    /// plans `sync --init ports`.
+    /// plans `sync --init ports`. A project that declares no regions is told so (the command
+    /// line's sentence), not that its regions are up to date.
     fn planned_sync(&self, wired: &Wired, given: &Given) -> Result<KeptPlan, Value> {
         let mode = match (
             given.0.get("mode").map(String::as_str),
@@ -191,12 +192,16 @@ impl Server {
             (Some("init"), None) => return Err(stop(INIT_NAMES_NO_REGION)),
             _ => SyncMode::Refresh,
         };
-        self.sync_planned(wired, &mode)
-            .map(|sync| KeptPlan {
-                plan: sync.plan,
-                versions: sync.versions,
-            })
-            .map_err(|why| plan_stop_reply(&why))
+        let sync = self
+            .sync_planned(wired, &mode)
+            .map_err(|why| plan_stop_reply(&why))?;
+        if sync.declares_no_regions {
+            return Err(stop(NO_REGIONS));
+        }
+        Ok(KeptPlan {
+            plan: sync.plan,
+            versions: sync.versions,
+        })
     }
 
     /// `[plan id]`: lands the plan's changed files, writes its new files, marks each hole and
@@ -255,7 +260,9 @@ impl Server {
     }
 
     /// Applies the plan (its changed files already landed by the editor, or not yet), publishes
-    /// the marks of the changed and written files, opens the first hole, and says what was done.
+    /// the marks of the changed and written files, opens the first hole this plan wrote, and
+    /// says what was done. The reply's stops are this plan's holes only: a fix in a file an
+    /// older generation left holes in walks none of those (they stay marked).
     pub(super) fn applied(&self, wired: &Wired, plan: Plan, landed: ChangesLanded) -> Value {
         let applied = match apply_plan(&wired.apply_deps(), plan, landed) {
             Ok(applied) => applied,
@@ -266,7 +273,7 @@ impl Server {
         {
             return stop(&changed_since_text(&applied.plan));
         }
-        let stops = self.mark_files(wired, &applied);
+        let stops = holes_this_plan_wrote(self.mark_files(wired, &applied), &applied.plan);
         if let Some(first) = stops.first() {
             self.client.show_document(
                 &self.root.join(first["file"].as_str().unwrap_or_default()),
@@ -289,6 +296,18 @@ impl Server {
         }
         stops
     }
+}
+
+/// The stops of the holes `plan` wrote, in their order; the holes of earlier generations in the
+/// same files are left out.
+///
+/// Example: a use-port fix that changes `close_table__test.py`, where the `command` generator
+/// left `todo_field`, has no stops of its own, so the editor opens no hole.
+fn holes_this_plan_wrote(stops: Vec<Value>, plan: &Plan) -> Vec<Value> {
+    stops
+        .into_iter()
+        .filter(|stop| stop["generation"] == plan.id.as_str())
+        .collect()
 }
 
 /// The text the plan leaves in each changed file, by path.

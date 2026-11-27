@@ -874,7 +874,8 @@ generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doct
    lands it through the editor.
 4. **Spellbook: Sync** (`ctrl+m s`; Neovim `:Spellbook sync`, `<leader>ms`) runs the whole refresh
    the same way: the plan with every stale region, then Apply; nothing to do says `spellbook:
-   regions up to date`. Apply (here and from the quick fix) follows the same split as a save: a
+   regions up to date`, and a project that declares no regions says `no regions here: declare
+   them in .sorcerer/spellbook/regions.toml`, as the command line does. Apply (here and from the quick fix) follows the same split as a save: a
    region file open in the editor changes in its buffer, tied to its version; one not open is
    written to disk. In Neovim a region file with unsaved changes of your own is refused by
    name first. It is New entered at the plan with the generator `sync`: nothing is asked, and no
@@ -975,8 +976,12 @@ as in `new`. `<CR>` applies. The changed files land through the server's own `wo
 (Neovim's default handler): one `u` in each buffer takes the fix back, and the buffers stay
 modified until you save them (`:wa`); the new files are written, and the end line says
 `spellbook: fixed commands-use-ports in close_table.py · changed 2 files · wrote 4 files`, with
-`· 2 holes, marked; ]d walks them` after a fix that leaves holes (a hole session starts as after
-`new`). Typing in the file since the plan applies nothing and says so.
+`· 2 holes, marked; ]d walks them` after a fix that leaves holes when no session runs. When a hole
+session starts (as after `new`), the end line is said first and the hole's message follows on the
+message line (`:messages` keeps the end line). The session walks only the holes this fix wrote: a
+fix that writes none (in the Python demo, both port fixes) leaves you in your
+file in normal mode, even when a file it changed still has holes from an earlier generator (they
+stay marked; `]d` walks them). Typing in the file since the plan applies nothing and says so.
 
 ## In VS Code
 

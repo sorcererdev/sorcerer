@@ -19,7 +19,7 @@ use sorcerer_lsp::uri_of;
 use spellbook::adapters::lsp::{ServerConfig, serve};
 use spellbook::ports::clock::Clock;
 use support::{
-    CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH, bistro_project, bistro_rs_project,
+    CLOSE_TABLE_PATH, CLOSE_TABLE_TEST, CLOSE_TABLE_TEST_PATH, bistro_project, bistro_rs_project,
     bistro_rs_with_regions, bistro_with_the_fix, test_cache, use_corpus_rules, vendored_project,
     write_file,
 };
@@ -1392,6 +1392,64 @@ fn a_hole_the_fix_leaves_in_a_changed_file_is_marked_and_shown_before_the_save()
     s.stop();
 }
 
+/// bistro with the fix, its test file still holding a hole an older generation left (the
+/// `command` generator's `todo_field`), as `holes.json` records it.
+fn bistro_with_the_fix_and_an_older_hole() -> TempDir {
+    let dir = bistro_with_the_fix();
+    let test = CLOSE_TABLE_TEST.replace("table_id=", "todo_field=");
+    write_file(dir.path(), CLOSE_TABLE_TEST_PATH, &test);
+    let line = test.lines().position(|l| l.contains("todo_field")).unwrap() + 1;
+    let older = json!({ "version": 1, "data": { "holes": [{
+        "generation": "older", "generator": "command", "file": CLOSE_TABLE_TEST_PATH,
+        "line": line, "name": "field", "kind": "ident", "instruction": "its first input",
+        "placeholder": "todo_field", "edges": "" }] } });
+    write_file(
+        dir.path(),
+        ".sorcerer/state/spellbook/holes.json",
+        &older.to_string(),
+    );
+    dir
+}
+
+#[test]
+fn a_fix_with_no_holes_of_its_own_opens_no_hole_and_leaves_the_older_ones_marked() {
+    let dir = bistro_with_the_fix_and_an_older_hole();
+    let s = served_editing(dir.path());
+    let plan = plan_use_port(&s, json!(2));
+    assert_eq!(
+        paths_with_status(&plan, "changed"),
+        [CLOSE_TABLE_PATH, CLOSE_TABLE_TEST_PATH]
+    );
+    let id = apply_asked(&s, &plan);
+    let asked = edit_asked(&s);
+    s.reply(asked.id, json!({ "applied": true }));
+    let reply = s.response(id).response_result.unwrap();
+    // the session walks only the holes this fix wrote: none, so nothing is opened
+    assert_eq!(reply["stops"], json!([]), "{reply}");
+    assert_eq!(reply["first"], Value::Null, "{reply}");
+    // the server asks to show a document before it replies, so it would be here by now
+    let before_the_reply = s.all_within(Duration::ZERO);
+    let shown = before_the_reply
+        .iter()
+        .any(|m| matches!(m, Message::Request(r) if r.method == "window/showDocument"));
+    assert!(!shown, "a document was shown");
+    // the older hole is still a hole, marked in its file
+    let test_uri = s.uri(CLOSE_TABLE_TEST_PATH);
+    let Some(Message::Notification(published)) = before_the_reply
+        .into_iter()
+        .rfind(|m| is_publish_for(m, &test_uri))
+    else {
+        panic!("no marks for {CLOSE_TABLE_TEST_PATH}");
+    };
+    let marks: Vec<Diagnostic> =
+        serde_json::from_value(published.params["diagnostics"].clone()).unwrap();
+    assert_eq!(
+        marks.iter().filter(|mark| code_of(mark) == "hole").count(),
+        1
+    );
+    s.stop();
+}
+
 // ---- the editor opens a changed file while the fix lands ----
 
 /// The marks the server publishes for a file the editor opens now, after what came before is
@@ -1821,6 +1879,18 @@ fn plan_sync_with_nothing_to_do_has_no_files() {
     let s = served(dir.path());
     let plan = s.command("spellbook.plan", json!(["sync", {}]));
     assert_eq!(plan["files"], json!([]), "{plan}");
+    s.stop();
+}
+
+#[test]
+fn plan_sync_in_a_project_with_no_regions_says_there_are_none() {
+    let dir = bistro_project();
+    let s = served(dir.path());
+    let plan = s.command("spellbook.plan", json!(["sync", {}]));
+    assert_eq!(
+        plan,
+        json!({ "stop": "no regions here: declare them in .sorcerer/spellbook/regions.toml" })
+    );
     s.stop();
 }
 

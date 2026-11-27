@@ -10,7 +10,7 @@ use crate::adapters::wiring::Wired;
 use crate::domain::plan::{Plan, PlanStop, plan_stop_text};
 use crate::ports::workspace::write_refused_text;
 use crate::usecases::apply_plan::{AppliedGeneration, ChangesLanded, apply_plan};
-use crate::usecases::sync_regions::{SyncMode, SyncPlan, plan_sync};
+use crate::usecases::sync_regions::{NO_REGIONS, SyncMode, SyncPlan, plan_sync};
 
 use super::format::{columns, count, file_row, hunks_text, notes_text};
 
@@ -114,8 +114,8 @@ fn print_up_to_date(planned: &SyncPlan, as_json: bool, out: &mut dyn Write) -> R
 
 /// `regions up to date (5 regions)`, or that the project declares none.
 fn up_to_date_text(planned: &SyncPlan) -> String {
-    if planned.blocks == 0 && planned.plan.notes.is_empty() {
-        return "no regions here: declare them in .sorcerer/spellbook/regions.toml\n".into();
+    if planned.declares_no_regions() {
+        return format!("{NO_REGIONS}\n");
     }
     format!(
         "regions up to date ({})\n",

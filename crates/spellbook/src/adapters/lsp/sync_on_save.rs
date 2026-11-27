@@ -29,6 +29,8 @@ use crate::usecases::sync_regions::{SyncMode, instances, plan_sync};
 pub(super) struct EditorSync {
     pub(super) plan: Plan,
     pub(super) versions: BTreeMap<String, i32>,
+    /// See [`crate::usecases::sync_regions::SyncPlan::declares_no_regions`].
+    pub(super) declares_no_regions: bool,
 }
 
 /// A sync's files by who lands them: the editor (open, with the version the plan read), the
@@ -93,7 +95,9 @@ impl Server {
             view: &view,
             ..wired.plan_deps()
         };
-        let plan = plan_sync(&deps, mode)?.plan;
+        let planned = plan_sync(&deps, mode)?;
+        let declares_no_regions = planned.declares_no_regions();
+        let plan = planned.plan;
         let versions = plan
             .files
             .iter()
@@ -103,7 +107,11 @@ impl Server {
                     .map(|(v, _)| (file.path.clone(), *v))
             })
             .collect();
-        Ok(EditorSync { plan, versions })
+        Ok(EditorSync {
+            plan,
+            versions,
+            declares_no_regions,
+        })
     }
 
     /// The project's files the editor has open and the disk still holds, by their path in a

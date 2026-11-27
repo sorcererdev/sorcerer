@@ -46,6 +46,21 @@ pub struct SyncPlan {
     pub blocks: usize,
 }
 
+/// What a sync in a project that declares no regions is told, on the command line and in the
+/// editor alike.
+pub const NO_REGIONS: &str = "no regions here: declare them in .sorcerer/spellbook/regions.toml";
+
+impl SyncPlan {
+    /// True when the project has no region to sync: no block in any file and no region waiting
+    /// to be set up (a region declared but not set up is a note instead).
+    ///
+    /// Example: a project with no `regions.toml` declares none; one whose `modules` region has
+    /// no markers yet has a note saying so, so it does declare one.
+    pub fn declares_no_regions(&self) -> bool {
+        self.blocks == 0 && self.plan.notes.is_empty()
+    }
+}
+
 /// Plans a sync (a query): (1) the regions, which must load; (2) for `Init`, a region by that
 /// name; (3) every region laid on the files it matches; (4) each block worked out again from
 /// the files its query lists, and under `Init` the markers put in each file of that region
