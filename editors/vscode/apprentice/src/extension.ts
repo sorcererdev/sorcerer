@@ -77,10 +77,11 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder, before: Before
   clients.set(key, lc);
   const drawing: Drawing = { working: new Working(), ghosts: new Ghosts() };
   drawings.set(key, drawing);
-  lc.onNotification('sorcerer/working', params => drawing.working.show(parseWorking(params)));
+  lc.onNotification('sorcerer/working', params =>
+    drawing.working.show(parseWorking(params).map(unit => ({ ...unit, uri: spelledAsVsCode(unit.uri) }))));
   lc.onNotification('sorcerer/ghost', params => {
     const ghost = parseGhost(params);
-    if (ghost) drawing.ghosts.show(ghost);
+    if (ghost) drawing.ghosts.show({ ...ghost, uri: spelledAsVsCode(ghost.uri) });
   });
   lc.onNotification('sorcerer/note', params => void openBeside(parseNote(params)));
   lc.onNotification('sorcerer/showDiff', params => {
@@ -98,6 +99,13 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder, before: Before
     disposeDrawing(key);
     void vscode.window.showErrorMessage(`apprentice did not start in ${folder.name}: ${String(err)}`);
   });
+}
+
+// spelledAsVsCode is a URI the server sent as VS Code spells a document's: the drawings find
+// their document by its `uri.toString()`, and on Windows the server's `file:///C:/a.py` is VS
+// Code's `file:///c%3A/a.py`.
+function spelledAsVsCode(uri: string): string {
+  return vscode.Uri.parse(uri).toString();
 }
 
 // openBeside opens the agent's note in the column beside the code; the cursor stays where it was.

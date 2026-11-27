@@ -122,7 +122,8 @@ describe('apprentice (fake claude)', () => {
     assert.ok(said.includes('apprentice: tax is 20%'), JSON.stringify(said));
 
     // the ghost hung under line 6 (5 from 0), the note opened beside the code
-    assert.equal(api.ghosts().length, 1);
+    // stored as VS Code spells the document (on Windows the server's drive letter is not)
+    assert.deepEqual(api.ghosts().map(g => g.uri), [uri.toString()]);
     assert.deepEqual(api.everGhosts().map(g => [vscode.Uri.parse(g.uri).toString(), g.line, g.lines]), [[uri.toString(), 5, ['    # rounded to cents?']]]);
     const note = await until('the note beside', () => vscode.window.visibleTextEditors.find(e => e.document.uri.fsPath.includes('notes')));
     assert.match(note.document.getText(), /^# Why tax/);
