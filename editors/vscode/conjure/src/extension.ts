@@ -7,7 +7,7 @@ import { registerConjuredMarks } from './conjuredMarks';
 import { Working } from './inline';
 import { registerKeys } from './keyActions';
 import { type OfferEnding, remembered } from './offer';
-import { parseWorking, type WorkingUnit } from './working';
+import { parseWorking, spelledAs, type WorkingUnit } from './working';
 
 const INSTALL_LINE =
   process.platform === 'win32'
@@ -39,7 +39,7 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder): void {
   clients.set(key, lc);
   const working = new Working();
   workings.set(key, working);
-  lc.onNotification('sorcerer/working', params => working.show(parseWorking(params)));
+  lc.onNotification('sorcerer/working', params => working.show(spelledAs(parseWorking(params), spelledAsVsCode)));
   // a server that ends mid-work says no more: what it was working on is taken away
   lc.onDidChangeState(e => e.newState === State.Stopped && working.clear());
   lc.start().catch(err => {
@@ -176,4 +176,11 @@ export async function deactivate(): Promise<void> {
   await Promise.all(all.map(lc => lc.stop().catch(() => undefined)));
   for (const working of workings.values()) working.dispose();
   workings.clear();
+}
+
+// spelledAsVsCode is a URI the server sent as VS Code spells a document's: the drawing finds its
+// document by `uri.toString()`, and on Windows the server's `file:///C:/a.py` is VS Code's
+// `file:///c%3A/a.py`.
+function spelledAsVsCode(uri: string): string {
+  return vscode.Uri.parse(uri).toString();
 }
