@@ -1,0 +1,9 @@
+--- a/booking/closeTable.js
++++ b/booking/closeTable.js
+@@ -2,5 +2,6 @@
+ import { Booking } from "./models";
+ 
+ export function closeTable(bookings, table) {
++  console.log("closing", table);
+   throw new Error("not implemented");
+ }

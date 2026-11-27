@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again in booking/index, listing the modules.
+mode = "init modules"
+exit = 0
+patch = "unmarked.patch"

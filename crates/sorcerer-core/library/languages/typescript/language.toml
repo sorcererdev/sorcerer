@@ -1,0 +1,40 @@
+# TypeScript: the tree-sitter grammar. Core reads the keys in this file; products add their own
+# tables (in their milestones) and core keeps those for them.
+files = ["**/*.ts", "**/*.mts", "**/*.cts"]
+# What a unit is, as prompts say it.
+unit_words = "a top-level function, class or interface name (Name), or a method (Class.method)"
+comment = "//"
+# The grammar: fetched, compiled once into the user's cache and loaded at run time.
+grammar = { git = "https://github.com/tree-sitter/tree-sitter-typescript", rev = "f975a621f4e7f532fe322e13c4f79495e0a7b2e7", dir = "typescript" }
+
+[unit]
+# A unit's display name on its definition line, when the queries don't say: the last group
+# of the first pattern that matches (a declaration by its name, a method by its own).
+name = [
+  '^[[:space:]]*(export[[:space:]]+)?(default[[:space:]]+)?(declare[[:space:]]+)?(abstract[[:space:]]+)?(async[[:space:]]+)?(function[[:space:]]*\*?|class|interface|enum|namespace|module|type)[[:space:]]+([[:alnum:]_$]+)',
+  '^[[:space:]]*(export[[:space:]]+)?(const|let|var)[[:space:]]+([[:alnum:]_$]+)',
+  '^[[:space:]]*((public|private|protected|static|readonly|override|abstract|async|get|set)[[:space:]]+)*\*?([[:alnum:]_$#]+)[[:space:]]*[(<]',
+]
+
+# A test sits beside its code as `name.test.ts`; an import is a relative path (conjure reads these).
+[test]
+tests_for = "{= dir =}/{= stem =}.test.ts"
+
+[imports]
+separator = "/"
+resolve = ["{= dir =}/{= path =}.ts", "{= dir =}/{= path =}/index.ts"]
+
+# The code spellbook writes where a generator leaves a hole: one template per kind, filled with
+# the hole's name and instruction. Every placeholder must parse where its kind belongs.
+[holes]
+ident = "todo_{= name =}"
+type = "unknown"
+expr = "undefined /* hole {= name =}: {= instruction =} */"
+block = "throw new Error(\"hole {= name =}: {= instruction =}\");"
+# A statement among others, as a fix's `replace` text writes where a statement was.
+stmt = "throw new Error(\"hole {= name =}: {= instruction =}\");"
+
+# What spellbook's anchors cannot read from the code: the separator a list of one item, or of
+# none, takes when an item is put into it (a longer list shows its own).
+[syntax]
+list_separator = ","

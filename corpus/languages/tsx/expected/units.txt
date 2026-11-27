@@ -1,0 +1,3 @@
+booking/TableCard.tsx:3-5 function TableCard
+booking/closeTable.test.tsx:4-8 function testCloseTableKeepsTheOtherTables
+booking/closeTable.tsx:4-6 function closeTable stub

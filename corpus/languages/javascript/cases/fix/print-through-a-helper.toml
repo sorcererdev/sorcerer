@@ -1,0 +1,27 @@
+# The console.log() becomes a hole saying what it did, and the helper module is written beside it.
+patch = "planted.patch"
+at    = "booking/closeTable.js:5"
+
+[[holes]]
+name = "audit_call"
+kind = "stmt"
+file = "booking/closeTable.js"
+line = 5
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "booking/audit.js"
+line = 4
+
+[[holes]]
+name = "helper"
+kind = "ident"
+file = "booking/audit.js"
+line = 2
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "booking/audit.js"
+line = 3

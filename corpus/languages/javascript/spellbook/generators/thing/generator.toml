@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A module with one helper, a hole of every kind the language has"
+description = "booking/NAME.js: a helper whose name, value and body are holes"
+language    = "javascript"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The module (audit, report)"
+
+[[edits]]
+create   = "booking/{= name|snake =}.js"
+template = "thing.js.dt"

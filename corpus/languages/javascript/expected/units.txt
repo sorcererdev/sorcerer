@@ -1,0 +1,4 @@
+booking/closeTable.js:4-6 function closeTable stub
+booking/closeTable.test.js:4-8 function testCloseTableKeepsTheOtherTables
+booking/models.js:2-10 class Booking
+booking/models.js:7-9 method Booking.isFor

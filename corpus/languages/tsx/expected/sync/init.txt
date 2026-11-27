@@ -1,0 +1,2 @@
+sync (1 file changed)
+  ~ booking/index.tsx  (region modules: set up, 2 items)
