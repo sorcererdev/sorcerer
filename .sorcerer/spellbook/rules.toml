@@ -136,6 +136,9 @@ message  = "the engine names no node kind: capture the node in the language's qu
 severity = "error"
 why      = "scry.toml the-engine-knows-no-language; scripts/no-language-names"
 
+# The code languages (those whose queries capture units) and their `files` extensions, as
+# scripts/no-language-names reads them from crates/sorcerer-core/library/languages/; that
+# script fails when these lists drift from the library.
 [rules.no-language-name-in-the-engine]
 files    = "crates/{crate}/src/**.rs"
 match    = { any = [
@@ -149,8 +152,10 @@ why      = "scry.toml the-engine-knows-no-language; scripts/no-language-names"
 [rules.no-tool-in-the-engine]
 files    = "crates/{crate}/src/**.rs"
 match    = { any = [
-  { kind = "string_literal", regex = "(^|[^\\w-])(ruff|black|mypy|pyright|pytest|pip|pipx|uv|poetry|tox|cargo|rustc|rustfmt|rustup|clippy|npm|npx|yarn|pnpm|eslint|prettier|tsc|jest|vitest|gofmt|mvn|gradle)([^\\w-]|$)" },
-  { kind = "raw_string_literal", regex = "(^|[^\\w-])(ruff|black|mypy|pyright|pytest|pip|pipx|uv|poetry|tox|cargo|rustc|rustfmt|rustup|clippy|npm|npx|yarn|pnpm|eslint|prettier|tsc|jest|vitest|gofmt|mvn|gradle)([^\\w-]|$)" },
+  { kind = "string_literal", regex = "(^|[^\\w-])(ruff|black|mypy|pyright|pytest|pip|pipx|uv|poetry|tox|cargo|rustc|rustfmt|rustup|clippy|npm|npx|yarn|pnpm|eslint|prettier|tsc|jest|vitest|gofmt|mvn|gradle|dotnet|deno|bun|biome|golangci-lint|shellcheck|sqlfluff|yamllint|taplo|markdownlint)([^\\w-]|$)" },
+  { kind = "raw_string_literal", regex = "(^|[^\\w-])(ruff|black|mypy|pyright|pytest|pip|pipx|uv|poetry|tox|cargo|rustc|rustfmt|rustup|clippy|npm|npx|yarn|pnpm|eslint|prettier|tsc|jest|vitest|gofmt|mvn|gradle|dotnet|deno|bun|biome|golangci-lint|shellcheck|sqlfluff|yamllint|taplo|markdownlint)([^\\w-]|$)" },
+  # go and node are words too: a tool only as a command
+  { kind = "string_literal", regex = "^\"(go\\s+(test|build|run|vet|fmt|mod|get|install)\\b|node(\\s+-e\\b|\\s+\\S+\\.m?js\\b|\"$))" },
 ] }
 message  = "the engine names no tool (formatter, linter, test runner, package manager): the person's configuration names tools, the engine runs what it is given"
 severity = "error"
