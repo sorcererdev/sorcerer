@@ -30,10 +30,10 @@ The server is `apprentice lsp`, one per project. It works on two clocks:
   last ten minutes (spellbook's fixes and syncs, a conjure step, an apprentice task: each notes
   what it lands in `.sorcerer/state/tool-edits.jsonl` before it sends the edit), lines that were
   already in the file (moved, as sorting imports does, or re-indented), a change that is the old
-  text reflowed (the same once spaces and line breaks are taken out, as a formatter rewrapping a
-  call does) and blank lines. So format-on-save and a spellbook sync cost no triage and offer
-  nothing. A formatter that changes more than spacing (quotes, a trailing comma) is still read
-  as an edit.
+  text laid out again (the same once spaces, line breaks, brackets, commas, semicolons and quote
+  marks are taken out, as a formatter rewrapping a call or adding a trailing comma does) and
+  lines of layout only (blank, or a lone bracket). So format-on-save and a spellbook sync cost no
+  triage and offer nothing. A formatter that changes words is still read as an edit.
 - **Save**: each question in the saved file is answered by one read-only research call (one to
   three sentences, the code cited as `path:line`, Read, Grep and Glob only), and each claim is
   checked by the claim checker scry uses (haiku, Jev's guards, sonnet when they doubt).

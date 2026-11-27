@@ -33,13 +33,16 @@ pub struct ShapeUnit {
 /// as the line after it, unless every deleted line is still in the file (it moved). A change is
 /// left out when it is not the person's typing:
 ///
-/// - a line a tool landed in the file a moment ago (its trimmed text is in `landed_by_tools`:
-///   spellbook's sync, a conjure step, an apprentice task);
-/// - a line whose trimmed text was already in the file (moved, as a formatter sorting imports
-///   does, or re-indented);
-/// - a change that is the old lines reflowed: the same text once whitespace is taken out (a
-///   formatter rewrapping a call, or adding and removing blank lines);
-/// - a blank line.
+/// - a line a tool landed in the file a moment ago (it is in `landed_by_tools`: spellbook's
+///   sync, a conjure step, an apprentice task);
+/// - a line that was already in the file (moved, as a formatter sorting imports does, or
+///   re-indented);
+/// - a change that is the old lines laid out again: the same text once the layout is taken
+///   out (a formatter rewrapping a call, adding or dropping brackets, a trailing comma or blank
+///   lines, or changing quote marks);
+/// - a line of layout only (blank, or a closing bracket).
+///
+/// Lines are compared by their [`layout_free`] text, so `x = ('a',)` and `x = "a"` are the same.
 ///
 /// Example: from `a\nb\nc\n` to `a\nB\nc\nd\n`, lines 2 and 4 changed; with `d` landed by a
 /// tool, only line 2.
@@ -50,11 +53,12 @@ pub fn persons_changed_lines(
 ) -> Vec<Span> {
     let after_lines: Vec<&str> = after.lines().collect();
     let before_lines: Vec<&str> = before.lines().collect();
-    let already_there: HashSet<&str> = before_lines.iter().map(|line| line.trim()).collect();
-    let still_there: HashSet<&str> = after_lines.iter().map(|line| line.trim()).collect();
+    let already_there: HashSet<String> = before_lines.iter().map(|l| layout_free(l)).collect();
+    let still_there: HashSet<String> = after_lines.iter().map(|l| layout_free(l)).collect();
+    let tools: HashSet<String> = landed_by_tools.iter().map(|l| layout_free(l)).collect();
     let persons = |line: &str| {
-        let line = line.trim();
-        !line.is_empty() && !already_there.contains(line) && !landed_by_tools.contains(line)
+        let line = layout_free(line);
+        !line.is_empty() && !already_there.contains(&line) && !tools.contains(&line)
     };
     let after_count = after_lines.len().max(1) as u32;
     let lines: Vec<u32> = TextDiff::from_lines(before, after)
@@ -65,13 +69,15 @@ pub fn persons_changed_lines(
             let old =
                 &before_lines[op.old_range().start..op.old_range().end.min(before_lines.len())];
             let new = &after_lines[op.new_range().start..op.new_range().end.min(after_lines.len())];
-            without_whitespace(old) != without_whitespace(new)
+            layout_free(&old.concat()) != layout_free(&new.concat())
         })
         .flat_map(|op| {
             let range = op.new_range();
             if range.is_empty() {
                 let deleted = &before_lines[op.old_range()];
-                let moved = deleted.iter().all(|line| still_there.contains(line.trim()));
+                let moved = deleted
+                    .iter()
+                    .all(|line| still_there.contains(&layout_free(line)));
                 return if moved {
                     Vec::new()
                 } else {
@@ -87,11 +93,14 @@ pub fn persons_changed_lines(
     runs_of(&lines)
 }
 
-fn without_whitespace(lines: &[&str]) -> String {
-    lines
-        .iter()
-        .flat_map(|line| line.chars())
-        .filter(|c| !c.is_whitespace())
+/// Text with its layout taken out: whitespace, brackets, commas, semicolons and quote marks,
+/// which formatters add, drop and change without changing what the text says. No language is
+/// named: these are the marks code in most languages is laid out with.
+///
+/// Example: `f(\n    "a",\n)` and `f('a')` are both `fa`.
+pub fn layout_free(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_whitespace() && !"()[]{},;'\"`".contains(*c))
         .collect()
 }
 
@@ -299,10 +308,12 @@ mod tests {
             )
             .is_empty()
         );
-        // a call rewrapped, and a blank line added
+        // a call rewrapped with a trailing comma, and a blank line added
         let one = "f(alpha, beta)\n";
-        let wrapped = "f(\n    alpha,\n    beta\n)\n\n";
+        let wrapped = "f(\n    alpha,\n    beta,\n)\n\n";
         assert!(persons_changed_lines(one, wrapped, &landed).is_empty());
+        // brackets dropped and quotes changed
+        assert!(persons_changed_lines("x = (\n    'a'\n)\n", "x = \"a\"\n", &landed).is_empty());
     }
 
     #[test]

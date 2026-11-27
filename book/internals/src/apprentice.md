@@ -73,9 +73,10 @@ connections answered at once; past that a connection is closed unanswered.
   prose, stub, hunk), `found_in` (where its lines are now, nearest its old place; `None` once
   they changed), `region_id`.
 - `cutting.rs`: `Shape`, `ShapeUnit`, `persons_changed_lines` (over `similar`: the changed
-  lines less a line a tool landed, a line already in the file, a reflow that is the same text
-  without whitespace, a blank line; a deletion is the line after it unless every deleted line
-  is still in the file), `regions_of` (comment
+  lines less a line a tool landed, a line already in the file, a change that is the same text
+  once `layout_free` takes out whitespace, brackets, commas, semicolons and quote marks, a line
+  of layout only; a deletion is the line after it unless every deleted line is still in the
+  file), `regions_of` (comment
   blocks touching a change; prose paragraphs where no language covers the file; stubs; the rest
   as hunks of at most 40 lines with a letter in them).
 - `triage.rs`: `Kind`, `Triaged`, `KIND_CUT` and `ADDRESSED_CUT` (0.70), `free_kind` (a stub
