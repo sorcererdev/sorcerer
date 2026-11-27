@@ -17,9 +17,10 @@ pub struct RelatedFiles {
 }
 
 pub trait ProjectContext: Send + Sync {
-    /// The files `file` imports, each followed by the files beside it that use its names, with
-    /// the first lines of each (at most 8 imports, 6 files beside them, 120 lines). An import a
-    /// fence refuses is not read: it is named in `left_out`; a file beside one is skipped.
+    /// The files `file` imports, each followed by the files beside it that use its names, each
+    /// whole with how close it is and the names it defines (at most 8 imports and 6 files
+    /// beside them; the step's budget chooses among them). An import a fence refuses is not
+    /// read: it is named in `left_out`; a file beside one is skipped.
     /// The text is the file's, which may be the editor's unsaved text.
     fn related_files(&self, file: &Path, text: &str) -> sorcerer_core::Result<RelatedFiles>;
 

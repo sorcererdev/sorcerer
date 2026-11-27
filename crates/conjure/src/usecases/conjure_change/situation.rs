@@ -10,9 +10,10 @@ use sorcerer_core::domain::language::Language;
 use sorcerer_core::domain::unit::{Span, UnitKind};
 
 use super::{ChangeDeps, ChangeRefused, ChangeRequest, Site};
+use crate::domain::context_choice::{CONTEXT_BUDGET_TOKENS, Chosen, chosen_within, closest_first};
 use crate::domain::language_tables::tests_path;
 use crate::domain::scry_notes::{FindingsRead, ScryNote, StoredFinding, note_of, notes_near};
-use crate::domain::situation::{Situation, session_text, situation_text};
+use crate::domain::situation::{RelatedFile, Situation, session_text, situation_text};
 use crate::domain::spellbook_findings::rules_for_the_file_text;
 
 /// The situation text for a site: everything the writer is shown.
@@ -35,6 +36,7 @@ pub(super) fn situation_for(
         .related_files(&site.file, &site.text)
         .map_err(failed)?;
     left_out.extend(related.left_out);
+    let chosen = related_with_room(site, related.files);
     let findings = scry_findings(deps);
     let notes = notes_near(
         &findings,
@@ -55,7 +57,12 @@ pub(super) fn situation_for(
         module: site.text.clone(),
         test_file,
         test_text,
-        related: related.files,
+        related: chosen.kept,
+        left_for_room: chosen
+            .left_for_room
+            .into_iter()
+            .map(|file| file.path)
+            .collect(),
         session: session_of(deps, language, &mut left_out),
         finding_asked,
         notes,
@@ -64,6 +71,27 @@ pub(super) fn situation_for(
     });
     let kept = rules_for_the_file_text(&deps.checker.rules_for(&site.file));
     Ok(format!("{situation}{kept}"))
+}
+
+/// The related files the step has room for, whole: the imports the unit uses first, then the
+/// other imports, then the files near them, each kept while it fits the step's 6,000 tokens and
+/// left out whole (to be named, not shown) when it does not.
+fn related_with_room(site: &Site, files: Vec<RelatedFile>) -> Chosen {
+    chosen_within(
+        closest_first(files, &unit_text(site)),
+        CONTEXT_BUDGET_TOKENS,
+    )
+}
+
+/// The lines of the unit under the cursor, as the file's text has them.
+fn unit_text(site: &Site) -> String {
+    let span = site.unit.span;
+    site.text
+        .lines()
+        .skip(span.start.saturating_sub(1) as usize)
+        .take((span.end + 1).saturating_sub(span.start) as usize)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Whether a model may be shown the file; when not, it is named in `left_out`.

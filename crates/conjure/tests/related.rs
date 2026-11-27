@@ -72,7 +72,7 @@ fn a_rust_use_list_and_a_glob_and_an_alias_are_read_too() {
 }
 
 #[test]
-fn related_files_stop_at_eight_and_120_lines() {
+fn related_files_stop_at_eight_and_come_whole() {
     let d = git_project();
     let mut imports = String::new();
     for i in 0..10 {
@@ -82,11 +82,7 @@ fn related_files_stop_at_eight_and_120_lines() {
     write(d.path(), "main.py", &imports);
     let found = related(d.path(), "python", "main.py");
     assert_eq!(found.len(), 8);
-    assert!(found.iter().all(|(_, t)| t.lines().count() == 120));
-    let (project, view) = project_with_vendored_grammars(d.path());
-    let loaded = project.languages.load("python", &test_cache()).unwrap();
-    let all = related_files(&view, &loaded, Path::new("main.py"), &imports, &|_| true).unwrap();
-    assert!(all.files.iter().all(|file| file.lines_in_all == 200));
+    assert!(found.iter().all(|(_, t)| t.lines().count() == 200));
 }
 
 #[test]

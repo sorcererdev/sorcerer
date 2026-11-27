@@ -6,6 +6,7 @@ use globset::GlobSet;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 
+use crate::domain::context_choice::Closeness;
 use crate::domain::scry_notes::{MAX_NOTES, ScryNote};
 
 /// At most 8 related files go into a situation.
@@ -14,20 +15,20 @@ pub const RELATED_FILES: usize = 8;
 pub const RELATED_FILES_BESIDE: usize = 4;
 /// At most 6 files beside related files go into a situation in all.
 pub const RELATED_FILES_BESIDE_IN_ALL: usize = 6;
-/// Each related file is cut to its first 120 lines.
-pub const RELATED_LINES: usize = 120;
 /// The session block is cut at 300 lines.
 pub const SESSION_LINES: usize = 300;
 /// At most 20 new files are named in the session block.
 pub const NEW_FILE_NAMES: usize = 20;
 
-/// A file related to the one under the cursor, as the writer is shown it: its path, its first
-/// lines (at most 120) and how many lines it has in all, so a part is never taken for the whole.
+/// A file related to the one under the cursor, whole: its path, its text, how close it is to
+/// the step and the names it defines (each unit's name up to the unit separator: `Clock` for
+/// `Clock::now`), which tell whether the unit under the cursor uses it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RelatedFile {
     pub path: PathBuf,
     pub text: String,
-    pub lines_in_all: usize,
+    pub closeness: Closeness,
+    pub names: Vec<String>,
 }
 
 /// Everything the writer is shown about one place in the code.
@@ -49,6 +50,8 @@ pub struct Situation {
     pub test_file: Option<PathBuf>,
     pub test_text: Option<String>,
     pub related: Vec<RelatedFile>,
+    /// Related files and changes that did not fit the step's budget: named, not shown.
+    pub left_for_room: Vec<PathBuf>,
     pub session: String,
     /// The finding the person asked to conjure for, when they did.
     pub finding_asked: Option<ScryNote>,
@@ -73,6 +76,7 @@ pub fn situation_text(s: &Situation) -> String {
         file_lines(s),
         test_file_lines(s),
         related_lines(s),
+        left_for_room_lines(&s.left_for_room),
         session_lines(s),
         notes_lines(&s.notes),
         rules_lines(&s.rules),
@@ -176,19 +180,25 @@ fn related_lines(s: &Situation) -> Vec<String> {
         .collect()
 }
 
-/// `Related file src/models.py:`, or, for a file cut short,
-/// `Related file src/slot.rs (only its first 120 of 340 lines are shown):`.
+/// `Related file src/models.py:`.
 fn related_heading(file: &RelatedFile) -> String {
-    let path = forward_slashes(&file.path);
-    let shown = file.text.lines().count();
-    if shown < file.lines_in_all {
-        format!(
-            "Related file {path} (only its first {shown} of {} lines are shown):",
-            file.lines_in_all
-        )
-    } else {
-        format!("Related file {path}:")
+    format!("Related file {}:", forward_slashes(&file.path))
+}
+
+/// One line naming the related files and changes left out because the step had no room for
+/// them, so the writer knows they exist and does not guess at them.
+fn left_for_room_lines(left: &[PathBuf]) -> Vec<String> {
+    if left.is_empty() {
+        return vec![];
     }
+    let names: Vec<String> = left.iter().map(|path| forward_slashes(path)).collect();
+    vec![
+        String::new(),
+        format!(
+            "Also related, but left out for room (not shown, so do not rewrite them): {}.",
+            names.join(", ")
+        ),
+    ]
 }
 
 fn session_lines(s: &Situation) -> Vec<String> {

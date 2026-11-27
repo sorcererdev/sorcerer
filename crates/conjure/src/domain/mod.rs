@@ -4,6 +4,7 @@
 pub mod budget;
 pub mod change_prompt;
 pub mod config;
+pub mod context_choice;
 pub mod drop_notes;
 pub mod edits;
 pub mod language_tables;
