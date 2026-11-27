@@ -40,6 +40,8 @@ pub struct NamedInText {
     pub name: String,
     /// From 1.
     pub line: u32,
+    /// Where on its line it starts, in bytes from 0.
+    pub column: u32,
 }
 
 /// One file of an answer as the comparison sees it: its path, its text, and what is named in
@@ -62,6 +64,8 @@ pub struct Dropped {
     /// Its line in the first answer, from 1, and that line's text.
     pub line: u32,
     pub line_text: String,
+    /// Where on the line it starts, in bytes from 0: of two drops on one line, the first said.
+    pub column: u32,
 }
 
 /// Why Jev thinks a drop was right.
@@ -126,33 +130,50 @@ impl CheckedDrop {
     }
 }
 
-/// The calls and definitions the first answer had more of, over all the change's files, than
-/// the retry: one drop for each name, placed in the first file that lost it, and one drop per
-/// line (the shortest name), so `std::fs::write(…).ok()` is one drop, `std::fs::write`. Both
-/// lists hold the same files (a file one answer left alone is there with its text before the
-/// change), so a call moved from one file to another is not a drop.
+/// The change's files three ways: before it, after the first answer, after the retry. Each
+/// list holds the same files (a file an answer left alone is there with its text before the
+/// change; a file it did not create is empty).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NamesOfTheChange {
+    pub before: Vec<FileNames>,
+    pub first: Vec<FileNames>,
+    pub retry: Vec<FileNames>,
+}
+
+/// The calls and definitions the first answer added (it has more of them, over all the
+/// change's files, than the files had before) and the retry has fewer of: one drop for each
+/// name, placed in the first file that lost it, and one drop per line (the one that starts
+/// first, then the shortest name), so `std::fs::write(name, format!(…)).ok()` is one drop,
+/// `std::fs::write`. A call moved from one file of the change to another is not a drop, and
+/// neither is a placeholder the first answer left alone and the retry filled.
 ///
 /// Example: the first answer's `seat.rs` calls `std::fs::write` once; the retry's `seat.rs`
 /// calls `self.log.append` and its `log.rs` calls `std::fs::write`: nothing is dropped. Had the
 /// retry only removed the call, `std::fs::write in seat.rs` would be.
-pub fn dropped_by_retry(first: &[FileNames], retry: &[FileNames]) -> Vec<Dropped> {
-    let in_first = counted(first);
-    let in_retry = counted(retry);
+pub fn dropped_by_retry(change: &NamesOfTheChange) -> Vec<Dropped> {
+    let in_before = counted(&change.before);
+    let in_first = counted(&change.first);
+    let in_retry = counted(&change.retry);
+    let fewer_in = |counts: &BTreeMap<NameKey, usize>, key: &NameKey, count: usize| {
+        counts.get(key).copied().unwrap_or(0) < count
+    };
     let all: Vec<Dropped> = in_first
         .iter()
-        .filter(|(key, count)| in_retry.get(key).copied().unwrap_or(0) < **count)
-        .filter_map(|((kind, name), _)| first_place_lost(*kind, name, first, retry))
+        .filter(|(key, count)| fewer_in(&in_before, key, **count))
+        .filter(|(key, count)| fewer_in(&in_retry, key, **count))
+        .filter_map(|((kind, name), _)| first_place_lost(*kind, name, &change.first, &change.retry))
         .collect();
     one_per_line(all)
 }
 
-/// The drops with only the shortest name kept on each line of each file, in file order.
+/// The drops with one kept on each line of each file, the one that starts first (the shortest
+/// name of those), in file order.
 fn one_per_line(drops: Vec<Dropped>) -> Vec<Dropped> {
     let mut by_line: BTreeMap<(String, u32), Dropped> = BTreeMap::new();
     for drop in drops {
         let place = (drop.file.clone(), drop.line);
         match by_line.get(&place) {
-            Some(kept) if kept.name.len() <= drop.name.len() => {}
+            Some(kept) if (kept.column, kept.name.len()) <= (drop.column, drop.name.len()) => {}
             _ => {
                 by_line.insert(place, drop);
             }
@@ -206,6 +227,7 @@ fn first_place_lost(
         name: name.to_string(),
         file: file.path.clone(),
         line: named.line,
+        column: named.column,
         line_text: file
             .text
             .lines()
@@ -244,7 +266,7 @@ pub fn drop_questions(drops: &[Dropped], asked: &RetryAsked) -> Vec<Question> {
         .map(|(n, dropped)| Question {
             kind: format!("retry-drop-{n}"),
             instructions: format!(
-                "A code-writing model was asked to take a step (`goal`). Its first answer (`first_answer`) broke the project's checked rules (`rules`), so it was asked again; its second answer is `retry`. The second answer no longer has the code in `dropped-{n}`, anywhere in the change. Why is it gone?"
+                "A code-writing model was asked to take a step (`goal`). Its first answer (`first_answer`, a diff of the files before the change) broke the project's checked rules (`rules`), so it was asked again; its second answer is `retry` (a diff of the same files). The second answer no longer has the code in `dropped-{n}` anywhere in the change. Why is it gone? Read the lines `retry` removes and adds, including placeholders that said what the code should do."
             ),
             shape: Shape::Choice(why_gone_options()),
             context: vec![
@@ -267,15 +289,15 @@ fn why_gone_options() -> Vec<(String, String)> {
     vec![
         (
             RULE_ASKED.into(),
-            "The broken rule forbids this code, and removing it loses nothing the goal needs (it was a stray, a leftover, or the very thing the rule says must not be there).".into(),
+            "The code was not needed: what it did is not part of the step (a stray debug line, a leftover, a duplicate, an unasked extra). A rule that says where such work belongs (a port, an adapter) does not make the work unneeded: that is moved_elsewhere or behaviour_lost.".into(),
         ),
         (
             MOVED.into(),
-            "What it did is still done in the second answer, by other code: a method on an interface (a port) and its implementation, an adapter, or a renamed or rewritten call.".into(),
+            "What it did is still done in `retry`, by other code that does the same job: a method on an interface (a port) and its implementation, an adapter, or a rewritten call. Name the code in `retry` that does it.".into(),
         ),
         (
             LOST.into(),
-            "It did something the goal needs (writing, saving, sending, recording, checking) and the second answer does not do that anywhere: behaviour was lost.".into(),
+            "What it did (writing a file, saving, sending, recording, logging, checking) is work the code was meant to do (the goal, or the code before the change, asks for it), and nothing in `retry` does that job any more: behaviour was lost.".into(),
         ),
     ]
 }
@@ -389,10 +411,15 @@ mod tests {
     use sorcerer_models::domain::decide::Confidence;
 
     fn call(name: &str, line: u32) -> NamedInText {
+        call_at(name, line, 0)
+    }
+
+    fn call_at(name: &str, line: u32, column: u32) -> NamedInText {
         NamedInText {
             kind: NameKind::Call,
             name: name.into(),
             line,
+            column,
         }
     }
 
@@ -412,7 +439,11 @@ mod tests {
             vec![call("write", 2)],
         )];
         let retry = [file("src/seat.txt", "fn seat() {\n}\n", vec![])];
-        let dropped = dropped_by_retry(&first, &retry);
+        let dropped = dropped_by_retry(&NamesOfTheChange {
+            before: vec![],
+            first: first.to_vec(),
+            retry: retry.to_vec(),
+        });
         assert_eq!(dropped.len(), 1);
         assert_eq!(
             (
@@ -431,30 +462,67 @@ mod tests {
             file("src/log.txt", "", vec![]),
         ];
         let retry = [
-            file("src/seat.txt", "log.append()\n", vec![call("log.append", 1)]),
+            file(
+                "src/seat.txt",
+                "log.append()\n",
+                vec![call("log.append", 1)],
+            ),
             file("src/log.txt", "write()\n", vec![call("write", 1)]),
         ];
-        assert!(dropped_by_retry(&first, &retry).is_empty());
+        assert!(
+            dropped_by_retry(&NamesOfTheChange {
+                before: vec![],
+                first: first.to_vec(),
+                retry: retry.to_vec()
+            })
+            .is_empty()
+        );
     }
 
     #[test]
-    fn calls_dropped_on_one_line_are_one_drop_by_the_shortest_name() {
+    fn calls_dropped_on_one_line_are_one_drop_by_the_first_and_shortest_name() {
         let first = [file(
             "a",
             "w().ok()\n",
-            vec![call("w().ok", 1), call("w", 1)],
+            vec![call("w().ok", 1), call("w", 1), call_at("f", 1, 2)],
         )];
         let retry = [file("a", "", vec![])];
-        let dropped = dropped_by_retry(&first, &retry);
+        let dropped = dropped_by_retry(&NamesOfTheChange {
+            before: vec![],
+            first: first.to_vec(),
+            retry: retry.to_vec(),
+        });
         assert_eq!(dropped.len(), 1);
-        assert_eq!(dropped[0].name, "w");
+        assert_eq!(
+            dropped[0].name, "w",
+            "not `f`, an argument that starts later"
+        );
+    }
+
+    #[test]
+    fn a_call_the_files_had_before_is_not_the_first_answers_to_drop() {
+        let had = [file("a", "todo()\n", vec![call("todo", 1)])];
+        let names = NamesOfTheChange {
+            before: had.to_vec(),
+            first: had.to_vec(),
+            retry: vec![file("a", "", vec![])],
+        };
+        assert!(dropped_by_retry(&names).is_empty());
     }
 
     #[test]
     fn one_of_two_same_calls_gone_is_one_drop() {
         let first = [file("a", "w()\nw()\n", vec![call("w", 1), call("w", 2)])];
         let retry = [file("a", "w()\n", vec![call("w", 1)])];
-        assert_eq!(dropped_by_retry(&first, &retry).len(), 1);
+        assert_eq!(
+            dropped_by_retry(&NamesOfTheChange {
+                before: vec![],
+                first: first.to_vec(),
+                retry: retry.to_vec()
+            })
+            .len(),
+            1
+        );
     }
 
     fn weighed(rule: f64, moved: f64, lost: f64) -> Weighed {
@@ -491,6 +559,7 @@ mod tests {
                 file: "src/commands/close_table.txt".into(),
                 line: 3,
                 line_text: String::new(),
+                column: 0,
             },
             verdict,
             rules: vec![],

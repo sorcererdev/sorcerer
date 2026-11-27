@@ -32,6 +32,7 @@ pub fn names_in(lang: &Loaded, text: &str) -> Vec<NamedInText> {
                 kind: NameKind::Call,
                 name: callee_of(call, &name, &argument_lists, text)?,
                 line: call.start_position().row as u32 + 1,
+                column: call.start_position().column as u32,
             })
         });
     let definitions = units_of(lang, text)
@@ -41,9 +42,10 @@ pub fn names_in(lang: &Loaded, text: &str) -> Vec<NamedInText> {
             kind: NameKind::Definition,
             name: unit.name,
             line: unit.span.start,
+            column: 0,
         });
     let mut found: Vec<NamedInText> = calls.chain(definitions).collect();
-    found.sort_by_key(|named| named.line);
+    found.sort_by_key(|named| (named.line, named.column));
     found
 }
 

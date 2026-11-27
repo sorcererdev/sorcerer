@@ -330,6 +330,13 @@ may be at most 32 KB (about 8,000 tokens, sent with every review call); over tha
 error naming its size and its largest part, and nothing is cut. With no `scry.toml`, the
 reviewer gets no steering, which is fine.
 
+When conjure asked its writer again to keep a spellbook rule and the second answer dropped code
+the first had (and Jev did not call that legitimate), it leaves the drop in
+`.sorcerer/state/conjure/drops.json`. A review of that file, while the file still lacks the dropped
+name, is told about it after the steering (the code, its line before the retry, the rule and
+Jev's verdict) and asked to check whether behaviour the change needs was lost. See
+[Conjure](conjure.md#what-a-retry-dropped).
+
 A `.sorcerer/scry.md` (an older scry's steering) is an error whenever it is there: move its
 rules into `scry.toml` and delete it.
 

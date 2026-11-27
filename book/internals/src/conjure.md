@@ -30,7 +30,14 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   (one write, the check, the rules it breaks, as an `Answer`), then `within_the_rules`: an answer
   that breaks none is kept; else, when the day allows, one more write on the situation plus
   `broken_rules_text` (each break with its line, from `line_as_written`), the two errands added by
-  `both_calls`; a second break is `held_back` (no files, `held_back_text` as the goal).
+  `both_calls`; a second break is `held_back` (no files, `held_back_text` as the goal). A retry
+  that keeps the rules carries `drops_of_retry` on `ConjuredChange::retry_drops`.
+- `conjure_change/retry_drops.rs`: `drops_of_retry(TwoAnswers, deps)`: `names_of_the_change`
+  reads each touched file before, after the first answer and after the retry
+  (`ProjectContext::names_in`), `dropped_by_retry` finds what the first added and the retry lost,
+  and `verdicts_of` asks `ChangeDeps::decider` (Jev; `None` gives `DropVerdict::NotChecked`) with
+  `drop_questions` over `retry_asked` (the broken rules, the retry's goal, both answers as unified
+  diffs). Never holds a change back.
 - `conjure_change/rules_check.rs`: `rules_broken_by(files, deps)`: the new texts through
   `ChangeDeps::checker`; only when they have an error, the old texts too; `rules_broken` between
   them. Texts that cannot be checked break nothing.
@@ -67,14 +74,29 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   `ConjuredChange::rules`), `findings_of_check_json`, `rules_broken` (errors in the new texts that
   no old finding of the same rule and fingerprint excuses, one for one), `any_error`,
   `broken_rules_text`, `held_back_text`.
-- `record.rs`: `ChangeRecord`, `Choice`, `Attempt`, `Trigger`, `change_id`. `budget.rs`:
+- `retry_drops.rs`: `NamedInText` (`NameKind::Call` or `Definition`, line, column), `FileNames`,
+  `NamesOfTheChange` (before, first, retry: the same files three ways), `dropped_by_retry` (names
+  the first answer has more of than the files before and than the retry, over the whole change,
+  so a move between files is no drop; `one_per_line` keeps the earliest, then shortest, name per
+  line), `drop_questions` (one `Choice` per drop, `rule_asked_for_removal`, `moved_elsewhere`,
+  `behaviour_lost`, at most `MAX_DROPS_ASKED` 5, shared context `goal`, `rules`, `first_answer`,
+  `retry` and its own `dropped-N`, so all go as one Jev call), `verdict_of` (the mass on the two
+  legitimate options summed, as the guard pattern does: at least 0.7 `Legitimate(WhyRemoved)`, at
+  most 0.3 `LooksUnintended`, else `Unsure`), `CheckedDrop`, `retry_step_text`,
+  `said_drops_text`, `quiet_drops_text`.
+- `drop_notes.rs`: `DropNotes` (`Versioned`, version 1) of `DropNote`s (change id, time,
+  `RecordedDrop`): `with_change` adds a change's said drops and keeps the newest `MAX_NOTES` 20,
+  `without_change` takes them back. scry reads the file with its own reader.
+- `record.rs`: `ChangeRecord` (`retry_drops: Vec<RecordedDrop>`, left out of the line when empty, so
+  the record stays version 1), `Choice`, `Attempt`, `Trigger`, `change_id`. `budget.rs`:
   `day_allows`. `log_text.rs`: `record_line`, `usd`, `count`.
 
 **Ports** (`src/ports/`): `writer.rs` (`Writer`, `Written`), `rule_checker.rs` (`RuleChecker`:
 `findings_in(texts)`, `describe` for the doctor), `change_store.rs` (`ChangeStore`),
 `clock.rs` (`Clock`), `project_context.rs` (`ProjectContext`: related files (`RelatedFiles`: the files and those left
-out by a fence), parse errors, scry's findings, the rules; the four things that need grammars or scry's files, so a use case
-asks a port and never touches an adapter).
+out by a fence), parse errors, the calls and definitions in a text (`names_in`), scry's findings, the rules; the things that need grammars or scry's files, so a use case
+asks a port and never touches an adapter). Jev is sorcerer-models' `Decider` port, on
+`ChangeDeps::decider`.
 
 **Adapters** (`src/adapters/`): `provider_writer.rs` (`ProviderWriter`: one `Provider::complete`
 and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `Researcher`),
@@ -89,8 +111,13 @@ then returns `Checked { timed_out }`, `written_and_checked` ends the goal with `
 sets `RulesOutcome::NotChecked`, and the answer is used unchecked (fail open; `tests/spellbook_timeout.rs`,
 the `Hanging` double in `tests/rules_check.rs`); `rules_for` runs `spellbook rules --json FILE` and reads `RuleNote`s,
 none on any failure), `project_context.rs` (`FilesContext`,
-the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.rs` (`Wired`,
-`live`, `writer_for`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`, a picture of one
+the live `ProjectContext`), `names_in_text.rs` (`names_in`: each `@reference.call` named by
+`callee_of`, its text before its own `@arguments` (to its `@name` without one) with inner argument
+lists cut to their brackets, and each unit from `units_of`; no language named),
+`drop_notes_file.rs` (`note_drops`, `forget_drops` on `.sorcerer/state/conjure/drops.json`
+through core's `Store`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.rs` (`Wired`,
+`live`, `writer_for`, `decider_for`: Jev from `JEV_API_KEY`, recorded under `conjure`, verb
+`decide`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`, a picture of one
 moment: a file not open is read from the disk once and answered as first read, so a change is
 made against what the writer was shown and a disk that moved on meanwhile is seen),
 `why_text.rs` (`why_text`, Show why's file), and `lsp/` (the server, below).
@@ -139,6 +166,13 @@ made against what the writer was shown and a disk that moved on meanwhile is see
    files, so the server shows and records it as no change; its goal names the rules). Products do
    not link each other, so the seam is spellbook's program and its JSON, read by conjure's own
    `spellbook_findings.rs`.
+6. **The drops.** After a retry that keeps the rules, `drops_of_retry` compares the two answers
+   and asks Jev about each drop. The command line prints `retry_drops_text`; the server's
+   `step_text` adds `LandedChange::retry_step` (`retry_step_text`: ` · asked again for <rules> ·
+   dropped: …`, legitimate drops left out), `main_text` on the mark adds every drop
+   (`drops_text`), `record_of` writes them to the record, and `confirm_landed` calls `note_drops`
+   for scry; `Server::record` calls `forget_drops` at `Undone` and `Replaced`. `ServerConfig::decider`
+   (a `DeciderFor`) builds Jev per project, as `checker` builds the rule checker.
 
 The command line prints the change and stops. The editor's server lands `ChangedFile::edits`
 through `workspace/applyEdit` and records `ChangeRecord`s; neither the use case, the command line
@@ -323,7 +357,9 @@ call, a clock that ticks a second per read), `tests/lsp_process.rs` (`conjure ls
 `tests/related.rs` (the vendored grammars), `tests/cli.rs` (`main_with` with a `Wired` of
 doubles), `tests/rules_check.rs` (asked again, held back, an old break, a warning, over
 `ForbiddenWord`, a `RuleChecker` double in `tests/support/rule_checkers.rs` that finds each line
-holding a word), `tests/eval.rs` (the corpora, below). `UPDATE_GOLDEN=1` rewrites the golden prompt. No test calls a model or the network (the eval replays recordings).
+holding a word), `tests/retry_drops.rs` (a dropped call, a call moved to another file, a
+legitimate drop said quietly, unsure and no-Jev verdicts, callee names over the vendored
+grammar; `SameAnswer`, a `Decider` double in `tests/support/deciders.rs`), `tests/eval.rs` (the corpora, below). `UPDATE_GOLDEN=1` rewrites the golden prompt. No test calls a model or the network (the eval replays recordings).
 
 ## The eval
 

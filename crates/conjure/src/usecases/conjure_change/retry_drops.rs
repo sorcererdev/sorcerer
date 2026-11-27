@@ -8,8 +8,8 @@ use sorcerer_core::domain::paths::forward_slashes;
 
 use super::{ChangeDeps, ChangedFile};
 use crate::domain::retry_drops::{
-    CheckedDrop, DropVerdict, Dropped, FileNames, RetryAsked, drop_questions, dropped_by_retry,
-    verdict_of,
+    CheckedDrop, DropVerdict, Dropped, FileNames, NamesOfTheChange, RetryAsked, drop_questions,
+    dropped_by_retry, verdict_of,
 };
 use crate::domain::spellbook_findings::RuleFinding;
 
@@ -30,8 +30,7 @@ pub(super) struct TwoAnswers<'a> {
 /// Example: the first answer wrote `std::fs::write(…)` in a command; the retry deleted the
 /// line and added nothing that writes: one drop, which Jev calls unintended.
 pub(super) fn drops_of_retry(answers: &TwoAnswers, deps: &ChangeDeps) -> Vec<CheckedDrop> {
-    let (first, retry) = names_of_both(answers, deps);
-    let dropped = dropped_by_retry(&first, &retry);
+    let dropped = dropped_by_retry(&names_of_the_change(answers, deps));
     if dropped.is_empty() {
         return Vec::new();
     }
@@ -48,22 +47,41 @@ pub(super) fn drops_of_retry(answers: &TwoAnswers, deps: &ChangeDeps) -> Vec<Che
         .collect()
 }
 
-/// Every file either answer touched, as each answer would leave it (a file one answer left
-/// alone is its text before the change), with its names. A file no grammar covers is left out
-/// of both.
-fn names_of_both(answers: &TwoAnswers, deps: &ChangeDeps) -> (Vec<FileNames>, Vec<FileNames>) {
-    let paths = touched_paths(answers);
-    paths
+/// Every file either answer touched, before the change and as each answer would leave it (a
+/// file one answer left alone is its text before the change), with its names. A file no
+/// grammar covers is left out.
+fn names_of_the_change(answers: &TwoAnswers, deps: &ChangeDeps) -> NamesOfTheChange {
+    touched_paths(answers)
         .iter()
         .filter_map(|path| {
+            let before = text_before(answers, path);
             let first = text_after(answers.first, answers.retry, path);
             let retry = text_after(answers.retry, answers.first, path);
-            Some((
+            Some([
+                file_names(path, before, deps)?,
                 file_names(path, first, deps)?,
                 file_names(path, retry, deps)?,
-            ))
+            ])
         })
-        .unzip()
+        .fold(
+            NamesOfTheChange::default(),
+            |names, [before, first, retry]| NamesOfTheChange {
+                before: [names.before, vec![before]].concat(),
+                first: [names.first, vec![first]].concat(),
+                retry: [names.retry, vec![retry]].concat(),
+            },
+        )
+}
+
+/// The file's text before the change; empty for a file either answer created.
+fn text_before(answers: &TwoAnswers, path: &Path) -> String {
+    answers
+        .first
+        .iter()
+        .chain(answers.retry)
+        .find(|file| file.path == path)
+        .and_then(|file| file.before.clone())
+        .unwrap_or_default()
 }
 
 fn touched_paths(answers: &TwoAnswers) -> Vec<PathBuf> {
