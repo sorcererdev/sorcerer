@@ -227,6 +227,21 @@ fn a_deleted_file_closes_its_holes() {
 }
 
 #[test]
+fn a_file_deleted_by_hand_and_written_again_lists_its_holes_once() {
+    // the deleted file's rows are kept (a stash may bring it back), so the second generation's
+    // rows must replace them, not sit beside them
+    let (dir, rig) = generated();
+    std::fs::remove_file(dir.path().join(MAIN)).unwrap();
+    std::fs::remove_file(dir.path().join(TEST)).unwrap();
+    rig.apply(rig.plan("command", &[("command", "cancel_table")]).unwrap());
+    let names: Vec<String> = open_after(&rig, None)
+        .into_iter()
+        .map(|(n, _, _)| n)
+        .collect();
+    assert_eq!(names, ["field", "type", "handle", "field"]);
+}
+
+#[test]
 fn open_holes_rewrites_holes_json() {
     let (dir, rig) = generated();
     replace_in(dir.path(), MAIN, "todo_field: object", "id: str");

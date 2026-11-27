@@ -174,7 +174,10 @@ row `(region NAME: +a −r)` or `(region NAME: set up, N items)`, `hunks_text`, 
 4. `apply_plan` writes each new file through `Workspace::write_new` (`DiskWorkspace`
    refuses with `Fences::allows`, which follows links, and opens with `create_new`, so a file
    that appeared since the plan is never overwritten), stops at the first refusal, appends the
-   record for what was written, and adds the placeholder places to `holes.json`.
+   record for what was written, and adds the placeholder places to `holes.json`. Rows kept for
+   a file it has just written whole are dropped first (`remembered_outside`): that file replaces
+   whatever was remembered at its path, so a file deleted by hand and generated again lists each
+   hole once.
 5. `open_holes` re-reads each saved place and keeps it at its current line while
    `still_open` finds it; `holes.json` is rewritten with what is still open. A hole whose file is
    missing is kept (a stash or branch switch may bring it back) but not listed.

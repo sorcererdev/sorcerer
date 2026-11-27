@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use crate::domain::plan::{FileStatus, Plan};
-use crate::domain::record::{open_holes_of, record_of, sorted_open_holes};
+use crate::domain::record::{OpenHole, open_holes_of, record_of, sorted_open_holes};
 use crate::ports::clock::Clock;
 use crate::ports::generation_store::GenerationStore;
 use crate::ports::holes_store::HolesStore;
@@ -80,8 +80,10 @@ pub fn apply_plan(
     deps.generations
         .append(&record_of(&plan, deps.clock.now(), &kept))?;
     let with_holes: Vec<String> = changed.iter().chain(&written).cloned().collect();
-    let mut open = deps.holes.read()?;
-    open.extend(open_holes_of(&plan, &with_holes));
+    let open = remembered_outside(deps.holes.read()?, &written)
+        .into_iter()
+        .chain(open_holes_of(&plan, &with_holes))
+        .collect();
     deps.holes.replace(sorted_open_holes(open))?;
     Ok(AppliedGeneration {
         plan,
@@ -90,6 +92,16 @@ pub fn apply_plan(
         skipped,
         refused,
     })
+}
+
+/// The remembered holes that are not in a file just written whole. A new file replaces whatever
+/// was remembered of a file at its path: a file deleted by hand keeps its rows (a stash may bring
+/// it back), so a second generation writing it again would otherwise list each hole twice.
+fn remembered_outside(saved: Vec<OpenHole>, written: &[String]) -> Vec<OpenHole> {
+    saved
+        .into_iter()
+        .filter(|hole| !written.contains(&hole.file))
+        .collect()
 }
 
 /// The plan's changed files, landed unless the editor did; the first refusal stops them all.
