@@ -1,0 +1,8 @@
+Bistro notes
+
+Walk-ins: seat them at the first free table that fits the party. Ada wants a queue when
+nothing is free.
+
+Open questions:
+
+- Do cancelled bookings stay in the day's schedule, struck through?

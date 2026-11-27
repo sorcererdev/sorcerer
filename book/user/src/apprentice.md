@@ -22,10 +22,20 @@ The server is `apprentice lsp`, one per project. It works on two clocks:
   (for a file just opened, since you last saved it, so what you typed while the server was
   starting counts) is cut into *regions* (a changed comment, a paragraph of a file no language covers, a
   function whose body does nothing yet, or a bare hunk of code) and each new one is asked of
-  Jev: is it a question, a claim, an instruction or an aside, and is it addressed to a reader?
-  Only a clear answer (0.70 for both) counts; anything else is nothing and shows nothing. A body
-  that does nothing yet is an instruction without asking. Jev is cheap, not free: it has its own
-  cap (`triage_per_day`). Without `JEV_API_KEY` only the empty bodies are offered.
+  Jev: is it a question, a claim, an instruction or an aside (the file's own content), and do
+  you want it answered, checked or done now? Jev reads the region with its context, not alone:
+  the 20 lines above it and 10 below, for a paragraph the heading it sits under and whether
+  that section holds anything else, and your session's changes (everything changed since the
+  branch split off `origin/HEAD`, else `main` or `master`, your file first, up to about 3,000
+  tokens), then what you typed since the last look. So `Fill this in` under an empty
+  `## Example` heading is offered, and the same words in a finished section, or `TODO(ada):
+  later`, are not. A fenced file never goes, as a region or in the session's changes. It acts
+  when Jev gives the kinds other than aside together at least 0.25 and "now" at least 0.12
+  (low cuts, set on a labelled corpus where Jev keeps most of its weight on aside even for real
+  asks); anything else is nothing and shows nothing. A body that does nothing yet is an
+  instruction without asking. A triage costs about $0.00016 (3,800 input tokens) and a tenth of
+  a second; Jev is cheap, not free: it has its own cap (`triage_per_day`). Without
+  `JEV_API_KEY` only the empty bodies are offered.
 
   Only your typing is triaged. Left out are the lines a Sorcerer tool landed in the file in the
   last ten minutes (spellbook's fixes and syncs, a conjure step, an apprentice task: each notes

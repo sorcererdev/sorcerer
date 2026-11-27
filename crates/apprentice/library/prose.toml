@@ -1,0 +1,8 @@
+# How triage reads the structure of prose: a file no language covers, such as a README. A line
+# that starts with one of these marks is a heading, and the lines up to the next heading are its
+# section. Triage tells Jev which heading a paragraph is under and whether the section holds
+# anything else, so `Fill this in` under an empty heading reads as an ask.
+#
+# This list is data, not code, because sorcerer's code names no language
+# (scripts/no-language-names).
+heading_marks = ["#"]

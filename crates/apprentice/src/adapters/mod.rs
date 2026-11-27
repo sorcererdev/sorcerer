@@ -5,6 +5,7 @@
 // spellbook:region adapters-modules (from crates/apprentice/src/adapters/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod claude_agent;
 pub mod disk_editor;
+pub mod git_session;
 pub mod grammar_syntax;
 pub mod helper_way;
 pub mod hooks;

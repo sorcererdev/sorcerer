@@ -1,0 +1,339 @@
+diff --git a/crates/apprentice/Cargo.toml b/crates/apprentice/Cargo.toml
+index ec7fffa..fa50314 100644
+--- a/crates/apprentice/Cargo.toml
++++ b/crates/apprentice/Cargo.toml
+@@ -5,6 +5,7 @@ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ repository.workspace = true
++readme = "README.md"
+ # Not on crates.io and not in a release until the subscription question is asked (ruling Q1,
+ # 2026-11-26).
+ publish = false
+diff --git a/crates/apprentice/README.md b/crates/apprentice/README.md
+new file mode 100644
+index 0000000..ca54648
+--- /dev/null
++++ b/crates/apprentice/README.md
+@@ -0,0 +1,30 @@
++# sorcerer-apprentice
++
++Apprentice is a coding agent whose whole interface is your editor: you ask from a line, it works as a Claude Code task, and its edits land in your buffers. A prototype; not published to crates.io or in a release yet.
++
++## Build and run
++
++```sh
++cargo run -p sorcerer-apprentice --bin apprentice -- doctor
++```
++
++Needs `claude` on your PATH, signed in.
++
++Main commands:
++
++- `apprentice FILE:LINE "instruction"`: start a task.
++- `apprentice lsp`: the editor's server, where tasks run and show.
++- `apprentice log`, `cost`, `doctor`, `trust`: past tasks, spend, a health check, and permission for the editor to run it.
++- `apprentice mcp` and `apprentice hook`: started by the agent itself, not by you.
++
++## Example
++
++```sh
++apprentice src/cart.py:12 "round the total to cents"
++```
++
++## Inside
++
++A library (`apprentice`), a binary, and `apprentice-fake-claude`, a stand-in agent for tests. The agent's helper processes reach the server over a loopback port with a token. Builds on `sorcerer-core`, `sorcerer-models` and `sorcerer-lsp`.
++
++Book: [Apprentice](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/apprentice.md) (using it), [Apprentice internals](https://github.com/sorcererdev/sorcerer/blob/main/book/internals/src/apprentice.md) (how it works). Project: [root README](https://github.com/sorcererdev/sorcerer/blob/main/README.md).
+diff --git a/crates/conjure/Cargo.toml b/crates/conjure/Cargo.toml
+index 0493f60..4d9d633 100644
+--- a/crates/conjure/Cargo.toml
++++ b/crates/conjure/Cargo.toml
+@@ -5,7 +5,7 @@ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ repository.workspace = true
+-readme = "../../README.md"
++readme = "README.md"
+ keywords = ["code-generation", "lsp", "tree-sitter", "llm", "editor"]
+ categories = ["development-tools", "command-line-utilities"]
+ 
+diff --git a/crates/conjure/README.md b/crates/conjure/README.md
+new file mode 100644
+index 0000000..cf27c6e
+--- /dev/null
++++ b/crates/conjure/README.md
+@@ -0,0 +1,34 @@
++# sorcerer-conjure
++
++Conjure writes one small change where you ask, shows it in your editor, and marks it so you can undo it.
++
++## Install and run
++
++```sh
++cargo install sorcerer-conjure     # or use the installers in the root README
++conjure doctor
++```
++
++Needs a model account (Claude Code signed in, or `ANTHROPIC_API_KEY`) and a git project.
++
++Main commands:
++
++- `conjure FILE:LINE[-END]`: write a change at that line or range.
++- `conjure --finding <id>`: write the fix for a scry finding.
++- `--try-harder`: ask the stronger model, which may read the project first.
++- `conjure log`, `conjure cost`, `conjure doctor`: what it did, spent, and whether it can run.
++- `conjure lsp`: the editor's server (code actions, undo).
++
++## Example
++
++```sh
++conjure src/cart.py:12
++```
++
++The change lands in the file with a marker; undo it from the editor.
++
++## Inside
++
++A library (`conjure`) and a binary, in the same layers as scry. It reads scry's findings and the project's rules through `sorcerer-core`, and calls models through `sorcerer-models`.
++
++Book: [Conjure](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/conjure.md) (using it), [Conjure internals](https://github.com/sorcererdev/sorcerer/blob/main/book/internals/src/conjure.md) (how it works). Project: [root README](https://github.com/sorcererdev/sorcerer/blob/main/README.md).
+diff --git a/crates/scry/Cargo.toml b/crates/scry/Cargo.toml
+index fe1100e..d08439d 100644
+--- a/crates/scry/Cargo.toml
++++ b/crates/scry/Cargo.toml
+@@ -5,7 +5,7 @@ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ repository.workspace = true
+-readme = "../../README.md"
++readme = "README.md"
+ keywords = ["code-review", "review", "lsp", "tree-sitter", "llm"]
+ categories = ["development-tools", "command-line-utilities"]
+ 
+diff --git a/crates/scry/README.md b/crates/scry/README.md
+new file mode 100644
+index 0000000..05ab41b
+--- /dev/null
++++ b/crates/scry/README.md
+@@ -0,0 +1,35 @@
++# sorcerer-scry
++
++Scry reads the code you changed and says what it gets wrong, on the line it is wrong.
++
++## Install and run
++
++```sh
++cargo install sorcerer-scry     # or use the installers in the root README
++scry --version
++```
++
++Needs a model account (Claude Code signed in, or `ANTHROPIC_API_KEY`) and a `JEV_API_KEY`.
++
++Main commands:
++
++- `scry`: review the units your working tree changed (`--all`, `--since REV` widen it).
++- `scry list`, `scry why <id>`, `scry dismiss <id>`: read, explain or hide findings.
++- `scry cost`, `scry doctor`: what it spent, and whether it can run here.
++- `scry lsp`: the editor's server, so findings show as diagnostics.
++
++## Example
++
++```sh
++$ scry
++src/orders/cancel.py:41  bug  cancel() returns None when no order has that id; the
++                              caller in api/orders.py:88 indexes the result.  (0.91)
++```
++
++Findings stay in `.sorcerer/state/scry/findings.json` until the code changes or you dismiss them.
++
++## Inside
++
++A library (`scry`) and a binary. Layers: `domain/`, `ports/`, `adapters/`, `usecases/`, `cli/`. It builds on `sorcerer-core`, `sorcerer-models` and `sorcerer-lsp`.
++
++Book: [Scry](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/scry.md) (using it), [Scry internals](https://github.com/sorcererdev/sorcerer/blob/main/book/internals/src/scry.md) (how it works). Project: [root README](https://github.com/sorcererdev/sorcerer/blob/main/README.md).
+diff --git a/crates/sorcerer-core/Cargo.toml b/crates/sorcerer-core/Cargo.toml
+index 87845e9..0695fb4 100644
+--- a/crates/sorcerer-core/Cargo.toml
++++ b/crates/sorcerer-core/Cargo.toml
+@@ -5,6 +5,7 @@ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ repository.workspace = true
++readme = "README.md"
+ 
+ [dependencies]
+ serde.workspace = true
+diff --git a/crates/sorcerer-core/README.md b/crates/sorcerer-core/README.md
+new file mode 100644
+index 0000000..1001971
+--- /dev/null
++++ b/crates/sorcerer-core/README.md
+@@ -0,0 +1,27 @@
++# sorcerer-core
++
++The shared base of scry, conjure, spellbook and apprentice: projects, config, languages, code units, the findings store, the cost ledger and fences (paths a model never sees). A library with no commands.
++
++## Who uses it
++
++Every Sorcerer program. You depend on it only to build another tool on the same base.
++
++## Main parts
++
++- `domain/`: data and rules, no I/O (`Project`, `Config`, `unit`, `compare`, `fences`).
++- `ports/`: the seams products talk through (`CodebaseView`, `Ledger`, `Env`).
++- `adapters/`: the disk, git, grammars and network behind those seams.
++
++## Example
++
++Print a file's units and how they changed against HEAD, from inside a project:
++
++```sh
++cargo run -p sorcerer-core --example units -- src/orders.py
++```
++
++```rust
++let project = sorcerer_core::domain::project::Project::open(&std::env::current_dir()?)?;
++```
++
++Book: [What Sorcerer is](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/what-sorcerer-is.md) (using it), [The core](https://github.com/sorcererdev/sorcerer/blob/main/book/internals/src/core.md) (how it works). Project: [root README](https://github.com/sorcererdev/sorcerer/blob/main/README.md).
+diff --git a/crates/sorcerer-lsp/Cargo.toml b/crates/sorcerer-lsp/Cargo.toml
+index f7d20eb..472b494 100644
+--- a/crates/sorcerer-lsp/Cargo.toml
++++ b/crates/sorcerer-lsp/Cargo.toml
+@@ -5,6 +5,7 @@ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ repository.workspace = true
++readme = "README.md"
+ 
+ [dependencies]
+ lsp-server.workspace = true
+diff --git a/crates/sorcerer-lsp/README.md b/crates/sorcerer-lsp/README.md
+new file mode 100644
+index 0000000..aa45985
+--- /dev/null
++++ b/crates/sorcerer-lsp/README.md
+@@ -0,0 +1,26 @@
++# sorcerer-lsp
++
++The language-server host for Sorcerer's programs: the connection, delayed jobs, and the senders a product's server uses. Everything about being a server that is not about one product.
++
++## Who uses it
++
++`scry lsp`, `conjure lsp`, `spellbook lsp` and `apprentice lsp`. No async runtime: it is synchronous, over `lsp-server`.
++
++## Main parts
++
++- `serve.rs`: the `Product` trait a product implements, and `serve`, the handshake and main loop.
++- `client.rs`: what a product says to the editor (progress, questions, edits).
++- `jobs.rs`: work to run after a delay. `reply.rs`: answer a request later.
++- `landing.rs`, `undo_plan.rs`, `line_edits.rs`: land a change as the fewest line edits, and take it back.
++
++## Example
++
++```rust
++struct MyServer;
++impl sorcerer_lsp::serve::Product for MyServer { /* handle requests */ }
++// sorcerer_lsp::serve::serve(connection, MyServer, ...)
++```
++
++See `crates/scry/src/adapters/lsp/` for a full one.
++
++Book: [Using Sorcerer in an editor](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/editor.md) (using it), [The language-server host](https://github.com/sorcererdev/sorcerer/blob/main/book/internals/src/lsp.md) (how it works). Project: [root README](https://github.com/sorcererdev/sorcerer/blob/main/README.md).
+diff --git a/crates/sorcerer-models/Cargo.toml b/crates/sorcerer-models/Cargo.toml
+index 584d261..dff4d69 100644
+--- a/crates/sorcerer-models/Cargo.toml
++++ b/crates/sorcerer-models/Cargo.toml
+@@ -5,6 +5,7 @@ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ repository.workspace = true
++readme = "README.md"
+ 
+ # The fake `claude` the tests run: a program, so it runs on every platform.
+ [[bin]]
+diff --git a/crates/sorcerer-models/README.md b/crates/sorcerer-models/README.md
+new file mode 100644
+index 0000000..3b5672d
+--- /dev/null
++++ b/crates/sorcerer-models/README.md
+@@ -0,0 +1,24 @@
++# sorcerer-models
++
++Everything in Sorcerer that can spend money: model providers, researchers, the Jev decider and the claim checker.
++
++## Who uses it
++
++scry, conjure and apprentice. Products name models by alias (`sonnet`, `haiku`, `strong`, `cheap`) and never a vendor's id.
++
++## Main parts
++
++- `ports/`: `Provider` (one model turn), `Researcher`, `Decider`.
++- `adapters/`: Anthropic, OpenAI-style APIs, `claude -p`, the tool loop, Jev, and test doubles (`ScriptedProvider`).
++- `usecases/check_claim.rs`: a claim, checked against evidence in a cascade of models.
++- Every call writes a row to the cost ledger in `sorcerer-core`.
++
++## Example
++
++Ask Jev a question and run a research errand (spends real money, cents):
++
++```sh
++cargo run -p sorcerer-models --example ask
++```
++
++Book: [Configuration](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/configuration.md) (using it), [Models](https://github.com/sorcererdev/sorcerer/blob/main/book/internals/src/models.md) (how it works). Project: [root README](https://github.com/sorcererdev/sorcerer/blob/main/README.md).
+diff --git a/crates/spellbook/Cargo.toml b/crates/spellbook/Cargo.toml
+index 1b3a188..c3cd871 100644
+--- a/crates/spellbook/Cargo.toml
++++ b/crates/spellbook/Cargo.toml
+@@ -5,7 +5,7 @@ version.workspace = true
+ edition.workspace = true
+ license.workspace = true
+ repository.workspace = true
+-readme = "../../README.md"
++readme = "README.md"
+ keywords = ["code-generation", "conventions", "lsp", "tree-sitter", "editor"]
+ categories = ["development-tools", "command-line-utilities"]
+ 
+diff --git a/crates/spellbook/README.md b/crates/spellbook/README.md
+new file mode 100644
+index 0000000..7345581
+--- /dev/null
++++ b/crates/spellbook/README.md
+@@ -0,0 +1,34 @@
++# sorcerer-spellbook
++
++Spellbook keeps a project's conventions as data: generators that write every file of a convention (with holes that say what belongs there), and rules that check the conventions hold.
++
++## Install and run
++
++```sh
++cargo install sorcerer-spellbook     # or use the installers in the root README
++spellbook doctor
++```
++
++Works without any model. Generators and rules live in `.sorcerer/spellbook/`.
++
++Main commands:
++
++- `spellbook list`, `spellbook show <generator>`: what the project can generate.
++- `spellbook new <generator>`: write its files (`--plan` only shows them); `spellbook holes` lists holes still open.
++- `spellbook check`: run the rules; `spellbook fix`: apply a rule's fix to a finding.
++- `spellbook sync`: refresh the owned regions (lists between markers) from the files on disk.
++- `spellbook lsp`: the editor's server.
++
++## Example
++
++```sh
++spellbook list
++spellbook new command --plan
++spellbook check
++```
++
++## Inside
++
++A library (`spellbook`) and a binary, in the same layers as scry. It builds on `sorcerer-core` and `sorcerer-lsp`.
++
++Book: [Spellbook](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/spellbook.md) (using it), [Spellbook internals](https://github.com/sorcererdev/sorcerer/blob/main/book/internals/src/spellbook.md) (how it works). Project: [root README](https://github.com/sorcererdev/sorcerer/blob/main/README.md).
