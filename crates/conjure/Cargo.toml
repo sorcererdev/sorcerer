@@ -33,6 +33,10 @@ sorcerer-lsp.workspace = true
 lsp-server.workspace = true
 lsp-types.workspace = true
 
+[[test]]
+name = "spellbook_timeout"
+harness = false
+
 [dev-dependencies]
 tempfile.workspace = true
 
