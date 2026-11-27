@@ -1,0 +1,4 @@
+db/schema.sql:2-6 class bookings
+db/schema.sql:8-11 class open_bookings
+db/schema.sql:13-13 class bookings_by_table
+db/schema.sql:15-17 function party_size_of

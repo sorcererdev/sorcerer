@@ -1,0 +1,11 @@
+# The Bash language corpus: a tiny project every shipped-language harness runs on (core's
+# units and parses, spellbook's cases, lackey's cut regions, conjure's related files). No model,
+# no network. See corpus/languages/README.md.
+name     = "bash"
+language = "bash"
+base     = "base"
+
+# conjure, asked in this file: its related files are expected/related.txt (Bash has no test
+# file convention, so there is no `tests` line)
+[conjure]
+file = "booking/close_table.sh"

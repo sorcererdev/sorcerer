@@ -1,0 +1,3 @@
+# A question typed as a comment above a query, and a line of code below it.
+file  = "db/queries.sql"
+patch = "comment-and-hunk.patch"

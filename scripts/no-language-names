@@ -12,6 +12,7 @@
 # language), by its directory name (an exact string) and the extensions of its `files` globs (a
 # string ending in one). A language without units (a config or markup format such as TOML, JSON
 # or Markdown) is not checked: sorcerer reads such files itself (`.sorcerer/config.toml`).
+# `"Bash"` capitalised is Claude Code's tool name and passes; `"bash"` is the language.
 # `go` and `node` are tools only as a command (`"go test"`, `"node x.js"`, `"node"`), since they
 # are also words.
 #
@@ -119,7 +120,11 @@ find crates -path 'crates/*/src/*' -name '*.rs' -print0 2>/dev/null | sort -z | 
     next if $line =~ m{^\s*//};
     my @found;
     if (defined $name_re) {
-      push @found, "a language named: \"$1\"" while $line =~ /"($name_re)"/gi;
+      # "Bash" as written is the name of one of Claude Code tools, not the
+      # language: only the lowercase directory name is refused.
+      while ($line =~ /"($name_re)"/gi) {
+        push @found, "a language named: \"$1\"" unless $1 eq "Bash";
+      }
     }
     if (defined $ext_re) {
       push @found, "a language named: .$1\"" while $line =~ /\.($ext_re)"/gi;

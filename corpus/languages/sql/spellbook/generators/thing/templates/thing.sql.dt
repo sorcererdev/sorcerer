@@ -1,0 +1,11 @@
+-- {= name|sentence =}.
+CREATE TABLE audit_log (
+  id integer PRIMARY KEY,
+  note text
+);
+
+{= ? setup: stmt | the statement that fills audit_log to begin with =}
+
+SELECT id, note
+FROM audit_log
+LIMIT {= ? limit: expr | the most rows to read =};

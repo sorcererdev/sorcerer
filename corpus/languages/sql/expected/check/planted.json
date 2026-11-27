@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-select-star-in-db",
+    "file": "db/queries.sql",
+    "line": 2,
+    "severity": "error",
+    "message": "queries name their columns: SELECT * breaks when the table changes",
+    "fingerprint": "c8c4aa0"
+  }
+]

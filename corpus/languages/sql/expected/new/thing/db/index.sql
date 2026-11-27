@@ -1,0 +1,6 @@
+-- Every script of the booking database.
+-- spellbook:region scripts (from db/*.sql; edit .sorcerer/spellbook/regions.toml, not this block)
+-- audit
+-- queries
+-- schema
+-- spellbook:end scripts

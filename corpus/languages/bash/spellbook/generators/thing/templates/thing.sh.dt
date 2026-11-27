@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# {= name|sentence =}.
+
+audit() {
+  local limit={= ? limit: expr | the largest value allowed =}
+  {= ? body: block | what the helper does with its first argument under limit =}
+}

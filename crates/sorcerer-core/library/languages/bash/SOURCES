@@ -1,0 +1,11 @@
+# Bash: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-bash 0.25.1, git a06c2e4415e9bc0346c6b86d401879ffb44058f7. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/bash/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+tags.scm         sorcerer's own (not vendored): `function_definition` and `command` (a call). The pinned grammar ships no tags.scm; its LICENSE is queries/LICENSE-tree-sitter-bash (MIT).
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, the `:` command (does nothing).
+imports.scm      sorcerer's own (not vendored): `@import.path`, the file a `source` or `.` command names.
+# changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of? and #not-any-of? and
+# nothing else; a pattern using another predicate or directive is removed):
+#   textobjects.scm: removed the `(word) @number.inner` pattern (it uses #lua-match?); added, at
+#   the end, `(compound_statement (_) @statement.outer)` so a function body's statements can be
+#   anchored.

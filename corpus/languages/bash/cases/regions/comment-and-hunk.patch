@@ -1,0 +1,10 @@
+--- a/booking/close_table.sh
++++ b/booking/close_table.sh
+@@ -4,5 +4,7 @@
+ source ./lib.sh
+ 
+ close_table() {
++  # which bookings stay open?
+   :
++  kept=$(grep -v "^$1 " bookings.txt)
+ }

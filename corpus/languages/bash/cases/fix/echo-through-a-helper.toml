@@ -1,0 +1,21 @@
+# The echo becomes a hole saying what it did, and the helper script is written beside it.
+patch = "planted.patch"
+at    = "booking/close_table.sh:7"
+
+[[holes]]
+name = "audit_call"
+kind = "stmt"
+file = "booking/close_table.sh"
+line = 7
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "booking/audit.sh"
+line = 6
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "booking/audit.sh"
+line = 5

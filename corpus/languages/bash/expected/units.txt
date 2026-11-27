@@ -1,0 +1,3 @@
+booking/close_table.sh:6-8 function close_table stub
+booking/lib.sh:4-6 function is_for_table
+booking/lib.sh:8-10 function table_label

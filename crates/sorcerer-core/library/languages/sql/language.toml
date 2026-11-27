@@ -1,0 +1,26 @@
+# SQL: DerekStride's tree-sitter-sql, a broad dialect (vendor syntax such as Postgres `DO $$`
+# may parse with errors). Core reads the keys in this file; products add their own tables
+# (in their milestones) and core keeps those for them.
+files = ["**/*.sql"]
+# What a unit is, as prompts say it.
+unit_words = "a table, view, function or index name (name)"
+comment = "--"
+# The grammar: tree-sitter-sql 0.3.13, fetched, compiled once into the user's cache and loaded
+# at run time. parser.c is not committed on main, so this is the gh-pages deploy commit (built
+# from main 4cd7224), 47 MB of generated C.
+grammar = { git = "https://github.com/DerekStride/tree-sitter-sql", rev = "2d088525f3f986108d969dab526a0d7129281e24" }
+
+[unit]
+# A unit's display name on its definition line, when the queries don't say: the last group.
+name = ['(?i)^[[:space:]]*create[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?(temp(orary)?[[:space:]]+|unique[[:space:]]+|materialized[[:space:]]+)?(table|view|function|index)[[:space:]]+(if[[:space:]]+not[[:space:]]+exists[[:space:]]+)?([[:alnum:]_."]+)']
+
+# The code spellbook writes where a generator leaves a hole: one template per kind, filled with
+# the hole's name and instruction. Every placeholder must parse where its kind belongs.
+[holes]
+expr = "NULL /* hole {= name =}: {= instruction =} */"
+stmt = "SELECT 'hole {= name =}: {= instruction =}';"
+
+# What spellbook's anchors cannot read from the code: the separator a list of one item, or of
+# none, takes when an item is put into it (a longer list shows its own).
+[syntax]
+list_separator = ","

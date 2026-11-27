@@ -1,0 +1,6 @@
+# booking/all.sh sources each script of the service.
+[regions.modules]
+file    = "booking/all.sh"
+query   = { glob = "booking/*.sh", exclude = ["booking/all.sh"] }
+item    = "source ./{= stem =}.sh"
+init_at = "end of imports"

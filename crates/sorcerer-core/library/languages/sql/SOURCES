@@ -1,0 +1,6 @@
+# SQL: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): DerekStride/tree-sitter-sql v0.3.13. parser.c is not committed on main,
+# so the pin is the gh-pages deploy commit 2d088525f3f986108d969dab526a0d7129281e24, built from
+# main 4cd7224 (v0.3.13). MIT (queries/LICENSE-tree-sitter-sql). The generated parser.c is 47 MB.
+tags.scm         sorcerer's own (not vendored): `create_table`, `create_view`, `create_function`, `create_index`: named by their `object_reference`, an index by its own name. A table, view or index is a `@definition.class`, a function a `@definition.function`.
+textobjects.scm  sorcerer's own (not vendored): `@comment.outer`, `@statement.outer`, and the body of each definition (`@class.inner`, `@function.inner`) so none reads as an empty stub. The grammar's upstream has no textobjects.scm in nvim-treesitter-textobjects.
