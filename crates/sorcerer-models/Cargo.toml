@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 # The fake `claude` the tests run: a program, so it runs on every platform.
 [[bin]]
