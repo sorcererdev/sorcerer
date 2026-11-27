@@ -40,8 +40,8 @@ struct Noted {
 /// Notes the lines an edit puts in each file, before the edit is sent. A note that cannot be
 /// written is skipped: the edit still goes, and its lines are then triaged as anyone's.
 ///
-/// Example: spellbook's sync inserting `pub mod clock;` into `src/ports/mod.rs` notes the file
-/// with the one line `pub mod clock;`.
+/// Example: spellbook's sync inserting `mod clock` into its module list `src/ports/list.txt` notes
+/// the file with the one line `mod clock`.
 pub fn note_tool_edit(state_dir: &Path, edit: &WorkspaceEdit, at: SystemTime) {
     let seconds = seconds_of(at);
     let noted: Vec<Noted> = lines_by_file(edit)
@@ -61,8 +61,8 @@ pub fn note_tool_edit(state_dir: &Path, edit: &WorkspaceEdit, at: SystemTime) {
 
 /// The lines a tool landed in a file in the last ten minutes, trimmed.
 ///
-/// Example: after the note above, `lines_tools_landed(state, ".../src/ports/mod.rs", now)`
-/// holds `pub mod clock;`; for any other file it is empty.
+/// Example: after the note above, `lines_tools_landed(state, ".../src/ports/list.txt", now)`
+/// holds `mod clock`; for any other file it is empty.
 pub fn lines_tools_landed(state_dir: &Path, file: &Path, now: SystemTime) -> HashSet<String> {
     let oldest = seconds_of(now).saturating_sub(NOTED_FOR.as_secs());
     read(state_dir)
@@ -152,11 +152,11 @@ mod tests {
     fn a_landed_line_is_a_tools_for_ten_minutes_in_its_file_only() {
         let state = tempfile::TempDir::new().unwrap();
         let root = state.path().join("project");
-        let before = "pub mod booking;\n";
-        let after = "pub mod booking;\npub mod clock;\n";
+        let before = "mod booking\n";
+        let after = "mod booking\nmod clock\n";
         let edits = line_edits(before, after);
         let change = FileChange {
-            path: Path::new("src/ports/mod.rs"),
+            path: Path::new("src/ports/list.txt"),
             new: false,
             before: Some(before),
             after,
@@ -170,10 +170,10 @@ mod tests {
         let then = UNIX_EPOCH + Duration::from_secs(1_000_000);
         note_tool_edit(state.path(), &edit, then);
 
-        let file = std::path::absolute(root.join("src/ports/mod.rs")).unwrap();
+        let file = std::path::absolute(root.join("src/ports/list.txt")).unwrap();
         let landed = lines_tools_landed(state.path(), &file, then + Duration::from_secs(5));
-        assert_eq!(landed, HashSet::from(["pub mod clock;".to_string()]));
-        let other = std::path::absolute(root.join("src/lib.rs")).unwrap();
+        assert_eq!(landed, HashSet::from(["mod clock".to_string()]));
+        let other = std::path::absolute(root.join("src/other.txt")).unwrap();
         assert!(lines_tools_landed(state.path(), &other, then).is_empty());
         let later = then + NOTED_FOR + Duration::from_secs(1);
         assert!(lines_tools_landed(state.path(), &file, later).is_empty());
