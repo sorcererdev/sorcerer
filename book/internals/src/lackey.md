@@ -91,10 +91,15 @@ connections answered at once; past that a connection is closed unanswered.
   once `layout_free` takes out whitespace, brackets, commas, semicolons and quote marks, a line
   of layout only; a deletion is the line after it unless every deleted line is still in the
   file), `regions_of` (comment
-  blocks touching a change; prose paragraphs where no language covers the file, less one made
-  only of headings when the run touches another (`without_lone_headings`, with
-  `triage_context::is_heading`), so a new note's `# Questions` over a question is not a second
-  region answered twice; stubs; the rest as hunks of at most 40 lines with a letter in them).
+  blocks touching a change; then `prose_and_code` splits each run into its prose lines
+  (`Shape::is_prose`: every line of a file no language read, else the lines inside the
+  language's `@prose` and `@heading` captures, comment blocks left out) and its code lines; prose
+  paragraphs touching a change, less one made only of headings when the run touches another
+  (`without_lone_headings`, with `Shape::is_heading`: a `@heading` line, or
+  `triage_context::is_heading` in a file no language read), so a new note's `# Questions` over a
+  question is not a second region answered twice; over the code lines, stubs, and the rest as hunks
+  of at most 40 lines with a letter in them). `Shape` holds `comments`, `units`, `prose`,
+  `headings` and `has_language` (a language covers the file and its grammar parsed it).
 - `triage.rs`: `Kind`, `Triaged`, `KIND_CUT` (0.25: the kinds other than aside together) and
   `ADDRESSED_CUT` (0.12: "do you want it answered, checked or done now"), `free_kind` (a stub
   is an instruction), `questions_for` (the four questions, sharing the region's `text`,
@@ -121,7 +126,7 @@ connections answered at once; past that a connection is closed unanswered.
 `editor.rs` (`Editor`: `notify`, `mark`, `ghost`, `write_file -> Written`, `note`, `ask ->
 Asked`, `edits_since_look`, `progress`, `finished`), `task_store.rs`, `journal.rs`,
 `permission_store.rs`, `project_context.rs` (the unit at a line, scry's notes near it, the
-rules), `syntax.rs` (`Syntax::shape`, `comment_prefix`), `region_store.rs` (`RegionStore`:
+rules), `syntax.rs` (`Syntax::shape`, `comment_marks`), `region_store.rs` (`RegionStore`:
 `get`, `of_file`, `put`, `label`), `session_changes.rs` (`SessionChanges::diffs`: the branch's
 changed files, the region's first), `clock.rs`.
 
@@ -141,8 +146,9 @@ only in the project's own directory; `move_from` moves notes from the old `notes
 state directory, only when no link stands on its way (`is_inside_as_spelled`), which `LackeyServer::start` and `wiring::notes_dir` call; a new kind of note
 is one more method naming its file), `disk_editor.rs` (`DiskEditor`, the command line's
 editor; its `writes_land` is `OnTheDisk`, which `start_task` turns into the agent's rules with
-`agent_rules`; the `Editor` trait's default is `InTheEditor`), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
-`COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `git_session.rs`
+`agent_rules`; the `Editor` trait's default is `InTheEditor`), `grammar_syntax.rs` (`GrammarSyntax`: comments, prose and headings from core's `Captures`
+(`COMMENT`, `PROSE`, `HEADING`, read by `lines_of`), units from `units_of`, stubs from `facts_of`'s
+`body_empty`; a file whose grammar does not load or parse is `Shape::default()`, prose throughout), `git_session.rs`
 (`GitSession`: the merge base with `origin/HEAD`, `main` or `master` through core's
 `CodebaseView`, `changed_since` less what the `Fences` refuse, each file's `diff`, a file git
 does not track as `added_file_diff`, until the budget), `json_region_store.rs`,
@@ -380,6 +386,10 @@ four labels carrying every region's id: `lackey.dismiss [ids…]`, `lackey.label
 ids…]`), the pending questions' options (`ask_actions`), a marked task's *Show diff*,
 *Undo this task*, *Show journal*, and *Stop this task* while one runs. `execute` routes the
 eleven `lackey.*` commands; the slow ones (*do this*, *Dismiss*, a label) go to a thread.
+*Keep this answer* (`regions.rs::keep_answer`) writes the answer below the region with
+`kept_answer_text`: as a comment in the language's `CommentMarks` (`answer_as_comment`: each line
+behind a line comment's mark, or one closed comment around the whole answer), or as a paragraph
+for a `Prose` region or a file whose language has no comments.
 
 **A task from the editor** (`tasks.rs`). `do_region` makes a `TaskOrder` (the region's text, its
 place now, the open files' unsaved edits) and `start_task`, holding `Server::runner` from the

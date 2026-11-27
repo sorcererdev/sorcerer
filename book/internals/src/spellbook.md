@@ -113,8 +113,9 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   (`RuleSetting::{Hint, Warn, Error, Off}`).
 
 `ports/`: `generators.rs` (`Generators`: `all`, `named`), `grammars.rs` (`Grammars::for_path`:
-the loaded language of a path, or none; `covers` and `line_comment`, which `CachedGrammars` answers
-from the language's data without loading a grammar), `workspace.rs` (`Workspace::write_new`,
+the loaded language of a path, or none; `covers` and `comment_marks` (core's `CommentMarks`: a
+comment's start and, where comments close, its end), which `CachedGrammars` answers from the
+language's data without loading a grammar), `workspace.rs` (`Workspace::write_new`,
 `Workspace::write_changed(path, before, after)`, `WriteRefused` with `Changed`),
 `generation_store.rs`, `holes_store.rs`, `clock.rs`, `rule_runner.rs` (`RuleRunner::findings_in`,
 `RuleRunner::enclosing(file, text, span, kinds)`: the nearest node of those kinds around a
@@ -214,7 +215,7 @@ captures, so the adapter names no language, node kind or grammar field:
 
 | target | `Parsed` method | captures it reads |
 |---|---|---|
-| `imports` | `imports`, `top_level_imports`, `row_after_the_preamble`, `row_in_order` and `last_block` (given the text to insert, `end of` goes before the first import of the last block that sorts after it, when that block is in order by its collapsed text) | `@import.path` (`imports.scm`); a top-level statement that is a `@function.outer`/`@class.outer` holds its imports inside; the preamble is the leading `@comment.outer`s and `@docstring` (`docstrings.scm`) |
+| `imports` | `imports`, `top_level_imports`, `row_after_the_preamble`, `row_in_order` and `last_block` (given the text to insert, `end of` goes before the first import of the last block that sorts after it, when that block is in order by its collapsed text) | `@import.path` (`imports.scm`); a top-level statement that is a `@function.outer`/`@class.outer` holds its imports inside; the preamble is the leading `@comment.outer`s, `@docstring` (`docstrings.scm`) and `@preamble` (`preamble.scm`: a `package` or file-scoped `namespace` line) |
 | `function NAME`, `class NAME` | `the_one`, `definitions`, `in_definition` | `@definition.<kind>` with `@name` from every query file (Rust's `definition.impl` from `impls.scm` holds `Type::method`); the body is `Captures::body_items` |
 | `parameters in F` | `parameters` | the function's own `@parameters` (`lists.scm`; not Rust's generics), items `@parameter.inner` |
 | `call NAME [in F]` | `call`, `arguments_of`, `callee_text` | `@reference.call` with `@name` from every file (Rust's `calls.scm` adds `Type::new(…)` and struct literals), the call's child `@arguments` |
@@ -229,8 +230,12 @@ counts a node that holds its own line ending (Rust's `//!` comment) as ending on
 
 An **owned region** is a list kept between two marker lines and rewritten whole from the files on
 disk (the user chapter's *Owned regions and `spellbook sync`* has the keys). Everything below names no
-language: the markers' comment syntax is the language's `comment` (from `language.toml`, read through
-`Grammars::line_comment`), the items are the person's `regions.toml`, the block is found by its text,
+language: the markers' comment syntax is the language's `comment` and `comment_end` (from
+`language.toml`, read through `Grammars::comment_marks`; `opening_marker`/`closing_marker` write
+`CommentMarks::around`, `find_block`'s `marker_of` reads `CommentMarks::inside`, so a closed
+comment's markers are `<!-- spellbook:region … -->`; a language with no `comment` stops the plan
+saying it cannot hold a region; a region's own `comment`, for a file no language covers, is a
+line comment), the items are the person's `regions.toml`, the block is found by its text,
 and the parse check and the `init_at` phrases go through the ports that exist.
 
 1. **Load.** `Wired` reads `.sorcerer/spellbook/regions.toml` once when it is made
@@ -301,7 +306,7 @@ removed }` (flattened into the JSON); `NotSetUp` is `region-not-set-up` (warn, l
 built-in `region_fix_offer` (`usecases/fixes_for.rs`): generator `"sync"`, inputs `region` and `file`
 (and `mode = init`); `cli/fix.rs::region_finding_here` sends `spellbook fix` on such a line to
 `cli/sync.rs::sync`. `cli/doctor.rs::regions_row` uses the same `instances` and `region_findings` over
-a `FilesView` and `CachedGrammars` whose `covers`/`line_comment` read the languages' data, so the
+a `FilesView` and `CachedGrammars` whose `covers`/`comment_marks` read the languages' data, so the
 doctor loads no grammar.
 
 ## The server
@@ -554,7 +559,7 @@ contract grows by `files[].region`, `files[].set_up`, `notes`, the two finding c
    `[spellbook] exclude`, has no language (`Grammars::for_path`) or is not text; keep the rules whose
    `files` pattern matches and no `exclude` does (`Rule::applies_to`); ask the `RuleRunner` for raw
    findings; keep one a line for each rule; read the file's allow comments (`allow_comments` over `RuleRunner::comments_in`, the parser's comment nodes, so text in a string is never one; with the
-   language's `comment` marker) and drop each finding one names (`silencing`: its line or the one
+   language's `CommentMarks`: the start right before `spellbook:allow`, and a closing `-->` taken off the reason) and drop each finding one names (`silencing`: its line or the one
    above); add an `allow-without-reason` or `unknown-rule` warning on each comment that needs it; add
    the regions' findings; sort; mark the baselined ones (`Baseline::marked`); then
    `ReportStore::replace_files` keeps just those files' findings in `report.json`. The rules' half is
@@ -603,8 +608,14 @@ The tests live in `crates/spellbook/tests/`, because they name languages
 (`scripts/no-language-names`). Unit tests sit in each `domain` file. `support/bistro_fixtures.rs`
 copies conjure's Python corpus base (`corpus/conjure/bistro/base`) and installs the corpus's own
 `command` generator (`corpus/spellbook/bistro/spellbook/generators/command`, read with `include_str!`,
-so the corpus is the one source of truth); `support/project_fixtures.rs` points the grammars at core's
-vendored sources, as conjure's tests do, so no test touches the network.
+so the corpus is the one source of truth); `support/project_fixtures.rs` points the grammars at their
+test sources (core's `tests/support/test_grammars.rs`, included by path: vendored or fetched by
+`scripts/test-grammars`), as conjure's tests do, so no test touches the network.
+`support/corpus_cases.rs` holds the corpus case runners (`run_new_cases`, `run_check_cases`,
+`run_fix_cases`, `run_sync_cases`, `run_adopt_cases`, `run_load_cases`, each given a corpus folder):
+`corpus.rs` runs them over `corpus/spellbook/<name>/`, and `languages.rs` over every
+`corpus/languages/<name>/` (check cases; new cases where the language has `[holes]`, and a hole of
+every kind left by its new and fix cases; sync cases where it has `comment`; fix cases).
 `rules.rs` covers the corpora's rules (path patterns on real paths, queries the grammars accept) and
 the loader; `check.rs` the use cases on a copy of each base (a planted break, the allows, the report); `lsp.rs` drives the server over an in-memory connection with a small editor (the handshake, the
 four commands, the marks on open, save and close, trust); `generators.rs` covers `[holes]` and the

@@ -147,7 +147,8 @@ made against what the writer was shown and a disk that moved on meanwhile is see
    the innermost tree-sitter ERROR region holding the line (`broken_region_at`, in
    `sorcerer-core/src/domain/broken_region.rs`), a `Unit` of kind `UnitKind::BrokenRegion`. Its
    situation (`where_the_cursor_is` in `domain/situation.rs`, from `Situation.broken_region`) says
-   the code does not parse and is to be repaired. No language, or no unit and no region, is
+   the code does not parse and is to be repaired. No language, a language without units
+   (`Languages::with_units_for_path`: its grammar is not loaded), or no unit and no region, is
    `ChangeRefused::OutsideAUnit`. The code action (`in_a_unit`) and the working text
    (`show_writing`) ask the same view method, and so does `fingerprint_now` for scry's notes.
 2. **The day.** `spent_since` over the ledger's `conjure` errands, the user's local day;
@@ -299,11 +300,15 @@ of the project root).
 
 ## Related files, the test file and the session
 
-None of them names a language. `tests_path` fills `[test] tests_for` from the file's folder and
-name; `related_files` runs the language's `imports.scm` (captures `@import.path` only), splits
-each captured path on the language's `unit_separator` (else `.`), drops the leading words in
-`drop_first`, and tries each `[imports] resolve` template, then once more without the last
-word. When a language's test file is the file itself (Rust), the situation says the tests live in
+None of them names a language. `tests_path` fills `[test] tests_for` from the file's folder
+(with `dir_replace`'s first `from` made `to`, `tests_folder`; no `from`, no test file) and name;
+`related_files` runs the language's `imports.scm` (captures `@import.path` only), splits each
+captured path on `[imports] separator` or else the language's `unit_separator`
+(`ImportsTable::word_separator`), drops the leading words in `drop_first`, and tries each
+`[imports] resolve` template over `{= path =}` and `{= dir =}` (the importing file's folder, `.`
+at the root), then once more without the last word (never when it is `.` or `..`).
+`project_file_for` takes the words as an `Import`; `inside_the_project` folds `.` and `..` out of
+a filled path and drops one that is absolute or climbs out of the project. When a language's test file is the file itself (Rust), the situation says the tests live in
 it instead of showing it twice. The session block reads the disk; the editor's unsaved text
 reaches the writer through the file, its test file and the related files, which the view
 supplies.
@@ -364,7 +369,9 @@ use case over a `StubWriter` and a `Rig` of doubles, the writers over `ScriptedP
 small editor that keeps buffers and applies the edits it is sent, checking versions, and can
 answer before it reports its changes as Neovim does; a `Script` of replies, a gate to hold a
 call, a clock that ticks a second per read), `tests/lsp_process.rs` (`conjure lsp` as a process),
-`tests/related.rs` (the vendored grammars), `tests/cli.rs` (`main_with` with a `Wired` of
+`tests/related.rs` (the vendored grammars; path imports and `dir_replace` through a project
+layer), `tests/languages.rs` (every `corpus/languages/<name>/` with units: the test file and related
+files of its `[conjure] file` against `expected/related.txt`), `tests/cli.rs` (`main_with` with a `Wired` of
 doubles), `tests/rules_check.rs` (asked again, held back, an old break, a warning, over
 `ForbiddenWord`, a `RuleChecker` double in `tests/support/rule_checkers.rs` that finds each line
 holding a word), `tests/retry_drops.rs` (a dropped call, a call moved to another file, a

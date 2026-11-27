@@ -77,15 +77,27 @@ key in a later layer replaces the earlier one whole, and query files merge by na
 file (`queries/tags.scm`), for `doctor`. A project-only language (no shipped layer) must
 have `files` and `grammar`.
 
-Core reads `files`, `grammar`, `comment`, `unit_words`, `unit_separator` and `[unit] name`
-(the `CORE_KEYS`). Every other table stays in `Language::rest` for the product that owns it;
+Core reads `files`, `grammar`, `comment`, `comment_end`, `unit_words`, `unit_separator` and
+`[unit] name` (the `CORE_KEYS`). `grammar_of` reads `{ git, rev }` with an optional `dir` (the
+folder of a repository holding two grammars; `is_plain_folder` refuses an absolute one or one
+with `..`) into `GrammarSource::Git { url, rev, dir }`, or `{ path }` into `Local`.
+`Language::comment_marks()` gives a `CommentMarks { start, end }` (`end` for a closed comment
+such as `<!-- … -->`; `None` for a language with no `comment`), with `around(text)`,
+`inside(line)` (the text of a line that is one whole comment) and `without_end(text)`: spellbook's
+allow comments and region markers and lackey's kept answers write and read comments through it. Every other table stays in `Language::rest` for the product that owns it;
 the product reads it with the same strictness as its config table.
 The shipped languages carry conjure's `[test]` and `[imports]` tables there and an
 `imports.scm` beside `tags.scm`; core compiles the query like any other, and it adds no unit
 because it captures only `@import.path`.
 
 `Languages::for_path(rel)` gives the first language, in name order, whose `files` globs
-match a project-relative path.
+match a project-relative path. `Language::has_unit_captures()` reads the query texts (comment
+lines left out) for a unit capture (`is_unit_capture`: `@definition.<unit kind>` or `@unit.*`
+but `@unit.name`) without loading the grammar, and `Languages::with_units_for_path(rel)` is
+`for_path` kept only when the language has units. `FilesView` (`units`, `units_at`,
+`unit_or_broken_region_at`, `facts`), conjure's editor view, scry's scope (`no units`) and both
+language servers' project files go through it, so a README or a config file is never reviewed
+and its grammar never loaded by scry or conjure.
 
 ## Grammars
 
@@ -137,7 +149,9 @@ match a project-relative path.
    `<cache>/src/<name>-<rev7>/` (`fetch`: `check_fetchable` allows only `https`, `ssh`, `git`
    and `file` URLs, since git's `ext::` transport would run a command, then
    `fetch_commit_into` runs `git fetch --depth 1` of the pinned rev) and compiles `parser.c`
-   and `scanner.c` with the compiler it is given (`compile_where_the_compiler_can_read_paths`, then `compile_library`: when the sources' or the output's path is not ASCII, as for a Windows user named outside Windows-1252 whose MinGW `ld` would get `?` for each letter, it copies the sources to a folder from `ascii_scratch_parent` in `platform/paths.rs`, compiles there and copies the library into place). `build_here` asks the
+   and `scanner.c` of `GrammarSources { root, src }` (`src` is the checkout's `src`, or
+   `<dir>/src` when the language names a `dir`; `root` is the checkout) with the compiler it is
+   given (`compile_where_the_compiler_can_read_paths`, then `compile_library`: when the sources' or the output's path is not ASCII, as for a Windows user named outside Windows-1252 whose MinGW `ld` would get `?` for each letter, `compile_in_scratch` copies the whole `root` (but `.git`) to a folder from `ascii_scratch_parent` in `platform/paths.rs`, so a scanner's `#include "../../common/scanner.h"` still resolves, compiles there and copies the library into place). A `dir` is part of the source's identity (`sources_identity`), so two grammars of one repository at one rev get two libraries. `build_here` asks the
    platform adapter for it: `c_compiler(env)` is the first of `cc`, `gcc` and `clang` on
    PATH, with `-shared -fPIC -O2` on Unix and `-shared -O2` on Windows.
 4. `open_library` loads it with `libloading`, calls `tree_sitter_<name>`
@@ -183,10 +197,31 @@ name `library_path` will ask for, writes `<file>.sha256` (`<hex>  <file name>`) 
 removes the fetched sources. The release job runs it on each platform's runner
 ([Releasing](releasing.md)).
 
-Tests never fetch: `tests/grammars/{python,rust}` hold the vendored sources at the
-shipped pins, and `Languages::override_grammar` points a language at them. The download
-tests in `tests/grammar.rs` serve a library built from those sources, and a local
-repository stands in for GitHub when they fall back to fetching.
+Tests never fetch. `tests/grammars/{python,rust}` hold the vendored sources at the shipped pins
+(left out of the published crate, `exclude` in `Cargo.toml`); every other shipped grammar is
+fetched once by `scripts/test-grammars` (`examples/test-grammars.rs`, which calls
+`fetch_checkout`, the build's own `fetch` with its checks) into `target/test-grammars/src/<name>-<rev7>/`;
+CI runs it before the tests, cached by a hash of the language files.
+`tests/support/test_grammars.rs` is the one place tests find them: `point_at_test_grammars`
+overrides each shipped language's grammar (`override_grammar`) with `test_grammar_sources`, the
+vendored folder or the fetched checkout (its `dir` inside); the other crates include the same
+file with `#[path]`. The download tests in `tests/grammar.rs` serve a library built from the
+vendored sources, and a local repository stands in for GitHub when they fall back to fetching
+(`two_grammar_repo` holds two grammars, one including a header above its own folder).
+
+`build.rs` tells cargo to scan `library/languages/`, since `include_dir!` notices a changed
+file but not a new one.
+
+## The language corpora
+
+`corpus/languages/<name>/` (its README has the layout) is one tiny project per shipped language,
+and four harnesses run every one of them, reading only data, each test listing every language
+that fails: `tests/languages.rs` here (the grammar on disk, every query compiling, every base file
+parsing, the units against `expected/units.txt`), and the `tests/languages.rs` of spellbook
+(the corpus case runners of `tests/support/corpus_cases.rs`), lackey (cut regions) and conjure
+(related files and test path). `tests/support/language_corpora.rs` holds what they share
+(`shipped_language_names`, `base_files`, `matches_golden`, which writes the golden under
+`LANGUAGES_BLESS=1`). Adding a shipped language adds its corpus, and no harness code.
 
 ## Units
 
@@ -225,7 +260,9 @@ Units are nested: a changed method also changes its class.
 
 `domain/captures.rs`. The engine never names a grammar's node kinds or fields, and never a
 language (`scripts/no-language-names` and the `no-*-in-the-engine` rules of
-`.sorcerer/spellbook/rules.toml` refuse it). Everything it needs from a tree is a capture the
+`.sorcerer/spellbook/rules.toml` refuse it; the script reads the code languages, those whose
+queries capture units, and their `files` extensions from `library/languages/`, and fails when
+the rules' lists drift from it). Everything it needs from a tree is a capture the
 language's queries write. `Captures::of(loaded, tree, text)` runs every query file once and keeps
 each match; `nodes(names)`, `is(name, node)`, `named(capture, text)` (with the match's `@name`)
 read them, and three helpers answer the questions products ask:
