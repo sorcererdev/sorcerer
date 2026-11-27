@@ -242,7 +242,7 @@ answered: put it in your status line to see it there. `:checkhealth sorcerer` ch
 Install the **Lackey** extension (`sorcererdev.lackey`) from the Extensions view (the
 Marketplace), or `code --install-extension sorcererdev.lackey`. VS Code forks such as VSCodium
 and Cursor use Open VSX, which does not list Lackey yet: install the `.vsix` attached to the
-release (each release after 0.3.0) with `codium --install-extension lackey-<version>.vsix`, or build it
+release (0.3.0 and every release after) with `codium --install-extension lackey-<version>.vsix`, or build it
 from a clone (`npx @vscode/vsce package` in `editors/vscode/lackey`). It finds `lackey` from the `lackey.path` user setting, then your
 PATH, `~/.cargo/bin` and `~/.local/bin`; with none it offers to download the release of its own
 version (checked against its sha256), or says the install line above, once per version.
