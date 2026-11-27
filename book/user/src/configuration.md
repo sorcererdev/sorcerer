@@ -90,6 +90,8 @@ Claude Code enforces the fences with deny rules, including one for each symbolic
 that leads out of the project or onto a fenced path. The links are looked for in the whole
 project except the folders your project's own `.gitignore` and `.ignore` files leave out (a
 global gitignore or `.git/info/exclude` does not count), so a link to a secret under
-`node_modules/` or `target/` is not named: keep those folders free of such links. Claude Code cannot be told to refuse every path outside the
+`node_modules/` or `target/` is not named: keep those folders free of such links. This holds in
+a project that is not a git repository too. A hard link to a secret is not a symbolic link and
+is not found either: keep secrets out of the project. Claude Code cannot be told to refuse every path outside the
 project, though: there, only the instructions keep it inside. Keep secrets out of the
 project's files, or under a fenced path, either way.

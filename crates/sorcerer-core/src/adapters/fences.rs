@@ -31,6 +31,7 @@ impl Fences {
     /// [`FencedLinksCache`](crate::adapters::fenced_links_cache::FencedLinksCache) instead.
     pub fn fenced_links(&self) -> Vec<PathBuf> {
         link_walk(&self.root, |_| true)
+            .flatten()
             .filter(|e| e.path_is_symlink())
             .filter_map(|e| {
                 e.path()
@@ -66,12 +67,15 @@ impl Fences {
 /// file above the root, no `.git/info/exclude`, no global excludes file. That keeps the walk's
 /// result a function of the tree alone, which the cache relies on.
 ///
+/// Each item is an entry, or the error of a directory or ignore file that could not be read
+/// (the caller decides what an unread directory means; the cache walks it again next time).
+///
 /// Example: with `target/` in the root's `.gitignore`, `target/out -> /etc` is not walked, while
 /// `src/out -> /etc` is.
 pub(crate) fn link_walk(
     root: &Path,
     keep: impl Fn(&Path) -> bool + Send + Sync + 'static,
-) -> impl Iterator<Item = ignore::DirEntry> {
+) -> impl Iterator<Item = std::result::Result<ignore::DirEntry, ignore::Error>> {
     let root_for_filter = root.to_path_buf();
     ignore::WalkBuilder::new(root)
         .hidden(false)
@@ -86,7 +90,6 @@ pub(crate) fn link_walk(
             !fenced_whole && e.path().strip_prefix(&root_for_filter).is_ok_and(&keep)
         })
         .build()
-        .flatten()
 }
 
 /// The path with every symlink and `..` resolved; `None` when that cannot be done for certain.

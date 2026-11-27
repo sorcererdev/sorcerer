@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use sorcerer_core::adapters::fenced_links_cache::FencedLinksCache;
-use sorcerer_core::adapters::platform::paths::{link_to, set_directory_modified};
+use sorcerer_core::adapters::platform::paths::{
+    allow_listing, forbid_listing, link_to, set_directory_modified,
+};
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 
@@ -204,4 +206,83 @@ fn a_cached_ask_is_faster_than_a_walk_on_a_large_tree() {
     let cached = fastest(&|| c.fenced_links(&f));
     eprintln!("walk {walk:?}, cached {cached:?}");
     assert!(cached * 3 < walk, "walk {walk:?}, cached {cached:?}");
+}
+
+#[test]
+fn a_directory_unlistable_at_the_first_ask_is_walked_once_it_can_be_listed() {
+    let d = project();
+    support::write(d.path(), "src/private/keep.txt", "");
+    let outside = tempfile::TempDir::new().unwrap();
+    link_to(outside.path(), &d.path().join("src/private/keys")).unwrap();
+    let c = cache(d.path());
+    age_directories(d.path());
+    let private = d.path().join("src/private");
+    forbid_listing(&private).unwrap();
+    if std::fs::read_dir(&private).is_ok() {
+        // Windows, or running as root: the directory cannot be made unlistable here
+        allow_listing(&private).unwrap();
+        return;
+    }
+    let f = fences(d.path());
+    let first = c.fenced_links(&f);
+    allow_listing(&private).unwrap();
+    assert!(first.is_empty(), "{first:?}");
+    assert_eq!(c.fenced_links(&f), vec![PathBuf::from("src/private/keys")]);
+}
+
+#[test]
+fn an_ignore_file_that_ignores_itself_is_seen_when_edited_in_place() {
+    let d = project();
+    support::write(d.path(), "tmp/.gitignore", "*\n");
+    let outside = tempfile::TempDir::new().unwrap();
+    link_to(outside.path(), &d.path().join("tmp/out")).unwrap();
+    let c = cache(d.path());
+    age_directories(d.path());
+    let f = fences(d.path());
+    assert!(
+        c.fenced_links(&f).is_empty(),
+        "everything in tmp/ is ignored"
+    );
+    std::fs::write(d.path().join("tmp/.gitignore"), "*.log\n").unwrap();
+    age_directories(d.path());
+    assert_eq!(c.fenced_links(&f), vec![PathBuf::from("tmp/out")]);
+}
+
+/// A file system that does not change a directory's time when an entry is added (FAT on
+/// Windows): the probe's entry is added, then the directory's time is put back.
+fn add_entry_as_fat_does(dir: &Path) -> std::io::Result<()> {
+    let before = std::fs::symlink_metadata(dir)?.modified()?;
+    std::fs::write(dir.join("entry"), "")?;
+    set_directory_modified(dir, before)
+}
+
+#[test]
+fn a_file_system_that_keeps_directory_times_is_walked_every_time() {
+    let d = project();
+    let c = cache(d.path()).with_probe(add_entry_as_fat_does);
+    age_directories(d.path());
+    let f = fences(d.path());
+    assert!(c.fenced_links(&f).is_empty());
+    let outside = tempfile::TempDir::new().unwrap();
+    link_to(outside.path(), &d.path().join("src/deep/out")).unwrap();
+    age_directories(d.path());
+    assert_eq!(c.fenced_links(&f), vec![PathBuf::from("src/deep/out")]);
+}
+
+#[test]
+fn a_clock_file_that_is_a_link_is_not_written_through() {
+    let d = project();
+    let outside = tempfile::TempDir::new().unwrap();
+    let target = outside.path().join("rc");
+    std::fs::write(&target, "keep me\n").unwrap();
+    let c = cache(d.path());
+    let clock = d.path().join(".sorcerer/state/fence-walk.clock");
+    link_to(&target, &clock).unwrap();
+    let out = tempfile::TempDir::new().unwrap();
+    link_to(out.path(), &d.path().join("src/out")).unwrap();
+    assert_eq!(
+        c.fenced_links(&fences(d.path())),
+        vec![PathBuf::from("src/out")]
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep me\n");
 }

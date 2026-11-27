@@ -176,7 +176,9 @@ reading and searching your files, running commands. What it may not do:
   A symbolic link that leads out of the project or onto a fenced file is denied by name; the
   links are looked for when each task starts, so a link made since the last task is denied too.
   The look walks again only the folders that changed since the last task, so a large project
-  starts its tasks fast.
+  starts its tasks fast; a folder it could not open is looked at again at every task until it
+  opens. On a drive that does not record when a folder changes (FAT on Windows, such as some USB
+  sticks) every task looks through the whole project.
   apprentice itself never hands it a fenced file either: what you type in an open `.env`, a
   `not_evidence` file or a task's journal is left out of the edits it is fed and of its first
   message, a fenced file is never triaged, and an instruction written in one does not start.

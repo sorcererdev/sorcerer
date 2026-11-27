@@ -51,9 +51,12 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
   `.ignore` files), `fenced_links_cache.rs` (`FencedLinksCache`: the fenced links kept between
   asks; each ask walks again every directory whose modification time differs or was too recent
   to trust (`SETTLE`, against the time the file system gives `fence-walk.clock` in the state
-  directory), and the directory of every `.gitignore`/`.ignore` whose digest differs, and
-  resolves every known link again; the module comment holds the argument that it never misses a
-  link), `env.rs`
+  directory), every directory the walk could not read (`with_unread`), and every directory whose
+  `.gitignore`/`.ignore`, read by name, has a different digest, and resolves every known link
+  again; before each whole walk `directory_times_follow_entries` probes `fence-probe/` in the
+  state directory and keeps nothing on a file system whose directory times do not move; the clock
+  file is made new (`write_new`), never written through a link; the module comment holds the
+  argument that it never misses a link), `env.rs`
   (`SystemEnv`, `MapEnv`), `trust_list.rs` (`TrustList`), and `platform/`, the platform
   adapter (below).
 

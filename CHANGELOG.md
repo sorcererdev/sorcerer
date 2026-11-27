@@ -7,6 +7,9 @@
   one, and checks every known link afresh, so a link made since the last task is still denied.
   The look for links now follows only the project's own `.gitignore` and `.ignore` files (not a
   global gitignore or `.git/info/exclude`) and skips `.sorcerer/`, which is fenced as a whole.
+  A project that is not a git repository now honours its `.gitignore` there too, so a link in a
+  folder it leaves out is no longer named. On a file system that does not move a folder's time
+  when an entry changes (FAT on Windows), nothing is kept and every task walks the whole project.
 - **Adopting `spellbook check` on code with debt.** `spellbook check --baseline` records today's
   findings in `.sorcerer/spellbook/baseline.toml`; they show as `(existing)` and never fail, so only
   new breakage does. `spellbook check --since main` judges a branch on the lines it touched.
