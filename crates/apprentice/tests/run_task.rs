@@ -486,12 +486,16 @@ fn the_journal_says_a_command_waits_then_the_answer_not_that_it_runs() {
         !progress.iter().any(|line| line.contains("running")),
         "{progress:?}"
     );
-    assert!(
-        progress
-            .iter()
-            .any(|line| line.contains("waiting until allowed: ls, cat")),
-        "{progress:?}"
-    );
+    // the stream's call and the question race, so the call may be shown first (`waiting until
+    // allowed`) or not at all after the question (`waiting for you`); never the other way round
+    let at = |text: &str| progress.iter().position(|line| line.contains(text));
+    assert!(at("waiting for you: ls, cat").is_some(), "{progress:?}");
+    if let Some(until) = at("waiting until allowed: ls, cat") {
+        assert!(
+            until < at("waiting for you: ls, cat").unwrap(),
+            "{progress:?}"
+        );
+    }
 }
 
 /// The person ruled: allowing one search never opens the door to a search of the whole tree.
