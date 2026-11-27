@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::domain::agent_event::{AgentEvent, Finished};
 use crate::domain::mediums::is_a_medium;
-use crate::domain::status::{activity_of, command_activity, status_text};
+use crate::domain::status::{CommandVerdict, activity_of, command_activity, status_text};
 use crate::domain::task::{TaskRecord, TaskState};
 use crate::ports::agent::NextEvent;
 
@@ -68,11 +68,17 @@ fn saw(live: &LiveTask, event: &AgentEvent, deps: &TaskDeps) {
                 live.spoke();
             }
             let command = input["command"].as_str().unwrap_or_default();
-            let activity = match live.take_command_verdict(command) {
+            let verdict = live.take_command_verdict(command);
+            // the question was asked before the stream showed the call: the status line already
+            // says `waiting for you`, and the call must not overwrite it with `until allowed`
+            let asked_first = verdict == Some(CommandVerdict::Waiting) && !command.is_empty();
+            let activity = match verdict {
                 Some(verdict) if !command.is_empty() => command_activity(command, verdict),
                 _ => activity_of(name, input, parent.as_deref(), &deps.root),
             };
-            show_activity(live, &activity, deps);
+            if !asked_first {
+                show_activity(live, &activity, deps);
+            }
             // a command's lines are the permission tool's: waiting, then the answer
             if command.is_empty() {
                 let _ = deps.journal.write(&live.id, "tool", &activity);
