@@ -1,7 +1,6 @@
 //! Triage on idle: the person's changes to a file since the last look, cut into regions, each
 //! new region classified (by a free rule, else by Jev in one batch), and kept.
 
-use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -36,8 +35,8 @@ pub struct Look<'a> {
     pub file: &'a str,
     pub before: &'a str,
     pub after: &'a str,
-    /// Trimmed lines Sorcerer's servers landed in the file lately: not the person's.
-    pub landed_by_tools: &'a HashSet<String>,
+    /// Trimmed lines Sorcerer's servers landed in the file lately, in order: not the person's.
+    pub landed_by_tools: &'a [String],
 }
 
 /// Classifies the regions the change makes and keeps them; gives back the records of the

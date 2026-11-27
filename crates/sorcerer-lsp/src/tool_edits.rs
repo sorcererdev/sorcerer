@@ -8,7 +8,6 @@
 //! file and the lines it puts there. Every server writes it before it sends the edit, so the
 //! note is there by the time the editor reports the change. A note is read for ten minutes.
 
-use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -59,11 +58,12 @@ pub fn note_tool_edit(state_dir: &Path, edit: &WorkspaceEdit, at: SystemTime) {
     let _ = append(state_dir, &noted, seconds);
 }
 
-/// The lines a tool landed in a file in the last ten minutes, trimmed.
+/// The lines a tool landed in a file in the last ten minutes, trimmed, in the order they were
+/// noted (each edit's lines in file order).
 ///
 /// Example: after the note above, `lines_tools_landed(state, ".../src/ports/list.txt", now)`
 /// holds `mod clock`; for any other file it is empty.
-pub fn lines_tools_landed(state_dir: &Path, file: &Path, now: SystemTime) -> HashSet<String> {
+pub fn lines_tools_landed(state_dir: &Path, file: &Path, now: SystemTime) -> Vec<String> {
     let oldest = seconds_of(now).saturating_sub(NOTED_FOR.as_secs());
     read(state_dir)
         .into_iter()
@@ -184,7 +184,7 @@ mod tests {
 
         let file = std::path::absolute(root.join("src/ports/list.txt")).unwrap();
         let landed = lines_tools_landed(state.path(), &file, then + Duration::from_secs(5));
-        assert_eq!(landed, HashSet::from(["mod clock".to_string()]));
+        assert_eq!(landed, ["mod clock"]);
         let other = std::path::absolute(root.join("src/other.txt")).unwrap();
         assert!(lines_tools_landed(state.path(), &other, then).is_empty());
         let later = then + NOTED_FOR + Duration::from_secs(1);
@@ -211,6 +211,6 @@ mod tests {
         let now = SystemTime::now();
         note_tool_edit(state.path(), &edit, now);
         let landed = lines_tools_landed(state.path(), &file, now);
-        assert_eq!(landed, HashSet::from(["use the port".to_string()]));
+        assert_eq!(landed, ["use the port"]);
     }
 }

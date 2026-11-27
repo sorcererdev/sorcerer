@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use similar::{DiffTag, TextDiff};
+use similar::{DiffOp, DiffTag, TextDiff};
 use sorcerer_core::domain::unit::Span;
 
 use crate::domain::region::{Region, RegionPlace};
@@ -34,7 +34,8 @@ pub struct ShapeUnit {
 /// left out when it is not the person's typing:
 ///
 /// - a line a tool landed in the file a moment ago (it is in `landed_by_tools`: spellbook's
-///   sync, a conjure step, an apprentice task);
+///   sync, a conjure step, an apprentice task), or a change that is neighbouring tool lines
+///   laid out again;
 /// - a line that was already in the file (moved, as a formatter sorting imports does, or
 ///   re-indented);
 /// - a change that is the old lines laid out again: the same text once the layout is taken
@@ -46,51 +47,83 @@ pub struct ShapeUnit {
 ///
 /// Example: from `a\nb\nc\n` to `a\nB\nc\nd\n`, lines 2 and 4 changed; with `d` landed by a
 /// tool, only line 2.
-pub fn persons_changed_lines(
-    before: &str,
-    after: &str,
-    landed_by_tools: &HashSet<String>,
-) -> Vec<Span> {
-    let after_lines: Vec<&str> = after.lines().collect();
-    let before_lines: Vec<&str> = before.lines().collect();
-    let already_there: HashSet<String> = before_lines.iter().map(|l| layout_free(l)).collect();
-    let still_there: HashSet<String> = after_lines.iter().map(|l| layout_free(l)).collect();
-    let tools: HashSet<String> = landed_by_tools.iter().map(|l| layout_free(l)).collect();
-    let persons = |line: &str| {
-        let line = layout_free(line);
-        !line.is_empty() && !already_there.contains(&line) && !tools.contains(&line)
-    };
-    let after_count = after_lines.len().max(1) as u32;
+pub fn persons_changed_lines(before: &str, after: &str, landed_by_tools: &[String]) -> Vec<Span> {
+    let change = Change::new(before, after, landed_by_tools);
     let lines: Vec<u32> = TextDiff::from_lines(before, after)
         .ops()
         .iter()
-        .filter(|op| op.tag() != DiffTag::Equal)
-        .filter(|op| {
-            let old =
-                &before_lines[op.old_range().start..op.old_range().end.min(before_lines.len())];
-            let new = &after_lines[op.new_range().start..op.new_range().end.min(after_lines.len())];
-            layout_free(&old.concat()) != layout_free(&new.concat())
-        })
-        .flat_map(|op| {
-            let range = op.new_range();
-            if range.is_empty() {
-                let deleted = &before_lines[op.old_range()];
-                let moved = deleted
-                    .iter()
-                    .all(|line| still_there.contains(&layout_free(line)));
-                return if moved {
-                    Vec::new()
-                } else {
-                    vec![(range.start as u32 + 1).min(after_count)]
-                };
-            }
-            range
-                .filter(|&index| after_lines.get(index).is_some_and(|line| persons(line)))
-                .map(|index| index as u32 + 1)
-                .collect()
-        })
+        .filter(|op| op.tag() != DiffTag::Equal && !change.laid_out_again(op))
+        .flat_map(|op| change.persons_lines(op))
         .collect();
     runs_of(&lines)
+}
+
+/// The two texts of a change, their lines, and what is known about them, by layout-free text:
+/// which lines were in the file before, which are in it after, which tools landed.
+struct Change<'a> {
+    before_lines: Vec<&'a str>,
+    after_lines: Vec<&'a str>,
+    already_there: HashSet<String>,
+    still_there: HashSet<String>,
+    tool_lines: Vec<String>,
+}
+
+impl<'a> Change<'a> {
+    fn new(before: &'a str, after: &'a str, landed_by_tools: &[String]) -> Change<'a> {
+        let before_lines: Vec<&str> = before.lines().collect();
+        let after_lines: Vec<&str> = after.lines().collect();
+        Change {
+            already_there: before_lines.iter().map(|l| layout_free(l)).collect(),
+            still_there: after_lines.iter().map(|l| layout_free(l)).collect(),
+            tool_lines: landed_by_tools.iter().map(|l| layout_free(l)).collect(),
+            before_lines,
+            after_lines,
+        }
+    }
+
+    /// Whether one change of the diff is the old lines, or neighbouring tool lines, laid out
+    /// again.
+    fn laid_out_again(&self, op: &DiffOp) -> bool {
+        let old = layout_free(&self.before_lines[op.old_range()].concat());
+        let new = layout_free(&self.after_lines[op.new_range()].concat());
+        old == new || self.run_of_tool_lines(&new)
+    }
+
+    /// Whether a layout-free text is some neighbouring tool lines, as noted: a tool's one long
+    /// line that a formatter then wrapped over three, say.
+    fn run_of_tool_lines(&self, text: &str) -> bool {
+        !text.is_empty()
+            && (0..self.tool_lines.len()).any(|start| {
+                let mut joined = String::new();
+                self.tool_lines[start..].iter().any(|line| {
+                    joined.push_str(line);
+                    joined == text
+                })
+            })
+    }
+
+    /// The person's lines (from 1) of one change of the diff: a deletion is the line after it,
+    /// unless every deleted line is still in the file; otherwise each new line that is not
+    /// layout only, not already in the file and not a tool's.
+    fn persons_lines(&self, op: &DiffOp) -> Vec<u32> {
+        let range = op.new_range();
+        if range.is_empty() {
+            let moved = self.before_lines[op.old_range()]
+                .iter()
+                .all(|line| self.still_there.contains(&layout_free(line)));
+            let line_after = (range.start as u32 + 1).min(self.after_lines.len().max(1) as u32);
+            return if moved { Vec::new() } else { vec![line_after] };
+        }
+        range
+            .filter(|&index| self.persons_line(self.after_lines[index]))
+            .map(|index| index as u32 + 1)
+            .collect()
+    }
+
+    fn persons_line(&self, line: &str) -> bool {
+        let line = layout_free(line);
+        !line.is_empty() && !self.already_there.contains(&line) && !self.tool_lines.contains(&line)
+    }
 }
 
 /// Text with its layout taken out: whitespace, brackets, commas, semicolons and quote marks,
@@ -275,7 +308,7 @@ mod tests {
 
     #[test]
     fn changed_lines_are_runs_in_the_new_text() {
-        let none = HashSet::new();
+        let none: Vec<String> = Vec::new();
         assert_eq!(
             persons_changed_lines("a\nb\nc\n", "a\nB\nc\nd\n", &none),
             [span(2, 2), span(4, 4)]
@@ -289,7 +322,7 @@ mod tests {
 
     #[test]
     fn what_tools_landed_moved_or_reflowed_is_not_the_persons() {
-        let landed = HashSet::from(["pub mod clock;".to_string()]);
+        let landed = vec!["pub mod clock;".to_string()];
         // a tool's line beside the person's
         assert_eq!(
             persons_changed_lines(
@@ -312,6 +345,16 @@ mod tests {
         let one = "f(alpha, beta)\n";
         let wrapped = "f(\n    alpha,\n    beta,\n)\n\n";
         assert!(persons_changed_lines(one, wrapped, &landed).is_empty());
+        // a tool's one line, wrapped by the formatter before anyone looked
+        let tool_line = vec!["from shop.ports.clock import SystemClock".to_string()];
+        assert!(
+            persons_changed_lines(
+                "x = 1\n",
+                "from shop.ports.clock import (\n    SystemClock,\n)\nx = 1\n",
+                &tool_line
+            )
+            .is_empty()
+        );
         // brackets dropped and quotes changed
         assert!(persons_changed_lines("x = (\n    'a'\n)\n", "x = \"a\"\n", &landed).is_empty());
     }
