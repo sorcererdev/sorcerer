@@ -4,7 +4,8 @@
 //! really runs the hooks named in `--settings` after each tool call and at the end, logging
 //! every result to a file of JSON lines.
 //!
-//! Like the real one, it runs a command it counts as read-only (`cat`, `grep`, `git`, …)
+//! Like the real one, it stops playing its steps when a `PostToolUse` hook answers
+//! `{"continue": false}`, and it runs a command it counts as read-only (`cat`, `grep`, `git`, …)
 //! without asking the permission tool, unless the settings' `permissions.ask` names `Bash`.
 //!
 //! The script (`FAKE_APPRENTICE_SCRIPT`, JSON): `{"steps": [...], "cost": 0.71, "session":
@@ -45,7 +46,9 @@ fn main() {
         .unwrap_or_else(|| json!({}));
     let steps = script["steps"].as_array().cloned().unwrap_or_default();
     for step in &steps {
-        play(step, mcp.as_mut(), &hooks);
+        if play(step, mcp.as_mut(), &hooks) == Go::Stop {
+            break;
+        }
     }
     emit(json!({
         "type": "result", "subtype": "success",
@@ -65,7 +68,13 @@ fn main() {
     }
 }
 
-fn play(step: &Value, mcp: Option<&mut Mcp>, hooks: &Value) {
+#[derive(PartialEq)]
+enum Go {
+    On,
+    Stop,
+}
+
+fn play(step: &Value, mcp: Option<&mut Mcp>, hooks: &Value) -> Go {
     if let Some(text) = step["text"].as_str() {
         emit(assistant(json!({ "type": "text", "text": text })));
     } else if let Some(name) = step["tool"].as_str() {
@@ -75,12 +84,12 @@ fn play(step: &Value, mcp: Option<&mut Mcp>, hooks: &Value) {
         ));
         let result = mcp.map(|mcp| mcp.call(name, step["arguments"].clone()));
         log(json!({ "tool": name, "result": result }));
-        after_tool(hooks, &full);
+        return after_tool(hooks, &full);
     } else if let Some(name) = step["builtin"].as_str() {
         emit(assistant(
             json!({ "type": "tool_use", "id": "u", "name": name, "input": step["input"] }),
         ));
-        after_tool(hooks, name);
+        return after_tool(hooks, name);
     } else if let Some(command) = step["bash"].as_str() {
         let input = json!({ "command": command });
         if asks_every_time(hooks, "Bash") || !counted_read_only(command) {
@@ -93,10 +102,11 @@ fn play(step: &Value, mcp: Option<&mut Mcp>, hooks: &Value) {
         emit(assistant(
             json!({ "type": "tool_use", "id": "u", "name": "Bash", "input": input }),
         ));
-        after_tool(hooks, "Bash");
+        return after_tool(hooks, "Bash");
     } else if let Some(ms) = step["sleep_ms"].as_u64() {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
+    Go::On
 }
 
 /// Whether the settings ask about every call of the tool (`"permissions": {"ask": ["Bash"]}`).
@@ -112,13 +122,17 @@ fn counted_read_only(command: &str) -> bool {
     ["cat", "head", "tail", "grep", "ls", "find", "git", "wc"].contains(&program)
 }
 
-fn after_tool(hooks: &Value, tool: &str) {
+/// Runs the `PostToolUse` hook; a hook that answers `continue: false` stops the steps.
+fn after_tool(hooks: &Value, tool: &str) -> Go {
     let output = run_hook(
         hooks,
         "PostToolUse",
         json!({ "hook_event_name": "PostToolUse", "tool_name": tool }),
     );
     log(json!({ "hook": "PostToolUse", "after": tool, "output": output }));
+    let stops = serde_json::from_str::<Value>(&output)
+        .is_ok_and(|output| output["continue"] == json!(false));
+    if stops { Go::Stop } else { Go::On }
 }
 
 fn assistant(block: Value) -> Value {

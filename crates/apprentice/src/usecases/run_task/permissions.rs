@@ -34,7 +34,8 @@ const WRITERS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 /// 3. A command line allowed always runs.
 /// 4. Anything else is asked through the picker: *Allow once*, *Always for this project
 ///    (<the command line>)* unless it chains commands, reads a whole tree or has a glob, and
-///    *Deny*. No answer within the wait is a deny.
+///    *Deny*; an editor with no picker gets the same choices on the instruction's line. No
+///    answer within the wait is a deny.
 ///
 /// Example: `uv run pytest -q` asked, answered *Always for this project (uv run pytest -q)*,
 /// runs; the next `uv run pytest -q` runs unasked, `uv run pytest tests` is asked about.
@@ -106,11 +107,13 @@ fn ask_for(
     .into_iter()
     .flatten()
     .collect();
+    let task = live.record();
     let ask = Ask {
         question: question_text(tool, command),
         options,
         how: AskWay::Picker,
-        at: None,
+        // an editor with no picker gets the choices on the instruction's line instead
+        at: Some((task.file, task.line)),
         default: Some(DENY.into()),
     };
     let wait = Duration::from_secs(deps.config.ask_timeout_seconds);

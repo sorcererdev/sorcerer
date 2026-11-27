@@ -135,12 +135,14 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    - `Permission` (and the `permission` tool) → `answer_permission` (`permissions.rs`): the
      writers and `AskUserQuestion` denied with a sentence; a command naming a fenced path denied
      (`fenced_path_named`); a command line allowed always (`AllowedCommands::allows`) passes;
-     else the picker, with *Always* only when `always_for` gives a line. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
+     else the picker, with *Always* only when `always_for` gives a line, and the instruction's
+     file and line as `Ask::at`, so an editor with no picker is asked there. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
      or `{"behavior":"deny","message":…}`.
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
 4. **Finish** (`finish.rs`, `finish_task`): the state (`done`, `failed`, `stopped`), the cost
-   (the reported one; a stop or an early end is charged the whole `budget_per_task`), the
+   (the reported one; a stop, an early end or a result with no `total_cost_usd` is charged
+   the whole `budget_per_task`), the
    record, one ledger errand (product `apprentice`, verb `task`), the done message
    (`done_text`) and `Editor::finished`.
 
@@ -184,6 +186,20 @@ loopback `Tool` request answered as one text block with `isError`. `apprentice h
 `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":…}}`, or nothing; it
 always exits 0. The `Stop` hook prints nothing: a stop's only way to say more is to refuse the
 stop, and a task that should go on is a new instruction.
+
+**A server that has ended.** `claude` runs in a process group (a job object on Windows) of its
+own, so killing `apprentice lsp` does not kill it. Its helpers notice instead: `HelperWay::ask`
+(`helper_way.rs`) answers `ServerAnswer::Gone` when the loopback port refuses the connection
+(nothing listens there any more). `serve_mcp` then fails the call with `SERVER_GONE` and exits,
+so every later `mcp__apprentice__*` call fails at once; `hook_output` prints
+`{"continue":false,"stopReason":…}`, which ends the agent's work after the tool call it follows
+(confirmed on `claude` 2.1.331 under `-p`: after a `Read` the hook stopped, no second call, the
+result came at once). The agent's input is the dead server's pipe, so it is closed too, and
+`claude` exits once its turn is over. Only a turn with no tool call at all could still spend, and
+the spend cap bounds it. Any other failure to connect (a timeout, a reset) stays an error reply:
+the server may only be busy. Tying the child's life to the server directly was not done: the
+Windows job object `process-wrap` makes has no kill-on-close flag, and nothing on Unix ends a
+process group when its parent dies without code per platform.
 
 ### Fences against the real `claude`
 
@@ -284,7 +300,11 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
   look moved to now.
 - `ask` → `ask_person` (`asks.rs`): on a line (a `PendingAsk`, its mark, a `say`, one code action
   per option, `apprentice.answer` sends the pick down a channel) or in the picker
-  (`Client::ask`); an editor that cannot show the picker falls back to the line.
+  (`Client::ask`); an editor that cannot show the picker (an error reply, `Answer::Unsupported`)
+  falls back to the line. A question of several lines is cut by `Question` (`asks.rs`): the
+  picker and the `say` show its first line (the picker's question said whole first), the mark's
+  message is the first line then the rest, for the hover. A line question's id is
+  `<task>-<n>` from the `asks_put` counter, never reused.
 - `mark` keeps a `SaidMark`; `ghost` and `note` send `sorcerer/ghost` and `sorcerer/note` to an
   editor that handles them (`Client::notify_sorcerer`), else a message and `show_document`.
 - `progress` starts the task's `WorkDone` and reports on it; `finished` → `task_finished`: the
@@ -307,7 +327,9 @@ a `RecordingEditor` (buffers in memory, `person_edits` to type meanwhile, answer
 queue). `tests/harness.rs`: `ClaudeAgent` against `apprentice-fake-claude`
 (`tests/support/fake_claude.rs`), which writes its arguments and first input line to files,
 plays a script, really starts `apprentice mcp` from `--mcp-config` and really runs `apprentice
-hook` from `--settings`, logging each result. `tests/cli.rs`: `main_with` with a `Wiring` of
+hook` from `--settings`, logging each result; like the real one it stops at a hook's
+`continue: false` (`an_agent_whose_server_has_ended_stops_after_its_next_tool_call` points the
+way back at a closed port). `tests/cli.rs`: `main_with` with a `Wiring` of
 doubles. `tests/lsp.rs`: the server over `Connection::memory()` with a small editor
 (`tests/support/lsp_editor.rs`: buffers, versions checked, every `workspace/applyEdit` applied
 and reported, pickers answered from a queue), `StubJev` and `StubResearcher`
