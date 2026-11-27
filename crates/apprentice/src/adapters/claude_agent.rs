@@ -350,40 +350,41 @@ mod tests {
     #[test]
     fn the_helper_command_quotes_an_awkward_path_with_forward_slashes() {
         let mut agent = agent(Path::new("/p"));
-        agent.me = if cfg!(windows) {
-            PathBuf::from(r"C:\Program Files\it's\$x\apprentice.exe")
-        } else {
-            PathBuf::from("C:/Program Files/it's/$x/apprentice.exe")
-        };
+        agent.me = PathBuf::from("C:/Program Files/it's/$x/apprentice.exe");
         assert_eq!(
             agent.helper_command(&["hook", "stop"]),
             "'C:/Program Files/it'\\''s/$x/apprentice.exe' hook stop"
         );
     }
 
-    /// The command goes through `sh -c` as claude runs it; the program must actually start.
-    #[cfg(unix)]
+    /// The command goes through `sh -c` as claude runs it; a copy of this test program, named
+    /// awkwardly, must actually start (and list its tests). A name the system refuses, or no
+    /// `sh`, skips the case.
     #[test]
     fn a_helper_with_an_awkward_name_runs_through_the_shell() {
-        use std::os::unix::fs::PermissionsExt;
+        let Ok(shell) = which::which("sh") else {
+            return;
+        };
         let dir = tempfile::tempdir().unwrap();
         for name in AWKWARD_NAMES {
             let folder = dir.path().join(name);
-            std::fs::create_dir(&folder).unwrap();
             let exe = folder.join(name);
-            std::fs::write(&exe, "#!/bin/sh\necho \"ran $*\"\n").unwrap();
-            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+            if std::fs::create_dir(&folder).is_err()
+                || std::fs::copy(std::env::current_exe().unwrap(), &exe).is_err()
+            {
+                continue;
+            }
             let mut agent = agent(dir.path());
             agent.me = exe;
-            let out = Command::new("sh")
+            let out = Command::new(&shell)
                 .arg("-c")
-                .arg(agent.helper_command(&["hook", "stop"]))
+                .arg(agent.helper_command(&["--list"]))
                 .output()
                 .unwrap();
-            assert_eq!(
-                String::from_utf8_lossy(&out.stdout),
-                "ran hook stop\n",
-                "{name}"
+            let listed = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                listed.contains("a_helper_with_an_awkward_name"),
+                "{name}: {listed}"
             );
         }
     }
