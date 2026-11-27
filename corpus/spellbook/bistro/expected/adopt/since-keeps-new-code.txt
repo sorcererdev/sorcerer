@@ -1,0 +1,4 @@
+$ spellbook check --since HEAD
+✗ src/bistro/booking/commands/__init__.py:1  region-stale — region commands-exports is out of date (+1 −0)  (fixes: Sync region commands-exports)
+✗ src/bistro/booking/commands/seat_walk_in.py:3  commands-use-ports — Commands and queries talk to ports, not the database (python-htmx: ports & adapters)  (fixes: Use a port the service has · Add a port and use it)
+2 blocking findings

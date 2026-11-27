@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Adopting `spellbook check` on code with debt.** `spellbook check --baseline` records today's
+  findings in `.sorcerer/spellbook/baseline.toml`; they show as `(existing)` and never fail, so only
+  new breakage does. `spellbook check --since main` judges a branch on the lines it touched.
+  `[spellbook.rules]` in `config.toml` makes a rule `hint`, `warn`, `error` or `off` for the project.
 - **Spellbook for VS Code:** the plan's title names the inputs taken without asking (an enum with
   one choice), such as `· app bistro, service booking (the only choices)`.
 - **conjure tells you what a step did.** After every step the editor shows one message, such as

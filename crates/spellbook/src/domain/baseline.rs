@@ -50,7 +50,7 @@ pub struct BaselineChange {
 
 /// The baseline in the text of a `baseline.toml`; the problem is TOML's sentence.
 ///
-/// Example: `[[baseline]]\nrule = "r"\nfile = "a.py"\nfingerprint = "3fa9c01"\n` is one entry.
+/// Example: `[[baseline]]\nrule = "r"\nfile = "a.x"\nfingerprint = "3fa9c01"\n` is one entry.
 pub fn parse_baseline(text: &str) -> Result<Baseline, String> {
     let file: BaselineFile =
         toml::from_str(text).map_err(|e: toml::de::Error| e.message().trim().to_string())?;
@@ -94,7 +94,7 @@ impl Baseline {
 
     /// The findings with `existing` set on each one an entry stands for, each entry used once.
     ///
-    /// Example: one entry for `import sqlite3` in `a.py` and two such findings in `a.py`: the
+    /// Example: one entry for `import sqlite3` in `a.x` and two such findings in `a.x`: the
     /// first is existing, the second is new.
     pub fn marked(&self, findings: Vec<Finding>) -> Vec<Finding> {
         let mut left = self.counts();
@@ -180,32 +180,32 @@ mod tests {
 
     #[test]
     fn each_entry_stands_for_one_finding() {
-        let baseline = Baseline::of(&[finding("a.py", "1111111")]);
+        let baseline = Baseline::of(&[finding("a.x", "1111111")]);
         let found = baseline.marked(vec![
-            finding("a.py", "1111111"),
-            finding("a.py", "1111111"),
-            finding("b.py", "1111111"),
+            finding("a.x", "1111111"),
+            finding("a.x", "1111111"),
+            finding("b.x", "1111111"),
         ]);
         assert_eq!(existing(&found), [true, false, false]);
     }
 
     #[test]
     fn the_text_reads_back_sorted() {
-        let baseline = Baseline::of(&[finding("b.py", "2222222"), finding("a.py", "1111111")]);
+        let baseline = Baseline::of(&[finding("b.x", "2222222"), finding("a.x", "1111111")]);
         let text = baseline_text(&baseline);
         assert!(text.starts_with("# Findings recorded"), "{text}");
-        assert!(text.find("a.py") < text.find("b.py"), "{text}");
+        assert!(text.find("a.x") < text.find("b.x"), "{text}");
         assert_eq!(parse_baseline(&text).unwrap(), baseline);
     }
 
     #[test]
     fn a_change_counts_paid_off_and_new() {
         let older = Baseline::of(&[
-            finding("a.py", "1"),
-            finding("a.py", "2"),
-            finding("a.py", "2"),
+            finding("a.x", "1"),
+            finding("a.x", "2"),
+            finding("a.x", "2"),
         ]);
-        let newer = Baseline::of(&[finding("a.py", "2"), finding("a.py", "3")]);
+        let newer = Baseline::of(&[finding("a.x", "2"), finding("a.x", "3")]);
         assert_eq!(
             older.change_to(&newer),
             BaselineChange {

@@ -95,7 +95,16 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   and `Span` (rows and bytes); `fingerprint`: seven hex digits of `fnv64_hex` over the
   rule and the node text with whitespace collapsed), `allow.rs` (`allow_comments`, `silencing`),
   `report.rs` (`ReportFile`, `with_files_replaced`, `sort_findings`; `report.json` is a core
-  `Versioned` at version 1).
+  `Versioned` at version 1). `Finding.existing` is set by the baseline and left out of the JSON when
+  false.
+- `baseline.rs`: `Baseline` (sorted `BaselineEntry { file, rule, fingerprint }`), `parse_baseline`,
+  `baseline_text` (the header and `[[baseline]]` tables), `Baseline::of(findings)` (rule findings
+  only, never a region's), `Baseline::marked(findings)` (each entry marks one finding `existing`, by
+  count) and `Baseline::change_to(newer)` (`BaselineChange { paid_off, new }`).
+- `rule_settings.rs`: `with_project_settings(rules, settings) -> ProjectRules { run, off }`: the
+  `[spellbook.rules]` severities laid over the rules, `off` ones left out of `run` and listed, a
+  setting for no rule refused naming it. `config.rs`'s `SpellbookConfig.rules` holds the settings
+  (`RuleSetting::{Hint, Warn, Error, Off}`).
 
 `ports/`: `generators.rs` (`Generators`: `all`, `named`), `grammars.rs` (`Grammars::for_path`:
 the loaded language of a path, or none; `covers` and `line_comment`, which `CachedGrammars` answers
@@ -114,19 +123,20 @@ work), `planned_view.rs` (`PlannedView`: a `CodebaseView` that answers
 `exists`, `text` and `glob` with the plan so far laid over the project and passes every other
 question on), `fixes_for.rs`
 (`FixOffer`, `fixes_for`, `region_fix_offer`), `plan_fix.rs` (`FixDeps`, `FindingAt`, `plan_fix`), `apply_plan.rs`
-(`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, which carries `regions`, `check_files`), `check_project.rs`
-(`check_project`).
+(`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, which carries `regions`, `off` and `baseline`, `check_files`), `check_project.rs`
+(`check_project`), `check_since.rs` (`check_since(deps, rev)`).
 
 `adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
 `load_generator`, which follows `[[uses]]` with `uses_agree`: each used generator there and
 loading, its `with` names its inputs, no cycle, at most four in a chain; `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
 `Languages::for_path` and `Languages::load`), `disk_workspace.rs`, `jsonl_generation_store.rs`,
 `json_holes.rs` (core's `Store` at `spellbook/holes.json`), `json_report.rs` (the same at
-`spellbook/report.json`), `regions_toml.rs` (`load_regions`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every
+`spellbook/report.json`), `regions_toml.rs` (`load_regions`), `baseline_toml.rs` (`BASELINE_FILE`, `load_baseline`,
+`write_baseline`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every
 rule's fixes against `generator_named`), `query_rules.rs` (`QueryRules`, the `RuleRunner` over
 tree-sitter), `query_anchors.rs` (`QueryAnchors<G>`, the `Anchors` port over a language's query captures,
 read through core's `Captures`), `checking.rs` (`Wired::checking()`: the rules
-read fresh, the settings and the runner, then `Checking::deps()` and `Checking::fix_deps()`), `system_clock.rs`, `wiring.rs` (`Wired`, `live`, `wired`, and
+read fresh with `[spellbook.rules]` over them, the baseline, the settings and the runner, then `Checking::deps()` and `Checking::fix_deps()`), `system_clock.rs`, `wiring.rs` (`Wired`, `live`, `wired`, and
 `plan_deps`/`apply_deps`/`holes_deps`; `Wired.regions` is `regions.toml` read once).
 
 `adapters/lsp/`: the server, below.
@@ -507,17 +517,25 @@ contract grows by `files[].region`, `files[].set_up`, `notes`, the two finding c
 `spellbook check` (`cli/check.rs`) and the server share one path:
 
 1. `Wired::checking()` (`adapters/checking.rs`) reads `.sorcerer/spellbook/rules.toml` fresh
-   (`load_rules` → `parse_rules`, so a bad file is a sentence, not a panic) and `[spellbook]`, and
-   builds a `QueryRules` over the project's `CachedGrammars`.
+   (`load_rules` → `parse_rules`, so a bad file is a sentence, not a panic) and `[spellbook]`, lays
+   `[spellbook.rules]` over the rules (`with_project_settings`: `Checking.rules` is what runs,
+   `CheckDeps.off` the ids turned off, which `allow_warnings` still counts as known), reads
+   `baseline.toml` (`load_baseline`), and builds a `QueryRules` over the project's `CachedGrammars`.
 2. `check_files(deps, files)` (`usecases/check_files.rs`), for each file: skip it when it matches
    `[spellbook] exclude`, has no language (`Grammars::for_path`) or is not text; keep the rules whose
    `files` pattern matches and no `exclude` does (`Rule::applies_to`); ask the `RuleRunner` for raw
    findings; keep one a line for each rule; read the file's allow comments (`allow_comments` over `RuleRunner::comments_in`, the parser's comment nodes, so text in a string is never one; with the
    language's `comment` marker) and drop each finding one names (`silencing`: its line or the one
-   above); add an `allow-without-reason` or `unknown-rule` warning on each comment that needs it; sort;
-   then `ReportStore::replace_files` keeps just those files' findings in `report.json`.
+   above); add an `allow-without-reason` or `unknown-rule` warning on each comment that needs it; add
+   the regions' findings; sort; mark the baselined ones (`Baseline::marked`); then
+   `ReportStore::replace_files` keeps just those files' findings in `report.json`. The rules' half is
+   `rule_findings_of_files`, the regions' `regions_out_of_step(deps, files)`.
 3. `check_project` (`usecases/check_project.rs`) is the same over `view.glob("**")` less
-   `.sorcerer/` and `.git/`, and `replace_all`.
+   `.sorcerer/` and `.git/`, and `replace_all`. `check_since(deps, rev)` (`usecases/check_since.rs`)
+   takes `view.changed_since(rev)` (still on disk), runs `rule_findings_of_files` on them and keeps a
+   finding when its line is in `added_lines(text_at(rev), text)` (`domain/change.rs`, a line diff with
+   `\r\n` folded; a file absent at `rev` is all new), adds `regions_out_of_step(deps, None)` (every
+   region), sorts and marks; it writes no report.
 4. `QueryRules::findings_in` (`adapters/query_rules.rs`) parses the file with `Loaded::parse`,
    compiles each rule's query once for each language (`sorcerer_core::domain::query::compile`, which
    refuses predicates tree-sitter would skip; the cache is per `QueryRules`, so per command or per
@@ -525,6 +543,12 @@ contract grows by `files[].region`, `files[].set_up`, `notes`, the two finding c
 
 The server's `file_diagnostics` calls `check_files` for the one file, so a save refreshes the report
 and the findings; a rules file that does not load is said once with `Client::say_once`.
+`lsp/findings.rs::finding_mark` makes an existing finding a Hint ending ` (existing)`.
+
+`cli/check.rs` turns the flags into a `CheckScope` (`Project`, `Files`, `Since`) for `check`, and
+`--baseline` into `record_baseline`: `check_project`, `Baseline::of`, `change_to` the old one,
+`write_baseline`, and `baselined_text`. `is_blocking` (an error not existing) sets the exit code;
+`verdict_text` counts the existing; a whole-project check adds the paid-off line from `change_to`.
 
 ## Why a grammars port
 
@@ -553,7 +577,9 @@ command-shaped files (one-line and one-per-line lists, a call narrowed with `in`
 statement with its hole, and a second run that has nothing to do). `use_corpus_rules` copies the
 corpus's generators with its rules, since the rules' fixes name them.
 
-`regions.rs` covers `plan_sync`, `region_findings` and a `new` refreshing a region on bistro-rs;
+`adoption.rs` covers the baseline, `check --since` (in a fresh git repository) and `[spellbook.rules]`
+through `main_with`; the corpus's `adopt` cases (`corpus/spellbook/README.md`) run the same on bistro
+and bistro-rs. `regions.rs` covers `plan_sync`, `region_findings` and a `new` refreshing a region on bistro-rs;
 `sync.rs` the `sync` command, `check`'s region findings and fix, `new`'s region row and notes, the exit
 codes and `doctor`'s row, through `main_with`. `lsp.rs`'s region tests run on bistro-rs with the
 corpus's `base/` laid over it (`support::bistro_rs_with_regions`): a save that writes a closed region

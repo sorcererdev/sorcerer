@@ -1,0 +1,6 @@
+# The old import is committed; the branch adds a command by hand that imports sqlite3 too.
+# check --since HEAD shows only the new one, and the region the new file made stale.
+committed = ["../check/sqlite3-in-command.patch"]
+patches   = ["walk-in-with-sqlite3.patch"]
+commands  = ["check --since HEAD"]
+exit      = 1

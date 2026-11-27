@@ -1,0 +1,5 @@
+# The project makes commands-use-ports a warning in [spellbook.rules]: the finding is shown and
+# the check holds.
+patches  = ["../check/sqlite3-in-command.patch", "override-to-warn.patch"]
+commands = ["check"]
+exit     = 0

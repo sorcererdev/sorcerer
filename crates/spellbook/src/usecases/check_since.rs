@@ -19,8 +19,8 @@ use crate::usecases::check_project::is_spellbooks_own;
 /// makes a list stale without touching it. The baseline still marks what is existing. Nothing is
 /// saved: the report keeps whole checks. Returns the findings, by file then line.
 ///
-/// Example: `import sqlite3` committed in `a.py` on `main` and a new one written in `b.py` on
-/// the branch: `check_since(deps, "main")` returns the one in `b.py`.
+/// Example: a finding committed in `a.x` on `main` and a new one written in `b.x` on
+/// the branch: `check_since(deps, "main")` returns the one in `b.x`.
 pub fn check_since(deps: &CheckDeps, rev: &str) -> Result<Vec<Finding>> {
     let files = changed_files_on_disk(deps, rev)?;
     let added = added_lines_of(deps, &files, rev)?;

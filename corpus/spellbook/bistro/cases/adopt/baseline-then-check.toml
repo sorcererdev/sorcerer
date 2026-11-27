@@ -1,0 +1,5 @@
+# Old debt recorded: the baseline lists today's finding, and check then shows it as existing
+# and holds.
+patches  = ["../check/sqlite3-in-command.patch"]
+commands = ["check --baseline", "check"]
+exit     = 0

@@ -1,0 +1,6 @@
+# The old panic is committed; the branch adds a command by hand that panics too. check --since
+# HEAD shows only the new one, and the modules region the new file made stale.
+committed = ["../check/panic-in-command.patch"]
+patches   = ["walk-in-with-panic.patch"]
+commands  = ["check --since HEAD"]
+exit      = 1

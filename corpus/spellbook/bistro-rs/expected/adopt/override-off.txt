@@ -1,0 +1,2 @@
+$ spellbook check
+conventions hold (no findings)

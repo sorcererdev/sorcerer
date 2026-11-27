@@ -23,6 +23,7 @@ line in `ports/mod.rs` (the `ports` region) and the rewiring.
 Cases: `new/` (two), `holes/one-filled`, `check/` (clean, a `panic!` in a command, `region-stale`), `fix/`
 (use-port on an import, and on a `std::fs::write` statement, which leaves a `stmt` hole; add-port on an
 import and on the write), `sync/` (set up on the shared base, up to date, a hand-made file, a deleted file, a hand edit in the
-block, broken markers stopping `sync` and `new`, `--check`, `--plan`) and `load/` (a method named with another
+block, broken markers stopping `sync` and `new`, `--check`, `--plan`), `adopt/` (`check --since HEAD` on a branch, a rule turned off in
+`[spellbook.rules]`) and `load/` (a method named with another
 language's separator, `CreateBooking.new`, which Rust spells `CreateBooking::new`; five region mistakes). The layout and how to add a case are in
 [`../README.md`](../README.md).
