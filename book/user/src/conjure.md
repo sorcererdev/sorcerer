@@ -124,6 +124,8 @@ VS Code's Problems panel. One change is marked at a time.
   situation the writer read, its reply as it came, and what the code said about the function
   before.
 - *conjure: Show `<file>`*, one for each other changed file, opens it with the change selected.
+  Two changed files that share a name are told by their paths (`Show src/ports/mod.rs`, `Show
+  src/ports/walk_in_log/mod.rs`), as in the step's message.
 
 **When a mark goes away.** Saving a changed file keeps the change: that file's mark goes, and the
 other files keep theirs, now ending ` · kept: a file was saved, so no Undo`, until each is saved
@@ -303,7 +305,8 @@ conjure: today's budget ($3.00) is spent. Conjuring resumes tomorrow; "conjure c
 - call a model in a test: its tests and its eval replay recorded replies.
 
 `conjure doctor` prints a row for git, the provider and what its aliases mean, your settings, the
-languages (and whether each has its test and import tables), scry's findings file, the ledger,
+languages (and whether each has its test and import tables), scry's findings file, whether changes
+are checked against spellbook's rules, the ledger,
 the records and whether the editor's server needs the project trusted. `conjure trust` puts the
 project on the same trust list as `scry trust`, for a project whose config runs code or moves
 your key.

@@ -364,16 +364,34 @@ fn doctor_exits_2_when_a_row_fails_and_prints_rows() {
         out.lines()
             .next()
             .unwrap()
-            .starts_with(&format!("{:<13} FAIL  git is not on PATH", "git")),
+            .starts_with(&format!("{:<15} FAIL  git is not on PATH", "git")),
         "{out}"
     );
     let home = tempfile::tempdir().unwrap();
     let (code, out, _) = run_with_env(d.path(), &good_env(home.path()), &["doctor"], "");
     assert_eq!(code, 0, "{out}");
     assert!(
-        out.contains(&format!("{:<13} ok    not needed\n", "trust")),
+        out.contains(&format!("{:<15} ok    not needed\n", "trust")),
         "{out}"
     );
+}
+
+/// The editor walk of 2026-11-27: `spellbook rules` is longer than the other names, and its
+/// row broke the column. Every row's `ok` or `FAIL` starts in the same column.
+#[test]
+fn doctor_rows_line_up_whatever_the_longest_name() {
+    let d = git_project();
+    let home = tempfile::tempdir().unwrap();
+    let (_, out, _) = run_with_env(d.path(), &good_env(home.path()), &["doctor"], "");
+    let columns: std::collections::BTreeSet<usize> = out
+        .lines()
+        .map(|line| {
+            line.find(" ok    ")
+                .or_else(|| line.find(" FAIL  "))
+                .unwrap_or_else(|| panic!("no status in {line:?}"))
+        })
+        .collect();
+    assert_eq!(columns.len(), 1, "{out}");
 }
 
 fn at(day_time: &str, verb: &str, cost: f64) -> sorcerer_core::domain::errand::Errand {

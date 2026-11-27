@@ -179,7 +179,8 @@ person must hear goes through `Client::say`, and an error answers only a malform
    over the same view, and runs `conjure_change`. A refusal is its sentence; `NotAnswered` is
    also recorded `failed` (`failed_record`).
 3. **Landed.** `land`: no files is shown at once as no change and recorded `no-change`. The step
-   ends with one `window/showMessage` (Info) from `step_text` in `changes.rs` (`changed_text`,
+   ends with one `window/showMessage` (Info) from `step_text` in `changes.rs` (`changed_text`, naming each file by `names_told_apart`, which
+the mark's *Show `<file>`* titles use too (`other_files` in `commands.rs`),
    `no_change_text`), sent for no change and, in `confirm_landed`, for a change that landed whole;
    refusals and partial landings send their own Warning instead. Otherwise
    `moved_on` refuses to send when a file the change edits moved on since it was read (an open

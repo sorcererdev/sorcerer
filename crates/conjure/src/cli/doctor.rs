@@ -40,8 +40,9 @@ pub(super) fn doctor(
     out: &mut dyn Write,
 ) -> Result<i32> {
     let rows = doctor_rows(project, env, cache);
+    let width = rows.iter().map(|row| row.name.len()).max().unwrap_or(0);
     for row in &rows {
-        write!(out, "{}", row_text(row))?;
+        write!(out, "{}", row_text(row, width))?;
     }
     let any_failed = rows.iter().any(|row| row.result.is_err());
     Ok(if any_failed { 2 } else { 0 })
@@ -254,11 +255,12 @@ fn trust_row(project: &Project, list: Option<&TrustList>) -> Result<String, Stri
     })
 }
 
-/// A row as printed: `provider   ok    claude (…)`, or `FAIL` and why.
-fn row_text(row: &DoctorRow) -> String {
+/// A row as printed, its name padded to WIDTH (the longest name) so the column holds:
+/// `provider        ok    claude (…)`, or `FAIL` and why.
+fn row_text(row: &DoctorRow, width: usize) -> String {
     let name = row.name;
     match &row.result {
-        Ok(found) => format!("{name:<13} ok    {found}\n"),
-        Err(why) => format!("{name:<13} FAIL  {why}\n"),
+        Ok(found) => format!("{name:<width$} ok    {found}\n"),
+        Err(why) => format!("{name:<width$} FAIL  {why}\n"),
     }
 }

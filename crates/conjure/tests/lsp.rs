@@ -1542,6 +1542,28 @@ fn a_changed_unterminated_last_line_ends_in_utf16_units() {
 
 // ---- Task 21: the mark's actions and the choices ----
 
+/// The second editor walk of 2026-11-27: a change to `ports/mod.rs` and `walk_in_log/mod.rs`
+/// offered `Show mod.rs` twice. Two changed files that share a name are shown by their paths.
+#[test]
+fn two_changed_files_that_share_a_name_are_shown_by_their_paths() {
+    let reply = format!(
+        "<goal>fill total</goal>\n<file path=\"src/a.py\">\n{NEW_A}</file>\n<file path=\"src/one/b.py\">\n{NEW_B}</file>\n<file path=\"src/two/b.py\">\n{NEW_B}</file>\n"
+    );
+    let (_dir, s) = landed(&[&reply]);
+    let main = s.marks("src/a.py");
+    let titles = s.titles("src/a.py", 4, &main);
+    let shows: Vec<&str> = titles
+        .iter()
+        .map(String::as_str)
+        .filter(|t| t.starts_with("conjure: Show ") && *t != "conjure: Show why")
+        .collect();
+    assert_eq!(
+        shows,
+        ["conjure: Show src/one/b.py", "conjure: Show src/two/b.py"]
+    );
+    s.stop();
+}
+
 /// The action titled TITLE on the main mark's line of `a.py`, with the marks the editor shows.
 fn mark_action(s: &Served, relative: &str, marks: &[Diagnostic], title: &str) -> Value {
     let line = marks[0].range.start.line;

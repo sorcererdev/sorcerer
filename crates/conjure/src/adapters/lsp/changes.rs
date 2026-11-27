@@ -1034,24 +1034,35 @@ fn step_text(landed: &LandedChange) -> String {
 }
 
 /// `conjure: changed seat_party__test.py (1 line), seat_party.py (2 lines) · add a test`.
-/// Each file is its name alone, or its path from the root when two changed files share a name.
+/// Each file is named as [`names_told_apart`] says.
 fn changed_text(files: &[(String, u32)], goal: &str) -> String {
-    let name_of = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
-    let shown: Vec<String> = files
-        .iter()
-        .map(|(path, lines)| {
-            let name = name_of(path);
-            let shared = files
-                .iter()
-                .filter(|(other, _)| name_of(other) == name)
-                .count()
-                > 1;
-            let name = if shared { path.clone() } else { name };
+    let paths: Vec<String> = files.iter().map(|(path, _)| path.clone()).collect();
+    let shown: Vec<String> = names_told_apart(&paths)
+        .into_iter()
+        .zip(files)
+        .map(|(name, (_, lines))| {
             let unit = if *lines == 1 { "line" } else { "lines" };
             format!("{name} ({lines} {unit})")
         })
         .collect();
     format!("conjure: changed {} \u{b7} {goal}", shown.join(", "))
+}
+
+/// How the person is told each of a change's files (paths from the root, with `/`), in the
+/// same order: its name alone, or its path when another file of the change shares the name.
+///
+/// Example: `src/ports/mod.rs`, `src/ports/walk_in_log/mod.rs` and `src/seat.rs` are told
+/// `src/ports/mod.rs`, `src/ports/walk_in_log/mod.rs` and `seat.rs`.
+pub(super) fn names_told_apart(paths: &[String]) -> Vec<String> {
+    let name_of = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
+    paths
+        .iter()
+        .map(|path| {
+            let name = name_of(path);
+            let shared = paths.iter().filter(|other| name_of(other) == name).count() > 1;
+            if shared { path.clone() } else { name }
+        })
+        .collect()
 }
 
 /// A step that changed nothing: the writer said `nothing`, or wrote what is already there.
