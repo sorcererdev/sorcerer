@@ -11,7 +11,7 @@ spellbook's `Product::saved` may still send `workspace/applyEdit` (its owned reg
 `Client::apply_edit` takes a callback and nothing waits, `Client::is_open` tells it whether a
 region file is the editor's to change or the disk's, and `Client::text_of` (spellbook tracks text
 for this) gives the buffer's text and the version the edit is tied to (`crates/spellbook/src/adapters/lsp/sync_on_save.rs`).
-apprentice's server (`apprentice lsp`) tracks text, lands each of a task's writes through the
+lackey's server (`lackey lsp`) tracks text, lands each of a task's writes through the
 host's landing code, and was the reason that code moved here from conjure and `notify_sorcerer`
 was added. No scry type appears in the crate.
 
@@ -72,7 +72,7 @@ through the `url` crate). There is no async runtime.
   (`Client::replied`). A reply never received leaves its handler waiting, and nothing blocks
   on it. `workspace/applyEdit` goes the same way.
 
-- **Landing an edit**, for a product that writes (conjure, apprentice). `landing::workspace_edit`
+- **Landing an edit**, for a product that writes (conjure, lackey). `landing::workspace_edit`
   turns a change's files (`FileChange`: the path relative to the root, new or not, the text
   before and after, the `LineEdit`s) into one `WorkspaceEdit`: each open file a
   `TextDocumentEdit` at the version in the `Snapshot` taken when the change was asked for, a file
@@ -98,7 +98,7 @@ through the `url` crate). There is no async runtime.
   `Client::apply_tool_edit(state_dir, …)`, which first appends, per edited file, the trimmed
   lines its text edits put there to `.sorcerer/state/tool-edits.jsonl`
   (`tool_edits::note_tool_edit`; written before the request, so the note is there when the
-  change is reported). apprentice reads `lines_tools_landed(state_dir, file, now)` (the notes
+  change is reported). lackey reads `lines_tools_landed(state_dir, file, now)` (the notes
   of the last ten minutes) at each look and leaves those lines out of triage. The note is
   pruned to its last ten minutes once it holds more than 200 lines; a note that cannot be
   written is skipped and the edit still goes.
@@ -120,12 +120,12 @@ thread.
   `drawsWorking: true` (`Abilities::draws_working`, read in `serve::abilities_of`); to any other
   both calls do nothing. `clear_working` sends the empty list only when something is shown. The
   clients clear it themselves when the server exits. `show_working_each(places)` is the same
-  with a text per place (`WorkingPlace`), for a server doing two things at once (apprentice).
+  with a text per place (`WorkingPlace`), for a server doing two things at once (lackey).
 - `key_for(action)`: the editor's key for an action by name, from
   `initializationOptions.keys` (`Abilities::keys`), so a mark can name it (`<leader>mo opens the
   whole answer`); `None` when the editor named none.
 - `notify_sorcerer(method, params) -> bool`: a `sorcerer/…` notification of the product's own
-  (apprentice's `sorcerer/ghost`, `sorcerer/note`, `sorcerer/showDiff`), sent only to an editor
+  (lackey's `sorcerer/ghost`, `sorcerer/note`, `sorcerer/showDiff`), sent only to an editor
   whose `initializationOptions.handles` lists the method (`Abilities::handles`, read in
   `serve::abilities_of`); it answers whether it was sent, so the product falls back to a
   standard message (`say`, `show_document`) for any other editor. `handles(method)` asks the
@@ -143,7 +143,7 @@ thread.
   the reply arrives; an error reply is `applied: false` with the error's message as the reason.
 - `apply_tool_edit(state_dir, label, edit, on_reply)`: the same, with the edit's lines noted
   first in the project's state directory (none when the project did not open). Products use
-  this one; spellbook's `send_edit`, conjure's `land` and undo, apprentice's `write_for_task`,
+  this one; spellbook's `send_edit`, conjure's `land` and undo, lackey's `write_for_task`,
   undo and *Keep this answer* each pass their project's `state_dir`.
 
 What the editor can do, read at the handshake: `related_information()`; `can_apply_edits()`

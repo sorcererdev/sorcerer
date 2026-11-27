@@ -4,7 +4,7 @@ Everything in Sorcerer that can spend money: model providers, researchers, the J
 
 ## Who uses it
 
-scry, conjure and apprentice. Products name models by alias (`sonnet`, `haiku`, `strong`, `cheap`) and never a vendor's id.
+scry, conjure and lackey. Products name models by alias (`sonnet`, `haiku`, `strong`, `cheap`) and never a vendor's id.
 
 ## Main parts
 

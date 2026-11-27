@@ -1,6 +1,6 @@
 # sorcerer-core
 
-The shared base of scry, conjure, spellbook and apprentice: projects, config, languages, code units, the findings store, the cost ledger and fences (paths a model never sees). A library with no commands.
+The shared base of scry, conjure, spellbook and lackey: projects, config, languages, code units, the findings store, the cost ledger and fences (paths a model never sees). A library with no commands.
 
 ## Who uses it
 

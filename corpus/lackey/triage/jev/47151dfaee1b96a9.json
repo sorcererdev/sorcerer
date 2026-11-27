@@ -1,0 +1,11 @@
+{
+  "choice": "instruction",
+  "confidence": 0.85,
+  "probabilities": {
+    "aside": 0.11,
+    "claim": 0.0,
+    "instruction": 0.89,
+    "question": 0.0
+  },
+  "type": "choice"
+}

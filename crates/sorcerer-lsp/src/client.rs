@@ -189,10 +189,10 @@ impl Client {
     }
 
     /// [`Client::show_working`] with a text of its own at each place, for a server doing two
-    /// things at once (apprentice researching a question while a task works further down).
+    /// things at once (lackey researching a question while a task works further down).
     ///
     /// Example: `show_working_each(&[WorkingPlace { path: readme, line: 65, text:
-    /// "⟳ apprentice: researching…".into() }])`; an empty list ends what was shown.
+    /// "⟳ lackey: researching…".into() }])`; an empty list ends what was shown.
     pub fn show_working_each(&self, places: &[WorkingPlace]) {
         if !self.shared.abilities.draws_working {
             return;

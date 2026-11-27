@@ -8,6 +8,6 @@
 - [Scry](scry.md)
 - [Conjure](conjure.md)
 - [Spellbook](spellbook.md)
-- [Apprentice](apprentice.md)
+- [Lackey](lackey.md)
 - [The language-server host](lsp.md)
 - [Releasing](releasing.md)

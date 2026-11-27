@@ -76,7 +76,7 @@ Conjure is in five layers (see [Architecture](architecture.md)).
 - `reply.rs`: `read_reply`, `ChangeReply` (the same path twice keeps the last block; `is_nothing`).
 - `edits.rs`: `lexical_relative`, `Landing`, `DropReason`, `NameCase`, and a re-export of the
   host's `sorcerer_lsp::line_edits` (`in_base_line_endings`, `line_edits`, `LineEdit`,
-  `first_changed_line`, `lines_changed`), which moved there for apprentice
+  `first_changed_line`, `lines_changed`), which moved there for lackey
   ([The language-server host](lsp.md#what-the-host-owns)).
 - `spellbook_findings.rs`: conjure's reading of `spellbook check --json`: `RuleFinding`,
   `RulesRead` (`Checked`, `NotChecked(why)`), `RulesOutcome` (`Kept`, `AskedAgain`, `HeldBack`, on
@@ -245,7 +245,7 @@ the mark's *Show `<file>`* titles use too (`other_files` in `commands.rs`),
    `landing::file_changes`); then the host's `landing::workspace_edit` builds one
    `WorkspaceEdit` (each existing file a `TextDocumentEdit` at the snapshot's version, `None` for
    a file that was not open; each new file a `CreateFile` with `ignoreIfExists` and its text over the whole new buffer;
-   new files left out under `NewFiles::LeftOut`), and `Client::apply_tool_edit` sends it (noting its lines as a tool's for apprentice; see the host chapter). On
+   new files left out under `NewFiles::LeftOut`), and `Client::apply_tool_edit` sends it (noting its lines as a tool's for lackey; see the host chapter). On
    `applied`, `confirm_landed` (on a thread) waits up to 3 s for each file to read as its
    after-text (`files_not_as_sent`; an editor may answer before it reports, and may skip a file
    and still say applied): all as sent, `show` makes it the shown change (`Open`; the one before
@@ -345,7 +345,7 @@ edit without conjure attached to it, and the server would then read that file as
 sent" (`confirm_landed`). A file the change creates is attached too though it is not on disk:
 Neovim's `create_file` (`runtime/lua/vim/lsp/util.lua`) writes nothing for a `CreateFile` with
 `ignoreIfExists`, only `bufadd`s the name, so `M.attach` skips a name with another scheme
-(`fugitive://…`) rather than a name not on disk. The same goes for apprentice's `M.attach`. `status()` of the plugin joins scry's and conjure's progress lines. `lua/sorcerer/working.lua`
+(`fugitive://…`) rather than a name not on disk. The same goes for lackey's `M.attach`. `status()` of the plugin joins scry's and conjure's progress lines. `lua/sorcerer/working.lua`
 draws `sorcerer/working` for both servers: `client_config()` adds `init_options = { drawsWorking =
 true }`, the `sorcerer/working` handler and an `on_exit` that clears, to each `vim.lsp.start`;
 `show` puts one `eol` extmark per unit in the `sorcerer_working` namespace (highlight

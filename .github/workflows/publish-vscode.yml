@@ -1,4 +1,4 @@
-# Publishes the Scry, Conjure, Spellbook and Apprentice VS Code extensions to the Marketplace (VSCE_PAT) and Open VSX
+# Publishes the Scry, Conjure, Spellbook and Lackey VS Code extensions to the Marketplace (VSCE_PAT) and Open VSX
 # (OVSX_PAT). Called by the generated release.yml after the release is announced
 # (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone; also run by
 # hand (Actions, publish-vscode) to publish again.
@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        extension: [scry, conjure, spellbook, apprentice]
+        extension: [scry, conjure, spellbook, lackey]
     defaults:
       run:
         working-directory: editors/vscode/${{ matrix.extension }}

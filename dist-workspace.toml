@@ -3,7 +3,7 @@ members = ["cargo:."]
 
 # Releases are built by `dist` (cargo-dist): `.github/workflows/release.yml` is generated from
 # this file by scripts/release-workflow (dist generate plus one patch, below) and checked by
-# `scripts/release-workflow --check` in CI; do not edit it by hand. Only sorcerer-scry, sorcerer-conjure, sorcerer-spellbook and sorcerer-apprentice are released as programs; the library crates set
+# `scripts/release-workflow --check` in CI; do not edit it by hand. Only sorcerer-scry, sorcerer-conjure, sorcerer-spellbook and sorcerer-lackey are released as programs; the library crates set
 # `[package.metadata.dist] dist = false`.
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
@@ -14,7 +14,7 @@ ci = "github"
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
-# Where the installers put `scry`, `conjure`, `spellbook` and `apprentice`
+# Where the installers put `scry`, `conjure`, `spellbook` and `lackey`
 install-path = "~/.local/bin"
 # Archive formats: tar.gz everywhere but Windows, so any system `tar` unpacks them
 unix-archive = ".tar.gz"

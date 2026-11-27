@@ -5,7 +5,7 @@ import { forDocument, statusText, type WorkingUnit } from './working';
 // line, in the editors showing them, and takes it away when the server says it is done. VS Code
 // moves a decoration with the text as the person types, so the text stays on its line; it is
 // drawn again when an editor opens or comes back into view. While anything is worked on, the
-// status bar says so with a spinning icon (`$(sync~spin) apprentice: researching…`): VS Code
+// status bar says so with a spinning icon (`$(sync~spin) lackey: researching…`): VS Code
 // spins it itself, at no cost here. The grey text does not spin: redrawing every editor's
 // decorations ten times a second to cycle a glyph costs more than it shows (decided 2026-11-27).
 export class Working implements vscode.Disposable {

@@ -1,7 +1,7 @@
 //! The lines Sorcerer's own servers asked the editor to land, noted in the project's state so a
 //! server that watches the person's typing can tell them apart. The editor reports every change
 //! the same way (`textDocument/didChange` with the whole text), whoever made it; a line that
-//! spellbook's sync, a conjure step or an apprentice task landed a moment ago is theirs, not
+//! spellbook's sync, a conjure step or a lackey task landed a moment ago is theirs, not
 //! the person's.
 //!
 //! The note is `.sorcerer/state/tool-edits.jsonl`: one line per edit sent, with the time, the

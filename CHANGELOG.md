@@ -2,15 +2,15 @@
 
 ## Unreleased
 
-- **Apprentice is released.** The coding agent whose whole interface is your editor ships like
-  the other three: the `apprentice` program in the release (installers
-  `sorcerer-apprentice-installer.sh`/`.ps1`), `cargo install sorcerer-apprentice`, and the
-  Apprentice extension on the VS Code Marketplace and Open VSX (`sorcererdev.apprentice`), which
+- **Lackey is released.** The coding agent whose whole interface is your editor ships like
+  the other three: the `lackey` program in the release (installers
+  `sorcerer-lackey-installer.sh`/`.ps1`), `cargo install sorcerer-lackey`, and the
+  Lackey extension on the VS Code Marketplace and Open VSX (`sorcererdev.lackey`), which
   offers to download its program like Scry's. It runs Claude Code (`claude -p`) on your own
-  subscription, so it needs `claude` installed and signed in; `apprentice doctor` checks.
-  The test program `apprentice-fake-claude` is built only with the `fake-claude` feature, so it
+  subscription, so it needs `claude` installed and signed in; `lackey doctor` checks.
+  The test program `lackey-fake-claude` is built only with the `fake-claude` feature, so it
   is in neither the release nor `cargo install`.
-- **Apprentice starts tasks fast in a large project.** The symbolic links it denies by name are
+- **Lackey starts tasks fast in a large project.** The symbolic links it denies by name are
   kept between tasks; a task's start walks again only the folders that changed since the last
   one, and checks every known link afresh, so a link made since the last task is still denied.
   The look for links now follows only the project's own `.gitignore` and `.ignore` files (not a

@@ -22,7 +22,7 @@ pub const KNOWN_TABLES: &[&str] = &[
     "conjure",
     "spellbook",
     "plans",
-    "apprentice",
+    "lackey",
 ];
 
 /// What the settings file says. A project with no file gets the defaults.

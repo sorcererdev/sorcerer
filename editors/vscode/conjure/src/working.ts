@@ -39,8 +39,8 @@ export function spelledAs(units: WorkingUnit[], spell: (uri: string) => string):
 // statusText is the status bar's text while units are worked on: the spinning icon and the
 // first unit's text without its own `⟳`, and how many more there are; undefined when none is.
 //
-// Example: two units `⟳ apprentice: researching…` and `⟳ apprentice: working…` give
-// `$(sync~spin) apprentice: researching… (+1)`.
+// Example: two units `⟳ lackey: researching…` and `⟳ lackey: working…` give
+// `$(sync~spin) lackey: researching… (+1)`.
 export function statusText(units: readonly WorkingUnit[]): string | undefined {
   const first = units[0];
   if (!first) return undefined;
