@@ -75,8 +75,12 @@ fn imported_project_files(
     let mut related: Vec<PathBuf> = Vec::new();
     let mut left_out: Vec<PathBuf> = Vec::new();
     for import in imported_paths(lang, text)? {
-        let Some(found) = project_file_for(view, &table, &import, &lang.language.unit_separator)
-        else {
+        let import = Import {
+            words: &import,
+            separator: table.word_separator(&lang.language),
+            importing_file: file,
+        };
+        let Some(found) = project_file_for(view, &table, &import) else {
             continue;
         };
         if found == file || related.contains(&found) || left_out.contains(&found) {
@@ -261,17 +265,27 @@ fn imported_paths(lang: &Loaded, text: &str) -> Result<Vec<String>> {
     Ok(found.into_iter().map(|(_, words)| words).collect())
 }
 
+/// One import as written, with what separates its words and the file it is written in.
+struct Import<'a> {
+    words: &'a str,
+    separator: &'a str,
+    importing_file: &'a Path,
+}
+
 /// The first project file one import names: its words joined by `/`, tried through each
 /// template, then once more without its last word (which may be a name inside a module, such
 /// as `Slot` in `crate::models::slot::Slot`).
+///
+/// Example: in `booking/closeTable.ts`, `./models` with separator `/` and the template
+/// `{= dir =}/{= path =}.ts` is `booking/models.ts`.
 fn project_file_for(
     view: &dyn CodebaseView,
     table: &ImportsTable,
-    import: &str,
-    separator: &str,
+    import: &Import,
 ) -> Option<PathBuf> {
     let mut words: Vec<&str> = import
-        .split(separator)
+        .words
+        .split(import.separator)
         .map(str::trim)
         .filter(|w| !w.is_empty())
         .collect();
@@ -281,31 +295,49 @@ fn project_file_for(
     {
         words.remove(0);
     }
+    // a file at the root is in `.`, so `{= dir =}/x` stays relative
+    let dir = import
+        .importing_file
+        .parent()
+        .map(forward_slashes)
+        .filter(|dir| !dir.is_empty())
+        .unwrap_or_else(|| ".".into());
     let shorter = words.len().saturating_sub(1);
     [words.len(), shorter]
         .into_iter()
-        .filter(|n| *n > 0)
-        .find_map(|n| first_template_that_exists(view, table, &words[..n].join("/")))
+        .filter(|n| *n > 0 && !matches!(words[n - 1], "." | ".."))
+        .find_map(|n| first_template_that_exists(view, table, &words[..n].join("/"), &dir))
 }
 
 fn first_template_that_exists(
     view: &dyn CodebaseView,
     table: &ImportsTable,
     path: &str,
+    dir: &str,
 ) -> Option<PathBuf> {
     table
         .resolve
         .iter()
-        .filter_map(|template| fill(template, &[("path", path)]).ok())
-        .map(PathBuf::from)
-        .filter(|candidate| stays_inside(candidate))
+        .filter_map(|template| fill(template, &[("path", path), ("dir", dir)]).ok())
+        .filter_map(|filled| inside_the_project(&filled))
         .find(|candidate| view.exists(candidate))
 }
 
-/// A template is data a project can write: a candidate that is absolute, or climbs out with
-/// `..`, is not a project file and is never looked at.
-fn stays_inside(candidate: &Path) -> bool {
-    candidate
-        .components()
-        .all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
+/// A filled template as a project path, `.` and `..` folded away: `booking/./models.ts` is
+/// `booking/models.ts`, `booking/../shared/x.ts` is `shared/x.ts`. A template is data a
+/// project can write, so a path that is absolute, or climbs out of the project with `..`, is
+/// `None` and never looked at.
+fn inside_the_project(filled: &str) -> Option<PathBuf> {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in Path::new(filled).components() {
+        match part {
+            Component::Normal(name) => parts.push(name.to_str()?),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    (!parts.is_empty()).then(|| PathBuf::from(parts.join("/")))
 }

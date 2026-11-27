@@ -243,3 +243,80 @@ fn files_beside_stop_at_four_for_one_import_and_skip_fenced_ones() {
     );
     assert!(found.left_out.is_empty(), "{:?}", found.left_out);
 }
+
+/// Python with its imports read as paths: `load("./models")` names `models.py` beside the
+/// file, the way an ECMAScript `import … from "./models"` does.
+fn path_imports_project() -> tempfile::TempDir {
+    let d = git_project();
+    write(
+        d.path(),
+        ".sorcerer/languages/python/language.toml",
+        "[imports]\nseparator = \"/\"\nresolve = [\"{= dir =}/{= path =}.py\", \"{= dir =}/{= path =}/index.py\"]\n",
+    );
+    write(
+        d.path(),
+        ".sorcerer/languages/python/queries/imports.scm",
+        "(call function: (identifier) @f arguments: (argument_list (string (string_content) @import.path)) (#eq? @f \"load\"))\n",
+    );
+    d
+}
+
+#[test]
+fn an_import_written_as_a_path_resolves_from_the_importing_files_folder() {
+    let d = path_imports_project();
+    write(d.path(), "outside.py", "class Outside:\n    pass\n");
+    write(
+        d.path(),
+        "app/booking/models.py",
+        "class Booking:\n    pass\n",
+    );
+    write(
+        d.path(),
+        "app/shared/util/index.py",
+        "def util():\n    pass\n",
+    );
+    write(
+        d.path(),
+        "app/booking/close.py",
+        "load(\"./models\")\nload(\"../shared/util\")\nload(\"../../../outside\")\nload(\"react\")\n\n\ndef close():\n    pass\n",
+    );
+    let found = related(d.path(), "python", "app/booking/close.py");
+    let names: Vec<&str> = found.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(names, ["app/booking/models.py", "app/shared/util/index.py"]);
+}
+
+#[test]
+fn an_import_from_a_file_at_the_root_resolves_beside_it() {
+    let d = path_imports_project();
+    write(d.path(), "models.py", "class Booking:\n    pass\n");
+    write(
+        d.path(),
+        "close.py",
+        "load(\"./models\")\n\n\ndef close():\n    pass\n",
+    );
+    let found = related(d.path(), "python", "close.py");
+    let names: Vec<&str> = found.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(names, ["models.py"]);
+}
+
+#[test]
+fn tests_in_a_folder_tree_beside_the_code_are_found_by_dir_replace() {
+    let d = git_project();
+    write(
+        d.path(),
+        ".sorcerer/languages/python/language.toml",
+        "[test]\ntests_for = \"{= dir =}/{= stem =}_test.py\"\ndir_replace = [\"src/main/\", \"src/test/\"]\n",
+    );
+    let (project, _) = project_with_vendored_grammars(d.path());
+    let python = project.languages.get("python").unwrap();
+    let path = |file: &str| {
+        tests_path(python, Path::new(file))
+            .unwrap()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+    };
+    assert_eq!(
+        path("src/main/acme/booking.py").as_deref(),
+        Some("src/test/acme/booking_test.py")
+    );
+    assert_eq!(path("tools/x.py"), None);
+}
