@@ -7,12 +7,27 @@ typing. Everything it makes is a change in your editor that you review, edit and
 editor's own tools.
 
 The person is the sorcerer; the apprentice works in their workshop and everything it makes is
-checked by them. It is a **prototype**: it is built from source, it is not on crates.io and no
-release carries it yet (the question of running it on a subscription is being asked first).
+checked by them. It is an early release, the newest of the tools.
 
+**It runs Claude Code on your own subscription.** Each task is one Claude Code session
+(`claude -p`) on your own login, so you need Claude Code installed and signed in (`claude` on your
+PATH); tasks count against your Claude usage (see [Usage and the caps](#usage-and-the-caps)).
+`apprentice doctor` checks that `claude` is there.
+
+Install it with the release's installer. macOS and Linux:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.sh | sh
 ```
-cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.ps1 | iex"
 ```
+
+Or with Rust: `cargo install sorcerer-apprentice`. The installers put `apprentice` in
+`~/.local/bin`.
 
 ## In your editor
 
@@ -51,7 +66,7 @@ Nothing runs a task by itself: an instruction is only offered, with its price (t
 your finished tasks once there are five, else `estimate_start`). Every classified region also
 offers four labels, `apprentice: this was a question / a claim / an instruction / nothing`: a
 pick is a line of `.sorcerer/state/apprentice/labels.jsonl`, and so is a *Dismiss*. That file
-is the prototype's measure of whether apprentice understood you.
+is apprentice's measure of whether apprentice understood you.
 
 Two regions on one line (a function whose body does nothing yet and the comment in it) show one
 hint and one row of each action: *do this* runs the larger region (the function, comment and
@@ -120,12 +135,11 @@ runs. `:checkhealth sorcerer` checks that `apprentice` is found.
 
 ## In VS Code
 
-The **Apprentice** extension (`editors/vscode/apprentice/`) is not on the Marketplace while
-apprentice is a prototype. Install it from a `.vsix`: CI's `apprentice-vsix` artifact, or
-`npm ci && npm run package` in that folder, then `code --install-extension
-apprentice-0.2.0.vsix`. It finds `apprentice` from the `apprentice.path` user setting, then your
-PATH, `~/.cargo/bin` and `~/.local/bin`; with none it says the `cargo install` line above, once
-per version.
+Install the **Apprentice** extension (`sorcererdev.apprentice`) from the Extensions view (the
+Marketplace; VS Code forks such as VSCodium use Open VSX), or `code --install-extension
+sorcererdev.apprentice`. It finds `apprentice` from the `apprentice.path` user setting, then your
+PATH, `~/.cargo/bin` and `~/.local/bin`; with none it offers to download the release of its own
+version (checked against its sha256), or says the install line above, once per version.
 
 It starts one `apprentice lsp` per workspace folder, for every file under it, and sends each of
 your edits at once (so a task never writes over what you typed a moment ago). Marks are VS

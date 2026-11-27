@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Apprentice is released.** The coding agent whose whole interface is your editor ships like
+  the other three: the `apprentice` program in the release (installers
+  `sorcerer-apprentice-installer.sh`/`.ps1`), `cargo install sorcerer-apprentice`, and the
+  Apprentice extension on the VS Code Marketplace and Open VSX (`sorcererdev.apprentice`), which
+  offers to download its program like Scry's. It runs Claude Code (`claude -p`) on your own
+  subscription, so it needs `claude` installed and signed in; `apprentice doctor` checks.
+  The test program `apprentice-fake-claude` is built only with the `fake-claude` feature, so it
+  is in neither the release nor `cargo install`.
 - **Adopting `spellbook check` on code with debt.** `spellbook check --baseline` records today's
   findings in `.sorcerer/spellbook/baseline.toml`; they show as `(existing)` and never fail, so only
   new breakage does. `spellbook check --since main` judges a branch on the lines it touched.

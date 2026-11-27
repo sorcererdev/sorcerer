@@ -3,10 +3,13 @@
 Small tools that read your code alongside you. **scry** reviews what you changed and puts each
 finding on its line. **conjure** writes one small change where you ask, and marks it so you can
 undo it. **spellbook** (conventions as data) is in its first milestone: generators write every file of a
-convention, with holes that say what belongs there, and rules check that the conventions hold. They share one core and talk through
-files in `.sorcerer/`.
+convention, with holes that say what belongs there, and rules check that the conventions hold.
+**apprentice** is a coding agent whose whole interface is your editor: you write in your code, it
+answers there or offers to do it, and works in your buffers when you accept. It runs Claude Code
+(`claude -p`) on your own subscription, so it needs `claude` installed and signed in. They share
+one core and talk through files in `.sorcerer/`.
 
-**Status:** scry, conjure and spellbook; Python and Rust; Windows, macOS and Linux; early (0.1).
+**Status:** scry, conjure, spellbook and apprentice (the newest, an early release); Python and Rust; Windows, macOS and Linux; early (0.1).
 
 ## Install
 
@@ -18,6 +21,7 @@ macOS and Linux:
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.sh | sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-conjure-installer.sh | sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.sh | sh
 ```
 
 Windows (PowerShell):
@@ -26,11 +30,12 @@ Windows (PowerShell):
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-scry-installer.ps1 | iex"
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-conjure-installer.ps1 | iex"
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-spellbook-installer.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.ps1 | iex"
 ```
 
-Or with Rust: `cargo install sorcerer-scry sorcerer-conjure sorcerer-spellbook`.
+Or with Rust: `cargo install sorcerer-scry sorcerer-conjure sorcerer-spellbook sorcerer-apprentice`.
 
-The installers put `scry`, `conjure` and `spellbook` in `~/.local/bin` and need neither Rust nor a C
+The installers put `scry`, `conjure`, `spellbook` and `apprentice` in `~/.local/bin` and need neither Rust nor a C
 compiler. They end by telling you to open a new terminal or run a `source` line; do that, then
 check:
 
@@ -166,14 +171,15 @@ On a finding, the same menu has **Show why**, **Show code** and **Dismiss**.
 
 ### VS Code
 
-Install **Scry**, **Conjure** and **Spellbook** (publisher `sorcererdev`; ids `sorcererdev.scry` and
-`sorcererdev.conjure`) from the Extensions view, which uses the Marketplace. VS Code forks such
+Install **Scry**, **Conjure**, **Spellbook** and **Apprentice** (publisher `sorcererdev`; ids
+`sorcererdev.scry`, `sorcererdev.conjure`, `sorcererdev.spellbook` and `sorcererdev.apprentice`) from the Extensions view, which uses the Marketplace. VS Code forks such
 as VSCodium get them from Open VSX. From a terminal:
 
 ```sh
 code --install-extension sorcererdev.scry
 code --install-extension sorcererdev.conjure
 code --install-extension sorcererdev.spellbook
+code --install-extension sorcererdev.apprentice
 ```
 
 - **Finding the program.** The extension looks for `scry` / `conjure` in the setting
@@ -226,6 +232,9 @@ Sorcerer spends your model account, and keeps its own count.
 - **A review** of a small change: about **$0.07** through the Anthropic API, or about **$0.04**
   of Claude Code usage.
 - **A conjure:** about **$0.001**; **Try harder** (a stronger model) about **$0.03**.
+- **An apprentice task** is a Claude Code session on your own subscription: usage, not dollars,
+  capped at **$2.00** of usage a task by default (`budget_per_task` under `[apprentice]`).
+  `apprentice cost` shows it.
 - **Caps**, so a bad day cannot run away: **$0.25 a review pass** and **$3 a day** by default
   (`budget_per_pass`, `budget_per_day` under `[scry]` in `.sorcerer/config.toml`).
 

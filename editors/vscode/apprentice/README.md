@@ -1,10 +1,18 @@
 # Apprentice for VS Code
 
 [Apprentice](https://github.com/sorcererdev/sorcerer) in VS Code: a coding agent whose whole
-interface is your editor (a **prototype**). There is no chat. Write in your code (a comment, a
+interface is your editor (an early release). There is no chat. Write in your code (a comment, a
 sentence in a docstring, a function whose body is `pass`) and apprentice answers where you wrote,
 offers to do what you asked, and when you accept, works in your buffers while you keep typing.
 Everything it makes is a change in your editor, unsaved, that you review, edit and undo.
+
+**It runs Claude Code on your own subscription.** Each task you accept is one Claude Code session
+(`claude -p`, started by apprentice in your project) on your own login, so you need
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and signed in (`claude` on
+your `PATH`). Tasks count against your Claude usage; apprentice caps each one (2.00 dollars of
+usage by default, `budget_per_task`) and `apprentice cost` shows what it spent. Answering
+questions and checking claims use the provider in your Sorcerer config, and the triage that
+finds them uses Jev (`JEV_API_KEY`); without it only empty function bodies are offered.
 
 The extension is thin: it starts `apprentice lsp` for each workspace folder and VS Code does most
 of the rest. **Marks** are diagnostics of source `apprentice` (the Problems panel, the squiggles,
@@ -55,16 +63,28 @@ deny. With VS Code's *Do Not Disturb* on, the notification is hidden in the noti
 
 ## Install
 
-No release carries apprentice yet, and the extension is not on the Marketplace. Build the
-program:
+Install the extension from the Marketplace (VS Code forks such as VSCodium get it from Open VSX):
 
 ```sh
-cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice
+code --install-extension sorcererdev.apprentice
 ```
 
-and install the extension from a `.vsix` (CI's `apprentice-vsix` artifact, or `npm ci && npm run
-package` here): `code --install-extension apprentice-0.2.0.vsix`. It finds `apprentice` from
-the `apprentice.path` user setting, then `PATH`, then `~/.cargo/bin` and `~/.local/bin`.
-apprentice needs `claude` on your PATH (signed in) and a project you have trusted (`apprentice
-trust` in it); `apprentice doctor` checks both. See the
+and the program. macOS and Linux:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/sorcererdev/sorcerer/releases/latest/download/sorcerer-apprentice-installer.ps1 | iex"
+```
+
+Or with Rust: `cargo install sorcerer-apprentice`.
+
+The extension finds `apprentice` from the `apprentice.path` user setting, then `PATH`, then
+`~/.cargo/bin` and `~/.local/bin`. With none it offers to download it, or tells you the install
+line above. apprentice needs `claude` on your PATH (signed in) and a project you have trusted
+(`apprentice trust` in it); `apprentice doctor` checks both. See the
 [user book](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/apprentice.md).

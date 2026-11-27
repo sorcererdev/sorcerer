@@ -102,7 +102,7 @@ Its path templates are filled with core's `templates::fill`.
 `system_clock`, `wiring`, and `lsp/`, the editor server) and `cli/`. Its use cases may not load a grammar (that is core's adapter work), so
 they parse through the `Grammars` port. [Spellbook](spellbook.md) says what each file holds.
 
-**sorcerer-apprentice** (library and program `apprentice`; a prototype, not published) has the
+**sorcerer-apprentice** (library and program `apprentice`) has the
 same five layers and depends on core, models and `sorcerer-lsp`. `domain/` (`config`, `task`,
 `agent_event`, `status`, `mediums`, `loopback_message`, `edits_text`, `permissions`, `paths`,
 `budget`, `estimate`, `log_text`, `prompt`, `region`, `cutting`, `triage`, `region_record`,

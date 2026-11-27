@@ -1,14 +1,13 @@
 [package]
 name = "sorcerer-apprentice"
-description = "Apprentice: a coding agent whose whole interface is your editor (prototype, not published)"
+description = "Apprentice: a coding agent whose whole interface is your editor, run on your own Claude Code"
+keywords = ["coding-agent", "claude", "lsp", "editor", "ai"]
+categories = ["development-tools", "command-line-utilities"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-# Not on crates.io and not in a release until the subscription question is asked (ruling Q1,
-# 2026-11-26).
-publish = false
 
 [lib]
 name = "apprentice"
@@ -18,12 +17,18 @@ name = "apprentice"
 path = "src/main.rs"
 
 # The fake `claude` the harness tests run: a program, so it runs on every platform. It reads a
-# script, speaks stream-json, and really runs the MCP server and the hooks it is given.
+# script, speaks stream-json, and really runs the MCP server and the hooks it is given. It is
+# built only with the `fake-claude` feature, which the tests turn on through the dev-dependency
+# on this crate below: `cargo install` and the release build `apprentice` alone.
 [[bin]]
 name = "apprentice-fake-claude"
 path = "tests/support/fake_claude.rs"
+required-features = ["fake-claude"]
 test = false
 doc = false
+
+[features]
+fake-claude = []
 
 [dependencies]
 sorcerer-core.workspace = true
@@ -46,9 +51,20 @@ getrandom.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# Itself, with the test program on (see `apprentice-fake-claude` above).
+sorcerer-apprentice = { path = ".", features = ["fake-claude"] }
 
 [lints]
 workspace = true
 
 [package.metadata.dist]
-dist = false
+include = ["../../NOTICE"]
+
+# The release carries `apprentice` alone, not the test program (dist does not read
+# required-features): one entry per target in dist-workspace.toml.
+[package.metadata.dist.binaries]
+aarch64-apple-darwin = ["apprentice"]
+x86_64-apple-darwin = ["apprentice"]
+x86_64-unknown-linux-gnu = ["apprentice"]
+aarch64-unknown-linux-gnu = ["apprentice"]
+x86_64-pc-windows-msvc = ["apprentice"]
