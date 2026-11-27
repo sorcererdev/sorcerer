@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again in Registry.java, after its package line, importing the two models.
+mode = "init models"
+exit = 0
+patch = "unmarked.patch"

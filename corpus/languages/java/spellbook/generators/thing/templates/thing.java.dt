@@ -1,0 +1,9 @@
+package booking;
+
+/** {= name|sentence =}. */
+final class {= name|pascal =} {
+    static void {= ? helper: ident | the helper's name =}({= ? value_type: type | what value holds =} value) {
+        Object limit = {= ? limit: expr | the largest value allowed =};
+        {= ? body: block | what the helper does with value under limit =}
+    }
+}

@@ -1,0 +1,3 @@
+# A question typed as a comment above the stub's body, and a line of code below it.
+file  = "Reservations/CloseTable.cs"
+patch = "comment-and-hunk.patch"

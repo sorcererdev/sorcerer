@@ -1,0 +1,6 @@
+# booking/modules.go names each file of the service (tests left out).
+[regions.modules]
+file    = "booking/modules.go"
+query   = { glob = "booking/*.go", exclude = ["booking/modules.go", "booking/*_test.go"] }
+item    = "const {= stem =}Module = \"{= stem =}\""
+init_at = "end of imports"

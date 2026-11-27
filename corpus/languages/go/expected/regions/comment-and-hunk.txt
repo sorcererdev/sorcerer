@@ -1,0 +1,4 @@
+comment 5-5 in CloseTable
+  | 	// which bookings stay open?
+hunk 7-7 in CloseTable
+  | 	kept := bookings[:0]

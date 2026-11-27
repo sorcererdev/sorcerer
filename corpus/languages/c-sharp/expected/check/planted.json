@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-writeline-in-reservations",
+    "file": "Reservations/CloseTable.cs",
+    "line": 9,
+    "severity": "error",
+    "message": "reservation code does not print: write it through a helper",
+    "fingerprint": "beccff4"
+  }
+]

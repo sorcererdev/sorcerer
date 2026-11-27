@@ -1,0 +1,36 @@
+# Go: tree-sitter-go. Core reads the keys in this file; products add their own tables
+# (in their milestones) and core keeps those for them.
+files = ["**/*.go"]
+# What a unit is, as prompts say it.
+unit_words = "a top-level function, method or type name (Name)"
+comment = "//"
+# The grammar: tree-sitter-go 0.25.0, fetched, compiled once into the user's cache and
+# loaded at run time.
+grammar = { git = "https://github.com/tree-sitter/tree-sitter-go", rev = "1547678a9da59885853f5f5cc8a99cc203fa2e2c" }
+
+[unit]
+# A unit's display name on its definition line, when the queries don't say: the last group.
+# A method names itself, not its receiver (a Go method sits beside its type, not inside it).
+name = [
+  '^[[:space:]]*func[[:space:]]+(\([^)]*\)[[:space:]]*)?([[:alnum:]_]+)',
+  '^[[:space:]]*type[[:space:]]+([[:alnum:]_]+)',
+]
+
+# A Go test is `x_test.go` beside `x.go` (conjure reads this). `[imports]` is left out: a Go
+# import names a module path (a folder of files), not a file.
+[test]
+tests_for = "{= dir =}/{= stem =}_test.go"
+
+# The code spellbook writes where a generator leaves a hole: one template per kind, filled with
+# the hole's name and instruction. Every placeholder must parse where its kind belongs.
+[holes]
+ident = "todo_{= name =}"
+type = "any"
+expr = "nil /* hole {= name =}: {= instruction =} */"
+block = "panic(\"hole {= name =}: {= instruction =}\")"
+stmt = "panic(\"hole {= name =}: {= instruction =}\")"
+
+# What spellbook's anchors cannot read from the code: the separator a list of one item, or of
+# none, takes when an item is put into it (a longer list shows its own).
+[syntax]
+list_separator = ","

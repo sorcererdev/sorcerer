@@ -1,0 +1,36 @@
+# Java: tree-sitter-java. Core reads the keys in this file; products add their own tables
+# (in their milestones) and core keeps those for them.
+files = ["**/*.java"]
+# What a unit is, as prompts say it.
+unit_words = "a top-level class, interface, enum or record name (Name) or a method (Class.method)"
+comment = "//"
+# The grammar: tree-sitter-java 0.23.5, fetched, compiled once into the user's cache and
+# loaded at run time.
+grammar = { git = "https://github.com/tree-sitter/tree-sitter-java", rev = "94703d5a6bed02b98e438d7cad1136c01a60ba2c" }
+
+[unit]
+# A unit's display name on its definition line, when the queries don't say: the last group.
+name = ['^[[:space:]]*((public|protected|private|static|final|abstract|sealed)[[:space:]]+)*(class|interface|enum|record)[[:space:]]+([[:alnum:]_]+)']
+
+# A Maven project keeps its tests in `src/test/java`, beside `src/main/java`: the test of
+# `src/main/java/a/B.java` is `src/test/java/a/BTest.java`. An import `a.B` names `a/B.java`.
+[test]
+tests_for = "{= dir =}/{= stem =}Test.java"
+dir_replace = ["src/main/", "src/test/"]
+
+[imports]
+resolve = ["src/main/java/{= path =}.java", "{= path =}.java"]
+
+# The code spellbook writes where a generator leaves a hole: one template per kind, filled with
+# the hole's name and instruction. Every placeholder must parse where its kind belongs.
+[holes]
+ident = "todo_{= name =}"
+type = "Object"
+expr = "null /* hole {= name =}: {= instruction =} */"
+block = "throw new UnsupportedOperationException(\"hole {= name =}: {= instruction =}\");"
+stmt = "throw new UnsupportedOperationException(\"hole {= name =}: {= instruction =}\");"
+
+# What spellbook's anchors cannot read from the code: the separator a list of one item, or of
+# none, takes when an item is put into it (a longer list shows its own).
+[syntax]
+list_separator = ","

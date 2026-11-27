@@ -1,0 +1,9 @@
+src/main/java/booking/Registry.java:8-8 class Registry
+src/main/java/booking/model/Booking.java:4-14 class Booking
+src/main/java/booking/model/Booking.java:7-9 method Booking.Booking
+src/main/java/booking/model/Booking.java:11-13 method Booking.isFor
+src/main/java/booking/model/Table.java:4-4 class Table stub
+src/main/java/booking/service/CloseTable.java:6-10 class CloseTable
+src/main/java/booking/service/CloseTable.java:7-9 method CloseTable.closeTable stub
+src/test/java/booking/service/CloseTableTest.java:6-11 class CloseTableTest
+src/test/java/booking/service/CloseTableTest.java:7-10 method CloseTableTest.keepsTheOtherTables

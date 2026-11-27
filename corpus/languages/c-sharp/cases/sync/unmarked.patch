@@ -1,0 +1,11 @@
+--- a/Reservations/Registry.cs
++++ b/Reservations/Registry.cs
+@@ -1,8 +1,3 @@
+-// spellbook:region files (from Reservations/*.cs; edit .sorcerer/spellbook/regions.toml, not this block)
+-using Booking = Reservations.Booking;
+-using CloseTable = Reservations.CloseTable;
+-// spellbook:end files
+-
+ namespace Reservations;
+ 
+ internal static class Registry {}

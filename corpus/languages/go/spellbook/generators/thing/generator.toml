@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A file with one helper, a hole of every kind the language has"
+description = "booking/NAME.go: a helper whose name, type, value and body are holes"
+language    = "go"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The file (audit, report)"
+
+[[edits]]
+create   = "booking/{= name|snake =}.go"
+template = "thing.go.dt"

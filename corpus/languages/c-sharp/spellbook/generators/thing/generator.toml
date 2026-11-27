@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A class with one helper, a hole of every kind the language has"
+description = "Reservations/NAME.cs: a helper whose name, type, value and body are holes"
+language    = "c-sharp"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The class (audit, report)"
+
+[[edits]]
+create   = "Reservations/{= name|pascal =}.cs"
+template = "thing.cs.dt"

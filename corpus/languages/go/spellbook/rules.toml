@@ -1,0 +1,14 @@
+# One rule, with a fix: the booking service logs through a helper, never fmt.Println.
+[rules.no-println-in-booking]
+files   = "booking/*.go"
+exclude = ["**/*_test.go"]
+match   = { kind = "call_expression", regex = "^fmt\\.Println\\(" }
+message = "booking code does not print: write it through a helper"
+
+[[rules.no-println-in-booking.fixes]]
+generator = "thing"
+label     = "Write it through a new helper"
+with      = { name = "audit" }
+replace   = [
+  { enclosing = ["expression_statement"], text = "{= ? audit_call: stmt | the same as {= finding =} through the helper =}" },
+]

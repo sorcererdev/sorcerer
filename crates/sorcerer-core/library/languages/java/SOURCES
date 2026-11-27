@@ -1,0 +1,14 @@
+# Java: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-java 0.23.5, git 94703d5a6bed02b98e438d7cad1136c01a60ba2c. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/java/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+tags.scm         tree-sitter/tree-sitter-java v0.23.5  94703d5a6bed02b98e438d7cad1136c01a60ba2c  queries/tags.scm  MIT (queries/LICENSE-tree-sitter-java)
+calls.scm        sorcerer's own (not vendored): enum, record and constructor definitions; a method call and `new X(…)` as `@reference.call`.
+lists.scm        sorcerer's own (not vendored): `@parameters` and `@arguments`, the lists anchors put items into.
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, `throw new UnsupportedOperationException(…)`.
+preamble.scm     sorcerer's own (not vendored): `@preamble`, the `package` declaration.
+imports.scm      sorcerer's own (not vendored): `@import.path`, an import's scoped name.
+# changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of? and #not-any-of? and
+# nothing else):
+#   tags.scm: removed the `method_invocation … arguments: (argument_list) @reference.call` pattern,
+#   which marks only the argument list as the call; calls.scm marks the whole call instead.
+#   textobjects.scm: none (byte-for-byte the pinned upstream file).

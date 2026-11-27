@@ -1,0 +1,27 @@
+# A thing: one hole of each kind in [holes], each parsing where it is.
+generator = "thing"
+inputs    = { name = "audit" }
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "src/main/java/booking/Audit.java"
+line = 7
+
+[[holes]]
+name = "helper"
+kind = "ident"
+file = "src/main/java/booking/Audit.java"
+line = 5
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "src/main/java/booking/Audit.java"
+line = 6
+
+[[holes]]
+name = "value_type"
+kind = "type"
+file = "src/main/java/booking/Audit.java"
+line = 5

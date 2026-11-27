@@ -1,0 +1,33 @@
+# The WriteLine becomes a hole saying what it did, and the helper class is written beside it.
+patch = "planted.patch"
+at    = "Reservations/CloseTable.cs:9"
+
+[[holes]]
+name = "audit_call"
+kind = "stmt"
+file = "Reservations/CloseTable.cs"
+line = 9
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "Reservations/Audit.cs"
+line = 9
+
+[[holes]]
+name = "helper"
+kind = "ident"
+file = "Reservations/Audit.cs"
+line = 6
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "Reservations/Audit.cs"
+line = 8
+
+[[holes]]
+name = "value_type"
+kind = "type"
+file = "Reservations/Audit.cs"
+line = 6

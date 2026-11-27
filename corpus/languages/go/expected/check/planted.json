@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-println-in-booking",
+    "file": "booking/close_table.go",
+    "line": 5,
+    "severity": "error",
+    "message": "booking code does not print: write it through a helper",
+    "fingerprint": "e3514d8"
+  }
+]

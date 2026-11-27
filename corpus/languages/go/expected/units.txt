@@ -1,0 +1,4 @@
+booking/close_table.go:4-6 function CloseTable stub
+booking/close_table_test.go:5-10 function TestCloseTableKeepsTheOtherTables
+booking/models.go:5-7 type Booking
+booking/models.go:10-12 method IsFor

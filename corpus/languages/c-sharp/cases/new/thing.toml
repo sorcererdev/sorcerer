@@ -1,0 +1,27 @@
+# A thing: one hole of each kind in [holes], each parsing where it is.
+generator = "thing"
+inputs    = { name = "audit" }
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "Reservations/Audit.cs"
+line = 9
+
+[[holes]]
+name = "helper"
+kind = "ident"
+file = "Reservations/Audit.cs"
+line = 6
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "Reservations/Audit.cs"
+line = 8
+
+[[holes]]
+name = "value_type"
+kind = "type"
+file = "Reservations/Audit.cs"
+line = 6

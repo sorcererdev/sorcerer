@@ -1,0 +1,2 @@
+# A fmt.Println in a booking file: the rule's finding.
+patch = "planted.patch"

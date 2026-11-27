@@ -1,0 +1,6 @@
+# Registry.java imports each model of the service.
+[regions.models]
+file    = "src/main/java/booking/Registry.java"
+query   = { glob = "src/main/java/booking/model/*.java" }
+item    = "import booking.model.{= stem =};"
+init_at = "end of imports"

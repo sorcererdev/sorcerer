@@ -1,0 +1,10 @@
+--- a/src/main/java/booking/service/CloseTable.java
++++ b/src/main/java/booking/service/CloseTable.java
+@@ -5,6 +5,7 @@ import java.util.List;
+ 
+ public class CloseTable {
+     public List<Booking> closeTable(List<Booking> bookings, int table) {
++        System.out.println("closing " + table);
+         throw new UnsupportedOperationException("not implemented");
+     }
+ }

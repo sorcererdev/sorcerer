@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A class with one helper, a hole of every kind the language has"
+description = "src/main/java/booking/NAME.java: a helper whose name, type, value and body are holes"
+language    = "java"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The class (audit, report)"
+
+[[edits]]
+create   = "src/main/java/booking/{= name|pascal =}.java"
+template = "thing.java.dt"

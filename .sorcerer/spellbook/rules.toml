@@ -142,8 +142,8 @@ why      = "scry.toml the-engine-knows-no-language; scripts/no-language-names"
 [rules.no-language-name-in-the-engine]
 files    = "crates/{crate}/src/**.rs"
 match    = { any = [
-  { kind = "string_literal", regex = "(?i)^\"(python|rust)\"$|\\.(py|rs)\"$" },
-  { kind = "raw_string_literal", regex = "(?i)\\.(py|rs)\"#*$" },
+  { kind = "string_literal", regex = "(?i)^\"(c-sharp|go|java|python|rust)\"$|\\.(cs|go|java|py|rs)\"$" },
+  { kind = "raw_string_literal", regex = "(?i)\\.(cs|go|java|py|rs)\"#*$" },
 ] }
 message  = "the engine names no language or file extension: a language is files under crates/sorcerer-core/library/languages/<name>/"
 severity = "error"

@@ -1,0 +1,8 @@
+Reservations/Booking.cs:4-17 class Booking
+Reservations/Booking.cs:8-11 method Booking.Booking
+Reservations/Booking.cs:13-16 method Booking.IsFor
+Reservations/CloseTable.cs:5-11 class Closer
+Reservations/CloseTable.cs:7-10 method Closer.CloseTable stub
+Reservations/CloseTableTests.cs:5-12 class CloseTableTests
+Reservations/CloseTableTests.cs:7-11 method CloseTableTests.KeepsTheOtherTables
+Reservations/Registry.cs:8-8 class Registry stub

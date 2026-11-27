@@ -1,0 +1,10 @@
+--- a/booking/close_table.go
++++ b/booking/close_table.go
+@@ -2,5 +2,7 @@ package booking
+ 
+ // CloseTable closes a table for the night.
+ func CloseTable(bookings []Booking, table int) []Booking {
++	// which bookings stay open?
+ 	panic("not implemented")
++	kept := bookings[:0]
+ }

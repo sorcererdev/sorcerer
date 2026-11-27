@@ -1,0 +1,6 @@
+# Registry.cs aliases each file of the service (tests left out).
+[regions.files]
+file    = "Reservations/Registry.cs"
+query   = { glob = "Reservations/*.cs", exclude = ["Reservations/Registry.cs", "Reservations/*Tests.cs"] }
+item    = "using {= stem =} = Reservations.{= stem =};"
+init_at = "end of imports"

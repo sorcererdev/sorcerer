@@ -1,0 +1,10 @@
+# The Go language corpus: a tiny project every shipped-language harness runs on (core's
+# units and parses, spellbook's cases, lackey's cut regions, conjure's related files). No model,
+# no network. See corpus/languages/README.md.
+name     = "go"
+language = "go"
+base     = "base"
+
+# conjure, asked in this file: its related files and its test file are expected/related.txt
+[conjure]
+file = "booking/close_table.go"
