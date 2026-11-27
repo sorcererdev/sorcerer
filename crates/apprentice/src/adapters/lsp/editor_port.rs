@@ -320,7 +320,7 @@ impl Server {
 
     /// Every open file of the project a model may be sent, and its text: a task's first look,
     /// and what its edits are found in. A fenced file, sorcerer's state (the journal) and git's
-    /// are left out (see [`Server::may_send`]); when the fences cannot be opened, every file is.
+    /// are left out (see [`Server::may_send`]); when the fences cannot be opened, none is sent.
     pub(super) fn open_texts(&self) -> HashMap<PathBuf, String> {
         let Some(fences) = self
             .project()
