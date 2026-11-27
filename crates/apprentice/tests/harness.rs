@@ -412,7 +412,9 @@ fn a_runner_that_is_not_there_fails_the_start() {
 /// S10: the server that runs the task is killed (here: nothing listens on its port, and the
 /// agent's input is closed, as a dead server's end of the pipe is). The agent's next tool call
 /// fails saying so and its MCP server exits; the hook after it stops the agent, so it plays
-/// none of its later steps and ends at once, not after its five-second sleep.
+/// none of its later steps and ends well before its minute-long sleep would. The sleep is far
+/// longer than the bound so the bound only measures starting four processes (the agent, its
+/// MCP server, two hooks), which took over six seconds on a loaded Windows runner.
 #[test]
 fn an_agent_whose_server_has_ended_stops_after_its_next_tool_call() {
     use apprentice::ports::agent::{Agent, NextEvent, TaskRequest, WayBack};
@@ -423,7 +425,7 @@ fn an_agent_whose_server_has_ended_stops_after_its_next_tool_call() {
         "steps": [
             { "tool": "notify", "arguments": { "text": "starting" } },
             { "builtin": "Read", "input": { "file_path": "src/cancel.txt" } },
-            { "sleep_ms": 5000 },
+            { "sleep_ms": 60_000 },
             { "tool": "write_file", "arguments": { "path": "src/cancel.txt", "text": "gone\n" } },
         ],
     }));
@@ -448,12 +450,12 @@ fn an_agent_whose_server_has_ended_stops_after_its_next_tool_call() {
     running.close_input();
     while running.next_event(Duration::from_secs(10)) != NextEvent::Ended {
         assert!(
-            started.elapsed() < Duration::from_secs(10),
+            started.elapsed() < Duration::from_secs(50),
             "it never ended"
         );
     }
     assert!(
-        started.elapsed() < Duration::from_secs(4),
+        started.elapsed() < Duration::from_secs(30),
         "{:?}",
         started.elapsed()
     );

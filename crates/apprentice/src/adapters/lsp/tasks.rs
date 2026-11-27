@@ -97,7 +97,8 @@ impl Server {
         self.start_task(order);
     }
 
-    /// Starts a task on a thread, unless one runs; its first look is every open file now. The
+    /// Starts a task on a thread, unless one runs; its first look is every open file now, in
+    /// place before the agent starts (its first `write_file` is checked against it). The
     /// check and the start are under one hold of `runner`, so two *do this* at once start one
     /// task, and the runner kept is always the running task's (a stop reaches it).
     pub(super) fn start_task(self: &Arc<Self>, order: TaskOrder) {
@@ -120,11 +121,13 @@ impl Server {
             }
         };
         let first_look = self.open_texts();
-        let started = match runner.start(&order) {
+        let started = runner.start_with(&order, |id| {
+            lock(&self.task_looks).insert(id.to_string(), first_look);
+        });
+        let started = match started {
             Ok(started) => started,
             Err(refused) => return self.client.say(MessageType::WARNING, &refused.text()),
         };
-        lock(&self.task_looks).insert(started.live.id.clone(), first_look);
         *current = Some(runner.clone());
         drop(current);
         std::thread::spawn(move || {

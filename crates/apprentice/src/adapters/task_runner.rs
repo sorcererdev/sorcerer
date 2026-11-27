@@ -39,11 +39,33 @@ impl TaskRunner {
         })
     }
 
-    /// Starts a task and makes it findable by its helpers.
+    /// Starts a task, findable by its helpers before its agent starts: the agent's first call
+    /// back may come before `start` returns.
     pub fn start(&self, order: &TaskOrder) -> Result<StartedTask, TaskRefused> {
-        let started = start_task(order, self.loopback.way_back(), &self.deps)?;
-        lock(&self.live).insert(started.live.id.clone(), started.live.clone());
-        Ok(started)
+        self.start_with(order, |_| {})
+    }
+
+    /// [`TaskRunner::start`], and `before_the_agent` gets the task's id once it is findable and
+    /// before the agent starts, for what else the agent's calls need in place (the editor's
+    /// first look).
+    pub fn start_with(
+        &self,
+        order: &TaskOrder,
+        before_the_agent: impl FnOnce(&str),
+    ) -> Result<StartedTask, TaskRefused> {
+        let mut findable: Option<String> = None;
+        let started = start_task(order, self.loopback.way_back(), &self.deps, |live| {
+            lock(&self.live).insert(live.id.clone(), live.clone());
+            findable = Some(live.id.clone());
+            before_the_agent(&live.id);
+        });
+        // an agent that did not start leaves no live task: the next one must not see it running
+        if started.is_err()
+            && let Some(id) = findable
+        {
+            lock(&self.live).remove(&id);
+        }
+        started
     }
 
     /// Follows a started task to its end (on the calling thread) and forgets it.

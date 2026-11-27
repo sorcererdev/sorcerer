@@ -165,6 +165,11 @@ impl Served {
         self.opened_with(&path, 1, &text);
     }
 
+    /// The editor opens a file at version 1 with text the disk does not have yet.
+    pub fn open_unsaved(&self, relative: &str, text: &str) {
+        self.opened_with(&self.path(relative), 1, text);
+    }
+
     fn opened_with(&self, path: &Path, version: i32, text: &str) {
         self.buffers
             .borrow_mut()

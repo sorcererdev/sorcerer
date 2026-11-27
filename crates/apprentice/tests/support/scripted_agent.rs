@@ -46,6 +46,9 @@ pub struct ScriptedAgent {
     pub requests: Mutex<Vec<TaskRequest>>,
     /// Whether `start` fails.
     pub fails: bool,
+    /// Whether the script plays before `start` returns, as an agent that calls back at once
+    /// can on a loaded machine.
+    pub plays_before_start_returns: bool,
 }
 
 impl ScriptedAgent {
@@ -74,7 +77,7 @@ impl Agent for ScriptedAgent {
         let (sender, events) = crossbeam_channel::unbounded();
         let stopped = Arc::new(AtomicBool::new(false));
         let (request, replies, stop) = (request.clone(), self.replies.clone(), stopped.clone());
-        std::thread::spawn(move || {
+        let play = move || {
             let call = |body: RequestBody| {
                 let asked = LoopbackRequest {
                     token: request.way_back.token.clone(),
@@ -117,7 +120,12 @@ impl Agent for ScriptedAgent {
                     }
                 }
             }
-        });
+        };
+        if self.plays_before_start_returns {
+            play();
+        } else {
+            std::thread::spawn(play);
+        }
         Ok(Box::new(ScriptedRunning { events, stopped }))
     }
 }

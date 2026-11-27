@@ -129,7 +129,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    instruction journaled; the first message (`task_prompt`: the instruction, where it was
    written, the unit around it from `ProjectContext::unit_at`, scry's open findings near it, the
    rules, the editor's unsaved edits, less a fenced file's: `sendable`); `Agent::start` with the
-   way back. An instruction in a fenced file is refused (`TaskRefused::Fenced`). A start that
+   way back, once the live task is findable by its helpers (`TaskRunner::start_with` inserts it in
+   the `before_the_agent` step: an agent may call back before `start` returns). An instruction in a fenced file is refused (`TaskRefused::Fenced`). A start that
    fails is recorded `failed` and said (`TaskRefused::NotStarted`).
 2. **Follow** (`follow.rs`, `follow_task`), on the calling thread: every 200 ms it checks the
    task's `Cancel` (a stop) and takes the next event. A session id is recorded; a tool call
@@ -279,7 +280,7 @@ the finished tasks still marked (`ShownTask`), the agent's marks and the pending
 `trusted_project` opens the project afresh at every look (config edits need no restart) and,
 untrusted, says `NOT_TRUSTED` once and does nothing.
 
-**The two clocks** (`watch.rs`). `changed` submits `look_at` under `idle:<path>`; `saved` cancels
+**The two clocks** (`watch.rs`). `opened` starts a file's look at its saved text (`look_from_open`): when the buffer is not the disk (the person typed while the editor was still starting the server, which VS Code does without waiting, or the editor restored an unsaved buffer) the look is the disk's and a `look_at` is submitted as if they had typed, so those edits are triaged too; a file not on the disk starts at its text now. `changed` submits `look_at` under `idle:<path>`; `saved` cancels
 it, then runs `look_at` and `answer_on_save` under `save:<path>`. `look_at` takes the text now,
 swaps it for the last look, and (unless `head_moved`, which resets every look) runs `triage`
 (`regions.rs`, building `TriageDeps` over `GrammarSyntax`, `JsonRegionStore`, the ledger and the
@@ -313,7 +314,7 @@ ids…]`), the pending questions' options (`ask_actions`), a marked task's *Show
 place now, the open files' unsaved edits) and `start_task`, holding `Server::runner` from the
 check to the start (so two *do this* at once start one task), refuses a second task, builds a
 `TaskRunner` over `task_deps` with an `LspEditor` (`editor_port.rs`, holding the server weakly),
-starts it, gives it its first look (every open file's text now, `open_texts`) and follows it on a
+starts it with `TaskRunner::start_with`, giving it its first look (every open file's text now, `open_texts`) before its agent starts, and follows it on a
 thread. `open_texts` keeps only the files `Server::may_send_under` passes (inside the project,
 not `.sorcerer/` or `.git/`, allowed by the project's `Fences`, opened afresh; none when they do
 not open), so neither the first look, the unsaved edits nor the hook's diffs carry a fenced

@@ -19,7 +19,8 @@ cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice
 The server is `apprentice lsp`, one per project. It works on two clocks:
 
 - **Idle** (one and a half seconds after you stop typing): what you changed since its last look
-  is cut into *regions* (a changed comment, a paragraph of a file no language covers, a
+  (for a file just opened, since you last saved it, so what you typed while the server was
+  starting counts) is cut into *regions* (a changed comment, a paragraph of a file no language covers, a
   function whose body does nothing yet, or a bare hunk of code) and each new one is asked of
   Jev: is it a question, a claim, an instruction or an aside, and is it addressed to a reader?
   Only a clear answer (0.70 for both) counts; anything else is nothing and shows nothing. A body
