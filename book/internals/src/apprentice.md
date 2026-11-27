@@ -55,7 +55,9 @@ connections answered at once; past that a connection is closed unanswered.
   data because sorcerer's code names no tool. A word is matched by `program_name`: its file
   name, unquoted, lower case, less a Windows suffix (`.exe`, `.cmd`, `.bat`, `.com`), so
   `C:\tools\RG.EXE` is `rg`.
-- `paths.rs`: `project_relative` (conjure's `lexical_relative`, copied), `is_sorcerers_own`.
+- `paths.rs`: `project_relative` (conjure's `lexical_relative`, copied), `is_never_written`
+  over `library/never-written.toml` (data, like the tree readers: names any part of a path may
+  not be, ignoring case: `.sorcerer`, `.git`, `.claude`, `.mcp.json`, `.envrc`).
 - `budget.rs` (`spent_today`, `triage_spent_today`, `day_allows`, `triage_allows`),
   `estimate.rs` (`estimate_usd`: the median after five tasks), `log_text.rs` (`usd`,
   `title_of`, `offer_title`, `done_text`, `task_mark_text`, `task_line`), `prompt.rs`
@@ -126,7 +128,7 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
 3. **Helpers' requests**, meanwhile, each on a loopback thread (`answer_request.rs`):
    - `Tool` → `answer_tool_call` (`tool_calls.rs`): the arguments read (`tool_call_of`; a
      missing one is an error result naming it), paths checked (`project_relative`, the fences,
-     never `.sorcerer/` or `.git/`), then the editor. `write_file` journals the file's text before
+     never a path `is_never_written` names), then the editor. `write_file` journals the file's text before
      once (`Journal::keep_before`), counts the file as the task's, and answers `written: …`;
      `Written::MovedOn` answers an error with the file's text now. `ask` sets the task `asking`
      while it waits.

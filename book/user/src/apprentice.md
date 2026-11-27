@@ -103,7 +103,11 @@ reading and searching your files, running commands. What it may not do:
 
 - **Write a file any other way than `write_file`.** Claude Code's `Edit`, `Write`, `MultiEdit`
   and `NotebookEdit` are denied. A `write_file` lands in your editor as one undoable change to
-  the buffer, never to the disk: saving is yours.
+  the buffer, never to the disk: saving is yours. Some paths it never writes at all, even
+  through `write_file`: `.sorcerer/`, `.git/`, and the config a tool obeys the next time it
+  starts in the project (`.claude/`, `.mcp.json`, `.envrc`, anywhere in the tree), since a
+  change there could run code later without anyone asking. The list is
+  `crates/apprentice/library/never-written.toml`.
 - **Read what is fenced.** `.env` files, `.git/`, `.sorcerer/` and your `[model] not_evidence`
   globs are denied to it, as they are to every sorcerer tool, so it cannot read its own journal
   or the ledger. Claude Code's file tools (Read, Grep, Glob, and a file you `@`-mention) refuse

@@ -293,6 +293,39 @@ fn a_path_out_of_the_project_or_into_sorcerers_own_is_refused() {
 }
 
 #[test]
+fn a_write_to_an_agents_or_a_tools_config_is_refused() {
+    let never = [
+        ".claude/settings.json",
+        ".mcp.json",
+        ".envrc",
+        "tools/.envrc",
+        ".git/hooks/pre-commit",
+        ".sorcerer/config.toml",
+        ".Claude/commands/x.md",
+    ];
+    let script = never
+        .iter()
+        .map(|path| Step::Tool("write_file", json!({ "path": path, "text": "x" })))
+        .chain([
+            Step::Tool("write_file", json!({ "path": "src/envrc.txt", "text": "x" })),
+            Step::Finish(0.0),
+        ])
+        .collect();
+    let run = run(script, &[]);
+    let replies = run.agent.replies();
+    for (path, reply) in never.iter().zip(&replies) {
+        assert!(reply.is_error, "{path}: {}", reply.text);
+        assert!(
+            reply.text.contains("no task writes there") || reply.text.contains("fenced"),
+            "{path}: {}",
+            reply.text
+        );
+    }
+    assert!(!replies[never.len()].is_error, "{}", replies[never.len()].text);
+    assert_eq!(run.record.files.len(), 1);
+}
+
+#[test]
 fn an_ask_is_answered_or_times_out_to_the_default() {
     let run = run(
         vec![

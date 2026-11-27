@@ -9,7 +9,7 @@ use sorcerer_core::domain::paths::forward_slashes;
 
 use crate::domain::loopback_message::LoopbackReply;
 use crate::domain::mediums::{Ask, ToolCall, tool_call_of};
-use crate::domain::paths::{is_sorcerers_own, project_relative};
+use crate::domain::paths::{is_never_written, project_relative};
 use crate::domain::task::TaskState;
 use crate::ports::editor::{Asked, Written};
 
@@ -154,11 +154,14 @@ fn readable(written: &str, deps: &TaskDeps) -> Result<PathBuf, String> {
     Ok(relative)
 }
 
-/// A path the agent may write: readable, and not under `.sorcerer/` or `.git/`.
+/// A path the agent may write: readable, and not one `library/never-written.toml` names
+/// (`.sorcerer/`, `.git/`, an agent's or a shell's config).
 fn writable(written: &str, deps: &TaskDeps) -> Result<PathBuf, String> {
     let relative = readable(written, deps)?;
-    if is_sorcerers_own(&relative) {
-        return Err(format!("{written} is sorcerer's own: no task writes there"));
+    if is_never_written(&relative) {
+        return Err(format!(
+            "{written} is config a tool obeys or sorcerer's own: no task writes there"
+        ));
     }
     Ok(relative)
 }

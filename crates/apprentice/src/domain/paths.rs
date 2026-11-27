@@ -1,7 +1,11 @@
 //! Which paths a task may name: a path the agent wrote, relative to the project root after
-//! lexical clean-up (conjure's rule, copied: products never import each other).
+//! lexical clean-up (conjure's rule, copied: products never import each other), and the paths
+//! no task writes (`library/never-written.toml`).
 
 use std::path::{Component, Path, PathBuf};
+use std::sync::LazyLock;
+
+use serde::Deserialize;
 
 /// The path the agent named, relative to the project root after lexical clean-up: `.`
 /// dropped, `..` taken as far as the root and no further; an absolute path only when it is
@@ -33,12 +37,32 @@ pub fn project_relative(root: &Path, written: &str) -> Option<PathBuf> {
     (!kept.is_empty()).then(|| kept.into_iter().collect())
 }
 
-/// Whether a relative path is under sorcerer's own directory, which no task writes.
-pub fn is_sorcerers_own(relative: &Path) -> bool {
-    relative
-        .components()
-        .next()
-        .is_some_and(|first| first.as_os_str() == ".sorcerer" || first.as_os_str() == ".git")
+/// The shipped list, `library/never-written.toml`.
+const NEVER_WRITTEN: &str = include_str!("../../library/never-written.toml");
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NeverWritten {
+    names: Vec<String>,
+}
+
+static NEVER_WRITTEN_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let list: NeverWritten =
+        toml::from_str(NEVER_WRITTEN).expect("library/never-written.toml parses");
+    list.names.iter().map(|name| name.to_lowercase()).collect()
+});
+
+/// Whether no task writes the relative path: some part of it is named in
+/// `library/never-written.toml` (sorcerer's and git's own, and the config an agent, a shell or
+/// an editor obeys when it next starts), ignoring case.
+///
+/// Example: `.sorcerer/config.toml`, `.git/hooks/pre-commit` and `tools/.envrc` are never
+/// written; `src/envrc.txt` may be.
+pub fn is_never_written(relative: &Path) -> bool {
+    relative.components().any(|part| {
+        let name = part.as_os_str().to_string_lossy().to_lowercase();
+        NEVER_WRITTEN_NAMES.contains(&name)
+    })
 }
 
 #[cfg(test)]
@@ -58,9 +82,12 @@ mod tests {
     }
 
     #[test]
-    fn sorcerers_own_directories_are_known() {
-        assert!(is_sorcerers_own(Path::new(".sorcerer/state/x")));
-        assert!(is_sorcerers_own(Path::new(".git/config")));
-        assert!(!is_sorcerers_own(Path::new("src/a.txt")));
+    fn the_never_written_paths_are_known() {
+        for path in [".sorcerer/state/x", ".git/config", "a/.ENVRC", ".mcp.json"] {
+            assert!(is_never_written(Path::new(path)), "{path}");
+        }
+        for path in ["src/a.txt", "src/envrc.txt", "docs/mcp.json"] {
+            assert!(!is_never_written(Path::new(path)), "{path}");
+        }
     }
 }
