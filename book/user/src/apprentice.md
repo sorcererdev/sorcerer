@@ -216,6 +216,12 @@ reading and searching your files, running commands. What it may not do:
 When it ends a turn without using any of them, its last text is posted for it (a message when
 short, a note when long), so nothing it decided to say is lost.
 
+**Web research is not asked about.** `WebSearch` and `WebFetch` run unasked, so a task can look
+things up. The other side of that: a prompt injection planted in a file the agent reads (a README,
+a comment in a dependency) could have it fetch a URL that carries your code out in its query.
+Fenced files never reach the agent, so what could leave is the unfenced project, which you already
+let it read.
+
 **Your edits win.** After every tool call the agent is handed what you changed in the files
 since it last looked, as diffs, under "their edits are authoritative". A `write_file` to a file
 you changed since it read it is refused with the file's text now, so it rebases instead of

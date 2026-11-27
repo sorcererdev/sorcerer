@@ -4,7 +4,7 @@
 product. Scry's server (`scry lsp`) is the first product on it (it tracks text only to republish
 a buffer that matches the disk again); conjure's server is next, and
 uses what the host added for it (the open documents' text, `apply_edit`); spellbook's server (`spellbook lsp`) plugs
-in the same way (`tracks_text` false, execute commands, code actions, `publish`, `show_document`,
+in the same way (execute commands, code actions, `publish`, `show_document`,
 `apply_edit`), and added one thing: a request answered later, through a `Reply`, so `spellbook.apply`
 can wait for the editor to land a fix. A save is a notification with nothing to answer, yet
 spellbook's `Product::saved` may still send `workspace/applyEdit` (its owned regions synced on save):
