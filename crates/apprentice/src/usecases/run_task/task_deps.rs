@@ -57,7 +57,7 @@ pub struct LiveTask {
     used: Mutex<UsageSeen>,
     /// The person's verdict on each command asked about, until the stream shows the command:
     /// the stream may show it before the question or after the answer.
-    verdicts: Mutex<HashMap<String, CommandVerdict>>,
+    verdicts: Mutex<Verdicts>,
     pub cancel: Cancel,
 }
 
@@ -69,7 +69,7 @@ impl LiveTask {
             record: Mutex::new(record),
             spoke: AtomicBool::new(false),
             used: Mutex::new(UsageSeen::default()),
-            verdicts: Mutex::new(HashMap::new()),
+            verdicts: Mutex::new(Verdicts::default()),
             cancel: Cancel::default(),
         }
     }
@@ -110,12 +110,12 @@ impl LiveTask {
 
     /// The person's verdict on a command, as the permission question stands.
     pub fn command_verdict(&self, command: &str, verdict: CommandVerdict) {
-        lock(&self.verdicts).insert(command.to_string(), verdict);
+        lock(&self.verdicts).asked(command, verdict);
     }
 
     /// The verdict on a command the stream now shows, taken (each is shown once).
     pub fn take_command_verdict(&self, command: &str) -> Option<CommandVerdict> {
-        lock(&self.verdicts).remove(command)
+        lock(&self.verdicts).shown(command)
     }
 
     pub fn spoke(&self) {
@@ -138,4 +138,86 @@ impl LiveTask {
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The verdicts kept for the stream, and the commands the stream showed before their answer.
+///
+/// A verdict is kept only while the stream has yet to show its command. When the stream shows
+/// the command first (claude often does, then asks), the answer that follows is not kept: kept,
+/// it would be shown for the next run of the same command, before that one is asked about.
+///
+/// Example: the stream shows `ls`, then `ls` is denied: nothing is kept, so a later `ls` the
+/// stream shows says what it does, not `denied: ls`.
+#[derive(Default)]
+struct Verdicts {
+    kept: HashMap<String, CommandVerdict>,
+    /// How many times each command was shown before its answer came.
+    shown_unanswered: HashMap<String, usize>,
+}
+
+impl Verdicts {
+    fn asked(&mut self, command: &str, verdict: CommandVerdict) {
+        let answered = verdict != CommandVerdict::Waiting;
+        if answered && self.answer_was_awaited(command) {
+            self.kept.remove(command);
+        } else {
+            self.kept.insert(command.to_string(), verdict);
+        }
+    }
+
+    fn shown(&mut self, command: &str) -> Option<CommandVerdict> {
+        let verdict = self.kept.remove(command);
+        if matches!(verdict, None | Some(CommandVerdict::Waiting)) {
+            *self
+                .shown_unanswered
+                .entry(command.to_string())
+                .or_default() += 1;
+        }
+        verdict
+    }
+
+    /// Whether the stream showed the command before this answer, which then settles it.
+    fn answer_was_awaited(&mut self, command: &str) -> bool {
+        let Some(count) = self.shown_unanswered.get_mut(command) else {
+            return false;
+        };
+        *count -= 1;
+        if *count == 0 {
+            self.shown_unanswered.remove(command);
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_answer_after_the_stream_showed_the_command_is_not_kept_for_the_next_run() {
+        let mut verdicts = Verdicts::default();
+        assert_eq!(verdicts.shown("ls"), None);
+        verdicts.asked("ls", CommandVerdict::Waiting);
+        verdicts.asked("ls", CommandVerdict::Denied);
+        // the next `ls`, shown before it is asked about, has no verdict yet
+        assert_eq!(verdicts.shown("ls"), None);
+    }
+
+    #[test]
+    fn an_answer_before_the_stream_shows_the_command_is_kept_once() {
+        let mut verdicts = Verdicts::default();
+        verdicts.asked("ls", CommandVerdict::Waiting);
+        verdicts.asked("ls", CommandVerdict::Allowed);
+        assert_eq!(verdicts.shown("ls"), Some(CommandVerdict::Allowed));
+        assert_eq!(verdicts.shown("ls"), None);
+    }
+
+    #[test]
+    fn a_command_shown_while_it_waits_says_so_and_its_answer_is_not_kept() {
+        let mut verdicts = Verdicts::default();
+        verdicts.asked("ls", CommandVerdict::Waiting);
+        assert_eq!(verdicts.shown("ls"), Some(CommandVerdict::Waiting));
+        verdicts.asked("ls", CommandVerdict::Allowed);
+        assert_eq!(verdicts.shown("ls"), None);
+    }
 }
