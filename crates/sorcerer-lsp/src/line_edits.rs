@@ -17,10 +17,21 @@ pub struct LineEdit {
     pub to_end_of_file: Option<u32>,
 }
 
-/// Whether two texts are the same but for their line endings: an editor may keep a file with
-/// CRLF lines (VS Code on Windows starts a new file so) where the change was made with LF.
+/// Whether two texts are the same but for their line endings and one final newline: an editor
+/// may keep a file with CRLF lines (VS Code on Windows starts a new file so) where the change
+/// was made with LF, and may end every buffer with a newline (Neovim's `eol`, VS Code's
+/// `files.insertFinalNewline`) where the change ended without one. Neither is anybody's edit.
+///
+/// Example: `"x = 1"`, `"x = 1\n"` and `"x = 1\r\n"` are the same text; `"x = 1\n\n"` is not,
+/// since only one final newline is the editor's.
 pub fn same_text(a: &str, b: &str) -> bool {
-    a == b || a.replace("\r\n", "\n") == b.replace("\r\n", "\n")
+    a == b
+        || without_final_newline(&a.replace("\r\n", "\n"))
+            == without_final_newline(&b.replace("\r\n", "\n"))
+}
+
+fn without_final_newline(text: &str) -> &str {
+    text.strip_suffix('\n').unwrap_or(text)
 }
 
 /// The new text with the base text's line endings: a base of CRLF lines keeps CRLF, one of LF
@@ -147,6 +158,16 @@ mod tests {
         assert_eq!(keep_unterminated_last_line("a\nb", "a\nB\n"), "a\nB\n");
         assert_eq!(keep_unterminated_last_line("a\nb\n", "A\nb\n"), "A\nb\n");
         assert_eq!(keep_unterminated_last_line("", "a\n"), "a\n");
+    }
+
+    #[test]
+    fn an_editors_final_newline_or_line_endings_are_the_same_text() {
+        assert!(same_text("x = 1", "x = 1\n"));
+        assert!(same_text("x = 1\r\n", "x = 1"));
+        assert!(same_text("a\r\nb\r\n", "a\nb\n"));
+        assert!(!same_text("x = 1", "x = 1\n\n"));
+        assert!(!same_text("x = 1", "x = 2\n"));
+        assert!(!same_text("", "\n\n"));
     }
 
     #[test]

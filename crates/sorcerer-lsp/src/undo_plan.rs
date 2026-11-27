@@ -108,7 +108,7 @@ pub fn undo_of(
             (true, None, FileDeletion::Allowed) if text.is_empty() => {
                 FileUndo::Undo(Undo::Delete { path })
             }
-            _ if text == before => FileUndo::Nothing,
+            _ if text == before || (!file.new && same_text(&text, before)) => FileUndo::Nothing,
             _ => FileUndo::Edited,
         };
     }
@@ -169,6 +169,20 @@ mod tests {
             FileDeletion::Allowed,
         );
         assert_eq!(back, FileUndo::Nothing);
+    }
+
+    #[test]
+    fn a_final_newline_the_editor_added_is_not_the_persons_edit() {
+        // the writer's text ended without a newline; the editor (Neovim's `eol`) reports one
+        let undo = undo_of(
+            &file(Some("x = 1\n"), "x = 2"),
+            Some((Some(4), "x = 2\n".into())),
+            FileDeletion::Allowed,
+        );
+        let FileUndo::Undo(Undo::Edit { edits, .. }) = undo else {
+            panic!("{undo:?}");
+        };
+        assert_eq!(edits[0].text, "x = 1\n");
     }
 
     #[test]

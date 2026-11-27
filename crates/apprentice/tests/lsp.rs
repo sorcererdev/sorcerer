@@ -251,6 +251,60 @@ fn saving_every_file_a_task_changed_keeps_it() {
 }
 
 #[test]
+fn a_final_newline_the_editor_adds_to_a_write_is_nobodys_edit() {
+    // the agent's text ends without a newline; the editor, like Neovim, reports one
+    let project = TempProject::with(&[(FILE, BEFORE)]);
+    let unterminated = AFTER.trim_end_matches('\n');
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool("write_file", json!({ "path": FILE, "text": unterminated })),
+        Step::Tool("write_file", json!({ "path": FILE, "text": unterminated })),
+        Step::Hook,
+        Step::Finish(0.3),
+    ]));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: agent.clone(),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.adds_final_newline.set(true);
+    s.open(FILE);
+    s.settle(Duration::from_millis(100));
+    s.type_text(FILE, &with_claim());
+    s.marks_until(FILE, |marks| {
+        marks
+            .iter()
+            .any(|m| m.message.starts_with("apprentice: I can do this"))
+    });
+    s.run_action(FILE, 5, "apprentice: do this");
+    s.shown_message("apprentice: done");
+    assert_eq!(s.text(FILE).as_deref(), Some(AFTER));
+    let replies: Vec<String> = agent.replies().into_iter().map(|r| r.text).collect();
+    assert_eq!(replies[2], "", "no edits are fed to the agent: {replies:?}");
+    s.marks_until(FILE, |marks| {
+        marks.iter().any(|m| m.message.starts_with("\u{2726}"))
+    });
+
+    s.run_action(FILE, 7, "apprentice: Undo this task");
+    assert!(
+        s.shown_message("apprentice: undid")
+            .starts_with("apprentice: undid"),
+    );
+    assert_eq!(s.text(FILE).as_deref(), Some(with_claim().as_str()));
+    let task_dir = std::fs::read_dir(project.root.join(".sorcerer/state/apprentice/tasks"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let journal = std::fs::read_to_string(task_dir.join("journal.md")).unwrap();
+    assert!(!journal.contains("## edits"), "{journal}");
+    s.stop();
+}
+
+#[test]
 fn a_stub_is_offered_by_rule_with_no_jev() {
     let project = TempProject::with(&[("src/cart.py", "def total(cart):\n    return 1\n")]);
     let s = served(
