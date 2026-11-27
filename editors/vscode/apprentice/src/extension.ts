@@ -11,7 +11,7 @@ import { registerKeys } from './keyActions';
 import { type OfferEnding, remembered } from './offer';
 import { BeforeTexts } from './showDiff';
 import { registerTaskMarks } from './taskMarks';
-import { parseWorking, type WorkingUnit } from './working';
+import { parseWorking, spelledAs, type WorkingUnit } from './working';
 
 // apprentice is a prototype: no release carries it yet (ruling Q1, 2026-11-26), so it is built
 // from source; the offer below finds no release and says this line once per version
@@ -78,7 +78,7 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder, before: Before
   const drawing: Drawing = { working: new Working(), ghosts: new Ghosts() };
   drawings.set(key, drawing);
   lc.onNotification('sorcerer/working', params =>
-    drawing.working.show(parseWorking(params).map(unit => ({ ...unit, uri: spelledAsVsCode(unit.uri) }))));
+    drawing.working.show(spelledAs(parseWorking(params), spelledAsVsCode)));
   lc.onNotification('sorcerer/ghost', params => {
     const ghost = parseGhost(params);
     if (ghost) drawing.ghosts.show({ ...ghost, uri: spelledAsVsCode(ghost.uri) });

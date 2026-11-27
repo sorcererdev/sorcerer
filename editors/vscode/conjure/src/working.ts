@@ -28,3 +28,10 @@ function isUnit(value: unknown): value is WorkingUnit {
 export function forDocument(units: WorkingUnit[], uri: string): WorkingUnit[] {
   return units.filter(unit => unit.uri === uri);
 }
+
+// spelledAs is the units with each uri passed through `spell`. The server sends
+// `file:///C:/a.py` and VS Code names that document `file:///c%3A/a.py`, so extension.ts spells
+// each uri as VS Code does (`uri => vscode.Uri.parse(uri).toString()`) before forDocument matches.
+export function spelledAs(units: WorkingUnit[], spell: (uri: string) => string): WorkingUnit[] {
+  return units.map(unit => ({ ...unit, uri: spell(unit.uri) }));
+}
