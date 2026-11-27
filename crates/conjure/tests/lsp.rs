@@ -490,16 +490,26 @@ impl Served {
     /// The editor applies the next edit and keeps every file with CRLF lines, as VS Code on
     /// Windows does for a new file.
     fn apply_next_edit_with_crlf_lines(&self) -> Value {
+        self.apply_next_edit_rewriting(|text| text.replace("\r\n", "\n").replace('\n', "\r\n"))
+    }
+
+    /// The editor applies the next edit and drops the final newline of every file, as an editor
+    /// without `eol` does on a file that had none.
+    fn apply_next_edit_without_final_newline(&self) -> Value {
+        self.apply_next_edit_rewriting(|text| text.strip_suffix('\n').unwrap_or(text).to_string())
+    }
+
+    /// The editor applies the next edit and keeps every file as `rewrite` (any rewrite) makes it.
+    fn apply_next_edit_rewriting(&self, rewrite: impl Fn(&str) -> String) -> Value {
         let (id, params) = self.edit_sent();
         let applied = self.apply_quietly(&params["edit"]);
-        let to_crlf = |text: &str| text.replace("\r\n", "\n").replace('\n', "\r\n");
         let mut notes = applied.clone().unwrap_or_default();
         for (_, note) in &mut notes {
             let uri = note["textDocument"]["uri"].clone();
             let Some(text) = note["contentChanges"][0]["text"]
                 .as_str()
                 .or_else(|| note["textDocument"]["text"].as_str())
-                .map(to_crlf)
+                .map(&rewrite)
             else {
                 continue;
             };
@@ -1892,6 +1902,26 @@ fn try_harder_waits_for_the_editor_to_report_the_undo() {
     );
     let records = s.records_reach(1);
     assert_eq!(records[0].choice, Choice::Replaced);
+    s.stop();
+}
+
+#[test]
+fn try_harder_does_not_wait_when_the_editor_drops_the_final_newline_of_the_undo() {
+    let harder = format!(
+        "<goal>fill total properly</goal>\n<file path=\"src/a.py\">\n{}</file>\n",
+        NEW_A.replace("sum(cart)", "sum(item.price for item in cart)")
+    );
+    let (_dir, s) = landed(&[&three_files(), &harder]);
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Try harder"));
+    let started = std::time::Instant::now();
+    s.apply_next_edit_without_final_newline();
+    s.apply_next_edit();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "waited {:?}",
+        started.elapsed()
+    );
     s.stop();
 }
 
