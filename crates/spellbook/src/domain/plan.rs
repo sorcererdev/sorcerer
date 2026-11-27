@@ -242,6 +242,14 @@ pub enum PlanStop {
         line: u32,
         why: String,
     },
+    /// Rewriting a file's regions would remove a line no block adopted: the line (from 1) in
+    /// the file as it was, and its text.
+    RegionWouldLoseLine {
+        regions: String,
+        file: String,
+        line: u32,
+        text: String,
+    },
     /// `regions.toml` did not load: the sentence naming the region and the key.
     RegionsDoNotLoad(String),
     /// No region has that name.
@@ -295,6 +303,14 @@ pub fn plan_stop_text(stop: &PlanStop) -> String {
         PlanStop::RegionBroken { file, line, why } => {
             format!("{file}:{line}: {why}; nothing was written (fix the markers by hand)")
         }
+        PlanStop::RegionWouldLoseLine {
+            regions,
+            file,
+            line,
+            text,
+        } => format!(
+            "{file}:{line}: syncing region {regions} would lose this line (`{text}`), which no block adopts; nothing was written"
+        ),
         PlanStop::RegionsDoNotLoad(why) => why.clone(),
         PlanStop::RegionNotThere { name, known } => region_not_there_text(name, known),
         PlanStop::Region { name, file, why } => {

@@ -12,7 +12,9 @@ export interface PlanHunk {
 }
 
 // One file of a plan: its path under the root (with `/`), whether it is written (`new`), edited
-// (`changed`, with what it adds and removes) or left alone, its text after the plan.
+// (`changed`, with what it adds and removes) or left alone, its text after the plan. A file whose
+// owned region the plan rewrites names the `region`, and `set_up` counts the items of a region a
+// sync sets up.
 export interface PlannedFile {
   path: string;
   status: 'new' | 'changed' | 'skipped' | string;
@@ -21,6 +23,8 @@ export interface PlannedFile {
   added?: number;
   removed?: number;
   hunks?: PlanHunk[];
+  region?: string;
+  set_up?: number;
 }
 
 // The finding a fix plan answers, as `spellbook.plan` echoes it.
@@ -57,7 +61,12 @@ export interface Plan {
   files: PlannedFile[];
   holes: Hole[];
   fix?: PlanFix;
+  // one-line hints: a region not set up, a `regions.toml` that does not load
+  notes?: string[];
 }
+
+// The generator name of a sync of the owned regions (Spellbook: Sync, a region's quick fix).
+export const SYNC = 'sync';
 
 // One file item of the preview's pick: the label shown, a description, the file's path.
 export interface FileItem {
@@ -79,7 +88,9 @@ export interface LineRange {
 // changed files and new ones, and names the inputs the finding settled.
 // Example: `spellbook: command · 2 files · 3 holes to fill · app bistro, service booking (the only choices)`.
 // Example: `spellbook: fix commands-use-ports · Use a port the service has · 2 files changed · 0 holes to fill`.
+// A sync counts the files whose regions it rewrites: `spellbook: sync · 1 file changed`.
 export function planTitle(plan: Plan, taken: Values = {}, settled: Values = {}): string {
+  if (plan.generator === SYNC) return `spellbook: sync · ${fixCounts(plan)}`;
   const holes = counted(plan.holes.filter(hole => hole.source === 'placeholder').length, 'hole');
   if (plan.fix) return `spellbook: fix ${plan.fix.rule} · ${plan.fix.label} · ${fixCounts(plan)} · ${holes} to fill${takenText(taken)}${settledText(settled)}`;
   return `spellbook: ${plan.generator} · ${counted(newFiles(plan).length, 'file')} · ${holes} to fill${takenText(taken)}`;
@@ -106,14 +117,33 @@ function settledText(settled: Values): string {
 }
 
 // fileItems is one pick item per planned file: `+ path` with its line count for a file written,
-// `~ path` with `+a −r` for a changed one, `= path` for one that exists and is skipped.
-// Example: `+ src/bistro/booking/commands/cancel_table.py` · `31 lines`; `~ close_table.py` · `+3 −1`.
+// `~ path` with `+a −r` for a changed one (`region NAME: +a −r` when what changes is an owned
+// region, `region NAME: set up, N items` when a sync sets it up), `= path` for one that exists
+// and is skipped.
+// Example: `+ src/bistro/booking/commands/cancel_table.py` · `31 lines`; `~ close_table.py` · `+3 −1`;
+// `~ src/booking/commands/mod.rs` · `region modules: +1 −0`.
 export function fileItems(plan: Plan): FileItem[] {
   return plan.files.map(file => {
     if (file.status === 'new') return { label: `+ ${file.path}`, description: counted(file.lines, 'line'), path: file.path };
-    if (file.status === 'changed') return { label: `~ ${file.path}`, description: `+${file.added ?? 0} −${file.removed ?? 0}`, path: file.path };
+    if (file.status === 'changed') return { label: `~ ${file.path}`, description: changedText(file), path: file.path };
     return { label: `= ${file.path}`, description: 'exists, skipped', path: file.path };
   });
+}
+
+// `+3 −1`, `region modules: +1 −0` or `region modules: set up, 2 items`.
+function changedText(file: PlannedFile): string {
+  const counts = `+${file.added ?? 0} −${file.removed ?? 0}`;
+  if (!file.region) return counts;
+  if (file.set_up !== undefined) return `region ${file.region}: set up, ${counted(file.set_up, 'item')}`;
+  return `region ${file.region}: ${counts}`;
+}
+
+// syncedText is the status line once a sync is applied, or what is said when there was nothing
+// to sync: the regions up to date, then the plan's notes (a region not set up).
+// Example: `spellbook: synced 1 file`; `spellbook: regions up to date`.
+export function syncedText(changed: number, notes: string[] = []): string {
+  const said = changed === 0 ? 'spellbook: regions up to date' : `spellbook: synced ${counted(changed, 'file')}`;
+  return [said, ...notes].join(' · ');
 }
 
 // newFiles is the files the plan writes, in its order.

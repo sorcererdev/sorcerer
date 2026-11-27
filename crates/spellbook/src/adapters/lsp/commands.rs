@@ -4,7 +4,8 @@
 //! - `spellbook.choices [generator, inputs, input]`
 //! - `spellbook.plan [generator, inputs, fix?]`: with `fix` (`{ file, line, rule, index,
 //!   version }`), the fix of that finding; a changed file comes with its `hunks`, `added` and
-//!   `removed`, and the plan with the `fix` it is
+//!   `removed` (and `region` when a region's block is what changes), and the plan with the
+//!   `fix` it is. The generator `sync` is the owned regions' refresh (`sync_on_save.rs`)
 //! - `spellbook.apply [plan id]`: replies with `changed`, `written`, `skipped`, `refused`,
 //!   `holes`, `first` (the first hole's file and line) and `stops`, the holes in the order to
 //!   walk them; a plan's changed files are landed by the editor first (`landing.rs`)
@@ -43,11 +44,16 @@ use crate::usecases::list_generators::list_generators;
 use crate::usecases::plan_fix::{FindingAt, plan_fix};
 use crate::usecases::plan_generation::plan_generation;
 use crate::usecases::planned_view::PlannedView;
+use crate::usecases::sync_regions::{SYNC_GENERATOR, SyncMode};
 
 pub(super) const GENERATORS: &str = "spellbook.generators";
 pub(super) const CHOICES: &str = "spellbook.choices";
 pub(super) const PLAN: &str = "spellbook.plan";
 pub(super) const APPLY: &str = "spellbook.apply";
+
+/// What a sync asked to set a region up without naming it is told.
+const INIT_NAMES_NO_REGION: &str =
+    "a sync with mode init names the region to set up (region = NAME)";
 
 /// What an apply of an unknown, expired or already applied plan is told.
 const PLAN_GONE: &str = "that plan is gone (plans last ten minutes); make it again";
@@ -147,18 +153,50 @@ impl Server {
         let given = given_argument(arguments, 1);
         let fix = fix_argument(arguments, 2)?;
         let planned = match &fix {
-            Some(fix) => planned_fix(wired, fix, &given),
-            None => planned_generation(wired, &name, &given),
+            _ if name == SYNC_GENERATOR => self.planned_sync(wired, &given),
+            Some(fix) => planned_fix(wired, fix, &given).map(|plan| {
+                let versions = fix.version.map(|version| (fix.file.clone(), version));
+                KeptPlan {
+                    plan,
+                    versions: versions.into_iter().collect(),
+                }
+            }),
+            None => planned_generation(wired, &name, &given).map(|plan| KeptPlan {
+                plan,
+                versions: BTreeMap::new(),
+            }),
         };
         Ok(match planned {
-            Ok(plan) => {
-                let reply = json!(plan);
-                let version = fix.and_then(|fix| fix.version);
-                lock(&self.plans).keep(KeptPlan { plan, version }, self.cfg.clock.now());
+            Ok(kept) => {
+                let reply = json!(kept.plan);
+                lock(&self.plans).keep(kept, self.cfg.clock.now());
                 reply
             }
             Err(stop_reply) => stop_reply,
         })
+    }
+
+    /// The sync the editor asks for by the generator name `sync`: the refresh of every region,
+    /// or with `mode` `init` the region named by `region` set up as well. A region's quick fix
+    /// sends its finding too; the sync needs only the inputs.
+    ///
+    /// Example: `["sync", { "region": "ports", "mode": "init", "file": "src/booking/ports/mod.rs" }]`
+    /// plans `sync --init ports`.
+    fn planned_sync(&self, wired: &Wired, given: &Given) -> Result<KeptPlan, Value> {
+        let mode = match (
+            given.0.get("mode").map(String::as_str),
+            given.0.get("region"),
+        ) {
+            (Some("init"), Some(region)) => SyncMode::Init(region.clone()),
+            (Some("init"), None) => return Err(stop(INIT_NAMES_NO_REGION)),
+            _ => SyncMode::Refresh,
+        };
+        self.sync_planned(wired, &mode)
+            .map(|sync| KeptPlan {
+                plan: sync.plan,
+                versions: sync.versions,
+            })
+            .map_err(|why| plan_stop_reply(&why))
     }
 
     /// `[plan id]`: lands the plan's changed files, writes its new files, marks each hole and
@@ -177,12 +215,43 @@ impl Server {
         if kept.plan.changed_files().is_empty() {
             return reply.send(Ok(self.applied(wired, kept.plan, ChangesLanded::NotYet)));
         }
+        if kept.plan.generator == SYNC_GENERATOR {
+            return self.apply_sync(wired, kept, reply);
+        }
         if self.client.can_apply_edits() {
             return self.land_in_the_editor(kept, reply);
         }
         self.client
             .say_once("cannot-edit", MessageType::INFO, CANNOT_EDIT);
         reply.send(Ok(self.applied(wired, kept.plan, ChangesLanded::NotYet)));
+    }
+
+    /// A sync's apply, split as a save's sync is (`split_sync`): (1) the region files not open are
+    /// written to disk; (2) the open ones land as one edit, each tied to the version the plan
+    /// read, and the reply waits for the editor's answer; (3) an open one with no version known
+    /// is left for its finding. The reply's `changed` names every file synced; a refused edit is
+    /// a stop naming the file (the files written to disk stay: each change is only its block).
+    fn apply_sync(self: &Arc<Self>, wired: &Wired, kept: KeptPlan, reply: Reply) {
+        let split = self.split_sync(kept.plan, &kept.versions);
+        let written = self
+            .write_region_files(wired, split.on_disk)
+            .map(|applied| applied.changed)
+            .unwrap_or_default();
+        if split.in_editor.files.is_empty() {
+            return reply.send(Ok(synced_reply(&written)));
+        }
+        self.send_edit(
+            split.in_editor,
+            kept.versions,
+            move |server, plan, applied| {
+                if !applied {
+                    return reply.send(Ok(stop(&changed_since_text(&plan))));
+                }
+                let landed = server.record_landed_sync(plan);
+                let changed: Vec<String> = written.into_iter().chain(landed).collect();
+                reply.send(Ok(synced_reply(&changed)));
+            },
+        );
     }
 
     /// Applies the plan (its changed files already landed by the editor, or not yet), publishes
@@ -228,6 +297,19 @@ fn changed_texts(plan: &Plan) -> BTreeMap<String, String> {
         .into_iter()
         .map(|file| (file.path.clone(), file.text.clone()))
         .collect()
+}
+
+/// What a sync's apply did, in the shape of any apply's reply: only files changed, no holes.
+fn synced_reply(changed: &[String]) -> Value {
+    json!({
+        "changed": changed,
+        "written": [],
+        "skipped": [],
+        "refused": Value::Null,
+        "holes": [],
+        "first": Value::Null,
+        "stops": [],
+    })
 }
 
 /// What apply did, as the plugin reads it.

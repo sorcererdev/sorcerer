@@ -5,9 +5,14 @@ product. Scry's server (`scry lsp`) is the first product on it; conjure's server
 uses what the host added for it (the open documents' text, `apply_edit`); spellbook's server (`spellbook lsp`) plugs
 in the same way (`tracks_text` false, execute commands, code actions, `publish`, `show_document`,
 `apply_edit`), and added one thing: a request answered later, through a `Reply`, so `spellbook.apply`
-can wait for the editor to land a fix. apprentice's server (`apprentice lsp`) tracks text, lands
-each of a task's writes through the host's landing code, and was the reason that code moved
-here from conjure and `notify_sorcerer` was added. No scry type appears in the crate.
+can wait for the editor to land a fix. A save is a notification with nothing to answer, yet
+spellbook's `Product::saved` may still send `workspace/applyEdit` (its owned regions synced on save):
+`Client::apply_edit` takes a callback and nothing waits, `Client::is_open` tells it whether a
+region file is the editor's to change or the disk's, and `Client::text_of` (spellbook tracks text
+for this) gives the buffer's text and the version the edit is tied to (`crates/spellbook/src/adapters/lsp/sync_on_save.rs`).
+apprentice's server (`apprentice lsp`) tracks text, lands each of a task's writes through the
+host's landing code, and was the reason that code moved here from conjure and `notify_sorcerer`
+was added. No scry type appears in the crate.
 
 It is synchronous like the rest of the workspace: `lsp-server` gives a connection as two
 channels, and `lsp-types` the message types (its `Uri`, which `uri.rs` turns into paths

@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { changedFiles, fileItems, newFiles, type Plan, placeholderRanges, planTitle, planUriPath } from '../../src/plan';
+import { changedFiles, fileItems, newFiles, type Plan, placeholderRanges, planTitle, planUriPath, syncedText } from '../../src/plan';
 
 const plan: Plan = {
   id: '1a2b3c4d',
@@ -87,4 +87,26 @@ test('a_fix_title_names_the_rule_the_fix_the_counts_and_what_the_finding_settled
 test('changed_files_are_the_ones_the_plan_edits_and_new_files_the_ones_it_writes', () => {
   assert.deepEqual(changedFiles(fixed).map(f => f.path), ['src/a/close_table.py', 'src/a/close_table__test.py']);
   assert.deepEqual(newFiles(fixed).map(f => f.path), ['src/a/ports/p.py']);
+});
+
+test('a_region_file_names_its_region_and_a_sync_counts_the_files_it_changes', () => {
+  const sync: Plan = {
+    id: 'sy12', generator: 'sync', holes: [],
+    files: [
+      { path: 'src/booking/commands/mod.rs', status: 'changed', text: 'x', lines: 5, added: 1, region: 'modules' },
+      { path: 'src/booking/ports/mod.rs', status: 'changed', text: 'y', lines: 6, added: 4, region: 'ports', set_up: 2 },
+    ],
+  };
+  assert.deepEqual(fileItems(sync).map(item => [item.label, item.description]), [
+    ['~ src/booking/commands/mod.rs', 'region modules: +1 −0'],
+    ['~ src/booking/ports/mod.rs', 'region ports: set up, 2 items'],
+  ]);
+  assert.equal(planTitle(sync), 'spellbook: sync · 2 files changed');
+});
+
+test('the_sync_end_line_counts_the_files_or_says_the_regions_are_up_to_date', () => {
+  assert.equal(syncedText(1), 'spellbook: synced 1 file');
+  assert.equal(syncedText(0), 'spellbook: regions up to date');
+  assert.equal(syncedText(0, ['region ports is not set up in a (run spellbook sync --init ports)']),
+    'spellbook: regions up to date · region ports is not set up in a (run spellbook sync --init ports)');
 });

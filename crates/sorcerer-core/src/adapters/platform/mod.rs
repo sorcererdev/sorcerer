@@ -10,7 +10,9 @@
 //! - `compiler`: the C compiler that builds a grammar, and the shared library's extension.
 //! - `process`: starting a program so that stopping it also stops everything it started.
 
+// spellbook:region platform-modules (from crates/sorcerer-core/src/adapters/platform/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod compiler;
 pub mod dirs;
 pub mod paths;
 pub mod process;
+// spellbook:end platform-modules

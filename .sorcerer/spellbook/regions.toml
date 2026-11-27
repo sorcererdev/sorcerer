@@ -1,0 +1,76 @@
+# The module lists spellbook keeps: the `mod` lines of every mod.rs that lists its folder.
+# Hand edits inside a region are overwritten. Add a module with `spellbook sync` (after
+# creating its file), or `spellbook new`; delete the file and sync drops the line.
+#
+# A list is one region per shape of line (`pub mod`, `mod`) and per kind of entry (a file, a
+# folder with its own mod.rs). Left out, because no glob describes them:
+#   crates/conjure/src/adapters/lsp/mod.rs   mixes `pub(crate) mod` and `mod`
+#   crates/scry/src/usecases/mod.rs          one private `mod` among `pub mod`
+#   crates/scry/src/usecases/review_change/mod.rs   mixes `pub mod` and `mod`
+#   crates/*/tests/support/mod.rs            also holds `#[allow]` re-exports
+#
+# A mod.rs with files and folders has two regions, so two blocks: `sync --init` puts the
+# second after the first, never inside it.
+
+[regions.domain-modules]
+file    = "crates/*/src/domain/mod.rs"
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+[regions.ports-modules]
+file    = "crates/*/src/ports/mod.rs"
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+[regions.adapters-modules]
+file    = "crates/*/src/adapters/mod.rs"
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+[regions.adapters-folders]
+file    = "crates/*/src/adapters/mod.rs"
+exclude = ["crates/sorcerer-models/src/adapters/mod.rs"]
+query   = { glob = "{= dir =}/*/mod.rs" }
+item    = "pub mod {= parent =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+[regions.platform-modules]
+file    = "crates/*/src/adapters/platform/mod.rs"
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+[regions.usecases-modules]
+file    = "crates/*/src/usecases/mod.rs"
+exclude = ["crates/scry/src/usecases/mod.rs"]
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "pub mod {= stem =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+[regions.usecases-folders]
+file    = "crates/conjure/src/usecases/mod.rs"
+query   = { glob = "{= dir =}/*/mod.rs" }
+item    = "pub mod {= parent =};"
+init_at = ["after last line matching ^pub mod ", "end of imports"]
+
+[regions.cli-modules]
+file    = "crates/*/src/cli/mod.rs"
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "mod {= stem =};"
+init_at = ["after last line matching ^mod ", "end of imports"]
+
+[regions.lsp-modules]
+file    = "crates/*/src/adapters/lsp/mod.rs"
+exclude = ["crates/conjure/src/adapters/lsp/mod.rs"]
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "mod {= stem =};"
+init_at = ["after last line matching ^mod ", "end of imports"]
+
+[regions.usecase-parts]
+file    = "crates/conjure/src/usecases/*/mod.rs"
+query   = { glob = "{= dir =}/*.rs", exclude = ["{= dir =}/mod.rs"] }
+item    = "mod {= stem =};"
+init_at = ["after last line matching ^mod ", "end of imports"]

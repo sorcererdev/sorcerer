@@ -63,6 +63,10 @@
       {
         "command": "spellbook.fixHere",
         "title": "Spellbook: Fix"
+      },
+      {
+        "command": "spellbook.sync",
+        "title": "Spellbook: Sync"
       }
     ],
     "keybindings": [
@@ -79,6 +83,11 @@
       {
         "command": "spellbook.fixHere",
         "key": "ctrl+m f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "spellbook.sync",
+        "key": "ctrl+m s",
         "when": "editorTextFocus"
       }
     ]

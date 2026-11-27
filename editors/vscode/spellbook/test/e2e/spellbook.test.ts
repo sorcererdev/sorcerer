@@ -1,5 +1,5 @@
 import * as assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 
@@ -18,6 +18,7 @@ const ws = process.env.SPELLBOOK_E2E_WS!;
 const COMMANDS = join(ws, 'src', 'bistro', 'booking', 'commands');
 const PLANTED = join(COMMANDS, 'create_booking.py');
 const WRITTEN = join(COMMANDS, 'cancel_table.py');
+const EXPORTS = join(COMMANDS, '__init__.py');
 
 // What the extension's activate returns (see SpellbookApi).
 interface Api {
@@ -208,5 +209,49 @@ describe('spellbook', () => {
     await vscode.window.showTextDocument(doc);
     await vscode.commands.executeCommand('undo');
     await until('the undo', () => (doc.getText() === before ? true : undefined), 5000);
+  });
+
+  it('the owned region: a save and Spellbook: Sync write a closed file to disk; an open one gets an edit tied to its version', async () => {
+    // the region set up as the corpus has it; its block is stale (cancel_table.py was written since)
+    copyFileSync(process.env.SPELLBOOK_E2E_REGION_FILE!, EXPORTS);
+    const saved = async (name: string) => {
+      const path = join(COMMANDS, name);
+      writeFileSync(path, '"""A command written by hand."""\n');
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+      const editor = await vscode.window.showTextDocument(doc);
+      await editor.edit(edit => edit.insert(new vscode.Position(1, 0), '\n'));
+      assert.ok(await doc.save(), `${name} is saved`);
+    };
+    await saved('seat_walk_in.py');
+    await until('the region written to disk', () => {
+      const text = readFileSync(EXPORTS, 'utf8');
+      return text.includes('from .seat_walk_in import SeatWalkIn') ? text : undefined;
+    }, 30_000);
+    assert.match(readFileSync(EXPORTS, 'utf8'), /from \.cancel_table import CancelTable/);
+
+    // Spellbook: Sync after a file is deleted outside the editor: the closed region file is
+    // written to disk, not opened in a buffer
+    const said: [string, string][] = [];
+    api.useAsker({ say: (level: string, text: string) => { said.push([level, text]); } });
+    rmSync(join(COMMANDS, 'seat_walk_in.py'));
+    const syncing = vscode.commands.executeCommand('spellbook.sync');
+    await until('the diff of the sync', () => (previewOpen() ? true : undefined), 60_000)
+      .catch(err => { throw new Error(`${String(err)}\nsaid: ${JSON.stringify(said)}`); });
+    await applyPlan(syncing, said);
+    assert.deepEqual(said, []);
+    assert.ok(!readFileSync(EXPORTS, 'utf8').includes('seat_walk_in'), 'the sync is on disk');
+    assert.ok(!vscode.workspace.textDocuments.some(d => d.uri.fsPath === EXPORTS && d.isDirty), 'no buffer holds it');
+
+    // open, with unsaved text of the person's own: the save's sync lands in the buffer, tied to
+    // its version, and keeps that text
+    const exports = await vscode.workspace.openTextDocument(vscode.Uri.file(EXPORTS));
+    const shown = await vscode.window.showTextDocument(exports, { preview: false });
+    await shown.edit(edit => edit.insert(new vscode.Position(0, 0), '# a note, not saved\n'));
+    const onDisk = readFileSync(EXPORTS, 'utf8');
+    await saved('seat_bar.py');
+    await until('the sync landed in the open buffer', () => (exports.getText().includes('from .seat_bar import SeatBar') ? true : undefined), 30_000);
+    assert.ok(exports.getText().startsWith('# a note, not saved'), 'the unsaved text is kept');
+    assert.ok(exports.isDirty, 'the buffer is the person\'s to save');
+    assert.equal(readFileSync(EXPORTS, 'utf8'), onDisk, 'the disk is not touched');
   });
 });

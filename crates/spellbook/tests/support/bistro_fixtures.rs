@@ -84,3 +84,13 @@ pub fn bistro_rs_project() -> TempDir {
     copy_tree(&corpus.join("spellbook/bistro-rs/spellbook"), &spellbook);
     dir
 }
+
+/// The same, with every region set up: the corpus's `base/` overlay (the five `mod.rs` files
+/// with their markers) laid over it, each block up to date.
+pub fn bistro_rs_with_regions() -> TempDir {
+    let dir = bistro_rs_project();
+    let overlay =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/spellbook/bistro-rs/base");
+    copy_tree(&overlay, dir.path());
+    dir
+}
