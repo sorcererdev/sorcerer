@@ -14,6 +14,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
+use sorcerer_core::adapters::platform::local_connect::connect_local;
+
 use crate::domain::loopback_message::{LoopbackReply, LoopbackRequest};
 use crate::ports::agent::WayBack;
 
@@ -120,10 +122,10 @@ fn answer_one(stream: TcpStream, token: &str, handler: &Handler, limits: Limits)
 }
 
 /// Sends one request to the server and reads its answer. A question to the person may take
-/// minutes, so there is no read timeout; connecting waits at most five seconds.
+/// minutes, so there is no read timeout; connecting waits at most five seconds. A port nothing
+/// listens on is refused at once, on Windows too (see [`connect_local`]).
 pub fn ask_loopback(port: u16, request: &LoopbackRequest) -> io::Result<LoopbackReply> {
-    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(5))?;
+    let mut stream = connect_local(port, Duration::from_secs(5))?;
     writeln!(stream, "{}", serde_json::to_string(request)?)?;
     stream.flush()?;
     let mut line = String::new();
@@ -219,21 +221,33 @@ mod tests {
         assert!(!asked.load(Ordering::SeqCst));
     }
 
+    /// The held connections never send, and the read timeout is long (five seconds), so the
+    /// extra one is past the cap for the whole test: it must be closed at once, unanswered,
+    /// not left waiting for the read timeout.
     #[test]
     fn connections_past_the_cap_are_closed_unanswered() {
-        let loopback = Loopback::open_with(echo(), small_limits()).unwrap();
+        let limits = Limits {
+            read_within: Duration::from_secs(5),
+            ..small_limits()
+        };
+        let loopback = Loopback::open_with(echo(), limits).unwrap();
         let port = loopback.way_back().port;
         let _held: Vec<TcpStream> = (0..2)
             .map(|_| TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap())
             .collect();
-        std::thread::sleep(Duration::from_millis(50));
         let mut extra = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         extra
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         let started = std::time::Instant::now();
         let mut answer = String::new();
         let _ = BufReader::new(&mut extra).read_line(&mut answer);
-        assert!(answer.is_empty() && started.elapsed() < Duration::from_millis(150));
+        assert!(answer.is_empty(), "{answer}");
+        // well under the five-second read timeout, with room for a loaded machine
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
     }
 }

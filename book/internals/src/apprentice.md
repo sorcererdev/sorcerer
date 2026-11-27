@@ -190,7 +190,10 @@ stop, and a task that should go on is a new instruction.
 **A server that has ended.** `claude` runs in a process group (a job object on Windows) of its
 own, so killing `apprentice lsp` does not kill it. Its helpers notice instead: `HelperWay::ask`
 (`helper_way.rs`) answers `ServerAnswer::Gone` when the loopback port refuses the connection
-(nothing listens there any more). `serve_mcp` then fails the call with `SERVER_GONE` and exits,
+(nothing listens there any more). `ask_loopback` connects through the platform adapter's
+`connect_local`, so the refusal comes at once on Windows too, where a plain connect retries for
+about two seconds first (the harness test once took 6 s there: three helper calls at 2 s each).
+`serve_mcp` then fails the call with `SERVER_GONE` and exits,
 so every later `mcp__apprentice__*` call fails at once; `hook_output` prints
 `{"continue":false,"stopReason":…}`, which ends the agent's work after the tool call it follows
 (confirmed on `claude` 2.1.331 under `-p`: after a `Read` the hook stopped, no second call, the
