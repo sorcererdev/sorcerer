@@ -27,6 +27,7 @@ pub struct SpellbookConfig {
     pub sync_on_save: bool,
     /// `[spellbook.rules]`: how strict the project is with each rule, by its id, over the rule's
     /// own `severity`. Example: `commands-use-ports = "warn"`, or `"off"` to not run it.
+    #[serde(deserialize_with = "rule_settings")]
     pub rules: BTreeMap<String, RuleSetting>,
 }
 
@@ -38,6 +39,41 @@ pub enum RuleSetting {
     Warn,
     Error,
     Off,
+}
+
+/// Reads `[spellbook.rules]`, refusing a value that is not a setting with a sentence naming the
+/// table, the rule and the words it takes.
+///
+/// Example: `commands-use-ports = "loud"` is refused with "[spellbook.rules] commands-use-ports =
+/// "loud" is not a setting (hint, warn, error or off)".
+fn rule_settings<'de, D>(
+    deserializer: D,
+) -> std::result::Result<BTreeMap<String, RuleSetting>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let written = BTreeMap::<String, toml::Value>::deserialize(deserializer)?;
+    written
+        .into_iter()
+        .map(|(rule, value)| match RuleSetting::of_word(&value) {
+            Some(setting) => Ok((rule, setting)),
+            None => Err(serde::de::Error::custom(format!(
+                "[spellbook.rules] {rule} = {value} is not a setting (hint, warn, error or off)"
+            ))),
+        })
+        .collect()
+}
+
+impl RuleSetting {
+    fn of_word(value: &toml::Value) -> Option<RuleSetting> {
+        match value.as_str()? {
+            "hint" => Some(RuleSetting::Hint),
+            "warn" => Some(RuleSetting::Warn),
+            "error" => Some(RuleSetting::Error),
+            "off" => Some(RuleSetting::Off),
+            _ => None,
+        }
+    }
 }
 
 impl Default for SpellbookConfig {
@@ -116,7 +152,12 @@ mod tests {
         assert_eq!(config.rules["b"], RuleSetting::Off);
         let (_dir, loud) = project(Some("[spellbook.rules]\na = \"loud\"\n"));
         let error = spellbook_config(&loud).unwrap_err().to_string();
-        assert!(error.contains("loud") && error.contains("off"), "{error}");
+        assert!(
+            error.contains(
+                "[spellbook.rules] a = \"loud\" is not a setting (hint, warn, error or off)"
+            ),
+            "{error}"
+        );
     }
 
     #[test]

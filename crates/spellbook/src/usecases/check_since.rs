@@ -16,21 +16,27 @@ use crate::usecases::check_project::is_spellbooks_own;
 /// Checks the files changed since `rev` (anything git knows as a commit: `main`, `HEAD~3`) and
 /// keeps the rules' findings on lines added or changed since then; a file `rev` did not have is
 /// all new. Every region is checked and its findings kept, whatever lines changed: a new file
-/// makes a list stale without touching it. The baseline still marks what is existing. Nothing is
-/// saved: the report keeps whole checks. Returns the findings, by file then line.
+/// makes a list stale without touching it. The baseline marks what is existing over the changed
+/// files' whole findings, untouched lines first, before the lines are kept: a pasted copy of
+/// baselined code is new, as a full check says. Nothing is saved: the report keeps whole checks.
+/// Returns the findings, by file then line.
 ///
 /// Example: a finding committed in `a.x` on `main` and a new one written in `b.x` on
 /// the branch: `check_since(deps, "main")` returns the one in `b.x`.
 pub fn check_since(deps: &CheckDeps, rev: &str) -> Result<Vec<Finding>> {
     let files = changed_files_on_disk(deps, rev)?;
     let added = added_lines_of(deps, &files, rev)?;
-    let mut found: Vec<Finding> = rule_findings_of_files(deps, &files)?
+    let mut whole = rule_findings_of_files(deps, &files)?;
+    sort_findings(&mut whole);
+    let mut found: Vec<Finding> = deps
+        .baseline
+        .marked_unchanged_first(whole, |finding| !on_added_line(&added, finding))
         .into_iter()
         .filter(|finding| on_added_line(&added, finding))
         .collect();
     found.extend(regions_out_of_step(deps, None)?);
     sort_findings(&mut found);
-    Ok(deps.baseline.marked(found))
+    Ok(found)
 }
 
 /// The files that differ from `rev`, or are new, and are still there.

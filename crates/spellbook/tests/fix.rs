@@ -81,7 +81,7 @@ fn use_port_on_the_import_changes_two_files_and_a_second_run_has_nothing_to_do()
     let module = &plan.files[0];
     assert!(!module.text.contains("import sqlite3\n"), "{}", module.text);
     assert!(module.text.contains(
-        "from dataclasses import dataclass\n\nfrom bistro.shared.result import Ok\nfrom bistro.booking.ports.table_repository.table_repository import TableRepository\n"
+        "from dataclasses import dataclass\n\nfrom bistro.booking.ports.table_repository.table_repository import TableRepository\nfrom bistro.shared.result import Ok\n"
     ), "{}", module.text);
     assert!(module.text.contains(
         "    def __init__(self, table_repository: TableRepository) -> None:\n        \"\"\"Takes the ports it uses; main.py passes their adapters.\"\"\"\n        self.table_repository = table_repository\n"

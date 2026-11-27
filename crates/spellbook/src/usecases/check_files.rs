@@ -126,7 +126,7 @@ fn findings_of_file(deps: &CheckDeps, excluded: &GlobSet, file: &Path) -> Result
         Some(marker) => allow_comments(&deps.runner.comments_in(file, &text)?, marker),
         None => Vec::new(),
     };
-    let mut found = unsilenced(deps.rules, &name, raw, &allows);
+    let mut found = unsilenced(deps.rules, &name, &text, raw, &allows);
     found.extend(allow_warnings(deps, &name, &allows));
     Ok(found)
 }
@@ -142,6 +142,7 @@ fn one_per_line(mut raw: Vec<RawFinding>) -> Vec<RawFinding> {
 fn unsilenced(
     rules: &[Rule],
     file: &str,
+    text: &str,
     raw: Vec<RawFinding>,
     allows: &[AllowComment],
 ) -> Vec<Finding> {
@@ -150,7 +151,7 @@ fn unsilenced(
         .filter_map(|finding| {
             let rule = rules.iter().find(|rule| rule.id == finding.rule)?;
             Some(Finding {
-                fingerprint: fingerprint(&finding.rule, &finding.node_text),
+                fingerprint: finding.fingerprint(text),
                 region: None,
                 node_text: finding.node_text,
                 rule: finding.rule,

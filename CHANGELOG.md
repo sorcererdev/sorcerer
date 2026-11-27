@@ -6,6 +6,10 @@
   findings in `.sorcerer/spellbook/baseline.toml`; they show as `(existing)` and never fail, so only
   new breakage does. `spellbook check --since main` judges a branch on the lines it touched.
   `[spellbook.rules]` in `config.toml` makes a rule `hint`, `warn`, `error` or `off` for the project.
+  A baseline entry knows the function around its finding and the finding's whole line, so the same
+  call written elsewhere is new, and `--since` never lets a pasted copy of recorded debt pass.
+- **A fix's import keeps sorted imports sorted.** When the imports' last block is in order, `end of
+  imports` puts the new one where it belongs instead of at the end.
 - **Spellbook for VS Code:** the plan's title names the inputs taken without asking (an enum with
   one choice), such as `· app bistro, service booking (the only choices)`.
 - **conjure tells you what a step did.** After every step the editor shows one message, such as

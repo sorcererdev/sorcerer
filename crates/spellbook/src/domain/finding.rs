@@ -29,8 +29,8 @@ pub struct Finding {
     pub line: u32,
     pub severity: Severity,
     pub message: String,
-    /// Stays the same when the code is moved or re-indented, so a later milestone can tell an
-    /// old finding from a new one.
+    /// Stays the same when the code is moved, re-indented or edited elsewhere in the file, so
+    /// the baseline can tell an old finding from a new one (see [`rule_finding_fingerprint`]).
     pub fingerprint: String,
     /// The found node's text, for the fixes a finding offers; not kept in `report.json`.
     #[serde(skip)]
@@ -68,6 +68,20 @@ pub struct RawFinding {
     /// The matched node's kind in the grammar (`import_statement`).
     pub kind: String,
     pub span: Span,
+    /// The name of the innermost definition holding the node (`SeatWalkIn::handle`), `None`
+    /// at the top level of the file.
+    pub unit: Option<String>,
+}
+
+impl RawFinding {
+    /// This finding's fingerprint in the file's `text`; see [`rule_finding_fingerprint`].
+    pub fn fingerprint(&self, text: &str) -> String {
+        let line = text
+            .lines()
+            .nth(self.line.saturating_sub(1) as usize)
+            .unwrap_or_default();
+        rule_finding_fingerprint(&self.rule, self.unit.as_deref(), line)
+    }
 }
 
 /// Where a node of a file is: its first and last rows (from 0, as the parser counts them) and its
@@ -93,6 +107,18 @@ pub fn fingerprint(rule: &str, node_text: &str) -> String {
     fnv64_hex(key.as_bytes())[..7].to_string()
 }
 
+/// Seven hex digits naming a rule's finding by what it is, not by where it sits: the rule, the
+/// name of the innermost definition holding it (none at the top level) and the whole line the
+/// found code starts on, whitespace collapsed. Lines added or removed above it, and edits to
+/// other lines, leave it alone; editing its own line, or renaming the definition around it, makes
+/// it a new finding.
+///
+/// Example: `std::fs::write("a.txt", x)` in `Order::save` and `std::fs::write("b.txt", y)` in
+/// `Order::new` have different fingerprints, though the rule matched `std::fs::write` in both.
+pub fn rule_finding_fingerprint(rule: &str, unit: Option<&str>, line: &str) -> String {
+    fingerprint(rule, &format!("{} {line}", unit.unwrap_or_default()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +134,43 @@ mod tests {
             fingerprint("s", "import sqlite3")
         );
         assert_eq!(fingerprint("r", "x").len(), 7);
+    }
+
+    #[test]
+    fn a_rule_findings_fingerprint_tells_occurrences_apart() {
+        let save = rule_finding_fingerprint("r", Some("Order::save"), "    write(\"a\");");
+        assert_eq!(
+            save,
+            rule_finding_fingerprint("r", Some("Order::save"), "write(\"a\");")
+        );
+        assert_ne!(
+            save,
+            rule_finding_fingerprint("r", Some("Order::new"), "write(\"a\");")
+        );
+        assert_ne!(
+            save,
+            rule_finding_fingerprint("r", Some("Order::save"), "write(\"b\");")
+        );
+    }
+
+    #[test]
+    fn a_raw_finding_is_fingerprinted_by_its_whole_line() {
+        let raw = RawFinding {
+            rule: "r".into(),
+            line: 2,
+            node_text: "write".into(),
+            kind: "k".into(),
+            span: Span {
+                start_row: 1,
+                end_row: 1,
+                start_byte: 4,
+                end_byte: 9,
+            },
+            unit: Some("f".into()),
+        };
+        assert_eq!(
+            raw.fingerprint("fn f() {\n    write(\"a\");\n}\n"),
+            rule_finding_fingerprint("r", Some("f"), "write(\"a\");")
+        );
     }
 }

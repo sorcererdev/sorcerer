@@ -8,7 +8,7 @@ use sorcerer_core::domain::language::Loaded;
 
 use crate::domain::anchor::indent_of;
 use crate::domain::change::{TextChange, apply_changes, with_line_ending};
-use crate::domain::finding::{RawFinding, fingerprint};
+use crate::domain::finding::RawFinding;
 use crate::domain::fix::{Fix, FixBuiltins, fix_inputs, fix_label, with_instructions_filled};
 use crate::domain::generator::Generator;
 use crate::domain::holes::{HoleAt, HoleBook};
@@ -84,7 +84,7 @@ pub fn plan_fix(deps: &FixDeps, at: &FindingAt, given: &Given) -> Result<Plan, P
             rule: rule.id.clone(),
             file: at.file.clone(),
             line: at.line,
-            fingerprint: fingerprint(&rule.id, &found.node_text),
+            fingerprint: found.fingerprint(&text),
             index: at.index,
             label: fix_label(fix, &generator.name, &builtins).map_err(PlanStop::Template)?,
         }),

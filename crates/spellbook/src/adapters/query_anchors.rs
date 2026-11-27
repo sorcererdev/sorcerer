@@ -32,6 +32,29 @@ impl<G: Grammars> QueryAnchors<G> {
 
 impl<G: Grammars> Anchors for QueryAnchors<G> {
     fn resolve(&self, file: &Path, text: &str, anchor: &Anchor) -> Result<Resolution> {
+        self.resolve_with(file, text, anchor, None)
+    }
+
+    fn resolve_inserting(
+        &self,
+        file: &Path,
+        text: &str,
+        anchor: &Anchor,
+        inserting: &str,
+    ) -> Result<Resolution> {
+        self.resolve_with(file, text, anchor, Some(inserting))
+    }
+}
+
+impl<G: Grammars> QueryAnchors<G> {
+    /// Where the phrase points, choosing by the text to insert when there is one.
+    fn resolve_with(
+        &self,
+        file: &Path,
+        text: &str,
+        anchor: &Anchor,
+        inserting: Option<&str>,
+    ) -> Result<Resolution> {
         if let Some(found) = resolve_in_text(anchor, text) {
             return Ok(found);
         }
@@ -50,7 +73,7 @@ impl<G: Grammars> Anchors for QueryAnchors<G> {
             captures: Captures::of(&loaded, &tree, text),
         };
         Ok(match &anchor.target {
-            Target::Imports => parsed.imports(anchor.position),
+            Target::Imports => parsed.imports(anchor.position, inserting),
             Target::Function(name) => {
                 parsed.in_definition(Definition::Function, name, anchor.position)
             }
@@ -109,16 +132,44 @@ struct Parsed<'a> {
 }
 
 impl<'a> Parsed<'a> {
-    /// `end of imports`: after the last top-level import; `start of`: before the first. A file
-    /// with none takes them after its leading comments and docstring.
-    fn imports(&self, position: Position) -> Resolution {
+    /// `end of imports`: after the last top-level import, or, given the text to insert, where
+    /// it keeps the last block of imports in order; `start of`: before the first. A file with
+    /// none takes them after its leading comments and docstring.
+    fn imports(&self, position: Position, inserting: Option<&str>) -> Resolution {
         let imports = self.top_level_imports();
         let row = match (imports.first(), imports.last(), position) {
             (Some(first), _, Position::Start | Position::Before) => first.start_position().row,
-            (_, Some(last), _) => row_after(*last),
+            (_, Some(last), _) => inserting
+                .and_then(|text| self.row_in_order(&imports, text))
+                .unwrap_or_else(|| row_after(*last)),
             _ => self.row_after_the_preamble(),
         };
         lines_at(row, String::new(), String::new())
+    }
+
+    /// The row that keeps the last block of imports (the run with no other line between them)
+    /// in order with `inserting` among them: the row of the first import that sorts after it.
+    /// `None` when the block is not in order by its text, or nothing in it sorts after
+    /// `inserting` (it then goes at the end, as without it). Order is the text's, whitespace
+    /// collapsed: the order a sorted list of imports already has in any language.
+    ///
+    /// Example: the block `from a import x` / `from c import y` and `from b import z` give the
+    /// row of `from c import y`.
+    fn row_in_order(&self, imports: &[Node<'a>], inserting: &str) -> Option<usize> {
+        let block = last_block(imports);
+        let texts: Vec<String> = block
+            .iter()
+            .map(|import| collapsed(&self.text[import.byte_range()]))
+            .collect();
+        if !texts.is_sorted() {
+            return None;
+        }
+        let inserting = collapsed(inserting);
+        block
+            .iter()
+            .zip(&texts)
+            .find(|(_, text)| **text > inserting)
+            .map(|(import, _)| import.start_position().row)
     }
 
     /// The top-level statements holding an `@import.path`, in file order. A whole definition
@@ -407,6 +458,20 @@ fn row_after(node: Node) -> usize {
     } else {
         end.row + 1
     }
+}
+
+/// The imports at the end of the list that follow one another with no other line between them.
+fn last_block<'n, 'a>(imports: &'n [Node<'a>]) -> &'n [Node<'a>] {
+    let starts_the_block = imports
+        .windows(2)
+        .rposition(|pair| row_after(pair[0]) != pair[1].start_position().row)
+        .map_or(0, |gap| gap + 1);
+    &imports[starts_the_block..]
+}
+
+/// The text with each run of whitespace as one space.
+fn collapsed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn lines_at(row: usize, indent: String, suffix: String) -> Resolution {

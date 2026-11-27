@@ -64,6 +64,11 @@ pub(super) enum Cmd {
         json: bool,
     },
     /// Run the project's rules over the project, or only the named files
+    // the forms that do not mix, so the line under a refused mix does not show one
+    #[command(override_usage = "spellbook check [--json] [FILES]...\n       \
+                                spellbook check [--json] --since REV\n       \
+                                spellbook check [--json] --baseline\n       \
+                                spellbook check [--json] --texts FILE")]
     Check {
         /// Only these files
         files: Vec<PathBuf>,

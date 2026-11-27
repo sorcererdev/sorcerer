@@ -134,7 +134,7 @@ or after its last item), `before`, `after` (outside it).
 
 | target | `end of` means |
 |---|---|
-| `imports` | after the file's last top-level import (in a file with none, after its leading comments and docstring) |
+| `imports` | after the file's last top-level import (in a file with none, after its leading comments and docstring). When the last block of imports (those with no other line between them) is already in order by its text, the inserted text goes where it keeps that order: `from bistro.booking.ports.table_repository import TableRepository` lands above `from bistro.shared.result import Ok`. A block out of order is left alone and the text goes at its end |
 | `function NAME`, `class NAME` | after the last statement of the body, indented like it. `NAME` may be a method, `Class.method` (`Class::method` in Rust) |
 | `parameters in FUNCTION` | after the last parameter, with the list's own separator: on the line when the list is written on one line, on a line of its own when it is one per line |
 | `call NAME`, `call NAME in FUNCTION` | after the call's last argument, by the same rule; an empty `()` takes the text alone. In Rust a path call is `call Type::new`, and a struct literal `Type { … }` is `call Type` (its fields are its arguments) |
@@ -358,7 +358,8 @@ is 0 when the conventions hold (hints, warnings and baselined findings do not fa
 finding is an error, and 2 when it could not run (the rules, regions, baseline or settings file has
 a mistake, which the message names). `--json` prints `{ "checked", "findings": [ … ] }`: each finding
 has `rule`, `file`, `line`, `severity`, `message` and a `fingerprint` (seven hex digits that stay the
-same when the code is moved or re-indented), and, when its rule has fixes, `fixes`: `[{ "index",
+same when the code is moved or re-indented, or other lines change; see the baseline
+[below](#adopting-check-on-code-with-debt)), and, when its rule has fixes, `fixes`: `[{ "index",
 "label", "generator", "inputs", "missing" }]`, the inputs the finding settles and the ones still to
 give, so an agent can run the fix without reading the rules file (`report.json` does not keep
 them). `[spellbook] exclude` in `config.toml` lists files no
@@ -416,16 +417,22 @@ fingerprint = "7b9ca4a"
 - A baselined finding is `·` and ends `(existing)`, whatever its severity, and never fails `check`.
   In `--json` it has `"existing": true`; in the editor it is a hint whose message ends `(existing)`.
 - **An entry is what the finding is about, not where**: the rule, the file and the finding's
-  fingerprint (its code with the whitespace collapsed). Lines can move above it and it is still the
-  same finding; renaming the file makes it new. Each entry stands for one finding, so a second copy of
-  the same line pasted into the file is new.
+  fingerprint: the name of the function, method or class around it (none at the top level) and the
+  whole line the found code starts on, with the whitespace collapsed. Lines can move above it, other
+  lines can change and the definitions can be reordered, and it is still the same finding. The same
+  code written in another function is new, and so is a different line in the same function (`write("b")`
+  where `write("a")` was recorded, though the rule matches `write` in both). Editing the finding's own
+  line, renaming the definition around it or renaming the file makes it new. Each entry stands for one
+  finding, so a second copy of the same line pasted beside it is new.
 - `--baseline` checks the whole project and writes the whole file from today's findings, of every
   severity. Region findings are never recorded: their fix is `spellbook sync`. Run it to record *less*
   debt, not to bless new findings: once a baseline is there it says what changed,
   `baselined 3 findings in .sorcerer/spellbook/baseline.toml (1 paid off, 0 new)`.
 - When code is fixed, its entry is no longer used, and a whole-project `check` says so:
   `1 baseline entry is paid off (spellbook check --baseline records less debt)`.
-- `--baseline` takes no files and no `--since`, and exits 0. A `baseline.toml` that does not parse
+- `--baseline` takes no files and no `--since` (each mix is refused with exit 2, and the usage
+  lines under the refusal show the four forms: files, `--since REV`, `--baseline`, `--texts FILE`),
+  and exits 0. A `baseline.toml` that does not parse
   stops every check (exit 2), naming the file.
 
 **A branch is judged on what it touched.**
@@ -442,7 +449,9 @@ differ from `REV` on disk, and files git does not track yet, and keeps a rule's 
 line is new or changed since then. A file `REV` did not have is new throughout. Line endings do not
 count, so a checkout with `\r\n` is not all new. Every owned region is checked and its findings kept
 whatever lines changed, since a new file makes a list stale without touching it. The baseline still
-applies. `--since` leaves `report.json` alone (it is a part of the project), takes no files, and a
+applies, matched over each changed file's whole findings before the lines are kept, and to the code
+the branch did not touch first: a pasted copy of baselined code is new under `--since` as under a
+full `check`. `--since` leaves `report.json` alone (it is a part of the project), takes no files, and a
 commit git does not know stops with git's sentence, exit 2. `--json` adds `"since": "main"`.
 
 **Checking a change before it is written: `--texts`.**
@@ -471,7 +480,8 @@ commands-no-panic  = "off"
 
 `off` does not run the rule (an allow comment naming it is still a known rule, not `unknown-rule`).
 The settings apply everywhere the rules run: `check`, `fix` and the editor. A word other than the four
-is refused naming it, and a setting for no rule stops the check: ``[spellbook.rules]:
+is refused naming the table and the rule, ``[spellbook.rules] commands-use-ports = "loud" is not a
+setting (hint, warn, error or off)``, and a setting for no rule stops the check: ``[spellbook.rules]:
 `comands-use-ports` names no rule (the rules are: commands-use-ports, …)``. A rule can
 so arrive as a `hint`, become a `warn` once people have seen it, and an `error` once the baseline is
 small, each step one line. A region's finding is not a rule: its `severity` is in `regions.toml`.
@@ -931,6 +941,7 @@ display back (`conjure.sign` for the star).
 | `spellbook.cmd` | `{ "spellbook", "lsp" }` | the program, when it is not on your PATH |
 | `spellbook.conjure_holes` | `false` | after `:Spellbook new`, run conjure on the first hole (needs conjure on too) |
 | `spellbook.hole_keys` | `{ next = "<Tab>", prev = "<S-Tab>" }` | after `:Spellbook new`, the keys between the opened file's holes (insert and select mode, that buffer only); `false` = no session |
+| `fixes_first` | `true` | the code-action menu lists the preferred quick fixes first, then the other quick fixes, then the rest (conjure's rewrites, other servers' refactors), each group in the servers' order, as VS Code does; `false` leaves Neovim's order (the servers' answers as they come) |
 
 `:Spellbook new [generator] [input=value…]` takes five steps, with Neovim's own pickers
 (`vim.ui.select`, `vim.ui.input`, so a picker plugin such as telescope or snacks shows them):
@@ -981,7 +992,10 @@ once a session when you open or save a file; every command answers the same sent
 ### Fixes in Neovim
 
 `vim.lsp.buf.code_action()` on a finding's line lists `spellbook: Use a port the service has`
-(preferred) and `spellbook: Add a port and use it`. `<leader>mf` runs the first one without the
+(preferred) and `spellbook: Add a port and use it` first, above conjure's **Conjure here**: Neovim
+lists the servers' actions in whatever order the servers answer, so the plugin wraps `vim.ui.select`
+for the code-action menu (again whenever a server attaches, after a picker plugin has put its own
+in place) and puts the quick fixes first (`fixes_first = false` turns this off). `<leader>mf` runs the first one without the
 menu, and `:Spellbook fix [input=value…]` is the command form (the `input=value` words answer inputs
 the finding does not settle). A modified buffer is refused: `spellbook: save close_table.py first; a
 fix is planned against the file on disk`. Otherwise it asks only what the finding leaves open (with
@@ -1079,7 +1093,8 @@ way. `spellbook doctor` is the command line's; the extension has no doctor of it
 ### Fixes in VS Code
 
 On a finding's line the lightbulb (or `ctrl+.`) offers `spellbook: Use a port the service has`
-(preferred) and `spellbook: Add a port and use it`; `ctrl+m f` (**Spellbook: Fix**) runs the
+(preferred) and `spellbook: Add a port and use it`, in the menu's Quick Fix group, above conjure's
+rewrites (VS Code orders by the actions' kind and puts a preferred fix first); `ctrl+m f` (**Spellbook: Fix**) runs the
 preferred one without the menu. A buffer with unsaved changes is refused:
 `spellbook: save close_table.py first; a fix is planned against the file on disk`. Otherwise it
 asks only what the finding does not settle (a quick pick, `Esc` cancels), then shows the plan under
