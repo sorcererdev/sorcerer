@@ -50,7 +50,7 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   `test_table`, `imports_table`, `tests_path`: the language file's `[test]` and `[imports]`,
   read strictly from `Language.rest`.
 - `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `situation_text`,
-  `session_text`, and the caps (`RELATED_FILES` 8, `RELATED_LINES` 120, `SESSION_LINES` 300,
+  `session_text`, and the caps (`RELATED_FILES` 8, `RELATED_FILES_BESIDE` 4 and `RELATED_FILES_BESIDE_IN_ALL` 6, `RELATED_LINES` 120, `SESSION_LINES` 300,
   `NEW_FILE_NAMES` 20).
 - `scry_notes.rs`: conjure's own reading of scry's findings file: `StoredFinding`,
   `StoredFindings` (`Versioned`, version 2), `FindingsRead`, `notes_near`, `ScryNote`.
@@ -77,7 +77,7 @@ asks a port and never touches an adapter).
 
 **Adapters** (`src/adapters/`): `provider_writer.rs` (`ProviderWriter`: one `Provider::complete`
 and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `Researcher`),
-`imports.rs` (`related_files`, from `imports.scm` and `[imports]`), `scry_files.rs`
+`imports.rs` (`related_files`: `imported_project_files` from `imports.scm` and `[imports]`, then `with_nearby_files`: after each import, through `NearbyFiles`, the files in its folder of the same language whose text names one of its units (`beside`: `names_defined_in`, `mentions_word`; how a port brings its adapters), then the first file one folder up whose text names the import's folder (`declaring`: where ports are declared), all language-neutral; fenced ones are not read), `scry_files.rs`
 (`read_findings`), `steering_files.rs` (`project_rules`), `spellbook_checker.rs`
 (`SpellbookChecker::for_project`: the `spellbook` beside the running program, else on PATH, none
 without `.sorcerer/spellbook/rules.toml`; `findings_in` runs `spellbook check --texts - --json` in

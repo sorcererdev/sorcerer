@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use crate::domain::scry_notes::FindingsRead;
 
-/// The files a file imports, and those left out because models may not read them.
+/// The files a file imports (with the files beside them), and the imports left out because
+/// models may not read them.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct RelatedFiles {
     pub files: Vec<(PathBuf, String)>,
@@ -14,8 +15,9 @@ pub struct RelatedFiles {
 }
 
 pub trait ProjectContext: Send + Sync {
-    /// The files `file` imports, with the first lines of each (at most 8 files, 120 lines). One a
-    /// fence refuses is not read: it is named in `left_out`.
+    /// The files `file` imports, each followed by the files beside it that use its names, with
+    /// the first lines of each (at most 8 imports, 6 files beside them, 120 lines). An import a
+    /// fence refuses is not read: it is named in `left_out`; a file beside one is skipped.
     /// The text is the file's, which may be the editor's unsaved text.
     fn related_files(&self, file: &Path, text: &str) -> sorcerer_core::Result<RelatedFiles>;
 
