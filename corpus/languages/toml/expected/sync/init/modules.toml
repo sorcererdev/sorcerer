@@ -1,0 +1,6 @@
+# The modules of the booking service.
+[modules]
+# spellbook:region modules (from modules/*.toml; edit .sorcerer/spellbook/regions.toml, not this block)
+db = true
+web = true
+# spellbook:end modules

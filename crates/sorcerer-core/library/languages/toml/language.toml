@@ -1,0 +1,12 @@
+# TOML: tree-sitter-toml 0.7.0: a config format. It has no units (no definitions), so scry and conjure never load it; spellbook
+# reads its rules, comments and holes.
+files = ["**/*.toml"]
+comment = "#"
+grammar = { git = "https://github.com/tree-sitter-grammars/tree-sitter-toml", rev = "64b56832c2cffe41758f28e05c756a3a98d16f41" }
+
+# The code spellbook writes where a generator leaves a hole.
+[holes]
+expr = "\"hole {= name =}: {= instruction =}\""
+
+[syntax]
+list_separator = ","

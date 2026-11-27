@@ -1,0 +1,6 @@
+# stacks.yml names each stack file.
+[regions.stacks]
+file    = "stacks.yml"
+query   = { glob = "stacks/*.yml" }
+item    = "- {= stem =}"
+init_at = "end of file"

@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again at the end of stacks.yml, listing the two stacks.
+mode = "init stacks"
+exit = 0
+patch = "unmarked.patch"

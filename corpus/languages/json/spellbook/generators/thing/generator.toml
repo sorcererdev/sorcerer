@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A settings file with one value left as a hole"
+description = "config/NAME.json: a name and a limit that is a hole"
+language    = "json"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The settings file (audit, report)"
+
+[[edits]]
+create   = "config/{= name|snake =}.json"
+template = "thing.json.dt"

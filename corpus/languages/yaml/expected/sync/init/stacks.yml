@@ -1,0 +1,5 @@
+# The stacks of the booking service.
+# spellbook:region stacks (from stacks/*.yml; edit .sorcerer/spellbook/regions.toml, not this block)
+- db
+- web
+# spellbook:end stacks

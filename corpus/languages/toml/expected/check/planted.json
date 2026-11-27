@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-wildcard-dependency",
+    "file": "Cargo.toml",
+    "line": 8,
+    "severity": "error",
+    "message": "pin the dependency to a version: \"*\" takes whatever is newest",
+    "fingerprint": "37f5d44"
+  }
+]

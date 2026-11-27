@@ -698,7 +698,7 @@ id = "t02"
 scenario = "py"
 file = "pyproject.toml"
 edit = [["[tool.pyright]\n", "# pin fastapi below 1.0?\n[tool.pyright]\n"]]
-region = "# pin fastapi below 1.0?\n[tool.pyright]\ntypeCheckingMode = \"strict\"\ninclude = [\"src\"]\n"
+region = "# pin fastapi below 1.0?\n"
 place = "prose"
 label = "ask"
 
@@ -707,7 +707,7 @@ id = "tn01"
 scenario = "py"
 file = "pyproject.toml"
 edit = [["version = \"0.1.0\"\n", "version = \"0.2.0\"\n"]]
-region = "[project]\nname = \"bistro\"\nversion = \"0.2.0\"\ndescription = \"Table bookings for a restaurant (the python-htmx pack's fixture)\"\nrequires-python = \">=3.12\"\ndependencies = [\n    \"fastapi>=0.115\",\n    \"jinja2>=3.1\",\n    \"python-multipart>=0.0.9\",\n    \"uvicorn>=0.30\",\n]\n"
+region = "version = \"0.2.0\"\n"
 place = "prose"
 label = "none"
 

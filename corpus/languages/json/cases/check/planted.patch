@@ -1,0 +1,11 @@
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "booking",
+   "version": "1.0.0",
+-  "private": true,
++  "private": false,
+   "scripts": {
+     "build": "tsc",
+     "test": "node --test"

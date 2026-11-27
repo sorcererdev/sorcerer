@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "package-stays-private",
+    "file": "package.json",
+    "line": 4,
+    "severity": "error",
+    "message": "the booking package is never published: keep \"private\": true",
+    "fingerprint": "3d963a5"
+  }
+]

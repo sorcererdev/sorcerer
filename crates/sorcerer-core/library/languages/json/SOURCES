@@ -1,0 +1,2 @@
+# JSON: the grammar pin. No queries: a config format with no units and no comments.
+# grammar (language.toml): tree-sitter-json 0.24.8, git ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24. MIT.

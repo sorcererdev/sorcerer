@@ -1,0 +1,9 @@
+# The booking service.
+[package]
+name = "booking"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0.200"
+chrono = { version = "0.4.38", features = ["serde"] }

@@ -1,0 +1,2 @@
+# The db image moved to :latest: the rule's finding.
+patch = "planted.patch"

@@ -1,0 +1,5 @@
+# One rule: the booking service is never published.
+[rules.package-stays-private]
+files   = "package.json"
+match   = { kind = "pair", regex = "^\"private\":\\s*false" }
+message = "the booking package is never published: keep \"private\": true"

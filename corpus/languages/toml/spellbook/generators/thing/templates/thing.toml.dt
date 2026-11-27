@@ -1,0 +1,2 @@
+name = "{= name =}"
+retries = {= ? retries: expr | how many times to try again =}
