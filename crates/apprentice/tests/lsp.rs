@@ -396,6 +396,43 @@ fn a_stub_is_offered_by_rule_with_no_jev() {
 }
 
 #[test]
+fn a_stub_and_its_comment_on_one_line_offer_one_row_of_each() {
+    let project = TempProject::with(&[("src/cart.py", "def total(cart):\n    return 1\n")]);
+    let jev = Arc::new(StubJev::saying("instruction", 0.9, 0.9));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::default()),
+            decider: Some(jev),
+            researcher: None,
+        },
+    );
+    s.open("src/cart.py");
+    s.settle(Duration::from_millis(100));
+    s.type_text(
+        "src/cart.py",
+        "def total(cart):\n    return 1\n\n\ndef tax(cart):\n    # The cart's tax: 20% of its total, rounded to the cent.\n    pass\n",
+    );
+    state_holds(&project, &s, "regions.json", "\"comment\"");
+    let marks = s.marks_until("src/cart.py", |marks| !marks.is_empty());
+    let offers = marks
+        .iter()
+        .filter(|m| m.message.starts_with("apprentice: I can do this"))
+        .count();
+    assert_eq!(offers, 1, "{marks:?}");
+    let titles = s.titles("src/cart.py", 6);
+    for title in [
+        "apprentice: do this · ~$0.50 · sonnet",
+        "apprentice: Dismiss",
+        "apprentice: this was an instruction",
+    ] {
+        let rows = titles.iter().filter(|t| *t == title).count();
+        assert_eq!(rows, 1, "{title} in {titles:?}");
+    }
+    s.stop();
+}
+
+#[test]
 fn a_question_is_answered_on_save_and_its_answer_kept_as_a_comment() {
     let text = "def total(cart):\n    return sum(cart)\n";
     let asked = "def total(cart):\n    # why is the tax not in here?\n    return sum(cart)\n";

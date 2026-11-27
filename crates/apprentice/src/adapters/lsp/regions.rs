@@ -235,13 +235,15 @@ impl Server {
         self.publish(&self.root.join(&record.region.file));
     }
 
-    /// A label: what the person says the region was.
-    pub(super) fn label(&self, id: &str, kind: Option<Kind>) {
-        let Some((project, record)) = self.record(id) else {
-            return;
-        };
-        if let Some(regions) = self.region_store(&project) {
-            let _ = label_region(&record, kind, regions.as_ref(), self.cfg.clock.as_ref());
+    /// A label: what the person says the regions on a line were; said once.
+    pub(super) fn label(&self, ids: &[String], kind: Option<Kind>) {
+        for id in ids {
+            let Some((project, record)) = self.record(id) else {
+                continue;
+            };
+            if let Some(regions) = self.region_store(&project) {
+                let _ = label_region(&record, kind, regions.as_ref(), self.cfg.clock.as_ref());
+            }
         }
         let said = kind.map_or("nothing", Kind::word);
         self.client.say(

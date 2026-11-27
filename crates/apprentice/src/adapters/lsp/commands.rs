@@ -66,12 +66,13 @@ impl Server {
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32
             + 1;
-        let mut actions: Vec<CodeActionOrCommand> = Vec::new();
-        for (record, start, end) in self.records_found(&path) {
-            if start <= last && first <= end {
-                actions.extend(self.region_actions(&record));
-            }
-        }
+        let on_the_lines: Vec<(RegionRecord, u32)> = self
+            .records_found(&path)
+            .into_iter()
+            .filter(|(_, start, end)| *start <= last && first <= *end)
+            .map(|(record, start, end)| (record, end - start))
+            .collect();
+        let mut actions = self.regions_actions(&on_the_lines);
         actions.extend(self.ask_actions(&path, first, last));
         for line in first..=last {
             for task in self.tasks_marked_at(&path, line) {
@@ -88,17 +89,32 @@ impl Server {
         Ok(serde_json::to_value(actions).unwrap_or(json!([])))
     }
 
-    fn region_actions(&self, record: &RegionRecord) -> Vec<CodeActionOrCommand> {
-        let id = json!([record.region.id]);
+    /// The actions of the regions on the lines, each title once, so two regions on one line (a
+    /// stub and the comment in it) do not offer two rows a person cannot tell apart:
+    ///
+    /// - *do this* for the offering region that spans the most lines (a stub holds its comment);
+    /// - *Show code* and *Keep this answer* for the first region with such an answer;
+    /// - one *Dismiss* and one set of labels, for every region there.
+    ///
+    /// Each region comes with how many lines it spans beyond its first.
+    fn regions_actions(&self, regions: &[(RegionRecord, u32)]) -> Vec<CodeActionOrCommand> {
         let mut actions = Vec::new();
-        if record.offers_a_task() && self.running_task().is_none() {
-            actions.push(action(&self.offer_title(), "apprentice.do", id.clone()));
-        }
-        if let Some(reply) = record
-            .reply
-            .as_ref()
-            .filter(|reply| reply.verdict != ReplyVerdict::Failed)
+        let offering = regions
+            .iter()
+            .filter(|(record, _)| record.offers_a_task())
+            .max_by_key(|(_, extra_lines)| *extra_lines);
+        if let Some((record, _)) = offering
+            && self.running_task().is_none()
         {
+            let id = json!([record.region.id]);
+            actions.push(action(&self.offer_title(), "apprentice.do", id));
+        }
+        let answered = regions.iter().find_map(|(record, _)| {
+            let reply = record.reply.as_ref()?;
+            (reply.verdict != ReplyVerdict::Failed).then_some((record, reply))
+        });
+        if let Some((record, reply)) = answered {
+            let id = json!([record.region.id]);
             if !reply.citations.is_empty() {
                 actions.push(action(
                     "apprentice: Show code",
@@ -110,14 +126,29 @@ impl Server {
                 actions.push(action(
                     "apprentice: Keep this answer",
                     "apprentice.keep",
-                    id.clone(),
+                    id,
                 ));
             }
         }
-        if record.acting_kind().is_some() {
-            actions.push(action("apprentice: Dismiss", "apprentice.dismiss", id));
+        let acting: Vec<&str> = regions
+            .iter()
+            .filter(|(record, _)| record.acting_kind().is_some())
+            .map(|(record, _)| record.region.id.as_str())
+            .collect();
+        if !acting.is_empty() {
+            actions.push(action(
+                "apprentice: Dismiss",
+                "apprentice.dismiss",
+                json!(acting),
+            ));
         }
-        actions.extend(label_actions(record));
+        let all: Vec<&str> = regions
+            .iter()
+            .map(|(record, _)| record.region.id.as_str())
+            .collect();
+        if !all.is_empty() {
+            actions.extend(label_actions(&all));
+        }
         actions
     }
 
@@ -150,6 +181,12 @@ impl Server {
                 .to_string()
         };
         let (first, second) = (argument(0), argument(1));
+        let all_strings: Vec<String> = params["arguments"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|argument| argument.as_str().map(str::to_string))
+            .collect();
         let server = Arc::clone(self);
         let on_a_thread = move |work: ServerWork| {
             std::thread::spawn(move || work(&server));
@@ -163,10 +200,14 @@ impl Server {
             "apprentice.answer" => self.answered(&first, &second),
             "apprentice.showCode" => self.show_code(&first),
             "apprentice.keep" => self.keep_answer(&first),
-            "apprentice.dismiss" => on_a_thread(Box::new(move |server| server.dismiss(&first))),
+            "apprentice.dismiss" => on_a_thread(Box::new(move |server| {
+                all_strings.iter().for_each(|id| server.dismiss(id));
+            })),
             "apprentice.label" => {
-                let kind = Kind::of_word(&second);
-                on_a_thread(Box::new(move |server| server.label(&first, kind)));
+                // the word, then the regions it labels
+                let kind = Kind::of_word(&first);
+                let ids = all_strings.into_iter().skip(1).collect::<Vec<_>>();
+                on_a_thread(Box::new(move |server| server.label(&ids, kind)));
             }
             other => {
                 return Err(ResponseError {
@@ -204,9 +245,8 @@ fn task_actions(task: &str, path: &Path) -> Vec<CodeActionOrCommand> {
     ]
 }
 
-/// The four labels of a region: what the person says it was.
-fn label_actions(record: &RegionRecord) -> Vec<CodeActionOrCommand> {
-    let id = &record.region.id;
+/// The four labels of the regions on a line: what the person says they were.
+fn label_actions(ids: &[&str]) -> Vec<CodeActionOrCommand> {
     [
         ("a question", "question"),
         ("a claim", "claim"),
@@ -218,7 +258,11 @@ fn label_actions(record: &RegionRecord) -> Vec<CodeActionOrCommand> {
         action(
             &format!("apprentice: this was {said}"),
             "apprentice.label",
-            json!([id, word]),
+            json!(
+                std::iter::once(*word)
+                    .chain(ids.iter().copied())
+                    .collect::<Vec<_>>()
+            ),
         )
     })
     .collect()
