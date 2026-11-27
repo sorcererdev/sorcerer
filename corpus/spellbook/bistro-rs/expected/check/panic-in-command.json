@@ -5,6 +5,6 @@
     "line": 47,
     "severity": "error",
     "message": "A command returns its failure instead of panicking",
-    "fingerprint": "c45adad"
+    "fingerprint": "7d05c0d"
   }
 ]

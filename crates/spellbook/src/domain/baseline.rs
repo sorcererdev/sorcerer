@@ -92,20 +92,41 @@ impl Baseline {
         self.entries.is_empty()
     }
 
-    /// The findings with `existing` set on each one an entry stands for, each entry used once.
+    /// The findings with `existing` set on each one an entry stands for, each entry used once,
+    /// in the findings' order.
     ///
     /// Example: one entry for `import sqlite3` in `a.x` and two such findings in `a.x`: the
     /// first is existing, the second is new.
     pub fn marked(&self, findings: Vec<Finding>) -> Vec<Finding> {
+        self.marked_unchanged_first(findings, |_| true)
+    }
+
+    /// The findings marked as [`Baseline::marked`] does, but the entries go to the findings
+    /// `unchanged` says are old code before any other: of two identical findings, the one on a
+    /// line a branch did not touch is the existing one, and its copy is new.
+    ///
+    /// Example: one entry for `write(x)` in `a.x`, found on line 3 (untouched) and line 9
+    /// (pasted on the branch): line 3 is existing and line 9 is new, whichever comes first.
+    pub fn marked_unchanged_first(
+        &self,
+        findings: Vec<Finding>,
+        unchanged: impl Fn(&Finding) -> bool,
+    ) -> Vec<Finding> {
         let mut left = self.counts();
+        let mut existing = vec![false; findings.len()];
+        let old_first = (0..findings.len())
+            .filter(|&at| unchanged(&findings[at]))
+            .chain((0..findings.len()).filter(|&at| !unchanged(&findings[at])));
+        for at in old_first {
+            let finding = &findings[at];
+            existing[at] = finding.region.is_none() && take_one(&mut left, &entry_of(finding));
+        }
         findings
             .into_iter()
-            .map(|finding| {
-                let existing = finding.region.is_none() && take_one(&mut left, &entry_of(&finding));
-                Finding {
-                    existing,
-                    ..finding
-                }
+            .zip(existing)
+            .map(|(finding, existing)| Finding {
+                existing,
+                ..finding
             })
             .collect()
     }
@@ -187,6 +208,20 @@ mod tests {
             finding("b.x", "1111111"),
         ]);
         assert_eq!(existing(&found), [true, false, false]);
+    }
+
+    #[test]
+    fn unchanged_findings_take_the_entries_first() {
+        let baseline = Baseline::of(&[finding("a.x", "1111111")]);
+        let pasted_above = vec![
+            finding("a.x", "1111111"),
+            Finding {
+                line: 2,
+                ..finding("a.x", "1111111")
+            },
+        ];
+        let found = baseline.marked_unchanged_first(pasted_above, |f| f.line == 2);
+        assert_eq!(existing(&found), [false, true]);
     }
 
     #[test]

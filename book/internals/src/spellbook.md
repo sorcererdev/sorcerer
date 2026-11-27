@@ -92,15 +92,21 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `finding.rs` (`Finding`, whose `node_text` is not serialized and whose `region: Option<RegionDrift>`
   is flattened into a region's finding; `REGION_STALE`, `REGION_NOT_SET_UP`, `REGION_BROKEN` beside
   `ALLOW_WITHOUT_REASON` and `UNKNOWN_RULE`; `RawFinding` with the node's `kind`
-  and `Span` (rows and bytes); `fingerprint`: seven hex digits of `fnv64_hex` over the
-  rule and the node text with whitespace collapsed), `allow.rs` (`allow_comments`, `silencing`),
+  and `Span` (rows and bytes) and the `unit` around it, which `QueryRules` fills from core's
+  `units_of`/`unit_at`; `fingerprint`: seven hex digits of `fnv64_hex` over the rule and a text with
+  whitespace collapsed; a rule's finding uses `RawFinding::fingerprint(text)` =
+  `rule_finding_fingerprint(rule, unit, line)`, the unit's name and the finding's whole first line,
+  so identical matches in different definitions or on different lines differ while edits elsewhere
+  leave it alone; allow warnings and regions fingerprint their own words), `allow.rs` (`allow_comments`, `silencing`),
   `report.rs` (`ReportFile`, `with_files_replaced`, `sort_findings`; `report.json` is a core
   `Versioned` at version 1). `Finding.existing` is set by the baseline and left out of the JSON when
   false.
 - `baseline.rs`: `Baseline` (sorted `BaselineEntry { file, rule, fingerprint }`), `parse_baseline`,
   `baseline_text` (the header and `[[baseline]]` tables), `Baseline::of(findings)` (rule findings
   only, never a region's), `Baseline::marked(findings)` (each entry marks one finding `existing`, by
-  count) and `Baseline::change_to(newer)` (`BaselineChange { paid_off, new }`).
+  count, in the findings' order), `Baseline::marked_unchanged_first(findings, unchanged)` (the same,
+  but the findings `unchanged` names take the entries first: `check --since` passes "not on an added
+  line") and `Baseline::change_to(newer)` (`BaselineChange { paid_off, new }`).
 - `rule_settings.rs`: `with_project_settings(rules, settings) -> ProjectRules { run, off }`: the
   `[spellbook.rules]` severities laid over the rules, `off` ones left out of `run` and listed, a
   setting for no rule refused naming it. `config.rs`'s `SpellbookConfig.rules` holds the settings
@@ -112,7 +118,9 @@ from the language's data without loading a grammar), `workspace.rs` (`Workspace:
 `Workspace::write_changed(path, before, after)`, `WriteRefused` with `Changed`),
 `generation_store.rs`, `holes_store.rs`, `clock.rs`, `rule_runner.rs` (`RuleRunner::findings_in`,
 `RuleRunner::enclosing(file, text, span, kinds)`: the nearest node of those kinds around a
-finding), `anchors.rs` (`Anchors::resolve(file, text, anchor)`), `report_store.rs`.
+finding), `anchors.rs` (`Anchors::resolve(file, text, anchor)`, and
+`resolve_inserting(file, text, anchor, inserting)`, which an insert's `at` uses so a target may
+choose by the text; its default is `resolve`), `report_store.rs`.
 
 `usecases/`: `list_generators.rs` (`GeneratorSummary`, also the editor's picker reply),
 `choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`, which
@@ -182,9 +190,9 @@ row `(region NAME: +a −r)` or `(region NAME: set up, N items)`, `hunks_text`, 
 2. The fix is picked (`--fix`, from 1), its `with` filled from the finding (`FixBuiltins::of`,
    `fix_inputs`) and the person's `--set` laid over it.
 3. `plan_generation` plans the generator. Its inserts are placed by `Insert::land_in`: the file as
-   planned so far (or read now), `when` and `unless` checked, the first `at` phrase that resolves
-   through the `Anchors` port, the body rendered with the file's language's placeholders and
-   placed by `change_at`, the holes counted on the file's lines, a new parse error refused.
+   planned so far (or read now), `when` and `unless` checked, the body rendered with the file's
+   language's placeholders, the first `at` phrase that resolves for that text through
+   `Anchors::resolve_inserting`, the body placed by `change_at`, the holes counted on the file's lines, a new parse error refused.
 4. `replacement` asks `RuleRunner::enclosing` for the first `replace` case's node kind around the
    finding; that node's whole lines become the rendered `text` (`finding` there is the replaced
    code; `with_instructions_filled` first), indented like the node.
@@ -206,7 +214,7 @@ captures, so the adapter names no language, node kind or grammar field:
 
 | target | `Parsed` method | captures it reads |
 |---|---|---|
-| `imports` | `imports`, `top_level_imports`, `row_after_the_preamble` | `@import.path` (`imports.scm`); a top-level statement that is a `@function.outer`/`@class.outer` holds its imports inside; the preamble is the leading `@comment.outer`s and `@docstring` (`docstrings.scm`) |
+| `imports` | `imports`, `top_level_imports`, `row_after_the_preamble`, `row_in_order` and `last_block` (given the text to insert, `end of` goes before the first import of the last block that sorts after it, when that block is in order by its collapsed text) | `@import.path` (`imports.scm`); a top-level statement that is a `@function.outer`/`@class.outer` holds its imports inside; the preamble is the leading `@comment.outer`s and `@docstring` (`docstrings.scm`) |
 | `function NAME`, `class NAME` | `the_one`, `definitions`, `in_definition` | `@definition.<kind>` with `@name` from every query file (Rust's `definition.impl` from `impls.scm` holds `Type::method`); the body is `Captures::body_items` |
 | `parameters in F` | `parameters` | the function's own `@parameters` (`lists.scm`; not Rust's generics), items `@parameter.inner` |
 | `call NAME [in F]` | `call`, `arguments_of`, `callee_text` | `@reference.call` with `@name` from every file (Rust's `calls.scm` adds `Type::new(…)` and struct literals), the call's child `@arguments` |
@@ -440,6 +448,14 @@ does not stop the language client answering the server's `workspace/applyEdit` m
 request is what the apply waits for. `finish` then says `fixedText` (`fix.ts`) and starts the hole
 session even in a changed file, which is unsaved by then.
 
+The fix actions are `kind = "quickfix"` with `isPreferred` on the first (`fix_action` in
+`adapters/lsp/code_actions.rs`); conjure's are `refactor.rewrite`. VS Code orders the menu by that.
+Neovim does not: `vim.lsp.buf.code_action` lists each client's answers in client order, so
+sorcerer.nvim's `lua/sorcerer/code_actions.lua` wraps `vim.ui.select` (`M.wrap`, re-applied on every
+`LspAttach` in `M.setup`) and, for `opts.kind == "codeaction"` only, reorders the items with
+`M.ordered`: preferred, then quick fixes, then the rest, stable within each group. No server is
+named; `fixes_first = false` skips it.
+
 In sorcerer.nvim the fix is `lua/sorcerer/spellbook.lua` `M.fix(arg, ctx)`, registered as the
 client's `commands["spellbook.fix"]` in `M.attach` (`vim.lsp.start`'s `commands`), so a code action
 with that command runs in the editor and never goes to the server. It refuses a modified buffer
@@ -538,10 +554,12 @@ contract grows by `files[].region`, `files[].set_up`, `notes`, the two finding c
    `rule_findings_of_files`, the regions' `regions_out_of_step(deps, files)`.
 3. `check_project` (`usecases/check_project.rs`) is the same over `view.glob("**")` less
    `.sorcerer/` and `.git/`, and `replace_all`. `check_since(deps, rev)` (`usecases/check_since.rs`)
-   takes `view.changed_since(rev)` (still on disk), runs `rule_findings_of_files` on them and keeps a
-   finding when its line is in `added_lines(text_at(rev), text)` (`domain/change.rs`, a line diff with
-   `\r\n` folded; a file absent at `rev` is all new), adds `regions_out_of_step(deps, None)` (every
-   region), sorts and marks; it writes no report. `check_texts(deps, texts)`
+   takes `view.changed_since(rev)` (still on disk), runs `rule_findings_of_files` on them, marks the
+   baselined ones over those whole findings (`marked_unchanged_first`, the untouched lines first, so a
+   pasted copy is the new one), then keeps a finding when its line is in
+   `added_lines(text_at(rev), text)` (`domain/change.rs`, a line diff with `\r\n` folded; a file
+   absent at `rev` is all new), adds `regions_out_of_step(deps, None)` (every region) and sorts; it
+   writes no report. `check_texts(deps, texts)`
    (`usecases/check_texts.rs`) lays the texts over the view as a `PlannedView`, runs
    `rule_findings_of_files` on their paths with `CheckDeps { view, ..deps }`, sorts and marks; no
    regions, no report. It is what `check --texts` runs for conjure.

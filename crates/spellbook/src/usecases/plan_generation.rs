@@ -251,9 +251,9 @@ struct Insert<'a> {
 
 impl Insert<'_> {
     /// Puts the edit's lines in its file's draft: (1) the file, as planned so far or as it is on
-    /// disk; (2) skipped when `when` does not resolve or `unless` holds; (3) the place, the first
-    /// phrase of `at` that resolves; (4) the body rendered and placed, its holes counted on the
-    /// file's lines; (5) the file still parses.
+    /// disk; (2) skipped when `when` does not resolve or `unless` holds; (3) the body rendered;
+    /// (4) the place, the first phrase of `at` that resolves for that text; (5) the body placed,
+    /// its holes counted on the file's lines; (6) the file still parses.
     fn land_in(&self, drafts: &mut Vec<Draft>) -> Result<(), PlanStop> {
         let Edit::Insert {
             file,
@@ -274,9 +274,6 @@ impl Insert<'_> {
         if !self.wanted(&path, &text, when.as_deref(), unless.as_deref())? {
             return Ok(());
         }
-        let Some(place) = self.place(&path, &text, at, *on_missing)? else {
-            return Ok(());
-        };
         let language = self
             .deps
             .grammars
@@ -293,6 +290,9 @@ impl Insert<'_> {
             &path,
             language.as_deref(),
         )?;
+        let Some(place) = self.place(&path, &text, &rendered.text, at, *on_missing)? else {
+            return Ok(());
+        };
         let change = change_at(&text, &place, &rendered.text);
         let changed = apply_changes(&text, std::slice::from_ref(&change))
             .map_err(|why| self.stop(&path, why))?;
@@ -377,19 +377,25 @@ impl Insert<'_> {
         Ok(!text.lines().any(|line| regex.is_match(line)))
     }
 
-    /// The first of the `at` phrases that resolves; when none does, the plan stops on the first
-    /// one's miss, or the edit is left out (`on_missing = "skip"`).
+    /// The first of the `at` phrases that resolves for the `inserting` text; when none does, the
+    /// plan stops on the first one's miss, or the edit is left out (`on_missing = "skip"`).
     fn place(
         &self,
         path: &str,
         text: &str,
+        inserting: &str,
         at: &[String],
         on_missing: OnMissing,
     ) -> Result<Option<crate::domain::anchor::Place>, PlanStop> {
         let mut first_miss: Option<String> = None;
         for phrase in at {
             let anchor = self.anchor(path, phrase)?;
-            match self.resolve(path, text, &anchor)? {
+            let resolved = self
+                .deps
+                .anchors
+                .resolve_inserting(Path::new(path), text, &anchor, inserting)
+                .map_err(|e| self.stop(path, e.to_string()))?;
+            match resolved {
                 Resolution::At(place) => return Ok(Some(place)),
                 miss => {
                     first_miss

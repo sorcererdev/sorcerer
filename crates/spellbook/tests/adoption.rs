@@ -155,8 +155,14 @@ fn a_broken_baseline_stops_the_check() {
 #[test]
 fn baseline_takes_no_files_and_no_since() {
     let dir = bistro_with_debt();
-    let (code, _) = run(dir.path(), &["check", "--baseline", CLOSE]);
+    let (code, said) = run(dir.path(), &["check", "--baseline", CLOSE]);
     assert_eq!(code, 2);
+    // the usage line shows the forms apart, not the mix just refused
+    assert!(
+        said.contains("Usage: spellbook check [--json] [FILES]...\n"),
+        "{said}"
+    );
+    assert!(!said.contains("--baseline [FILES]"), "{said}");
     let (code, _) = run(dir.path(), &["check", "--baseline", "--since", "HEAD"]);
     assert_eq!(code, 2);
     let (code, _) = run(dir.path(), &["check", "--since", "HEAD", CLOSE]);
@@ -253,5 +259,68 @@ fn a_rule_setting_for_no_rule_stops_and_names_it() {
     );
     let (code, said) = run(dir.path(), &["check"]);
     assert_eq!(code, 2, "{said}");
-    assert!(said.contains("loud"), "{said}");
+    assert!(
+        said.contains("[spellbook.rules] commands-use-ports = \"loud\" is not a setting"),
+        "{said}"
+    );
+}
+
+#[test]
+fn since_calls_a_pasted_copy_of_baselined_code_new() {
+    let dir = bistro_with_debt();
+    run(dir.path(), &["check", "--baseline"]);
+    committed(dir.path());
+    // the copy goes above the original, so the original is the line that moved
+    write_file(
+        dir.path(),
+        CLOSE,
+        "from dataclasses import dataclass\nimport sqlite3\nimport sqlite3\n",
+    );
+    let (code, all) = run(dir.path(), &["check"]);
+    assert_eq!(code, 1, "{all}");
+    let (code, said) = run(dir.path(), &["check", "--since", "HEAD"]);
+    assert_eq!(code, 1, "{said}");
+    assert!(said.contains(&format!("✗ {CLOSE}:")), "{said}");
+    assert!(!said.contains("(existing)"), "{said}");
+    assert!(said.ends_with("1 blocking finding\n"), "{said}");
+}
+
+const IN_HANDLE: &str = "import sqlite3\n\n\ndef handle():\n    return sqlite3.connect(\"a\")\n\n\ndef new():\n    return None\n";
+
+#[test]
+fn a_baseline_entry_does_not_excuse_the_same_code_in_another_definition() {
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    write_file(dir.path(), CLOSE, IN_HANDLE);
+    let (_, said) = run(dir.path(), &["check", "--baseline"]);
+    assert!(said.starts_with("baselined 2 findings"), "{said}");
+    // the baselined call leaves handle, and the same line is written in new
+    write_file(
+        dir.path(),
+        CLOSE,
+        "import sqlite3\n\n\ndef handle():\n    return None\n\n\ndef new():\n    return sqlite3.connect(\"a\")\n",
+    );
+    let (code, said) = run(dir.path(), &["check"]);
+    assert_eq!(code, 1, "{said}");
+    assert!(said.contains(&format!("✗ {CLOSE}:9")), "{said}");
+}
+
+#[test]
+fn a_baselined_finding_stays_existing_through_edits_elsewhere() {
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    write_file(dir.path(), CLOSE, IN_HANDLE);
+    run(dir.path(), &["check", "--baseline"]);
+    // a docstring above, the definitions swapped, and new's body edited
+    write_file(
+        dir.path(),
+        CLOSE,
+        "\"\"\"Close a table.\"\"\"\nimport sqlite3\n\n\ndef new():\n    seats = 4\n    return seats\n\n\ndef handle():\n    return   sqlite3.connect(\"a\")\n",
+    );
+    let (code, said) = run(dir.path(), &["check"]);
+    assert_eq!(code, 0, "{said}");
+    assert!(
+        said.ends_with("conventions hold (2 findings, 2 existing, none blocking)\n"),
+        "{said}"
+    );
 }

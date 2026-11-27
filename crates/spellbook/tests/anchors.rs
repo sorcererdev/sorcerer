@@ -68,6 +68,20 @@ fn resolve_in(file: &str, text: &str, phrase: &str) -> Resolution {
         .unwrap()
 }
 
+fn resolve_inserting(file: &str, text: &str, phrase: &str, inserting: &str) -> Resolution {
+    let dir = bistro_project();
+    let wired = wired_at(dir.path());
+    let anchors = QueryAnchors::new(&wired.grammars);
+    anchors
+        .resolve_inserting(
+            Path::new(file),
+            text,
+            &Anchor::parse(phrase).unwrap(),
+            inserting,
+        )
+        .unwrap()
+}
+
 fn lines(row: usize, indent: &str, suffix: &str) -> Resolution {
     Resolution::At(Place::Lines {
         row,
@@ -87,6 +101,48 @@ fn in_line_with(row: usize, column: usize, prefix: &str, suffix: &str) -> Resolu
         prefix: prefix.into(),
         suffix: suffix.into(),
     })
+}
+
+#[test]
+fn end_of_imports_keeps_an_ordered_last_block_in_order() {
+    let python = "src/bistro/booking/commands/close_table.py";
+    let port = "from bistro.booking.ports.table_repository import TableRepository\n";
+    // the last block (row 5) is one import, in order, and the port's sorts before it
+    assert_eq!(
+        resolve_inserting(python, CLOSE_TABLE, "end of imports", port),
+        lines(5, "", "")
+    );
+    // a text sorting after the whole block goes at the end, as without it
+    assert_eq!(
+        resolve_inserting(python, CLOSE_TABLE, "end of imports", "from zoo import Z\n"),
+        lines(6, "", "")
+    );
+    // a block out of order is left as it is: the end
+    let unordered = "from b import B\nfrom a import A\n\nX = 1\n";
+    assert_eq!(
+        resolve_inserting(python, unordered, "end of imports", "from aa import C\n"),
+        lines(2, "", "")
+    );
+    let rust = "use std::rc::Rc;\n\nuse crate::a::A;\nuse crate::c::C;\n\nfn f() {}\n";
+    assert_eq!(
+        resolve_inserting(
+            "src/booking/commands/cancel_booking.rs",
+            rust,
+            "end of imports",
+            "use crate::b::B;\n"
+        ),
+        lines(3, "", "")
+    );
+    // start of imports does not look at the text
+    assert_eq!(
+        resolve_inserting(
+            python,
+            CLOSE_TABLE,
+            "start of imports",
+            "from zoo import Z\n"
+        ),
+        lines(2, "", "")
+    );
 }
 
 #[test]

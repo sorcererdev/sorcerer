@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use crate::booking::models::booking::Booking;
 use crate::booking::models::slot::Slot;
-use crate::booking::ports::id_generator::IdGenerator;
 use crate::booking::ports::booking_repository::BookingRepository;
+use crate::booking::ports::id_generator::IdGenerator;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeatWalkInInput {

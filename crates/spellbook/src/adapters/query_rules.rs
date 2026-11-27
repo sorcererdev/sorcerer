@@ -6,7 +6,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use sorcerer_core::domain::captures::{COMMENT, Captures};
+use sorcerer_core::domain::language::Loaded;
 use sorcerer_core::domain::query::compile;
+use sorcerer_core::domain::unit::{unit_at, units_of};
 use sorcerer_core::{Error, Result};
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
 
@@ -35,12 +37,7 @@ impl<'g> QueryRules<'g> {
     }
 
     /// The rule's query for a language, compiled the first time it is asked for.
-    fn query_for(
-        &self,
-        language: &sorcerer_core::domain::language::Loaded,
-        rule: &Rule,
-        file: &Path,
-    ) -> Result<Arc<Query>> {
+    fn query_for(&self, language: &Loaded, rule: &Rule, file: &Path) -> Result<Arc<Query>> {
         let key = (language.language.name.clone(), rule.id.clone());
         let mut compiled = self
             .compiled
@@ -97,11 +94,12 @@ impl RuleRunner for QueryRules<'_> {
                             .to_string(),
                         kind: hit.node.kind().to_string(),
                         span: span_of(hit.node),
+                        unit: None,
                     });
                 }
             }
         }
-        Ok(found)
+        Ok(in_their_units(&loaded, text, found))
     }
 
     fn comments_in(&self, file: &Path, text: &str) -> Result<Vec<Comment>> {
@@ -141,6 +139,23 @@ impl RuleRunner for QueryRules<'_> {
 }
 
 /// Where the node is.
+/// The findings with the definition each one is in named: the language's units, the innermost
+/// holding the finding's line. A file whose units cannot be read leaves every finding at the top
+/// level.
+fn in_their_units(loaded: &Loaded, text: &str, found: Vec<RawFinding>) -> Vec<RawFinding> {
+    if found.is_empty() {
+        return found;
+    }
+    let units = units_of(loaded, text).unwrap_or_default();
+    found
+        .into_iter()
+        .map(|finding| RawFinding {
+            unit: unit_at(&units, finding.line).map(|unit| unit.name.clone()),
+            ..finding
+        })
+        .collect()
+}
+
 fn span_of(node: tree_sitter::Node) -> Span {
     Span {
         start_row: node.start_position().row,
