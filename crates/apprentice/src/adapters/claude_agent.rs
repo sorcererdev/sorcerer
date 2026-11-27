@@ -175,9 +175,15 @@ impl ClaudeAgent {
     }
 
     /// A command line the agent runs through its shell: this program, quoted, with `/` in its
-    /// path on every platform.
+    /// path on every platform. Claude Code's settings take a hook only as a shell string (no
+    /// argv form), and on Windows it runs hooks in Git Bash, so one POSIX quoting serves all
+    /// three platforms.
     fn helper_command(&self, args: &[&str]) -> String {
-        format!("\"{}\" {}", forward_slashes(&self.me), args.join(" "))
+        format!(
+            "{} {}",
+            posix_quoted(&forward_slashes(&self.me)),
+            args.join(" ")
+        )
     }
 
     fn command(&self, request: &TaskRequest) -> Command {
@@ -194,6 +200,12 @@ impl ClaudeAgent {
             .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1");
         command
     }
+}
+
+/// `text` as one shell word that no character in it can break: in single quotes, where only
+/// `'` itself needs care (close the quote, write `\'`, open it again).
+fn posix_quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 /// The way back, for `claude`'s environment; its MCP server and hooks inherit it. Every command
@@ -319,6 +331,63 @@ mod tests {
         }
     }
 
+    const AWKWARD_NAMES: [&str; 6] = [
+        "plain",
+        "with space",
+        "dq\"uote",
+        "dollar$HOME",
+        "back`tick`",
+        "it's",
+    ];
+
+    #[test]
+    fn a_word_is_single_quoted_whatever_is_in_it() {
+        assert_eq!(posix_quoted("/a b/x"), "'/a b/x'");
+        assert_eq!(posix_quoted("it's"), "'it'\\''s'");
+        assert_eq!(posix_quoted("a\"$`b"), "'a\"$`b'");
+    }
+
+    #[test]
+    fn the_helper_command_quotes_an_awkward_path_with_forward_slashes() {
+        let mut agent = agent(Path::new("/p"));
+        agent.me = if cfg!(windows) {
+            PathBuf::from(r"C:\Program Files\it's\$x\apprentice.exe")
+        } else {
+            PathBuf::from("C:/Program Files/it's/$x/apprentice.exe")
+        };
+        assert_eq!(
+            agent.helper_command(&["hook", "stop"]),
+            "'C:/Program Files/it'\\''s/$x/apprentice.exe' hook stop"
+        );
+    }
+
+    /// The command goes through `sh -c` as claude runs it; the program must actually start.
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_with_an_awkward_name_runs_through_the_shell() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        for name in AWKWARD_NAMES {
+            let folder = dir.path().join(name);
+            std::fs::create_dir(&folder).unwrap();
+            let exe = folder.join(name);
+            std::fs::write(&exe, "#!/bin/sh\necho \"ran $*\"\n").unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let mut agent = agent(dir.path());
+            agent.me = exe;
+            let out = Command::new("sh")
+                .arg("-c")
+                .arg(agent.helper_command(&["hook", "stop"]))
+                .output()
+                .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                "ran hook stop\n",
+                "{name}"
+            );
+        }
+    }
+
     fn request(root: &Path) -> TaskRequest {
         TaskRequest {
             task: "t1".into(),
@@ -373,7 +442,7 @@ mod tests {
         let settings: Value = serde_json::from_str(&at("--settings")).unwrap();
         assert_eq!(
             settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
-            "\"/usr/local/bin/apprentice\" hook post-tool-use"
+            "'/usr/local/bin/apprentice' hook post-tool-use"
         );
     }
 }
