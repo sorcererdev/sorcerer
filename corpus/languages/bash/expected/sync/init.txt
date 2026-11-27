@@ -1,0 +1,2 @@
+sync (1 file changed)
+  ~ booking/all.sh  (region modules: set up, 2 items)

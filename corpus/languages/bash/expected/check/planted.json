@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-echo-in-booking",
+    "file": "booking/close_table.sh",
+    "line": 7,
+    "severity": "error",
+    "message": "booking scripts do not echo: write it through a helper",
+    "fingerprint": "6cfa042"
+  }
+]

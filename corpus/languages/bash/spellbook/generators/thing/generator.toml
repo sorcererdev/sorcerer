@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A script with one helper, a hole of every kind the language has"
+description = "booking/NAME.sh: a helper whose value and body are holes"
+language    = "bash"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The script (audit, report)"
+
+[[edits]]
+create   = "booking/{= name|snake =}.sh"
+template = "thing.sh.dt"

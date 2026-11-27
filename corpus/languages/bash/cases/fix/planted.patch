@@ -1,0 +1,9 @@
+--- a/booking/close_table.sh
++++ b/booking/close_table.sh
+@@ -4,5 +4,6 @@
+ source ./lib.sh
+ 
+ close_table() {
++  echo "closing $1"
+   :
+ }

@@ -1,0 +1,15 @@
+# A thing: one hole of each kind in [holes], each parsing where it is.
+generator = "thing"
+inputs    = { name = "audit" }
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "db/audit.sql"
+line = 11
+
+[[holes]]
+name = "setup"
+kind = "stmt"
+file = "db/audit.sql"
+line = 7

@@ -1,0 +1,13 @@
+# One rule, with a fix: the booking scripts log through a helper, never echo.
+[rules.no-echo-in-booking]
+files   = "booking/*.sh"
+match   = { kind = "command", regex = "^echo\\b" }
+message = "booking scripts do not echo: write it through a helper"
+
+[[rules.no-echo-in-booking.fixes]]
+generator = "thing"
+label     = "Write it through a new helper"
+with      = { name = "audit" }
+replace   = [
+  { enclosing = ["command"], text = "{= ? audit_call: stmt | the same as {= finding =} through the helper =}" },
+]

@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A script with a table and a query, a hole of every kind the language has"
+description = "db/NAME.sql: a table, a statement hole and a query whose limit is a hole"
+language    = "sql"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The script (audit, report)"
+
+[[edits]]
+create   = "db/{= name|snake =}.sql"
+template = "thing.sql.dt"

@@ -1,0 +1,4 @@
+# The region set up in booking/all.sh, after its comment, sourcing the two scripts.
+mode = "init modules"
+exit = 0
+patch = "unmarked.patch"

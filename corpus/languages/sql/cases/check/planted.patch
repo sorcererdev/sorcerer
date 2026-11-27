@@ -1,0 +1,8 @@
+--- a/db/queries.sql
++++ b/db/queries.sql
+@@ -1,4 +1,4 @@
+ -- Bookings for one table.
+-SELECT id, party_size
++SELECT *
+ FROM bookings
+ WHERE table_no = 4;

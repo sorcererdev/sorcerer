@@ -1,0 +1,11 @@
+# The SQL language corpus: a tiny project every shipped-language harness runs on (core's
+# units and parses, spellbook's cases, lackey's cut regions, conjure's related files). No model,
+# no network. See corpus/languages/README.md.
+name     = "sql"
+language = "sql"
+base     = "base"
+
+# conjure, asked in this file: SQL has no test-file or import convention, so its golden shows
+# only what conjure finds beside it (expected/related.txt)
+[conjure]
+file = "db/schema.sql"

@@ -1,0 +1,6 @@
+# db/index.sql lists each script of the database.
+[regions.scripts]
+file    = "db/index.sql"
+query   = { glob = "db/*.sql", exclude = ["db/index.sql"] }
+item    = "-- {= stem =}"
+init_at = "end of file"

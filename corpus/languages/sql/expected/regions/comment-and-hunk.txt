@@ -1,0 +1,5 @@
+comment 1-2 in -
+  | -- Bookings for one table.
+  | -- which parties stay late?
+hunk 6-6 in -
+  | SELECT count(*) FROM bookings;

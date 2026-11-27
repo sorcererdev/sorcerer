@@ -1,0 +1,9 @@
+--- a/db/queries.sql
++++ b/db/queries.sql
+@@ -1,4 +1,6 @@
+ -- Bookings for one table.
++-- which parties stay late?
+ SELECT id, party_size
+ FROM bookings
+ WHERE table_no = 4;
++SELECT count(*) FROM bookings;

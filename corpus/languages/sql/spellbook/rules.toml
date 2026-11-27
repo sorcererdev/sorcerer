@@ -1,0 +1,5 @@
+# One rule: the booking queries name their columns, never SELECT *.
+[rules.no-select-star-in-db]
+files   = "db/*.sql"
+match   = { kind = "all_fields", regex = "\\*" }
+message = "queries name their columns: SELECT * breaks when the table changes"
