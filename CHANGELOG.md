@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-27
 
 - **A newcomer can start from the README.** The README links the user book and each tool's
   chapter, and has quick starts for Lackey and Spellbook; the Lackey chapter opens with
