@@ -337,11 +337,12 @@ fn a_command_is_asked_once_and_remembered_for_the_project() {
         project,
         vec![
             Step::Bash("uv run pytest -q"),
+            Step::Bash("uv run pytest  -q"),
             Step::Bash("uv run pytest tests"),
-            Step::Bash("uv run pytest && rm -rf x"),
+            Step::Bash("uv run pytest -q && rm -rf x"),
             Step::Finish(0.1),
         ],
-        &["Always for this project (uv run pytest)", "Deny"],
+        &["Always for this project (uv run pytest -q)", "Deny", "Deny"],
         |_| {},
     );
     let replies = first.agent.replies();
@@ -350,11 +351,13 @@ fn a_command_is_asked_once_and_remembered_for_the_project() {
         behavior(&replies[0].text)["updatedInput"]["command"],
         "uv run pytest -q"
     );
-    // remembered: the second runs unasked; a chained command is asked, and denied
+    // remembered: the same line runs unasked; another line of the program is asked about, and a
+    // chained command too, and both are denied
     assert_eq!(behavior(&replies[1].text)["behavior"], "allow");
     assert_eq!(behavior(&replies[2].text)["behavior"], "deny");
+    assert_eq!(behavior(&replies[3].text)["behavior"], "deny");
     let asked = first.editor.asked.lock().unwrap().clone();
-    assert_eq!(asked.len(), 2);
+    assert_eq!(asked.len(), 3);
     assert_eq!(
         asked[0].question,
         "apprentice wants to run: uv run pytest -q"
@@ -363,31 +366,112 @@ fn a_command_is_asked_once_and_remembered_for_the_project() {
         asked[0].options,
         [
             "Allow once",
-            "Always for this project (uv run pytest)",
+            "Always for this project (uv run pytest -q)",
             "Deny"
         ]
     );
-    assert_eq!(asked[1].options, ["Allow once", "Deny"]);
+    assert_eq!(asked[2].options, ["Allow once", "Deny"]);
     assert!(
         first
             .project
             .state("permissions.json")
-            .contains("uv run pytest")
+            .contains("uv run pytest -q")
     );
+}
+
+/// The person ruled: allowing one search never opens the door to a search of the whole tree.
+#[test]
+fn allowing_a_search_always_does_not_allow_a_recursive_one() {
+    let run = run(
+        vec![
+            Step::Bash("grep foo src/"),
+            Step::Bash("grep foo src/"),
+            Step::Bash("grep -r KEY ."),
+            Step::Bash("rg KEY"),
+            Step::Bash("git log -p -1"),
+            Step::Bash("cat s*/keys.txt"),
+            Step::Finish(0.0),
+        ],
+        &[
+            "Always for this project (grep foo src/)",
+            "Deny",
+            "Deny",
+            "Deny",
+            "Deny",
+        ],
+    );
+    let replies = run.agent.replies();
+    let answers: Vec<String> = replies
+        .iter()
+        .map(|reply| {
+            behavior(&reply.text)["behavior"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(answers, ["allow", "allow", "deny", "deny", "deny", "deny"]);
+    let asked = run.editor.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 5);
+    // a tree reader or a glob is offered once, never always
+    for ask in &asked[1..] {
+        assert_eq!(ask.options, ["Allow once", "Deny"], "{}", ask.question);
+    }
+}
+
+/// A version 1 `permissions.json` remembered first words, such as `grep`, which let any search
+/// run. Its bare program names and tree readers are dropped; longer prefixes stay as exact lines.
+#[test]
+fn a_version_1_grant_of_a_bare_program_no_longer_lets_it_run() {
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let state = project.root.join(".sorcerer/state/apprentice");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(
+        state.join("permissions.json"),
+        r#"{"version":1,"data":{"allowed":["grep","git log","uv run pytest"]}}"#,
+    )
+    .unwrap();
+    let run = run_with(
+        project,
+        vec![
+            Step::Bash("grep -r KEY ."),
+            Step::Bash("uv run pytest"),
+            Step::Finish(0.0),
+        ],
+        &["Deny"],
+        |_| {},
+    );
+    let replies = run.agent.replies();
+    assert_eq!(behavior(&replies[0].text)["behavior"], "deny");
+    assert_eq!(behavior(&replies[1].text)["behavior"], "allow");
+    let saved = run.project.state("permissions.json");
+    assert!(saved.contains("\"version\": 2"), "{saved}");
+    assert!(!saved.contains("\"grep\""), "{saved}");
 }
 
 #[test]
 fn a_command_naming_a_fenced_path_is_refused_even_when_allowed_always() {
-    let run = run(
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let state = project.root.join(".sorcerer/state/apprentice");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(
+        state.join("permissions.json"),
+        r#"{"version":2,"data":{"commands":["ls -la","ls .git","git status .sorcerer"]}}"#,
+    )
+    .unwrap();
+    let run = run_with(
+        project,
         vec![
             Step::Bash("ls -la"),
             Step::Bash("ls .git"),
+            Step::Bash("git status .sorcerer"),
             Step::Bash("git show HEAD:.env"),
             Step::Bash("cat ./src/../.sorcerer/state/apprentice/tasks.jsonl"),
-            Step::Bash("grep -r KEY ."),
+            Step::Bash("grep KEY src/cancel.txt"),
             Step::Finish(0.0),
         ],
-        &["Always for this project (ls)", "Allow once"],
+        &["Allow once"],
+        |_| {},
     );
     let replies = run.agent.replies();
     let refused = |at: usize| {
@@ -395,17 +479,16 @@ fn a_command_naming_a_fenced_path_is_refused_even_when_allowed_always() {
         reply["behavior"] == "deny" && reply["message"].as_str().unwrap().contains("is fenced")
     };
     assert_eq!(behavior(&replies[0].text)["behavior"], "allow");
-    assert!(refused(1) && refused(2) && refused(3), "{replies:?}");
-    // a command that reads without naming a fenced path is the person's to allow
-    assert_eq!(behavior(&replies[4].text)["behavior"], "allow");
+    assert!(
+        refused(1) && refused(2) && refused(3) && refused(4),
+        "{replies:?}"
+    );
+    assert_eq!(behavior(&replies[5].text)["behavior"], "allow");
     let asked = run.editor.asked.lock().unwrap().clone();
     let questions: Vec<&str> = asked.iter().map(|ask| ask.question.as_str()).collect();
     assert_eq!(
         questions,
-        [
-            "apprentice wants to run: ls -la",
-            "apprentice wants to run: grep -r KEY ."
-        ]
+        ["apprentice wants to run: grep KEY src/cancel.txt"]
     );
 }
 

@@ -1,12 +1,48 @@
-//! Which commands the agent may run without asking: the ones whose first words the person
-//! allowed *always for this project*. A command that chains others (`&&`, `;`, `|`, a
-//! redirect, a subshell) is never allowed by its first words, so `just test && rm -rf x`
-//! is asked about however `just test` was allowed.
+//! Which commands the agent may run without asking: the exact command lines the person allowed
+//! *always for this project*. A different command line is asked about again, so allowing
+//! `grep KEY src/app.txt` never lets `grep -r KEY .` run. *Always* is never offered for a
+//! command that chains others (`&&`, `;`, `|`, a redirect, a subshell), reads a whole tree
+//! (`TreeReaders`) or has a glob in an argument.
 
 use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::versioned::Versioned;
 
-/// The command prefixes allowed always, as `permissions.json` keeps them.
+use crate::domain::tree_readers::TreeReaders;
+
+/// The command lines allowed always, as `permissions.json` keeps them (version 2), each with
+/// its words joined by one space.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AllowedCommands {
+    pub commands: Vec<String>,
+}
+
+impl Versioned for AllowedCommands {
+    const VERSION: u32 = 2;
+}
+
+impl AllowedCommands {
+    /// Whether the command may run unasked: it is one of the allowed command lines (spaces
+    /// aside), and it could still be allowed always (a hand-edited file cannot let a tree
+    /// reader through).
+    ///
+    /// Example: with `just test -q` allowed, `just test  -q` runs unasked; `uv run
+    /// pytest tests` and `just test -q; rm x` are asked about.
+    pub fn allows(&self, command: &str, readers: &TreeReaders) -> bool {
+        always_for(command, readers).is_some_and(|line| self.commands.contains(&line))
+    }
+
+    /// The same list with one more command line (once).
+    pub fn with(&self, line: &str) -> AllowedCommands {
+        let mut commands = self.commands.clone();
+        if !commands.iter().any(|known| known == line) {
+            commands.push(line.to_string());
+        }
+        AllowedCommands { commands }
+    }
+}
+
+/// `permissions.json` as version 1 kept it: the first words of each command allowed always
+/// (`just test`, `grep`), which let any command starting with them run.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandPrefixes {
     pub allowed: Vec<String>,
@@ -16,51 +52,48 @@ impl Versioned for CommandPrefixes {
     const VERSION: u32 = 1;
 }
 
-/// The most words a remembered prefix has.
-const PREFIX_WORDS: usize = 3;
-
 impl CommandPrefixes {
-    /// Whether the command may run unasked: it chains nothing and its words begin with an
-    /// allowed prefix's words.
+    /// The version 2 list: each prefix of two words or more becomes that exact command line
+    /// when it could be allowed always now; a bare program name (`grep`, `ls`) is dropped, as
+    /// is a tree reader (`git show`). The dropped ones are returned too, to be said.
     ///
-    /// Example: with `just test` allowed, `just test -q tests` runs unasked, `uv run
-    /// python x` and `just test; rm x` are asked about.
-    pub fn allows(&self, command: &str) -> bool {
-        if chains_commands(command) {
-            return false;
-        }
-        let words: Vec<&str> = command.split_whitespace().collect();
-        self.allowed.iter().any(|prefix| {
-            let prefix: Vec<&str> = prefix.split_whitespace().collect();
-            !prefix.is_empty() && words.starts_with(&prefix)
-        })
-    }
-
-    /// The same list with one more prefix (once).
-    pub fn with(&self, prefix: &str) -> CommandPrefixes {
-        let mut allowed = self.allowed.clone();
-        if !allowed.iter().any(|known| known == prefix) {
-            allowed.push(prefix.to_string());
-        }
-        CommandPrefixes { allowed }
+    /// Example: `["just test", "grep", "git show"]` keeps `just test` and drops `grep`
+    /// and `git show`.
+    pub fn migrated(&self, readers: &TreeReaders) -> (AllowedCommands, Vec<String>) {
+        let (kept, dropped): (Vec<&String>, Vec<&String>) =
+            self.allowed.iter().partition(|prefix| {
+                prefix.split_whitespace().count() >= 2 && always_for(prefix, readers).is_some()
+            });
+        let commands = kept
+            .into_iter()
+            .fold(AllowedCommands::default(), |list, prefix| {
+                list.with(&one_line(prefix))
+            });
+        (commands, dropped.into_iter().cloned().collect())
     }
 }
 
-/// The prefix *always* remembers for a command: its first words, up to three, stopping before
-/// the first that is an option or names a path. `None` for a command that chains others: such a
-/// command can be allowed once, never always.
+/// The command line *always* would remember: the command with its words joined by one space.
+/// `None` when it may only be allowed once: it chains others, reads a whole tree, or has a
+/// glob (`*`, `?`, `[`) in an argument.
 ///
-/// Example: `just test tests/test_x.txt -q` remembers `just test`.
-pub fn prefix_of(command: &str) -> Option<String> {
-    if chains_commands(command) {
-        return None;
-    }
-    let words: Vec<&str> = command
-        .split_whitespace()
-        .take_while(|word| !word.starts_with('-') && !word.contains(['/', '\\', '.', '=']))
-        .take(PREFIX_WORDS)
-        .collect();
-    (!words.is_empty()).then(|| words.join(" "))
+/// Example: `just test  -q` remembers `just test -q`; `grep -r KEY .`, `cat s*/x` and
+/// `make && rm x` remember nothing.
+pub fn always_for(command: &str, readers: &TreeReaders) -> Option<String> {
+    let line = one_line(command);
+    let once_only =
+        line.is_empty() || chains_commands(&line) || has_glob(&line) || readers.reads_tree(&line);
+    (!once_only).then_some(line)
+}
+
+fn one_line(command: &str) -> String {
+    command.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn has_glob(line: &str) -> bool {
+    line.split_whitespace()
+        .skip(1)
+        .any(|word| word.contains(['*', '?', '[']))
 }
 
 /// The words of a command that could name a file: the command split at spaces, quotes, shell
@@ -84,27 +117,68 @@ fn chains_commands(command: &str) -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn an_allowed_prefix_lets_its_commands_run() {
-        let prefixes = CommandPrefixes::default().with("just test");
-        assert!(prefixes.allows("just test"));
-        assert!(prefixes.allows("just test -q tests"));
-        assert!(!prefixes.allows("just lint x"));
-        assert!(!prefixes.allows("just test; rm -rf x"));
-        assert!(!prefixes.allows("just test && rm -rf x"));
-        assert!(!prefixes.allows("just test > out"));
+    fn readers() -> &'static TreeReaders {
+        TreeReaders::shipped()
     }
 
     #[test]
-    fn the_remembered_prefix_stops_at_an_option_or_a_path() {
+    fn only_the_exact_command_line_runs_unasked() {
+        let allowed = AllowedCommands::default().with("grep KEY src");
+        assert!(allowed.allows("grep KEY src", readers()));
+        assert!(allowed.allows("grep  KEY   src", readers()));
+        assert!(!allowed.allows("grep -r KEY .", readers()));
+        assert!(!allowed.allows("grep KEY src other", readers()));
+        assert!(!allowed.allows("grep KEY src; rm -rf x", readers()));
+    }
+
+    #[test]
+    fn always_is_never_offered_for_a_chain_a_tree_reader_or_a_glob() {
         assert_eq!(
-            prefix_of("just test tests/test_x.txt -q").as_deref(),
-            Some("just test")
+            always_for("just test  -q", readers()).as_deref(),
+            Some("just test -q")
         );
-        assert_eq!(prefix_of("make test").as_deref(), Some("make test"));
-        assert_eq!(prefix_of("ls -la").as_deref(), Some("ls"));
-        assert_eq!(prefix_of("a && b"), None);
-        assert_eq!(prefix_of("./run.sh"), None);
+        assert_eq!(
+            always_for("grep KEY src/", readers()).as_deref(),
+            Some("grep KEY src/")
+        );
+        for command in [
+            "grep -r KEY .",
+            "rg KEY",
+            "git log -p -1",
+            "git show HEAD",
+            "cat s*/keys.txt",
+            "find . -exec cat {} ;",
+            "ls | xargs cat",
+            "make && rm x",
+            "make > out",
+            "",
+        ] {
+            assert_eq!(always_for(command, readers()), None, "{command}");
+        }
+    }
+
+    #[test]
+    fn a_hand_edited_tree_reader_is_not_allowed() {
+        let allowed = AllowedCommands {
+            commands: vec!["grep -r KEY .".into()],
+        };
+        assert!(!allowed.allows("grep -r KEY .", readers()));
+    }
+
+    #[test]
+    fn version_1_keeps_its_command_lines_and_drops_bare_programs_and_tree_readers() {
+        let old = CommandPrefixes {
+            allowed: vec![
+                "just test".into(),
+                "grep".into(),
+                "make test".into(),
+                "git show".into(),
+                "ls".into(),
+            ],
+        };
+        let (new, dropped) = old.migrated(readers());
+        assert_eq!(new.commands, ["just test", "make test"]);
+        assert_eq!(dropped, ["grep", "git show", "ls"]);
     }
 
     #[test]
@@ -117,11 +191,5 @@ mod tests {
                 "git", "show", "HEAD", ".env", "--output", "out.txt", "cat", "x"
             ]
         );
-    }
-
-    #[test]
-    fn a_prefix_is_kept_once() {
-        let prefixes = CommandPrefixes::default().with("make").with("make");
-        assert_eq!(prefixes.allowed, ["make"]);
     }
 }

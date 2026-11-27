@@ -42,7 +42,14 @@ three systems; pipes and sockets would be two.
   Tool | Permission`, `LoopbackReply`, and the three environment variables of the way back.
 - `edits_text.rs`: `FileEdit`, `diff_text` (unified, two lines of context),
   `edits_context_text` (the hook's text) and `unsaved_edits_text` (the first message's).
-- `permissions.rs`: `CommandPrefixes` (`permissions.json`, `Versioned`), `allows`, `prefix_of`, `words_naming_paths`.
+- `permissions.rs`: `AllowedCommands` (`permissions.json` version 2: exact command lines,
+  `allows`, `with`), `CommandPrefixes` (version 1, first words, and `migrated`), `always_for`
+  (the line *always* remembers, or `None` for a chain, a glob or a tree reader),
+  `words_naming_paths`.
+- `tree_readers.rs`: `TreeReaders` (`shipped`, `reads_tree`) over
+  `library/tree-readers.toml`, the commands that read whole trees: each a program, a
+  subcommand for one that has them, and `always` or the `options` that make it one. It is
+  data because sorcerer's code names no tool.
 - `paths.rs`: `project_relative` (conjure's `lexical_relative`, copied), `is_sorcerers_own`.
 - `budget.rs` (`spent_today`, `triage_spent_today`, `day_allows`, `triage_allows`),
   `estimate.rs` (`estimate_usd`: the median after five tasks), `log_text.rs` (`usd`,
@@ -119,7 +126,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
      while it waits.
    - `Permission` (and the `permission` tool) → `answer_permission` (`permissions.rs`): the
      writers and `AskUserQuestion` denied with a sentence; a command naming a fenced path denied
-     (`fenced_path_named`); a command allowed always passes; else the picker. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
+     (`fenced_path_named`); a command line allowed always (`AllowedCommands::allows`) passes;
+     else the picker, with *Always* only when `always_for` gives a line. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
      or `{"behavior":"deny","message":…}`.
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
@@ -179,8 +187,11 @@ every command reached the permission tool and nothing printed a canary.
 `answer_permission` (`usecases/run_task/permissions.rs`) refuses a command that names a fenced
 path before it asks or checks the always list (`fenced_path_named`, over
 `domain::permissions::words_naming_paths`, which splits at spaces, quotes, operators, `:` and
-`=`): a fenced file, or a directory all of whose contents are fenced. A command the person
-allows may still read a fenced file without naming it; the user chapter says so. Claude Code's
+`=`): a fenced file, or a directory all of whose contents are fenced. *Always* remembers the
+exact command line and is never offered for a tree reader, a glob or a chain, so only a command
+the person allowed once, or the exact line they allowed always, can read a fenced file without
+naming it. `json_permissions.rs` migrates a version 1 file on first read
+(`CommandPrefixes::migrated`: bare program names and tree readers dropped). Claude Code's
 sandbox would stop that at the system level on macOS and Linux (measured: `grep -r` and `rg` got
 "Operation not permitted" on the fenced paths), but it is not on: it has no native Windows
 support, and with `.git` fenced and writes outside the project refused, `git status` and `uv run
@@ -191,7 +202,9 @@ pytest` (its cache in `~/.cache/uv`) failed under it.
 `every_command_reaches_the_permission_tool_and_every_fence_is_a_deny_rule` checks every command
 reached the permission tool, the `ask`, block and deny rules, and that no flag widens
 permissions. `a_command_naming_a_fenced_path_is_refused_even_when_allowed_always`
-(`tests/run_task.rs`) pins the refusal.
+(`tests/run_task.rs`) pins the refusal; `a_search_allowed_always_does_not_let_a_recursive_search_run`
+(harness) and `allowing_a_search_always_does_not_allow_a_recursive_one` and
+`a_version_1_grant_of_a_bare_program_no_longer_lets_it_run` (`run_task.rs`) pin the exact lines.
 
 **Still to confirm against the real `claude`** (the tests run the fake): a `PostToolUse` hook
 given inline through `--settings` under `-p`. Seen working: the stdin framing of

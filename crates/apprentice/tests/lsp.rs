@@ -123,7 +123,7 @@ fn a_claim_checked_on_save_is_offered_done_as_a_task_shown_diffed_and_undone() {
     // 0:15 do this: the task writes, asks on a line, asks before a command, says it is done
     s.picks
         .borrow_mut()
-        .push_back("Always for this project (uv run pytest)".into());
+        .push_back("Always for this project (uv run pytest -q)".into());
     s.run_action(FILE, 5, "apprentice: do this");
     assert_eq!(
         s.shown_message("apprentice asks:"),
@@ -165,7 +165,11 @@ fn a_claim_checked_on_save_is_offered_done_as_a_task_shown_diffed_and_undone() {
         s.picked_questions.borrow()[0],
         "apprentice wants to run: uv run pytest -q"
     );
-    assert!(project.state("permissions.json").contains("uv run pytest"));
+    assert!(
+        project
+            .state("permissions.json")
+            .contains("uv run pytest -q")
+    );
 
     // 1:50 the mark on the first changed line, and its actions
     let marks = s.marks_until(FILE, |marks| {

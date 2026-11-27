@@ -1,7 +1,7 @@
 //! The agent's permission questions: before every command (`Bash`, `PowerShell`, `Monitor`, which
 //! `claude` is told to ask about) or any tool nothing allows, `claude` asks the permission tool,
-//! which asks the person once. A command allowed *always for this project* runs unasked from
-//! then on; the writers are refused outright, because every change goes through `write_file`,
+//! which asks the person once. A command line allowed *always for this project* runs unasked
+//! from then on (that exact line, never another use of the program); the writers are refused outright, because every change goes through `write_file`,
 //! and so is a command that names a fenced path, whatever the person allowed.
 
 use std::path::Path;
@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 
 use crate::domain::loopback_message::LoopbackReply;
 use crate::domain::mediums::{Ask, AskWay};
-use crate::domain::permissions::{prefix_of, words_naming_paths};
+use crate::domain::permissions::{always_for, words_naming_paths};
+use crate::domain::tree_readers::TreeReaders;
 use crate::ports::editor::Asked;
 
 use super::task_deps::{LiveTask, TaskDeps};
@@ -30,12 +31,13 @@ const WRITERS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 /// 2. A command that names a fenced path is denied, even one allowed always: `git show
 ///    HEAD:.env` or `ls .sorcerer` never runs. (A command that reads a fenced file without
 ///    naming it, such as `grep -r KEY .`, is caught by the person, who is asked.)
-/// 3. A command allowed always runs.
+/// 3. A command line allowed always runs.
 /// 4. Anything else is asked through the picker: *Allow once*, *Always for this project
-///    (<prefix>)* for a command that has one, *Deny*. No answer within the wait is a deny.
+///    (<the command line>)* unless it chains commands, reads a whole tree or has a glob, and
+///    *Deny*. No answer within the wait is a deny.
 ///
-/// Example: `uv run pytest -q` asked, answered *Always for this project (uv run pytest)*, runs;
-/// the next `uv run pytest tests` runs unasked.
+/// Example: `uv run pytest -q` asked, answered *Always for this project (uv run pytest -q)*,
+/// runs; the next `uv run pytest -q` runs unasked, `uv run pytest tests` is asked about.
 pub fn answer_permission(
     live: &LiveTask,
     tool: &str,
@@ -55,7 +57,12 @@ pub fn answer_permission(
             "{fenced} is fenced: no task may read it, and no command may name it"
         ));
     }
-    if tool == "Bash" && deps.permissions.allowed().allows(command) {
+    if tool == "Bash"
+        && deps
+            .permissions
+            .allowed()
+            .allows(command, TreeReaders::shipped())
+    {
         let _ = deps.journal.write(&live.id, "allowed always", command);
         return allow(input);
     }
@@ -87,8 +94,10 @@ fn ask_for(
     input: &Value,
     deps: &TaskDeps,
 ) -> LoopbackReply {
-    let prefix = (tool == "Bash").then(|| prefix_of(command)).flatten();
-    let always = prefix.as_ref().map(|prefix| always_text(prefix));
+    let line = (tool == "Bash")
+        .then(|| always_for(command, TreeReaders::shipped()))
+        .flatten();
+    let always = line.as_ref().map(|line| always_text(line));
     let options: Vec<String> = [
         Some(ALLOW_ONCE.to_string()),
         always.clone(),
@@ -111,8 +120,8 @@ fn ask_for(
     match answer {
         Asked::Answered(picked) if picked == ALLOW_ONCE => allow(input),
         Asked::Answered(picked) if Some(&picked) == always.as_ref() => {
-            if let Some(prefix) = prefix {
-                let _ = deps.permissions.allow_always(&prefix);
+            if let Some(line) = line {
+                let _ = deps.permissions.allow_always(&line);
             }
             allow(input)
         }
@@ -130,8 +139,8 @@ fn question_text(tool: &str, command: &str) -> String {
     }
 }
 
-fn always_text(prefix: &str) -> String {
-    format!("Always for this project ({prefix})")
+fn always_text(line: &str) -> String {
+    format!("Always for this project ({line})")
 }
 
 fn allow(input: &Value) -> LoopbackReply {

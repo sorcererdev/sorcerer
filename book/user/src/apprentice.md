@@ -112,15 +112,21 @@ reading and searching your files, running commands. What it may not do:
   even one you allowed always. Nothing outside the project can be read with the file tools.
 - **Run a command without asking you.** Every command is asked about, even the ones Claude Code
   counts as read-only and runs unasked elsewhere (`cat`, `grep`, `git log`): the first time it
-  wants to run `uv run pytest`, you are asked: *Allow once*, *Always for this project (uv run
-  pytest)* or *Deny*. *Always* remembers the command's first words (at most three, stopping at
-  an option or a path) in `.sorcerer/state/apprentice/permissions.json`; a command that chains
-  others (`&&`, `;`, `|`, a redirect) is always asked about.
+  wants to run `uv run pytest -q`, you are asked: *Allow once*, *Always for this project (uv run
+  pytest -q)* or *Deny*. *Always* remembers that exact command line, arguments and all, in
+  `.sorcerer/state/apprentice/permissions.json`; any other command line is asked about again, so
+  allowing `grep foo src/` never lets `grep -r KEY .` run.
 
-  **What you allow can read anything.** A command that searches or dumps the project without
-  naming a fenced path, such as `grep -r KEY .`, `rg --hidden KEY` or `git log -p`, reads
-  `.env` like any other file, and so does a test run that loads it. Allow such a search once,
-  not always, and deny it when you have secrets in the project.
+  *Always* is never offered for a command that chains others (`&&`, `;`, `|`, a redirect), has a
+  glob in an argument (`cat s*/keys.txt`), or reads a whole tree: a recursive `grep`, `rg`,
+  `git grep`, `git log -p`, `git show`, `git diff`, `find … -exec`, `xargs`, `cp -r`, `tar` and
+  the others in apprentice's list (`crates/apprentice/library/tree-readers.toml`). Those can
+  read `.env` without naming it, so each run is yours to allow once. A test run that loads
+  `.env` itself can read it too: allow it only if that is fine.
+
+  A `permissions.json` from before (which remembered first words, such as `grep`) is rewritten
+  the first time it is read: a remembered program name on its own (`grep`, `ls`) and a tree
+  reader (`git show`) are dropped; longer entries (`uv run pytest`) stay, as that exact line.
 - **Chat.** Nobody reads its output. It speaks only through six tools, the *mediums*:
 
 | medium | what you see |

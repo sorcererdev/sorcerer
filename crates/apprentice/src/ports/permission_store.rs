@@ -2,10 +2,10 @@
 
 use sorcerer_core::Result;
 
-use crate::domain::permissions::CommandPrefixes;
+use crate::domain::permissions::AllowedCommands;
 
 pub trait PermissionStore: Send + Sync {
-    fn allowed(&self) -> CommandPrefixes;
-    /// Remembers a prefix for good.
-    fn allow_always(&self, prefix: &str) -> Result<()>;
+    fn allowed(&self) -> AllowedCommands;
+    /// Remembers an exact command line for good.
+    fn allow_always(&self, line: &str) -> Result<()>;
 }

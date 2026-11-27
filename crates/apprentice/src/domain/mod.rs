@@ -19,4 +19,5 @@ pub mod rules;
 pub mod scry_notes;
 pub mod status;
 pub mod task;
+pub mod tree_readers;
 pub mod triage;

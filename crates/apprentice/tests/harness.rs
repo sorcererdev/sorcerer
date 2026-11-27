@@ -290,6 +290,40 @@ fn every_command_reaches_the_permission_tool_and_every_fence_is_a_deny_rule() {
     }
 }
 
+/// The person's ruling: *always* remembers the exact command line, so a search allowed always
+/// (`grep foo src/`) never lets a recursive one (`grep -r KEY .`) run, and a tree reader is
+/// never offered *always*.
+#[test]
+fn a_search_allowed_always_does_not_let_a_recursive_search_run() {
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let fake = Fake::new(json!({
+        "steps": [
+            { "bash": "grep foo src/" },
+            { "bash": "grep foo src/" },
+            { "bash": "grep -r KEY ." },
+        ],
+    }));
+    let editor = Arc::new(
+        RecordingEditor::at(&project.root)
+            .answering(&["Always for this project (grep foo src/)", "Deny"]),
+    );
+    let runner =
+        TaskRunner::open(project.deps(editor.clone(), Arc::new(agent(&project, &fake)))).unwrap();
+    runner.run(&order()).unwrap();
+
+    let answers: Vec<String> = fake
+        .log()
+        .iter()
+        .filter_map(|entry| entry["permission"]["text"].as_str())
+        .map(|text| serde_json::from_str::<Value>(text).unwrap()["behavior"].to_string())
+        .collect();
+    assert_eq!(answers, [r#""allow""#, r#""allow""#, r#""deny""#]);
+    let asked = editor.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 2);
+    assert_eq!(asked[1].question, "apprentice wants to run: grep -r KEY .");
+    assert_eq!(asked[1].options, ["Allow once", "Deny"]);
+}
+
 #[test]
 fn the_persons_edits_reach_the_fake_through_the_hook() {
     let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
