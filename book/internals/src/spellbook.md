@@ -328,7 +328,7 @@ root at initialize) serves `adapters/lsp/` through the host's `Product` trait
   | `spellbook.generators` | none | `[GeneratorSummary]` (a broken generator is left out and logged) |
   | `spellbook.choices` | generator, inputs so far, input | `{ choices }` or `{ stop }` |
   | `spellbook.plan` | generator, inputs, and for a fix `{ file, line, rule, index, version }`; the generator `sync` is the regions' refresh (inputs `mode = init` and `region` set one up; a fix argument is ignored) | the `Plan` as JSON (`id`, `files[{path,status,text,lines,region?,set_up?}]`, `notes`, `holes[{name,kind,instruction,source,places[{file,line,text,edges}]}]`; a changed file has `status: "changed"`, `hunks[{header,from,to,lines}]`, `added`, `removed`, `changes`; a fix's plan has `fix{rule,file,line,fingerprint,index,label}`), or `{ stop }` (a missing input adds `input` and `choices`; a finding gone and a fix already applied are stops) |
-  | `spellbook.apply` | plan id | `{ changed, written, skipped, refused: null or {path, why}, holes, first: null or {file, line}, stops: [{ file, name, kind, instruction, range }] }`, or `{ stop }` for a plan that is gone or a changed file that moved on (`close_table.py changed since the plan; nothing was applied: fix again`) |
+  | `spellbook.apply` | plan id | `{ changed, written, skipped, refused: null or {path, why}, holes, first: null or {file, line}, stops: [{ file, generation, name, kind, instruction, range }] }` (the holes this plan wrote only), or `{ stop }` for a plan that is gone or a changed file that moved on (`close_table.py changed since the plan; nothing was applied: fix again`) |
 
   A hole's location is `file` everywhere (it is `HolePlace::file`, and `holes.json`'s key);
   `path` is a planned or written file.
@@ -357,14 +357,19 @@ first file with its first hole's placeholder selected (`Client::show_document`).
 from `placeholder_span` (`domain/open_hole_places.rs`, the same match `still_open` makes, as a
 byte range); `file_diagnostics` (`adapters/lsp/diagnostics.rs`) reads the file once and builds
 both the marks and `stops`, and `mark_files` (`commands.rs`) joins the files' stops, changed files
-first, then written ones in written order. `stops` are the session's tab stops, each hole by line then column, ranges in
+first, then written ones in written order. `holes_this_plan_wrote` then keeps only the stops whose
+`generation` is the plan's id: a fix that changes a file an earlier generation left holes in (the
+`command` generator's `todo_field` in a test file) walks none of them, and with no hole of its own
+`first` is null and no document is shown. The older holes stay marked. `stops` are the session's tab stops, each hole by line then column, ranges in
 protocol positions (0-based, UTF-16); `first` stays for older plugins. Clients never search text
 for a placeholder. Spellbook does not know conjure ran: it
 sees the placeholders gone on the next save. The editor side is sorcerer.nvim's
 `lua/sorcerer/spellbook.lua` (`M.new`, one chain of callbacks: generators, choices, plan, the
 float in `spellbook_plan.lua`, apply, then conjure's `conjure.conjure [uri, line]` on the first
 hole when `conjure_holes` is set); it knows only the replies above. After the apply, `finish`
-hands the stops of the opened file to `spellbook_holes.lua` (`M.start`): one extmark a stop
+says the end line (`M.end_text`: `spellbook: wrote …`, or after a fix `spellbook: fixed … ·
+changed N files`) whether or not a session starts, then hands the stops of the opened file to
+`spellbook_holes.lua` (`M.start`), unless the reply's `holes` has no placeholder to fill: one extmark a stop
 (UTF-16 converted to bytes, gravity set so typed text stays inside), buffer-local `<Tab>`/`<S-Tab>`
 in insert and select mode, each stop selected in select mode the way Neovim's `vim/snippet.lua`
 does it. A reply without `stops` (an older server) gets the old end line, so `stops`' fields

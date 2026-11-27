@@ -91,8 +91,9 @@ fn findings_in(
     check_files(&deps, files).map_err(|e| e.to_string())
 }
 
-/// The holes as tab stops: each with its file, name, kind, instruction and the range of its
-/// placeholder (protocol positions, 0-based, UTF-16), sorted by line then column.
+/// The holes as tab stops: each with its file, name, kind, instruction, the generation that
+/// left it and the range of its placeholder (protocol positions, 0-based, UTF-16), sorted by
+/// line then column.
 ///
 /// Example: `field` at 4:4..4:14 comes before `type` at 4:16..4:18 on the same line.
 fn hole_stops(holes: &[OpenHole], marks: &[Diagnostic]) -> Vec<Value> {
@@ -103,6 +104,7 @@ fn hole_stops(holes: &[OpenHole], marks: &[Diagnostic]) -> Vec<Value> {
         .map(|(mark, hole)| {
             json!({
                 "file": hole.file,
+                "generation": hole.generation,
                 "name": hole.name,
                 "kind": hole.kind,
                 "instruction": hole.instruction,

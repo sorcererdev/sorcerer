@@ -805,15 +805,19 @@ fn a_clean_save_is_silent() {
     s.open(&orders(&dir));
     assert_eq!(s.next_diagnostics(&orders(&dir), WAIT), Some(Vec::new()));
     s.save(&orders(&dir));
+    // the save ends with its marks, however long a loaded machine takes to send them; what
+    // else it said came before them (kept in the inbox) or would follow within the quiet window
+    assert_eq!(s.next_diagnostics(&orders(&dir), WAIT), Some(Vec::new()));
     let said = s.all_within(QUIET);
     assert!(notifications(&said, "$/progress").is_empty(), "{said:?}");
     assert!(
         notifications(&said, "window/showMessage").is_empty(),
         "{said:?}"
     );
-    let published = notifications(&said, "textDocument/publishDiagnostics");
-    assert_eq!(published.len(), 1, "{said:?}");
-    assert_eq!(published[0]["diagnostics"], json!([]));
+    assert!(
+        notifications(&said, "textDocument/publishDiagnostics").is_empty(),
+        "one publish only: {said:?}"
+    );
     assert!(
         !said.iter().any(|m| matches!(m, Message::Request(_))),
         "{said:?}"
