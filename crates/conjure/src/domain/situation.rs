@@ -21,6 +21,15 @@ pub const SESSION_LINES: usize = 300;
 /// At most 20 new files are named in the session block.
 pub const NEW_FILE_NAMES: usize = 20;
 
+/// A file related to the one under the cursor, as the writer is shown it: its path, its first
+/// lines (at most 120) and how many lines it has in all, so a part is never taken for the whole.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelatedFile {
+    pub path: PathBuf,
+    pub text: String,
+    pub lines_in_all: usize,
+}
+
 /// Everything the writer is shown about one place in the code.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Situation {
@@ -39,7 +48,7 @@ pub struct Situation {
     pub module: String,
     pub test_file: Option<PathBuf>,
     pub test_text: Option<String>,
-    pub related: Vec<(PathBuf, String)>,
+    pub related: Vec<RelatedFile>,
     pub session: String,
     /// The finding the person asked to conjure for, when they did.
     pub finding_asked: Option<ScryNote>,
@@ -155,16 +164,31 @@ fn test_file_lines(s: &Situation) -> Vec<String> {
 fn related_lines(s: &Situation) -> Vec<String> {
     s.related
         .iter()
-        .flat_map(|(path, text)| {
+        .flat_map(|file| {
             [
                 String::new(),
-                format!("Related file {}:", forward_slashes(path)),
+                related_heading(file),
                 "```".into(),
-                text.clone(),
+                file.text.clone(),
                 "```".into(),
             ]
         })
         .collect()
+}
+
+/// `Related file src/models.py:`, or, for a file cut short,
+/// `Related file src/slot.rs (only its first 120 of 340 lines are shown):`.
+fn related_heading(file: &RelatedFile) -> String {
+    let path = forward_slashes(&file.path);
+    let shown = file.text.lines().count();
+    if shown < file.lines_in_all {
+        format!(
+            "Related file {path} (only its first {shown} of {} lines are shown):",
+            file.lines_in_all
+        )
+    } else {
+        format!("Related file {path}:")
+    }
 }
 
 fn session_lines(s: &Situation) -> Vec<String> {

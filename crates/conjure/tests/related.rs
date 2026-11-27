@@ -18,7 +18,7 @@ fn related(dir: &Path, lang: &str, file: &str) -> Vec<(String, String)> {
         .unwrap()
         .files
         .into_iter()
-        .map(|(p, t)| (p.to_string_lossy().replace('\\', "/"), t))
+        .map(|file| (file.path.to_string_lossy().replace('\\', "/"), file.text))
         .collect()
 }
 
@@ -83,6 +83,10 @@ fn related_files_stop_at_eight_and_120_lines() {
     let found = related(d.path(), "python", "main.py");
     assert_eq!(found.len(), 8);
     assert!(found.iter().all(|(_, t)| t.lines().count() == 120));
+    let (project, view) = project_with_vendored_grammars(d.path());
+    let loaded = project.languages.load("python", &test_cache()).unwrap();
+    let all = related_files(&view, &loaded, Path::new("main.py"), &imports, &|_| true).unwrap();
+    assert!(all.files.iter().all(|file| file.lines_in_all == 200));
 }
 
 #[test]
@@ -229,7 +233,7 @@ fn files_beside_stop_at_four_for_one_import_and_skip_fenced_ones() {
     let names: Vec<String> = found
         .files
         .iter()
-        .map(|(p, _)| p.to_string_lossy().replace('\\', "/"))
+        .map(|file| file.path.to_string_lossy().replace('\\', "/"))
         .collect();
     assert_eq!(
         names,

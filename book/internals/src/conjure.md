@@ -49,7 +49,8 @@ Conjure is in five layers (see [Architecture](architecture.md)).
 - `language_tables.rs` (its path templates filled with core's `templates::fill`, `{= name =}`): `TestTable`, `ImportsTable`,
   `test_table`, `imports_table`, `tests_path`: the language file's `[test]` and `[imports]`,
   read strictly from `Language.rest`.
-- `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `situation_text`,
+- `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `RelatedFile` (path, first
+  lines, `lines_in_all`; `related_heading` says when a file is cut short), `situation_text`,
   `session_text`, and the caps (`RELATED_FILES` 8, `RELATED_FILES_BESIDE` 4 and `RELATED_FILES_BESIDE_IN_ALL` 6, `RELATED_LINES` 120, `SESSION_LINES` 300,
   `NEW_FILE_NAMES` 20).
 - `scry_notes.rs`: conjure's own reading of scry's findings file: `StoredFinding`,

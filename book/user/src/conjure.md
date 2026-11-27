@@ -206,7 +206,9 @@ of changes; `conjure log` shows what the editor recorded.
 For the function at the line, in this order, each part cut as shown:
 
 - the whole file, and its test file, or where its tests would go (`[test]` in the language file);
-- the files it imports, at most 8, their first 120 lines each (`[imports]` and `imports.scm`);
+- the files it imports, at most 8, their first 120 lines each (`[imports]` and `imports.scm`); a
+  longer file's heading says so (`only its first 120 of 340 lines are shown`), so the writer does
+  not take the part for the whole;
 - near each imported file, the files in its folder that use a name it defines, then the file one
   folder up that names its folder (at most 4 for one import, 6 in all, 120 lines each): a port's
   adapters and contract test come with the port, and so does the file that declares the ports
