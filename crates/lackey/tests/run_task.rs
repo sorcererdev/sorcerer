@@ -886,3 +886,38 @@ fn a_task_writes_a_note_and_is_told_about_generated_regions() {
         ]
     );
 }
+
+/// lackey-notes-workable review M2: a write follows a link, so where the link leads is judged
+/// too; a note that is a link onto `.claude/settings.json` is not a way to write it.
+#[test]
+fn a_write_through_a_link_into_a_never_written_file_is_refused() {
+    use sorcerer_core::adapters::platform::paths::link_to;
+    let project = TempProject::with(&[
+        ("src/cancel.txt", BOOKING),
+        (".claude/settings.json", "{}\n"),
+        (".sorcerer/notes/plan.md", "# Plan\n"),
+    ]);
+    let settings = project.root.join(".claude/settings.json");
+    link_to(&settings, &project.root.join(".sorcerer/notes/answer.md")).unwrap();
+    link_to(&settings, &project.root.join("src/answer.md")).unwrap();
+    let script = [".sorcerer/notes/answer.md", "src/answer.md"]
+        .iter()
+        .map(|path| {
+            Step::Tool(
+                "write_file",
+                json!({ "path": path, "text": "{\"hooks\":1}" }),
+            )
+        })
+        .chain([Step::Finish(0.0)])
+        .collect();
+    let run = run_with(project, script, &[], |_| {});
+    for reply in run.agent.replies() {
+        assert!(reply.is_error, "{}", reply.text);
+        assert!(
+            reply.text.contains("no task writes there"),
+            "{}",
+            reply.text
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{}\n");
+}

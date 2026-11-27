@@ -72,7 +72,10 @@ connections answered at once; past that a connection is closed unanswered.
   `C:\tools\RG.EXE` is `rg`.
 - `paths.rs`: `project_relative` (conjure's `lexical_relative`, copied), `is_never_written`
   over `library/never-written.toml` (data, like the tree readers: names any part of a path may
-  not be, ignoring case: `.sorcerer`, `.git`, `.claude`, `.mcp.json`, `.envrc`).
+  not be, ignoring case: `.sorcerer`, `.git`, `.claude`, `.mcp.json`, `.envrc`). In the notes the
+  leading `.sorcerer` does not count. `writable` (`tool_calls.rs`) checks it on the path as
+  written and on where it resolves (`Fences::relative`), since a write follows a link: a note
+  that is a link onto `.claude/settings.json` is refused.
 - `budget.rs` (`spent_today`, `triage_spent_today`, `day_allows`, `triage_allows`),
   `estimate.rs` (`estimate_usd`: the median after five tasks), `log_text.rs` (`usd`,
   `title_of`, `offer_title`, `done_text`, `task_mark_text`, `task_line`), `prompt.rs`
@@ -130,7 +133,7 @@ id), `jsonl_task_store.rs`, `markdown_journal.rs`, `json_permissions.rs`, `proje
 path under `.sorcerer/state/lackey/`), `notes_dir.rs` (`NotesDir`: `.sorcerer/notes/`, the
 notes' one writer: `write_task_note`, `write_answer`, each made new, never through a link, and
 only in the project's own directory; `move_from` moves notes from the old `notes/` under the
-state directory, which `LackeyServer::start` and `wiring::notes_dir` call; a new kind of note
+state directory, only when no link stands on its way (`is_inside_as_spelled`), which `LackeyServer::start` and `wiring::notes_dir` call; a new kind of note
 is one more method naming its file), `disk_editor.rs` (`DiskEditor`, the command line's
 editor), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
 `COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `git_session.rs`

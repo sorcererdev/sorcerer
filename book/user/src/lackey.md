@@ -327,8 +327,8 @@ you open (`r12.md`). It is the one place in `.sorcerer/` that is not fenced, so 
 like any other. Write in one and lackey works on it as it does on your code: what you type
 is triaged (a heading and *Give me the step by step files to update here.* is offered as a task),
 a question is researched when you save, and *do this* may write its answer into the note. You can
-add notes of your own there too. Git sees the directory: commit your notes or add it to your
-`.gitignore`, as you like.
+add notes of your own there too. Git sees the directory, so your notes can be committed with
+the code.
 
 The rest of `.sorcerer/` stays fenced, and so does anything a note points at: a link in
 `.sorcerer/notes/` onto `.sorcerer/state/` or out of the project is denied, a `.env` file there is

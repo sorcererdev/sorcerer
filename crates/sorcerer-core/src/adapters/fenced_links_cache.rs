@@ -3,22 +3,17 @@
 //! may cost a walk but may never miss a link: each time it is asked, it re-walks every directory
 //! that could hold something it has not seen, and checks again every link it knows.
 //!
-//! Why nothing can be missed. The walk's result depends only on the tree under the root: the
-//! entries of the directories it enters and the text of the `.gitignore` and `.ignore` files in
-//! them ([`link_walk`]). So the answer can only change when
+//! Why nothing can be missed. The walk's result depends only on the entries of the directories
+//! under the root ([`link_walk`] reads no ignore file). So the answer can only change when
 //!
 //! 1. a directory it entered gains, loses or swaps an entry (a new link, a new directory, a link
-//!    replaced by another, a new ignore file). The file system then gives that directory a new
-//!    modification time, on every platform, so a directory whose time differs is walked again,
-//!    with everything under it;
-//! 2. an ignore file's text changes, which need not touch its directory's time: the digest of
-//!    each entered directory's `.gitignore` and `.ignore` is kept, read by name rather than
-//!    taken from the walk (which leaves out an ignore file that ignores itself, such as `*`),
-//!    and a different digest walks that directory again;
-//! 3. a link's target changes or appears (a link replaced in place, a directory on its path
+//!    replaced by another). The file system then gives that directory a new modification time,
+//!    on every platform, so a directory whose time differs is walked again, with everything
+//!    under it;
+//! 2. a link's target changes or appears (a link replaced in place, a directory on its path
 //!    swapped for a link): every known link is resolved again on each ask, so this is never
 //!    taken from the cache;
-//! 4. the fences change (a `[model] not_evidence` edit, another root): the walk is redone.
+//! 3. the fences change (a `[model] not_evidence` edit, another root): the walk is redone.
 //!
 //! A directory the walk could not list (no permission) is never trusted: it is walked again on
 //! every ask until it lists, since giving the permission back does not change its time.
@@ -44,8 +39,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
-use sha2::{Digest, Sha256};
-
 use crate::Result;
 use crate::adapters::fences::link_walk;
 use crate::adapters::platform::paths::set_directory_modified;
@@ -55,9 +48,6 @@ use crate::domain::project::Project;
 /// How much older than the walk a directory's time must be to be trusted: more than the
 /// coarsest clock tick of a common file system (FAT's 2 s).
 pub const SETTLE: Duration = Duration::from_secs(3);
-
-/// The files whose text decides what the walk leaves out, looked for in every directory.
-const IGNORE_FILES: [&str; 2] = [".gitignore", ".ignore"];
 
 /// One project's fenced links, kept between asks; see the module documentation for why a kept
 /// answer is never stale.
@@ -78,8 +68,6 @@ struct TreeSeen {
     /// Each directory entered, with its time when that time can be trusted; `None` makes the
     /// next ask walk it again.
     dirs: BTreeMap<PathBuf, Option<SystemTime>>,
-    /// Each ignore file, with the digest of its text (`None` when it could not be read).
-    ignore_files: BTreeMap<PathBuf, Option<Vec<u8>>>,
     /// Every link, fenced or not; each is resolved again on every ask.
     links: BTreeSet<PathBuf>,
 }
@@ -225,7 +213,6 @@ impl TreeSeen {
             root: fences.root().to_path_buf(),
             patterns: fences.patterns(),
             dirs: BTreeMap::new(),
-            ignore_files: BTreeMap::new(),
             links: BTreeSet::new(),
         }
     }
@@ -245,8 +232,7 @@ impl TreeSeen {
     }
 
     /// One walked entry recorded: a link, or a directory with its time (kept only when it is
-    /// [`SETTLE`] older than the walk's clock) and the digests of its ignore files, read by
-    /// name (through a link, when one is a link, so a change at the target is seen too).
+    /// [`SETTLE`] older than the walk's clock).
     fn with_entry(mut self, rel: PathBuf, entry: &ignore::DirEntry, clock: SystemTime) -> Self {
         let Some(kind) = entry.file_type() else {
             return self;
@@ -254,10 +240,6 @@ impl TreeSeen {
         if kind.is_symlink() {
             self.links.insert(rel);
         } else if kind.is_dir() {
-            for name in IGNORE_FILES {
-                let text = digest(&entry.path().join(name));
-                self.ignore_files.insert(rel.join(name), text);
-            }
             let settled = modified(entry.path()).filter(|time| *time + SETTLE <= clock);
             self.dirs.insert(rel, settled);
         }
@@ -277,20 +259,14 @@ impl TreeSeen {
     }
 
     /// The topmost directories that may hold something this walk has not seen: a directory
-    /// whose time differs, was not trusted, or that is gone or no longer a directory, and the
-    /// directory of each ignore file whose text differs.
+    /// whose time differs, was not trusted, or that is gone or no longer a directory.
     fn dirs_that_may_have_changed(&self) -> Vec<PathBuf> {
-        let dirs = self
+        let changed: Vec<PathBuf> = self
             .dirs
             .iter()
             .filter(|(rel, time)| time.is_none() || modified_dir(&self.root.join(rel)) != **time)
-            .map(|(rel, _)| rel.clone());
-        let ignore_dirs = self
-            .ignore_files
-            .iter()
-            .filter(|(rel, text)| digest(&self.root.join(rel)) != **text)
-            .map(|(rel, _)| rel.parent().map(Path::to_path_buf).unwrap_or_default());
-        let changed: Vec<PathBuf> = dirs.chain(ignore_dirs).collect();
+            .map(|(rel, _)| rel.clone())
+            .collect();
         if changed.iter().any(|dir| dir.as_os_str().is_empty()) {
             return vec![PathBuf::new()];
         }
@@ -301,14 +277,12 @@ impl TreeSeen {
     fn without(mut self, tops: &[PathBuf]) -> Self {
         let outside = |rel: &PathBuf| !tops.iter().any(|top| rel.starts_with(top));
         self.dirs.retain(|rel, _| outside(rel));
-        self.ignore_files.retain(|rel, _| outside(rel));
         self.links.retain(outside);
         self
     }
 
     fn merged(mut self, walked: TreeSeen) -> Self {
         self.dirs.extend(walked.dirs);
-        self.ignore_files.extend(walked.ignore_files);
         self.links.extend(walked.links);
         self
     }
@@ -328,7 +302,7 @@ fn topmost(mut dirs: Vec<PathBuf>) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The paths a walk error names (a directory or ignore file that could not be read).
+/// The paths a walk error names (a directory that could not be read).
 fn error_paths(error: &ignore::Error) -> Vec<PathBuf> {
     match error {
         ignore::Error::WithPath { path, .. } => vec![path.clone()],
@@ -368,11 +342,6 @@ fn modified(path: &Path) -> Option<SystemTime> {
 fn modified_dir(path: &Path) -> Option<SystemTime> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     meta.is_dir().then(|| meta.modified().ok()).flatten()
-}
-
-fn digest(path: &Path) -> Option<Vec<u8>> {
-    let text = std::fs::read(path).ok()?;
-    Some(Sha256::digest(text).to_vec())
 }
 
 /// The probe's entry, made new.

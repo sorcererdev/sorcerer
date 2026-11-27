@@ -14,6 +14,10 @@
   to `.sorcerer/notes/`, the one place in `.sorcerer/` that is not fenced: what you write in a
   note is triaged, offered, researched on save and done like in any file. Old notes move on the
   next start. A link in the notes onto a fenced path stays fenced.
+- **A link in an ignored folder is denied too.** Lackey and `claude -p` research name every
+  symbolic link out of the project or onto a fenced path, ignored folders included (a
+  force-added ignored link is checked out like any file). A task's write is refused when it
+  would land, through a link, in a file no task writes (such as `.claude/settings.json`).
 - **Writers are told what a spellbook region is.** When a file conjure or lackey may edit
   holds a `spellbook:region`, the writer is told its lines come from files, and that creating
   the file adds its line on save.

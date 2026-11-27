@@ -79,6 +79,18 @@ impl NotesDir {
         Ok(path)
     }
 
+    /// Whether `path` is a directory under the root that resolves to the same place it is
+    /// spelled: no component of it below the root is a link.
+    fn is_inside_as_spelled(&self, path: &Path) -> bool {
+        let (Ok(root), Ok(resolved)) = (canonical(&self.root), canonical(path)) else {
+            return false;
+        };
+        let Ok(below) = path.strip_prefix(&self.root) else {
+            return false;
+        };
+        resolved == root.join(below) && resolved.is_dir()
+    }
+
     /// An error unless the directory resolves to `<root>/.sorcerer/notes` itself.
     fn refuse_a_borrowed_directory(&self) -> Result<()> {
         let own = canonical(&self.root)
@@ -100,12 +112,12 @@ impl NotesDir {
     /// Moves the notes kept in `old` (before 0.3 they were under
     /// `.sorcerer/state/lackey/notes/`) into this directory, then removes `old` when it is
     /// empty. Only plain files move, never a link; a note whose name is already taken here stays
-    /// where it was. Nothing happens when `old` is not a directory of its own.
+    /// where it was. Nothing happens unless `old` is a directory inside the project that resolves
+    /// to where it is spelled (no link on its way, such as a `.sorcerer/state` leading elsewhere).
     ///
     /// Example: `state/lackey/notes/t1-why.md` becomes `.sorcerer/notes/t1-why.md`.
     pub fn move_from(&self, old: &Path) -> NotesMoved {
-        let is_own_directory = std::fs::symlink_metadata(old).is_ok_and(|meta| meta.is_dir());
-        if !is_own_directory || std::fs::create_dir_all(&self.dir).is_err() {
+        if !self.is_inside_as_spelled(old) || std::fs::create_dir_all(&self.dir).is_err() {
             return NotesMoved::default();
         }
         if self.refuse_a_borrowed_directory().is_err() {
@@ -171,7 +183,9 @@ mod tests {
     #[test]
     fn old_notes_move_once_and_a_taken_name_stays_behind() {
         let d = tempfile::TempDir::new().unwrap();
-        let old = d.path().join(".sorcerer/state/lackey/notes");
+        let old = canonical(d.path())
+            .unwrap()
+            .join(".sorcerer/state/lackey/notes");
         std::fs::create_dir_all(&old).unwrap();
         std::fs::write(old.join("t1-why.md"), "old\n").unwrap();
         std::fs::write(old.join("t2-how.md"), "old two\n").unwrap();
@@ -225,6 +239,23 @@ mod tests {
             std::fs::read_to_string(path).unwrap(),
             "# Why?\n\nBecause.\n"
         );
+    }
+
+    /// review N3: a link on the way to the old place is not followed.
+    #[test]
+    fn old_notes_behind_a_link_are_not_moved() {
+        use sorcerer_core::adapters::platform::paths::link_to;
+        let d = tempfile::TempDir::new().unwrap();
+        let elsewhere = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(elsewhere.path().join("lackey/notes")).unwrap();
+        std::fs::write(elsewhere.path().join("lackey/notes/x.md"), "theirs\n").unwrap();
+        std::fs::create_dir_all(d.path().join(".sorcerer")).unwrap();
+        link_to(elsewhere.path(), &d.path().join(".sorcerer/state")).unwrap();
+        let root = canonical(d.path()).unwrap();
+        let notes = NotesDir::under(&root);
+        let moved = notes.move_from(&root.join(".sorcerer/state/lackey/notes"));
+        assert_eq!(moved, NotesMoved::default());
+        assert!(elsewhere.path().join("lackey/notes/x.md").exists());
     }
 
     #[test]

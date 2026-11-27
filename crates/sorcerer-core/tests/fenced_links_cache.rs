@@ -127,20 +127,33 @@ fn a_link_pointed_elsewhere_is_fenced_even_when_its_directory_looks_unchanged() 
     assert_eq!(c.fenced_links(&f), vec![PathBuf::from("src/deep/ok")]);
 }
 
+/// lackey-notes-workable review M1: git checks out a force-added ignored link, so the walk
+/// reads no ignore file and the cache names such a link from the first ask.
 #[test]
-fn an_ignore_file_edited_in_place_is_seen() {
+fn a_link_in_an_ignored_directory_is_named() {
     let d = project();
-    support::write(d.path(), ".gitignore", "build/\n");
+    support::write(d.path(), ".gitignore", "build/\n.sorcerer/notes/\n");
     support::write(d.path(), "build/keep.txt", "");
     let outside = tempfile::TempDir::new().unwrap();
     link_to(outside.path(), &d.path().join("build/out")).unwrap();
+    std::fs::create_dir_all(d.path().join(".sorcerer/notes")).unwrap();
+    link_to(
+        &d.path().join(".env"),
+        &d.path().join(".sorcerer/notes/env.md"),
+    )
+    .unwrap();
     let c = cache(d.path());
     age_directories(d.path());
     let f = fences(d.path());
-    assert!(c.fenced_links(&f).is_empty(), "build/ is ignored");
+    let wanted = vec![
+        PathBuf::from(".sorcerer/notes/env.md"),
+        PathBuf::from("build/out"),
+    ];
+    assert_eq!(sorted(c.fenced_links(&f)), wanted);
+    assert_eq!(sorted(f.fenced_links()), wanted);
     std::fs::write(d.path().join(".gitignore"), "").unwrap();
     age_directories(d.path());
-    assert_eq!(c.fenced_links(&f), vec![PathBuf::from("build/out")]);
+    assert_eq!(sorted(c.fenced_links(&f)), wanted);
 }
 
 #[test]
@@ -231,7 +244,7 @@ fn a_directory_unlistable_at_the_first_ask_is_walked_once_it_can_be_listed() {
 }
 
 #[test]
-fn an_ignore_file_that_ignores_itself_is_seen_when_edited_in_place() {
+fn a_link_beside_an_ignore_file_that_ignores_everything_is_named() {
     let d = project();
     support::write(d.path(), "tmp/.gitignore", "*\n");
     let outside = tempfile::TempDir::new().unwrap();
@@ -239,13 +252,12 @@ fn an_ignore_file_that_ignores_itself_is_seen_when_edited_in_place() {
     let c = cache(d.path());
     age_directories(d.path());
     let f = fences(d.path());
-    assert!(
-        c.fenced_links(&f).is_empty(),
-        "everything in tmp/ is ignored"
-    );
-    std::fs::write(d.path().join("tmp/.gitignore"), "*.log\n").unwrap();
-    age_directories(d.path());
     assert_eq!(c.fenced_links(&f), vec![PathBuf::from("tmp/out")]);
+    link_to(outside.path(), &d.path().join("tmp/out2")).unwrap();
+    assert_eq!(
+        sorted(c.fenced_links(&f)),
+        vec![PathBuf::from("tmp/out"), PathBuf::from("tmp/out2")]
+    );
 }
 
 /// A file system that does not change a directory's time when an entry is added (FAT on

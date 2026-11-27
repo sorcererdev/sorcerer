@@ -285,3 +285,34 @@ fn a_model_is_told_the_notes_are_the_exception() {
         "{described}"
     );
 }
+
+/// lackey-notes-workable review N2: the exception is exact, so it never unfences more than
+/// `.sorcerer/notes/`.
+#[test]
+fn the_notes_exception_is_case_exact() {
+    let d = project();
+    let f = fences(d.path());
+    assert!(!f.allows(Path::new(".sorcerer/NOTES/x.md")));
+    assert!(!f.allows(Path::new(".sorcerer/Notes/x.md")));
+    assert!(f.allows(Path::new(".sorcerer/notes/x.md")));
+    // a directory on disk spelled otherwise is denied to claude by name
+    std::fs::create_dir_all(d.path().join(".sorcerer/NOTES")).unwrap();
+    let patterns = f.deny_patterns();
+    assert!(
+        patterns.contains(&".sorcerer/NOTES/**".to_string()),
+        "{patterns:?}"
+    );
+}
+
+/// review N1: `languages` (grammar config the trust check reads) is denied even before it exists.
+#[test]
+fn deny_patterns_always_name_languages() {
+    let d = project();
+    let patterns = fences(d.path()).deny_patterns();
+    for wanted in [".sorcerer/languages/**", ".sorcerer/scry.md"] {
+        assert!(
+            patterns.contains(&wanted.to_string()),
+            "{wanted}: {patterns:?}"
+        );
+    }
+}

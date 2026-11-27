@@ -46,7 +46,8 @@ impl Fences {
     /// The patterns for a tool that matches paths by glob alone and cannot make an exception
     /// (`claude`'s deny rules): [`Fences::patterns`] with `.sorcerer/**` replaced by each entry
     /// of `.sorcerer/` but the notes, as it stands now, and the entries sorcerer always keeps
-    /// there (`state`, `config.toml`, `spellbook`, `scry.toml`), there or not. A directory is
+    /// there (`state`, `config.toml`, `spellbook`, `scry.toml`, `scry.md`, `languages`), there
+    /// or not. Only an entry named exactly `notes` is left out. A directory is
     /// named both as itself and as everything under it.
     ///
     /// Example: with `.sorcerer/` holding `config.toml`, `notes/` and `state/`, the patterns
@@ -75,7 +76,7 @@ impl Fences {
             .iter()
             .map(|name| name.to_string())
             .chain(on_disk)
-            .filter(|name| !name.eq_ignore_ascii_case(notes))
+            .filter(|name| name != notes)
             .collect();
         names
             .into_iter()
@@ -101,34 +102,38 @@ impl Fences {
 
 /// The entries sorcerer keeps in `.sorcerer/`, denied by name to a glob-only tool even before
 /// they are made.
-const KEPT_IN_SORCERER_DIR: [&str; 4] = ["state", "config.toml", "spellbook", "scry.toml"];
+const KEPT_IN_SORCERER_DIR: [&str; 6] = [
+    "state",
+    "config.toml",
+    "spellbook",
+    "scry.toml",
+    "scry.md",
+    "languages",
+];
 
 /// The entries of the walk for fenced links: everything under the root that `keep` keeps (it is
 /// given each path relative to the root, and a directory it refuses is not entered), without
 /// following links, leaving out every `.git` and the root's `.sorcerer/` but its notes (fenced
-/// as a whole, so no link in them needs naming; the notes are walked like any directory), and
-/// the paths that the project's own `.gitignore` and
-/// `.ignore` files leave out. Only files inside the project decide what is walked: no ignore
-/// file above the root, no `.git/info/exclude`, no global excludes file. That keeps the walk's
-/// result a function of the tree alone, which the cache relies on.
+/// as a whole, so no link in them needs naming; the notes are walked like any directory).
 ///
-/// Each item is an entry, or the error of a directory or ignore file that could not be read
+/// No ignore file is read (`.gitignore`, `.ignore`, git's excludes): git checks out an ignored
+/// file that was added with `git add -f`, and a link made in an ignored directory is still there
+/// for `claude` to read through, so a link is named wherever it is. That also keeps the walk's
+/// result a function of the directories' entries alone, which the cache relies on.
+///
+/// Each item is an entry, or the error of a directory that could not be read
 /// (the caller decides what an unread directory means; the cache walks it again next time).
 ///
-/// Example: with `target/` in the root's `.gitignore`, `target/out -> /etc` is not walked, while
-/// `src/out -> /etc` is.
+/// Example: with `target/` in the root's `.gitignore`, `target/out -> /etc` and `src/out -> /etc`
+/// are both walked.
 pub(crate) fn link_walk(
     root: &Path,
     keep: impl Fn(&Path) -> bool + Send + Sync + 'static,
 ) -> impl Iterator<Item = std::result::Result<ignore::DirEntry, ignore::Error>> {
     let root_for_filter = root.to_path_buf();
     ignore::WalkBuilder::new(root)
-        .hidden(false)
+        .standard_filters(false)
         .follow_links(false)
-        .parents(false)
-        .git_global(false)
-        .git_exclude(false)
-        .require_git(false)
         .filter_entry(move |e| {
             let Ok(rel) = e.path().strip_prefix(&root_for_filter) else {
                 return false;

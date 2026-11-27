@@ -106,11 +106,14 @@ impl Fences {
 }
 
 /// Whether a resolved path, relative to the root, is the notes directory or inside it. Names
-/// are compared ignoring case, as the fences are; a path with `.` or `..` in it never is (the
-/// path must be resolved first).
+/// are compared exactly: the fences ignore case to fence more, and the exception must not
+/// unfence more, so on a case-sensitive file system `.sorcerer/Notes/` stays fenced (on macOS
+/// and Windows a resolved path carries each existing name as it is on disk). A path with `.` or
+/// `..` in it never is (the path must be resolved first).
 ///
-/// Example: `.sorcerer/notes/plan.md` and `.Sorcerer/Notes` are; `.sorcerer/notes2/x.md`,
-/// `.sorcerer/state/notes/x.md` and `.sorcerer/notes/../state` are not.
+/// Example: `.sorcerer/notes/plan.md` and `.sorcerer/notes` are; `.sorcerer/Notes/x.md`,
+/// `.sorcerer/notes2/x.md`, `.sorcerer/state/notes/x.md` and `.sorcerer/notes/../state` are
+/// not.
 pub fn is_in_notes(rel: &Path) -> bool {
     let names: Option<Vec<&std::ffi::OsStr>> = rel
         .components()
@@ -124,10 +127,10 @@ pub fn is_in_notes(rel: &Path) -> bool {
     };
     let notes = NOTES_DIR.split('/');
     names.len() >= 2
-        && names.iter().zip(notes).all(|(name, wanted)| {
-            name.to_str()
-                .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
-        })
+        && names
+            .iter()
+            .zip(notes)
+            .all(|(name, wanted)| name.to_str() == Some(wanted))
 }
 
 /// The patterns for one `not_evidence` entry. A glob stays as it is; a plain path (`docs/plans`,

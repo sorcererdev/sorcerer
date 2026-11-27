@@ -369,7 +369,10 @@ written) and then matches with `allows_relative`, ignoring case. A path that can
 **The notes carve-out.** `NOTES_DIR` (`.sorcerer/notes`) is the one place under `.sorcerer/`
 that is not fenced. `Fences` keeps `.sorcerer/**` (`SORCERER_DIR_FENCE`) in a glob set of its
 own, and `allows_relative` lets a path through it only when `is_in_notes` holds: the first two
-names are `.sorcerer` and `notes` (ignoring case) and there is no `.` or `..` in it. It is judged
+names are exactly `.sorcerer` and `notes` and there is no `.` or `..` in it. The fences ignore
+case to fence more; the exception is exact so it never unfences more (on macOS and Windows the
+resolved path carries the on-disk spelling, so a note opened as `.Sorcerer/Notes/x.md` still
+passes once resolved; on Linux `.sorcerer/Notes/` is another directory and stays fenced). It is judged
 on the resolved path, so a link in the notes onto `.sorcerer/state/` (or `.sorcerer/notes` itself
 a link) resolves to a fenced path and is fenced, and `fenced_links` names it, since `link_walk`
 walks the notes. The other fences (`.env*`, `not_evidence`) still hold inside the notes.
@@ -379,8 +382,10 @@ it is shown. `patterns()` gives the list as configured (and tells one walk's fen
 another's); `described()` is what a prompt says, `.sorcerer/** (except .sorcerer/notes/)`; and
 `deny_patterns()` is the list for `claude`'s deny rules, which take no exception, so
 `.sorcerer/**` becomes `.sorcerer/<entry>` and `.sorcerer/<entry>/**` for each entry of
-`.sorcerer/` but the notes as it stands, plus the ones sorcerer always keeps there (`state`,
-`config.toml`, `spellbook`, `scry.toml`). Measured with `claude` 2.1.331 on haiku: under such
+`.sorcerer/` but the one named exactly `notes`, read afresh for each `claude` started, plus
+the ones sorcerer always keeps there (`KEPT_IN_SORCERER_DIR`: `state`, `config.toml`,
+`spellbook`, `scry.toml`, `scry.md`, `languages`). The measurement below was made on one
+`claude` version and must be made again on an upgrade. Measured with `claude` 2.1.331 on haiku: under such
 rules a Grep of `.sorcerer` with a canary in `.sorcerer/state/` and `.sorcerer/config.toml`
 printed only the note's line, and Read and Grep of `.sorcerer/state` were refused. An entry made
 in `.sorcerer/` while a `claude` runs is not denied until the next start (no task writes there); a

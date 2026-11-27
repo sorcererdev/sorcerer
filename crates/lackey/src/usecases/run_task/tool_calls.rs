@@ -168,10 +168,14 @@ fn readable(written: &str, deps: &TaskDeps) -> Result<PathBuf, String> {
 }
 
 /// A path the agent may write: readable, and not one `library/never-written.toml` names
-/// (`.sorcerer/`, `.git/`, an agent's or a shell's config).
+/// (`.sorcerer/`, `.git/`, an agent's or a shell's config), neither as written nor where it
+/// leads once links are resolved: a write follows a link, so `.sorcerer/notes/answer.md ->
+/// ../../.claude/settings.json` is refused.
 fn writable(written: &str, deps: &TaskDeps) -> Result<PathBuf, String> {
     let relative = readable(written, deps)?;
-    if is_never_written(&relative) {
+    let resolved = deps.fences.relative(&deps.root.join(&relative));
+    let lands_never_written = resolved.as_deref().is_none_or(is_never_written);
+    if is_never_written(&relative) || lands_never_written {
         return Err(format!(
             "{written} is config a tool obeys or sorcerer's own: no task writes there"
         ));

@@ -48,12 +48,12 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
   `json_store.rs` (`Store`), `jsonl_ledger.rs` (`JsonlLedger`),
   `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`, and `link_walk`, the
   walk for links: no `.git`, no root `.sorcerer/` but its notes (`in_sorcerer_dir_but_not_notes`),
-  only the project's own `.gitignore` and `.ignore` files; `deny_patterns`, the patterns for
+  no ignore file read (`standard_filters(false)`: a force-added ignored link is checked out, so
+  a link is named wherever it is); `deny_patterns`, the patterns for
   `claude`'s deny rules with `.sorcerer/**` spelled as each entry of `.sorcerer/` but the notes), `fenced_links_cache.rs` (`FencedLinksCache`: the fenced links kept between
   asks; each ask walks again every directory whose modification time differs or was too recent
   to trust (`SETTLE`, against the time the file system gives `fence-walk.clock` in the state
-  directory), every directory the walk could not read (`with_unread`), and every directory whose
-  `.gitignore`/`.ignore`, read by name, has a different digest, and resolves every known link
+  directory) and every directory the walk could not read (`with_unread`), and resolves every known link
   again; before each whole walk `directory_times_follow_entries` probes `fence-probe/` in the
   state directory and keeps nothing on a file system whose directory times do not move, nor when
   the state directory or `fence-probe` is a link (`made_or_already_a_directory`); the clock
