@@ -97,12 +97,15 @@ impl Server {
         self.start_task(order);
     }
 
-    /// Starts a task on a thread, unless one runs; its first look is every open file now.
+    /// Starts a task on a thread, unless one runs; its first look is every open file now. The
+    /// check and the start are under one hold of `runner`, so two *do this* at once start one
+    /// task, and the runner kept is always the running task's (a stop reaches it).
     pub(super) fn start_task(self: &Arc<Self>, order: TaskOrder) {
         let Some(project) = self.trusted_project() else {
             return;
         };
-        if lock(&self.runner)
+        let mut current = lock(&self.runner);
+        if current
             .as_ref()
             .is_some_and(|runner| !runner.all_live().is_empty())
         {
@@ -122,7 +125,8 @@ impl Server {
             Err(refused) => return self.client.say(MessageType::WARNING, &refused.text()),
         };
         lock(&self.task_looks).insert(started.live.id.clone(), first_look);
-        *lock(&self.runner) = Some(runner.clone());
+        *current = Some(runner.clone());
+        drop(current);
         std::thread::spawn(move || {
             runner.follow(started);
         });

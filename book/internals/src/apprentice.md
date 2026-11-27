@@ -259,7 +259,8 @@ four labels), the pending questions' options (`ask_actions`), a marked task's *S
 `apprentice.*` commands; the slow ones (*do this*, *Dismiss*, a label) go to a thread.
 
 **A task from the editor** (`tasks.rs`). `do_region` makes a `TaskOrder` (the region's text, its
-place now, the open files' unsaved edits) and `start_task` refuses a second task, builds a
+place now, the open files' unsaved edits) and `start_task`, holding `Server::runner` from the
+check to the start (so two *do this* at once start one task), refuses a second task, builds a
 `TaskRunner` over `task_deps` with an `LspEditor` (`editor_port.rs`, holding the server weakly),
 starts it, gives it its first look (every open file's text now, `open_texts`) and follows it on a
 thread. `open_texts` keeps only the files `Server::may_send_under` passes (inside the project,

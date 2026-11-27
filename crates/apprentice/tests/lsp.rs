@@ -529,3 +529,46 @@ fn a_write_over_unsaved_edits_the_agent_has_not_seen_is_refused_once_with_the_ed
     assert_eq!(s.text(FILE).as_deref(), Some(rebased.as_str()));
     s.stop();
 }
+
+#[test]
+fn two_do_this_at_once_start_one_task_and_it_can_be_stopped() {
+    let project = TempProject::with(&[(FILE, BEFORE)]);
+    let agent = Arc::new(ScriptedAgent::playing(vec![Step::Hang]));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: agent.clone(),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.open(FILE);
+    s.settle(Duration::from_millis(100));
+    s.type_text(FILE, &with_claim());
+    s.marks_until(FILE, |marks| !marks.is_empty());
+    let actions = s.actions(FILE, 5);
+    let command = actions
+        .iter()
+        .find(|action| {
+            action["title"]
+                .as_str()
+                .unwrap()
+                .starts_with("apprentice: do this")
+        })
+        .unwrap()["command"]
+        .clone();
+    let params = json!({ "command": command["command"], "arguments": command["arguments"] });
+    let ids: Vec<i32> = (0..4)
+        .map(|_| s.request("workspace/executeCommand", params.clone()))
+        .collect();
+    for id in ids {
+        s.response(id);
+    }
+    s.shown_message("apprentice: a task is running");
+    s.settle(Duration::from_millis(300));
+    assert_eq!(agent.requests.lock().unwrap().len(), 1);
+    s.run_action(FILE, 5, "apprentice: Stop this task");
+    let ended = s.shown_message("apprentice: stopped");
+    assert!(ended.starts_with("apprentice: stopped"), "{ended}");
+    s.stop();
+}
