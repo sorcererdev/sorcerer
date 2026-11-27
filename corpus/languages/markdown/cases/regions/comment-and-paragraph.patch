@@ -1,0 +1,13 @@
+--- a/docs/guide.md
++++ b/docs/guide.md
+@@ -6,6 +6,10 @@
+ 
+ Closing a table frees its bookings for the evening.
+ 
++<!-- does a closed table keep its deposit? -->
++
++A closed table cannot be booked again until the next day.
++
+ Setext headings work too
+ ------------------------
+ 

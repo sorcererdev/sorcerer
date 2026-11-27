@@ -1,0 +1,5 @@
+# One rule: a published doc leaves no TODO behind.
+[rules.no-todo-in-docs]
+files   = "**/*.md"
+match   = { kind = "paragraph", regex = "\\bTODO\\b" }
+message = "a doc says TODO: write it, or take the paragraph out"

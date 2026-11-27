@@ -1,0 +1,9 @@
+# A page: one hole of each kind in [holes], each parsing where it is.
+generator = "thing"
+inputs    = { name = "contact" }
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "pages/contact.html"
+line = 8

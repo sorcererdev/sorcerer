@@ -282,7 +282,11 @@ fn doctor_reads_the_languages_tables_and_the_imports_query() {
     let project_dir = d.path();
     // the vendored grammars stand in for the downloaded ones
     let got = rows_on_vendored(project_dir, &good_env(home.path()));
-    assert_eq!(row(&got, "languages").unwrap(), "python (tests, imports)");
+    // README.md is Markdown: shipped, with nothing conjure reads
+    assert_eq!(
+        row(&got, "languages").unwrap(),
+        "markdown (nothing conjure reads), python (tests, imports)"
+    );
     write(
         project_dir,
         ".sorcerer/languages/python/language.toml",

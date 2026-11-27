@@ -1,0 +1,3 @@
+# A comment question between two sections, and a paragraph added in a section.
+file  = "docs/guide.md"
+patch = "comment-and-paragraph.patch"

@@ -1,0 +1,2 @@
+sync (1 file changed)
+  ~ index.html  (region pages: set up, 2 items)

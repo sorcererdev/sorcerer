@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A sheet with a hole of each kind the language has"
+description = "styles/NAME.css: a sheet whose rules and spacing are holes"
+language    = "css"
+examples    = ["spellbook new thing --set name=menu"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The sheet (menu, footer)"
+
+[[edits]]
+create   = "styles/{= name =}.css"
+template = "thing.css.dt"

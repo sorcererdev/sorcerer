@@ -1,0 +1,15 @@
+# A sheet: one hole of each kind in [holes], each parsing where it is.
+generator = "thing"
+inputs    = { name = "menu" }
+
+[[holes]]
+name = "rules"
+kind = "block"
+file = "styles/menu.css"
+line = 6
+
+[[holes]]
+name = "spacing"
+kind = "expr"
+file = "styles/menu.css"
+line = 3

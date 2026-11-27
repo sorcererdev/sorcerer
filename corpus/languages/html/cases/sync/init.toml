@@ -1,0 +1,4 @@
+# The markers removed, then the region set up again in index.html, after <body>, listing the two pages.
+mode = "init pages"
+exit = 0
+patch = "unmarked.patch"

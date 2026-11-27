@@ -1,0 +1,9 @@
+# A guide: the hole in [holes] where it parses.
+generator = "thing"
+inputs    = { name = "deposits" }
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "docs/deposits.md"
+line = 3

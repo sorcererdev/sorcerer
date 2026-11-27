@@ -1,0 +1,13 @@
+# Markdown: tree-sitter-markdown, the block grammar only (sorcerer has no injections, so inline
+# nodes such as links and emphasis are invisible to rules). A markup language: it has no units
+# (scry and conjure never load it); lackey cuts its paragraphs and sections from prose.scm.
+files = ["**/*.md", "**/*.markdown"]
+comment = "<!--"
+comment_end = "-->"
+# The grammar: tree-sitter-markdown v0.5.4 (tree-sitter-grammars), its block grammar in
+# tree-sitter-markdown/, fetched, compiled once into the user's cache and loaded at run time.
+grammar = { git = "https://github.com/tree-sitter-grammars/tree-sitter-markdown", rev = "41ff24a6c775492c543b09228aeb98d1cd2b3a0f", dir = "tree-sitter-markdown" }
+
+# The code spellbook writes where a generator leaves a hole.
+[holes]
+block = "<!-- hole {= name =}: {= instruction =} -->"

@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-important",
+    "file": "styles/tables.css",
+    "line": 9,
+    "severity": "error",
+    "message": "!important beats the cascade instead of using it: raise the selector's specificity or reorder",
+    "fingerprint": "7dd57d1"
+  }
+]

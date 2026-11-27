@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-todo-in-docs",
+    "file": "docs/faq.md",
+    "line": 7,
+    "severity": "error",
+    "message": "a doc says TODO: write it, or take the paragraph out",
+    "fingerprint": "893954c"
+  }
+]

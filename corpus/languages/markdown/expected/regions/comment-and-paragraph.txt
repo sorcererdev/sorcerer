@@ -1,0 +1,5 @@
+comment 9-10 in -
+  | <!-- does a closed table keep its deposit? -->
+  | 
+prose 11-11 in -
+  | A closed table cannot be booked again until the next day.

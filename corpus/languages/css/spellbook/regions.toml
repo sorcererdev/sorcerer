@@ -1,0 +1,6 @@
+# site.css imports each sheet under styles/.
+[regions.sheets]
+file    = "site.css"
+query   = { glob = "styles/*.css" }
+item    = "@import \"styles/{= stem =}.css\";"
+init_at = "start of file"

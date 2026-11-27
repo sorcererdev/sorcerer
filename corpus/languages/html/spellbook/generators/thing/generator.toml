@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A page with a hole where its content goes"
+description = "pages/NAME.html: a page whose body is a hole"
+language    = "html"
+examples    = ["spellbook new thing --set name=contact"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The page (contact, events)"
+
+[[edits]]
+create   = "pages/{= name =}.html"
+template = "thing.html.dt"

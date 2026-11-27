@@ -1,0 +1,8 @@
+--- a/styles/tables.css
++++ b/styles/tables.css
+@@ -6,4 +6,5 @@
+ 
+ .table td {
+   padding: 0.5rem;
++  color: red !important;
+ }

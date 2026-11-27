@@ -1,0 +1,5 @@
+# markdown: the grammar pin and the queries.
+# grammar (language.toml): tree-sitter-grammars/tree-sitter-markdown v0.5.4, git 41ff24a6c775492c543b09228aeb98d1cd2b3a0f, dir tree-sitter-markdown (the block grammar). MIT.
+textobjects.scm  sorcerer's own (not vendored): `@comment.outer` on an `html_block` that starts `<!--`.
+prose.scm        sorcerer's own (not vendored): `@prose` (a paragraph) and `@heading` (an ATX or setext heading), read by lackey to cut paragraphs and know sections.
+# No tags.scm: no units (see html/SOURCES).

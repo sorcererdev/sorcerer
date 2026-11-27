@@ -1,0 +1,5 @@
+# html: the grammar pin and the queries.
+# grammar (language.toml): see language.toml. MIT (tree-sitter/tree-sitter-html).
+textobjects.scm  sorcerer's own (not vendored): `(comment) @comment.outer`, the only capture a markup language needs.
+# No tags.scm: a markup language captures no @definition.* and no @unit.*, which keeps scry and
+# conjure from loading it (bistro's html cases score as before).

@@ -1,0 +1,10 @@
+--- a/pages/menu.html
++++ b/pages/menu.html
+@@ -6,6 +6,7 @@
+   </head>
+   <body>
+     <h1>Menu</h1>
++    <img src="soup.png">
+     <ul>
+       <li>Soup of the day</li>
+       <li>Roast chicken</li>

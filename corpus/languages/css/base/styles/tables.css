@@ -1,0 +1,9 @@
+/* The booking table. */
+.table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table td {
+  padding: 0.5rem;
+}
