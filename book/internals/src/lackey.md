@@ -51,7 +51,9 @@ connections answered at once; past that a connection is closed unanswered.
   `CommandVerdict` and `command_activity` (`waiting for you: ls`, `running ls`, `denied: ls`; a
   chain is named by `programs_of`: the first word of each part split at `;`, `&&`, `||`, `|`,
   `&`, past `NAME=value` and brackets, each once, at most 3, so `ls; cat x` is `ls, cat`),
-  and `status_text`; the status line is derived, never written by the agent.
+  and `status_text`; the status line is derived, never written by the agent. `TaskProgress`
+  carries both texts: `activity` for the end of the task's line, `status` (with the title and
+  spend) for the status line.
 - `mediums.rs`: the six tools and the permission tool (`tool_definitions`: names, descriptions,
   JSON schemas), `ToolCall` and `tool_call_of`, `Ask`, `AskWay`, `MarkSeverity`, `is_a_medium`.
 - `loopback_message.rs`: `LoopbackRequest { token, task, body }` with `RequestBody::Edits |
@@ -154,7 +156,7 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    fails is recorded `failed` and said (`TaskRefused::NotStarted`).
 2. **Follow** (`follow.rs`, `follow_task`), on the calling thread: every 200 ms it checks the
    task's `Cancel` (a stop) and takes the next event. A session id is recorded; a tool call
-   becomes the status line (`activity_of`, `status_text`, `Editor::progress`, through
+   becomes the status line (`activity_of`, `TaskProgress::of`, `Editor::progress`, through
    `show_activity`) and a journal line, and a medium's call marks the turn as spoken. A command
    the person was asked about is shown by its verdict (`LiveTask::take_command_verdict`):
    claude's stream may show the call after the answer. When it shows the call first, the answer
@@ -336,8 +338,8 @@ check, its own `WorkDone` status line (`researching: <the question>`). `work_beg
 answered while a task runs keeps both lines. `LineWatch` draws `⟳ lackey: researching…` (a
 claim: `checking…`) on the region's line; `start_task` draws `⟳ lackey: working…` on the
 instruction's line from the moment the task is live (`TASK_WORKING`, ended again when its agent
-fails to start), `LspEditor::progress` moves the text to what the agent does
-(`⟳ lackey: reading booking.py`), `write_for_task` moves it to `⟳ lackey: writing…` at
+fails to start), `LspEditor::progress` moves the text to what the agent does, the activity
+only (`⟳ lackey: reading booking.py`; the title and spend are the status line's), `write_for_task` moves it to `⟳ lackey: writing…` at
 the first changed line, and `task_finished` ends it.
 
 **The marks** (`publisher.rs`): one publish per file joins the regions' marks
@@ -397,7 +399,8 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
   `<task>-<n>` from the `asks_put` counter, never reused.
 - `mark` keeps a `SaidMark`; `ghost` and `note` send `sorcerer/ghost` and `sorcerer/note` to an
   editor that handles them (`Client::notify_sorcerer`), else a message and `show_document`.
-- `progress` starts the task's `WorkDone` and reports on it, and moves its working text;
+- `progress` starts the task's `WorkDone` and reports `status` on it, and moves its working
+  text to `activity`;
   `finished` → `task_finished`: the progress line ends, `work_ends`, a `ShownTask` per file it changed (the before-text from
   the journal, the after-text from `written`, the first changed line) and its marks published,
   then the done message, once: it is the person's cue to look at the marks.

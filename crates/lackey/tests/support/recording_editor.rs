@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use lackey::domain::edits_text::FileEdit;
 use lackey::domain::mediums::{Ask, MarkSeverity};
+use lackey::domain::status::TaskProgress;
 use lackey::domain::task::TaskRecord;
 use lackey::ports::editor::{Asked, Editor, Written};
 use sorcerer_core::domain::paths::forward_slashes;
@@ -138,8 +139,8 @@ impl Editor for RecordingEditor {
             .collect()
     }
 
-    fn progress(&self, _task: &str, text: &str) {
-        self.progress.lock().unwrap().push(text.to_string());
+    fn progress(&self, _task: &str, progress: &TaskProgress) {
+        self.progress.lock().unwrap().push(progress.status.clone());
     }
 
     fn finished(&self, task: &TaskRecord, done_text: &str) {

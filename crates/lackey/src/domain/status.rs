@@ -123,6 +123,27 @@ pub fn status_text(title: &str, activity: &str, spent_usd: f64) -> String {
     format!("{title} · {activity} · {}", usd(spent_usd))
 }
 
+/// What a task does now, said in two places: the end of the task's own line says only what it
+/// does, since the line already shows what was asked; the status line adds the title and spend.
+///
+/// Example: `TaskProgress::of("refuse late cancellations", "reading booking.txt", 0.12)` has
+/// `activity` `reading booking.txt` and `status` `refuse late cancellations · reading
+/// booking.txt · $0.12`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TaskProgress {
+    pub activity: String,
+    pub status: String,
+}
+
+impl TaskProgress {
+    pub fn of(title: &str, activity: &str, spent_usd: f64) -> TaskProgress {
+        TaskProgress {
+            activity: activity.to_string(),
+            status: status_text(title, activity, spent_usd),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

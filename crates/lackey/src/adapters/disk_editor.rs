@@ -13,6 +13,7 @@ use sorcerer_core::{Error, Result};
 
 use crate::domain::edits_text::FileEdit;
 use crate::domain::mediums::{Ask, MarkSeverity};
+use crate::domain::status::TaskProgress;
 use crate::domain::task::TaskRecord;
 use crate::ports::editor::{Asked, Editor, Written};
 
@@ -126,7 +127,7 @@ impl Editor for DiskEditor {
             .collect()
     }
 
-    fn progress(&self, _task: &str, _text: &str) {}
+    fn progress(&self, _task: &str, _progress: &TaskProgress) {}
 
     fn finished(&self, _task: &TaskRecord, done_text: &str) {
         self.say(done_text.to_string());

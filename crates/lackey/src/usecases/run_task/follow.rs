@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::domain::agent_event::{AgentEvent, Finished};
 use crate::domain::mediums::is_a_medium;
-use crate::domain::status::{CommandVerdict, activity_of, command_activity, status_text};
+use crate::domain::status::{CommandVerdict, TaskProgress, activity_of, command_activity};
 use crate::domain::task::{TaskRecord, TaskState};
 use crate::ports::agent::NextEvent;
 
@@ -28,7 +28,7 @@ const SHORT_TEXT: usize = 200;
 pub fn follow_task(started: StartedTask, deps: &TaskDeps) -> TaskRecord {
     let StartedTask { live, mut running } = started;
     deps.editor
-        .progress(&live.id, &status_text(&live.title, "starting", 0.0));
+        .progress(&live.id, &TaskProgress::of(&live.title, "starting", 0.0));
     let ending = loop {
         if live.cancel.is_cancelled() {
             running.stop();
@@ -97,7 +97,7 @@ fn saw(live: &LiveTask, event: &AgentEvent, deps: &TaskDeps) {
 pub(super) fn show_activity(live: &LiveTask, activity: &str, deps: &TaskDeps) {
     let spent = live.cost_seen(deps.price_of).unwrap_or(0.0);
     deps.editor
-        .progress(&live.id, &status_text(&live.title, activity, spent));
+        .progress(&live.id, &TaskProgress::of(&live.title, activity, spent));
 }
 
 /// When the agent ended its turn without a medium, its final text is posted: a notification

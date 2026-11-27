@@ -116,16 +116,28 @@ describe('lackey (fake claude)', () => {
     await until('the task\'s text in the buffer', () => (doc.getText() === DONE ? true : undefined), 60_000)
       .catch(err => { throw new Error(`${String(err)}\n${why(ws, uri)}`); });
     assert.equal(readFileSync(uri.fsPath, 'utf8'), 'def total(cart):\n    return 1\n', 'nothing was saved: the disk is as committed');
-    // the working ghost is drawn once the server hears the edit landed, which is after VS Code
-    // has the text: wait for it in what was ever drawn (a fast task draws and clears it)
+    // the task's line says it works from the start, then what it does; the writing ghost moves
+    // to the line written once the server hears the edit landed, which is after VS Code has the
+    // text: wait for it in what was ever drawn (a fast task draws and clears it)
+    const everDrawn = () => api.everDrawn().map(u => [vscode.Uri.parse(u.uri).toString(), u.line, u.text] as const);
+    const writing = [uri.toString(), 5, '⟳ lackey: writing…'] as const;
     const textAt = Date.now();
-    await until('the working ghost', () => (api.everDrawn().length > 0 ? true : undefined), 10_000)
-      .catch(err => { throw new Error(`${String(err)}\n${why(ws, uri)}`); });
-    console.log(`the working ghost came ${Date.now() - textAt} ms after the text`);
-    assert.deepEqual(api.everDrawn().map(u => [vscode.Uri.parse(u.uri).toString(), u.line, u.text]), [[uri.toString(), 5, '⟳ lackey: writing…']]);
+    await until('the writing ghost', () => (everDrawn().some(u => u[0] === writing[0] && u[1] === writing[1] && u[2] === writing[2]) ? true : undefined), 10_000)
+      .catch(err => { throw new Error(`${String(err)}\n${why(ws, uri)}\n${JSON.stringify(everDrawn())}`); });
+    console.log(`the writing ghost came ${Date.now() - textAt} ms after the text`);
     await until('the done message', () => (said.some(text => text.startsWith('lackey: done')) ? true : undefined))
       .catch(err => { throw new Error(`${String(err)}\n${why(ws, uri)}`); });
     assert.ok(said.includes('lackey: tax is 20%'), JSON.stringify(said));
+    // first on the def line (4 from 0), only ever on cart.py, never the status line's title and
+    // spend, and cleared when the task is done
+    const drawn = everDrawn();
+    assert.deepEqual(drawn[0], [uri.toString(), 4, '⟳ lackey: working…'], JSON.stringify(drawn));
+    const writingAt = drawn.findIndex(u => u[1] === 5 && u[2] === writing[2]);
+    assert.ok(writingAt > 0, JSON.stringify(drawn));
+    assert.ok(drawn.slice(0, writingAt).every(u => u[1] === 4), JSON.stringify(drawn));
+    assert.ok(drawn.slice(writingAt).every(u => u[1] === 5), JSON.stringify(drawn));
+    assert.ok(drawn.every(u => u[0] === uri.toString() && u[2].startsWith('⟳ lackey: ') && !u[2].includes(' · ')), JSON.stringify(drawn));
+    await until('the working line cleared', () => (api.drawn().length === 0 ? true : undefined), 10_000);
 
     // the ghost hung under line 6 (5 from 0), the note opened beside the code
     // stored as VS Code spells the document (on Windows the server's drive letter is not)

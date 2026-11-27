@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::domain::edits_text::FileEdit;
 use crate::domain::mediums::{Ask, MarkSeverity};
+use crate::domain::status::TaskProgress;
 use crate::domain::task::TaskRecord;
 
 /// What became of a `write_file`.
@@ -48,8 +49,8 @@ pub trait Editor: Send + Sync {
     fn ask(&self, task: &str, ask: &Ask, wait: Duration) -> Asked;
     /// The person's edits in open files since the task last looked; the look moves to now.
     fn edits_since_look(&self, task: &str) -> Vec<FileEdit>;
-    /// The task's status line.
-    fn progress(&self, task: &str, text: &str);
+    /// What the task does now: at the end of its line and in the status line.
+    fn progress(&self, task: &str, progress: &TaskProgress);
     /// The task ended: its done message, its marks on the files it changed, the status line
     /// ended.
     fn finished(&self, task: &TaskRecord, done_text: &str);

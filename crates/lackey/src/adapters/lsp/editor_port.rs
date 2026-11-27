@@ -21,6 +21,7 @@ use crate::adapters::disk_editor::slug_of;
 use crate::adapters::state_files::StateFiles;
 use crate::domain::edits_text::FileEdit;
 use crate::domain::mediums::{Ask, MarkSeverity};
+use crate::domain::status::TaskProgress;
 use crate::domain::task::TaskRecord;
 use crate::ports::editor::{Asked, Editor, Written};
 
@@ -117,16 +118,16 @@ impl Editor for LspEditor {
         }
     }
 
-    /// What the task does now, in the status line and at the end of its line
-    /// (`⟳ lackey: reading README.md`).
-    fn progress(&self, task: &str, text: &str) {
+    /// What the task does now: at the end of its line (`⟳ lackey: reading README.md`) and in the
+    /// status line, with the title and spend.
+    fn progress(&self, task: &str, now: &TaskProgress) {
         let Some(server) = self.server() else { return };
-        server.work_moves(task, None, &format!("\u{27f3} lackey: {text}"));
+        server.work_moves(task, None, &format!("\u{27f3} lackey: {}", now.activity));
         let mut progress = lock(&server.progress);
         match progress.get(task) {
-            Some(line) => line.report(text),
+            Some(line) => line.report(&now.status),
             None => {
-                let line = server.client.work_done("lackey", text);
+                let line = server.client.work_done("lackey", &now.status);
                 progress.insert(task.to_string(), line);
             }
         }

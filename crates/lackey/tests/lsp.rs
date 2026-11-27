@@ -991,7 +991,8 @@ fn a_second_save_while_a_question_is_researched_does_not_research_it_again() {
 }
 
 /// 2026-11-27: a task's line said nothing until its first write (20 s of reading and asking).
-/// Now it says it is working from the moment the task starts.
+/// Now it says it is working from the moment the task starts, then only what it does: the
+/// title and the spend are the status line's, the line already shows what was asked.
 #[test]
 fn a_tasks_line_shows_working_from_the_start() {
     let text = "# Notes\n\n## Example\n";
@@ -1019,6 +1020,17 @@ fn a_tasks_line_shows_working_from_the_start() {
     assert_eq!(
         working.first(),
         Some(&vec![(4, "\u{27f3} lackey: working\u{2026}".to_string())]),
+        "{working:?}"
+    );
+    assert!(
+        working.contains(&vec![(4, "\u{27f3} lackey: reading NOTES.md".to_string())]),
+        "{working:?}"
+    );
+    assert!(
+        working
+            .iter()
+            .flatten()
+            .all(|(_, text)| !text.contains(" · ")),
         "{working:?}"
     );
     assert_eq!(working.last(), Some(&vec![]));
