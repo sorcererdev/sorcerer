@@ -1,0 +1,5 @@
+booking/close_table.py:6-7 function close_table stub
+booking/close_table__test.py:5-6 function test_close_table_keeps_the_other_tables
+booking/models.py:4-9 class Booking
+booking/models.py:5-6 method Booking.__init__
+booking/models.py:8-9 method Booking.is_for

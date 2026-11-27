@@ -15,7 +15,8 @@
 //! Layout under the cache directory:
 //!
 //! ```text
-//! src/<name>-<rev7>/          a git checkout at the pinned revision
+//! src/<name>-<rev7>/          a git checkout at the pinned revision (the grammar in its
+//!                             `src`, or in `<dir>/src` when the language names a `dir`)
 //! <name>-<key>.<dylib|so|dll> the compiled grammar
 //! ```
 //!
@@ -448,11 +449,17 @@ pub fn library_path(cache: &GrammarCache, name: &str, source: &GrammarSource) ->
         .join(format!("{name}-{key}.{}", shared_library_extension())))
 }
 
-/// What names a version of the sources: a git revision, or for a local directory its full path
-/// plus the size and time of `parser.c` and `scanner.c`, so editing either means a rebuild.
+/// What names a version of the sources: a git revision (and the folder holding the grammar,
+/// when the repository holds more than one), or for a local directory its full path plus the
+/// size and time of `parser.c` and `scanner.c`, so editing either means a rebuild.
 fn sources_identity(source: &GrammarSource) -> Result<String> {
     match source {
-        GrammarSource::Git { rev, .. } => Ok(rev.clone()),
+        GrammarSource::Git { rev, dir: None, .. } => Ok(rev.clone()),
+        GrammarSource::Git {
+            rev,
+            dir: Some(dir),
+            ..
+        } => Ok(format!("{rev}|{dir}")),
         GrammarSource::Local(dir) => {
             let src = local_src(dir);
             let canonical = canonical(&src).map_err(|e| Error::io(&src, e))?;
@@ -486,9 +493,11 @@ pub fn build_if_absent(
     if lib.exists() {
         return Ok(lib);
     }
-    let src = match source {
-        GrammarSource::Local(dir) => local_src(dir),
-        GrammarSource::Git { url, rev } => fetch(cache, name, url, rev)?.join("src"),
+    let sources = match source {
+        GrammarSource::Local(dir) => GrammarSources::local(dir),
+        GrammarSource::Git { url, rev, dir } => {
+            GrammarSources::in_checkout(fetch(cache, name, url, rev)?, dir.as_deref())
+        }
     };
     let compiler = compiler.ok_or_else(|| Error::NoCompiler {
         hint: compiler_hint().into(),
@@ -496,59 +505,98 @@ pub fn build_if_absent(
     let dir = cache.dir()?;
     std::fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
     let temporary = aside(&lib);
-    compile_where_the_compiler_can_read_paths(name, compiler, &src, &temporary)?;
+    compile_where_the_compiler_can_read_paths(name, compiler, &sources, &temporary)?;
     std::fs::rename(&temporary, &lib).map_err(|e| Error::io(&lib, e))?;
     Ok(lib)
 }
 
-/// Compiles the library at `out`, in place when `src` and `out` have plain ASCII paths. When
-/// either has other characters, a Windows user whose name is outside Windows-1252, MinGW's
-/// linker is handed the path with `?` for each letter and cannot open it: then it compiles a
-/// copy of the sources in an ASCII-only temporary folder and moves the library to `out`.
+/// Where a grammar's C files are: `src`, the folder holding `parser.c`, inside `root`, the
+/// folder its files may reach with `#include "../…"`. For most grammars the two are the same
+/// checkout's `src` and the checkout; for a repository holding two grammars, `tsx/src` inside
+/// the checkout, whose scanner includes `../../common/scanner.h`.
+struct GrammarSources {
+    root: PathBuf,
+    src: PathBuf,
+}
+
+impl GrammarSources {
+    /// A local grammar directory: it holds `parser.c` itself, or is a checkout with
+    /// `src/parser.c`.
+    fn local(dir: &Path) -> GrammarSources {
+        GrammarSources {
+            root: dir.to_path_buf(),
+            src: local_src(dir),
+        }
+    }
+
+    /// A fetched checkout, the grammar in its `src` or in `<dir>/src`.
+    fn in_checkout(checkout: PathBuf, dir: Option<&str>) -> GrammarSources {
+        let grammar = dir.map_or_else(|| checkout.clone(), |dir| checkout.join(dir));
+        GrammarSources {
+            src: grammar.join("src"),
+            root: checkout,
+        }
+    }
+}
+
+/// Compiles the library at `out`, in place when the sources and `out` have plain ASCII paths.
+/// When either has other characters, a Windows user whose name is outside Windows-1252,
+/// MinGW's linker is handed the path with `?` for each letter and cannot open it: then it
+/// compiles a copy of the sources in an ASCII-only temporary folder and moves the library to
+/// `out`.
 fn compile_where_the_compiler_can_read_paths(
     name: &str,
     compiler: &CCompiler,
-    src: &Path,
+    sources: &GrammarSources,
     out: &Path,
 ) -> Result<()> {
-    if is_ascii_path(src) && is_ascii_path(out) {
-        return compile_library(name, compiler, src, out);
+    if is_ascii_path(&sources.src) && is_ascii_path(out) {
+        return compile_library(name, compiler, &sources.src, out);
     }
     let Some(parent) = ascii_scratch_parent() else {
-        return compile_library(name, compiler, src, out);
+        return compile_library(name, compiler, &sources.src, out);
     };
     let scratch = parent.join(format!(
         "sorcerer-grammar-{}-{}",
         std::process::id(),
         fnv64_hex(out.to_string_lossy().as_bytes())
     ));
-    let result = compile_in_scratch(name, compiler, src, out, &scratch);
+    let result = compile_in_scratch(name, compiler, sources, out, &scratch);
     let _ = std::fs::remove_dir_all(&scratch);
     result
 }
 
-/// Copies the sources into `scratch`, compiles there and copies the library to `out`.
+/// Copies the sources' whole root into `scratch` (so an `#include "../…"` still finds its
+/// file), compiles there and copies the library to `out`.
 fn compile_in_scratch(
     name: &str,
     compiler: &CCompiler,
-    src: &Path,
+    sources: &GrammarSources,
     out: &Path,
     scratch: &Path,
 ) -> Result<()> {
     let _ = std::fs::remove_dir_all(scratch);
-    let copied = scratch.join("src");
-    copy_tree(src, &copied)?;
+    let copied = scratch.join("root");
+    copy_tree(&sources.root, &copied)?;
+    let src_inside = sources
+        .src
+        .strip_prefix(&sources.root)
+        .unwrap_or(Path::new(""));
     let built = scratch.join("grammar.lib");
-    compile_library(name, compiler, &copied, &built)?;
+    compile_library(name, compiler, &copied.join(src_inside), &built)?;
     std::fs::copy(&built, out).map_err(|e| Error::io(out, e))?;
     Ok(())
 }
 
-/// Copies a folder and everything in it (the headers a grammar includes sit beside its C files).
+/// Copies a folder and everything in it but git's own `.git` (the headers a grammar includes
+/// sit beside its C files, or a folder or two above them).
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to).map_err(|e| Error::io(to, e))?;
     for entry in std::fs::read_dir(from).map_err(|e| Error::io(from, e))? {
         let entry = entry.map_err(|e| Error::io(from, e))?;
+        if entry.file_name() == ".git" {
+            continue;
+        }
         let target = to.join(entry.file_name());
         let kind = entry.file_type().map_err(|e| Error::io(from, e))?;
         if kind.is_dir() {
@@ -649,6 +697,14 @@ fn aside(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(format!(".tmp-{}-{n}", std::process::id()));
     path.with_file_name(name)
+}
+
+/// Fetches a `{ git, rev }` grammar's repository into the cache's `src/` without compiling it,
+/// and returns the checkout, as a build would fetch it (the same checks on the URL and the
+/// revision). `scripts/test-grammars` fetches the shipped grammars for the tests this way.
+#[doc(hidden)]
+pub fn fetch_checkout(cache: &GrammarCache, name: &str, url: &str, rev: &str) -> Result<PathBuf> {
+    fetch(cache, name, url, rev)
 }
 
 /// Fetches the grammar's repository at one commit into `<cache>/src/<name>-<first 7 of rev>`,

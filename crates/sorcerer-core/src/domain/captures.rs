@@ -14,7 +14,9 @@
 //! | `@import.path` | `imports.scm` | what an import names |
 //! | `@placeholder` | `placeholders.scm` | a statement that does nothing yet (`pass`, `todo!()`) |
 //! | `@docstring` | `docstrings.scm` | a string that documents the file |
+//! | `@preamble` | `preamble.scm` | a line that heads the file before its imports (a package or namespace line) |
 //! | `@parameters`, `@arguments` | `lists.scm` | a definition's parameter list, a call's argument list |
+//! | `@prose`, `@heading` | `prose.scm` | a paragraph, a heading: where lackey cuts paragraphs |
 //!
 //! A language without one of these files simply has no such capture: the feature that reads it
 //! finds nothing (no comments, no placeholders), it does not guess.
@@ -29,10 +31,17 @@ pub const COMMENT: &str = "comment.outer";
 pub const PLACEHOLDER: &str = "placeholder";
 /// A string documenting the file, as `docstrings.scm` captures it.
 pub const DOCSTRING: &str = "docstring";
+/// A line that heads the file before its imports, as `preamble.scm` captures it: Go's
+/// `package x`, Java's `package a.b;`, a C# file-scoped `namespace A;`.
+pub const PREAMBLE: &str = "preamble";
 /// A definition's parameter list, as `lists.scm` captures it.
 pub const PARAMETERS: &str = "parameters";
 /// A call's argument list, as `lists.scm` captures it.
 pub const ARGUMENTS: &str = "arguments";
+/// A paragraph (or other run of prose), as `prose.scm` captures it.
+pub const PROSE: &str = "prose";
+/// A heading, as `prose.scm` captures it.
+pub const HEADING: &str = "heading";
 /// One item of a bracketed list, as `textobjects.scm` captures it.
 pub const LIST_ITEM: &str = "parameter.inner";
 

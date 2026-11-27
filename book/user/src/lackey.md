@@ -110,8 +110,11 @@ The server is `lackey lsp`, one per project. It works on two clocks:
 
 - **Idle** (one and a half seconds after you stop typing): what you changed since its last look
   (for a file just opened, since you last saved it, so what you typed while the server was
-  starting counts) is cut into *regions* (a changed comment, a paragraph of a file no language covers, a
-  function whose body does nothing yet, or a bare hunk of code) and each new one is asked of
+  starting counts) is cut into *regions* (a changed comment, a paragraph of prose, a
+  function whose body does nothing yet, or a bare hunk of code; prose is what the file's language
+  captures as `@prose` and `@heading`, such as Markdown's paragraphs and headings, or the whole of a
+  file no language covers or whose grammar would not load: see
+  [Adding a language](adding-a-language.md#what-lackey-reads)) and each new one is asked of
   Jev: is it a question, a claim, an instruction or an aside (the file's own content), and do
   you want it answered, checked or done now? Jev reads the region with its context, not alone:
   the 20 lines above it and 10 below, for a paragraph the heading it sits under and whether
@@ -148,7 +151,7 @@ What you see, in the margin (diagnostics of source `lackey`):
 
 | region | the mark | its code actions |
 |---|---|---|
-| a question | `lackey: <the answer>`, its cost and time; the cited code on hover. A long answer shows its first sentence and `<key> opens the whole answer`: it waits in a note until you open it, so no window opens while you type | *Show code*, *Open the answer* (a long one, beside your code), *Keep this answer* (written in below as a comment, or as a paragraph), *Dismiss* |
+| a question | `lackey: <the answer>`, its cost and time; the cited code on hover. A long answer shows its first sentence and `<key> opens the whole answer`: it waits in a note until you open it, so no window opens while you type | *Show code*, *Open the answer* (a long one, beside your code), *Keep this answer* (written in below as a comment in the file's language, `<!-- … -->` around it all where comments close; as a paragraph for a question in prose or a file with no comments), *Dismiss* |
 | a claim | `lackey: holds`, `does not hold: <why>` or `cannot tell: <why>` | *Show code*, *Dismiss*; a claim that does not hold also offers the task |
 | an instruction | a faint hint, `lackey: I can do this · ~$0.50 · sonnet` | `lackey: do this · ~$0.50 · sonnet`, *Dismiss* |
 

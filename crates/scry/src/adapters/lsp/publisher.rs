@@ -149,8 +149,8 @@ impl<W: Wiring + 'static> Server<W> {
 }
 
 /// The path relative to the project's root, when the file is the project's (the nearest
-/// project root above it is this project's) and the project has a language for it. It is
-/// written with `/` on every platform (`src/orders.py`, never `src\orders.py`), as git names
+/// project root above it is this project's) and the project has a language with units for it (a README or a
+/// config file is never reviewed). It is written with `/` on every platform (`src/orders.py`, never `src\orders.py`), as git names
 /// files, so the store and the run log read the same whichever route found the file.
 ///
 /// The editor's path may differ from the canonical one (a symlinked directory, `/var` and
@@ -162,6 +162,6 @@ pub(super) fn project_file(project: &Project, path: &Path) -> Option<PathBuf> {
         return None;
     }
     let relative = PathBuf::from(forward_slashes(canonical.strip_prefix(&project.root).ok()?));
-    project.languages.for_path(&relative)?;
+    project.languages.with_units_for_path(&relative)?;
     Some(relative)
 }

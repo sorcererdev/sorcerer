@@ -648,6 +648,21 @@ fn outside_a_unit_is_refused_with_its_sentence() {
     assert_eq!(refused, ChangeRefused::OutsideAUnit);
 }
 
+#[test]
+fn a_file_whose_language_has_no_units_is_outside_a_unit_without_loading_its_grammar() {
+    let d = cart_project();
+    write(
+        d.path(),
+        ".sorcerer/languages/settings/language.toml",
+        "files = [\"**/*.settings\"]\ngrammar = { path = \"missing\" }\ncomment = \"#\"\n",
+    );
+    write(d.path(), "app.settings", "port = 1\n");
+    let rig = Rig::new(d.path(), CART_REPLY);
+    let refused = conjure_change(&ask("app.settings", 1), &rig.deps()).unwrap_err();
+    assert_eq!(refused, ChangeRefused::OutsideAUnit);
+    assert!(rig.writer.situations().is_empty());
+}
+
 const BROKEN_RUST: &str = "struct Cart;\n\nimpl Cart {\n    fn before(&self) {}\n\n    pub fn total(&self) -> u32 {\n        look the table up\n        if the party is too big say so\n    }\n}\n\nfn after() {}\n";
 
 #[test]

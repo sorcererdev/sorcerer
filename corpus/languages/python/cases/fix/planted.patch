@@ -1,0 +1,8 @@
+--- a/booking/close_table.py
++++ b/booking/close_table.py
+@@ -4,4 +4,5 @@ from booking.models import Booking
+ 
+ 
+ def close_table(bookings: list[Booking], table: int) -> list[Booking]:
++    print("closing", table)
+     pass

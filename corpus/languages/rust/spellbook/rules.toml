@@ -1,0 +1,13 @@
+# One rule, with a fix: the booking service logs through a helper, never println!.
+[rules.no-println-in-booking]
+files   = "src/booking/*.rs"
+match   = { kind = "macro_invocation", regex = "^println!" }
+message = "booking code does not print: write it through a helper"
+
+[[rules.no-println-in-booking.fixes]]
+generator = "thing"
+label     = "Write it through a new helper"
+with      = { name = "audit" }
+replace   = [
+  { enclosing = ["expression_statement"], text = "{= ? audit_call: stmt | the same as {= finding =} through the helper =}" },
+]

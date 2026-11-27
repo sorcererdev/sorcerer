@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
+# the vendored test grammars (C sources, ~10 MB) stay out of the published crate
+exclude = ["tests/grammars"]
 
 [dependencies]
 serde.workspace = true

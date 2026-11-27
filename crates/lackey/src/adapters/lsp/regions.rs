@@ -10,6 +10,7 @@ use serde_json::json;
 use sorcerer_core::Cancel;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::language::CommentMarks;
 use sorcerer_core::domain::project::Project;
 use sorcerer_lsp::landing::{FileChange, NewFiles, OpenDocument, Snapshot, workspace_edit};
 use sorcerer_lsp::line_edits::line_edits;
@@ -21,6 +22,7 @@ use crate::adapters::json_region_store::JsonRegionStore;
 use crate::adapters::notes_dir::NotesDir;
 use crate::adapters::state_files::StateFiles;
 use crate::domain::config::{LackeyConfig, lackey_config};
+use crate::domain::region::RegionPlace;
 use crate::domain::region_record::RegionRecord;
 use crate::domain::triage::Kind;
 use crate::ports::region_store::RegionStore;
@@ -217,16 +219,14 @@ impl Server {
         let Some(found) = record.region.found_in(&text) else {
             return;
         };
-        let prefix = self
-            .syntax(&project)
-            .comment_prefix(Path::new(&record.region.file));
-        let kept = kept_answer_text(
-            &text,
-            found.start,
-            found.end,
-            &reply.text,
-            prefix.as_deref(),
-        );
+        // an answer to prose is prose; elsewhere it is a comment, where the language has them
+        let marks = match record.region.place {
+            RegionPlace::Prose => None,
+            _ => self
+                .syntax(&project)
+                .comment_marks(Path::new(&record.region.file)),
+        };
+        let kept = kept_answer_text(&text, found.start, found.end, &reply.text, marks.as_ref());
         let snapshot = Snapshot {
             root: self.root.clone(),
             open: [(
@@ -307,18 +307,19 @@ impl Server {
     }
 }
 
-/// The file's text with the answer written in under lines `start..=end` (from 1): each line
-/// of the answer behind the comment prefix, at the region's indentation; with no prefix, as a
+/// The file's text with the answer written in under lines `start..=end` (from 1), at the
+/// region's indentation: behind the comment mark on each line, or for a language whose
+/// comments close, as one comment around the whole answer; with no comment marks, as a
 /// paragraph after a blank line.
 ///
-/// Example: under `    # why slow?` with prefix `#`, the answer `It reads twice.` is the line
-/// `    # It reads twice.`.
+/// Example: under `    # why slow?` with `#`, the answer `It reads twice.` is the line
+/// `    # It reads twice.`; with `<!--` and `-->` it is `    <!-- It reads twice. -->`.
 pub(super) fn kept_answer_text(
     text: &str,
     start: u32,
     end: u32,
     answer: &str,
-    prefix: Option<&str>,
+    marks: Option<&CommentMarks>,
 ) -> String {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let first = lines.get(start as usize - 1).copied().unwrap_or_default();
@@ -331,14 +332,8 @@ pub(super) fn kept_answer_text(
     } else {
         "\n"
     };
-    let written: String = match prefix {
-        Some(prefix) => answer
-            .lines()
-            .map(|line| match line.trim() {
-                "" => format!("{indent}{prefix}{ending}"),
-                _ => format!("{indent}{prefix} {line}{ending}"),
-            })
-            .collect(),
+    let written = match marks {
+        Some(marks) => answer_as_comment(answer, marks, &indent, ending),
         None => format!("{ending}{answer}{ending}"),
     };
     let at = (end as usize).min(lines.len());
@@ -351,6 +346,32 @@ pub(super) fn kept_answer_text(
     kept
 }
 
+/// The answer as comment lines at the indentation. A line comment marks each line (a blank
+/// line keeps only the mark); a closed comment opens before the first line and closes after
+/// the last, the lines between at the indentation.
+fn answer_as_comment(answer: &str, marks: &CommentMarks, indent: &str, ending: &str) -> String {
+    match &marks.end {
+        None => answer
+            .lines()
+            .map(|line| match line.trim() {
+                "" => format!("{indent}{}{ending}", marks.start),
+                _ => format!("{indent}{} {line}{ending}", marks.start),
+            })
+            .collect(),
+        Some(_) => {
+            let joined = answer
+                .lines()
+                .map(|line| match line.trim() {
+                    "" => String::new(),
+                    _ => format!("{indent}{line}"),
+                })
+                .collect::<Vec<_>>()
+                .join(ending);
+            format!("{indent}{}{ending}", marks.around(joined.trim_start()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,12 +380,35 @@ mod tests {
     fn an_answer_is_kept_as_a_comment_at_the_regions_indentation() {
         let text = "def f():\n    # why slow?\n    g()\n";
         assert_eq!(
-            kept_answer_text(text, 2, 2, "It reads twice.\nSee g.", Some("#")),
+            kept_answer_text(
+                text,
+                2,
+                2,
+                "It reads twice.\nSee g.",
+                Some(&CommentMarks::line("#"))
+            ),
             "def f():\n    # why slow?\n    # It reads twice.\n    # See g.\n    g()\n"
         );
         assert_eq!(
             kept_answer_text("Why?\n", 1, 1, "Because.", None),
             "Why?\n\nBecause.\n"
+        );
+    }
+
+    #[test]
+    fn an_answer_in_a_language_whose_comments_close_is_one_comment() {
+        let marks = CommentMarks {
+            start: "<!--".into(),
+            end: Some("-->".into()),
+        };
+        let text = "  <!-- why? -->\nnext\n";
+        assert_eq!(
+            kept_answer_text(text, 1, 1, "It reads twice.\nSee g.", Some(&marks)),
+            "  <!-- why? -->\n  <!-- It reads twice.\n  See g. -->\nnext\n"
+        );
+        assert_eq!(
+            kept_answer_text(text, 1, 1, "Once.", Some(&marks)),
+            "  <!-- why? -->\n  <!-- Once. -->\nnext\n"
         );
     }
 }

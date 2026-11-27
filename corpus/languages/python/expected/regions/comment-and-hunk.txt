@@ -1,0 +1,4 @@
+comment 7-7 in close_table
+  |     # which bookings stay open?
+hunk 9-9 in close_table
+  |     kept = [b for b in bookings if not b.is_for(table)]

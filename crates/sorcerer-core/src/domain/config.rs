@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn languages_is_a_names_list() {
-        let c = Config::parse("[languages]\nnames = [\"go\"]\n", Path::new("c.toml")).unwrap();
-        assert_eq!(c.languages, vec!["go"]);
+        let c = Config::parse("[languages]\nnames = [\"kotlin\"]\n", Path::new("c.toml")).unwrap();
+        assert_eq!(c.languages, vec!["kotlin"]);
     }
 }

@@ -2,7 +2,10 @@
 //!
 //! Written in the file's own comment syntax, on the line of the finding or the line above:
 //! `# spellbook:allow commands-use-ports — migration, tracked in issue 12`. The reason follows
-//! an em dash, ` - ` or ` -- `.
+//! an em dash, ` - ` or ` -- `. In a language whose comments close, the comment's end closes
+//! the reason: `<!-- spellbook:allow a-rule — why -->`.
+
+use sorcerer_core::domain::language::CommentMarks;
 
 /// One allow comment found in a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,11 +28,12 @@ pub struct Comment {
     pub text: String,
 }
 
-/// Every allow comment among a file's comments, given how its language starts a line comment.
+/// Every allow comment among a file's comments, given how its language writes a comment.
 ///
 /// Example: with `#`, the comment `# spellbook:allow a-rule — why` is an allow of `a-rule`
-/// with a reason; `# spellbook:allow a-rule` is one without.
-pub fn allow_comments(comments: &[Comment], comment_marker: &str) -> Vec<AllowComment> {
+/// with a reason; `# spellbook:allow a-rule` is one without; with `<!--` and `-->`,
+/// `<!-- spellbook:allow a-rule -->` is one without too.
+pub fn allow_comments(comments: &[Comment], marks: &CommentMarks) -> Vec<AllowComment> {
     comments
         .iter()
         .flat_map(|comment| {
@@ -41,19 +45,19 @@ pub fn allow_comments(comments: &[Comment], comment_marker: &str) -> Vec<AllowCo
                     let line_number = comment
                         .line
                         .saturating_add(u32::try_from(offset).unwrap_or(0));
-                    allow_in_line(line, comment_marker, line_number)
+                    allow_in_line(line, marks, line_number)
                 })
         })
         .collect()
 }
 
-fn allow_in_line(line: &str, comment_marker: &str, line_number: u32) -> Option<AllowComment> {
+fn allow_in_line(line: &str, marks: &CommentMarks, line_number: u32) -> Option<AllowComment> {
     let at = line.find(MARK)?;
     // The comment marker comes right before the word (a `#` inside a string earlier is not it).
-    if !line[..at].trim_end().ends_with(comment_marker) {
+    if !line[..at].trim_end().ends_with(marks.start.as_str()) {
         return None;
     }
-    let after_mark = line[at + MARK.len()..].trim_start();
+    let after_mark = marks.without_end(line[at + MARK.len()..].trim_start());
     let rule: String = after_mark
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
@@ -90,12 +94,15 @@ mod tests {
     use super::*;
 
     /// The comments of a file whose every line is a comment or code, by its `#`s (a test double
-    /// for the parser: a line is a comment from its `#`, `//` or nothing).
+    /// for the parser: a line is a comment from its `#`, `//`, `<!--` or nothing).
     fn comments_of(text: &str) -> Vec<Comment> {
         text.lines()
             .enumerate()
             .filter_map(|(index, line)| {
-                let start = line.find("//").or_else(|| line.find('#'))?;
+                let start = line
+                    .find("//")
+                    .or_else(|| line.find('#'))
+                    .or_else(|| line.find("<!--"))?;
                 Some(Comment {
                     line: u32::try_from(index + 1).unwrap(),
                     text: line[start..].to_string(),
@@ -105,7 +112,7 @@ mod tests {
     }
 
     fn allow_comments(text: &str, marker: &str) -> Vec<AllowComment> {
-        super::allow_comments(&comments_of(text), marker)
+        super::allow_comments(&comments_of(text), &CommentMarks::line(marker))
     }
 
     #[test]
@@ -147,5 +154,20 @@ mod tests {
         assert!(silencing(&comments, "a", 2).is_some());
         assert!(silencing(&comments, "a", 4).is_none());
         assert!(silencing(&comments, "b", 2).is_none());
+    }
+
+    #[test]
+    fn a_closed_comment_ends_the_reason() {
+        let marks = CommentMarks {
+            start: "<!--".into(),
+            end: Some("-->".into()),
+        };
+        let found = super::allow_comments(
+            &comments_of("<!-- spellbook:allow a — why -->\n<!-- spellbook:allow b -->\n"),
+            &marks,
+        );
+        assert_eq!(found.len(), 2);
+        assert!(found[0].has_reason && found[0].rule == "a");
+        assert!(!found[1].has_reason && found[1].rule == "b");
     }
 }

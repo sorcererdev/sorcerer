@@ -2,26 +2,113 @@
 # The engine knows no language and no tool. Code in crates/*/src reaches a language only through
 # tree-sitter (the queries' captures) and the language's data under
 # crates/sorcerer-core/library/languages/<name>/, so it never names, in a string or a comparison:
-#   a language or a file extension         "python"  "rust"  ".py"  ".rs"
+#   a code language or its file extension  "python"  "go"  ".py"  "main.go"
 #   a grammar's field                      child_by_field_name("…")  child_by_field_id(7)  field_id_for_name("…")
 #   a grammar's node kind                  kind() == "…"  kind() != "…"
 #                                          kind().contains("…") .starts_with("…") .ends_with("…")
 #   a formatter, linter, test runner or package manager, in a string literal
-#                                          "ruff" "pytest" "cargo" "npm" "uv" …
-# Tests under crates/*/tests may name languages; comment lines are skipped. The mechanical half of
-# the same rule over the syntax tree is in .sorcerer/spellbook/rules.toml.
+#                                          "ruff" "pytest" "cargo" "npm" "go test" …
+# The language list is read from the library: every language whose queries capture units (a code
+# language), by its directory name (an exact string) and the extensions of its `files` globs (a
+# string ending in one). A language without units (a config or markup format such as TOML, JSON
+# or Markdown) is not checked: sorcerer reads such files itself (`.sorcerer/config.toml`).
+# `go` and `node` are tools only as a command (`"go test"`, `"node x.js"`, `"node"`), since they
+# are also words.
+#
+# .sorcerer/spellbook/rules.toml holds the mechanical half of the same rule over the syntax tree;
+# its regexes must list the same languages, extensions and tools, and this script fails when
+# they drift.
+#
+# Tests under crates/*/tests may name languages; comment lines are skipped.
 #
 # Usage: scripts/no-language-names [ROOT]   (ROOT defaults to the repository)
 set -euo pipefail
 root=${1:-$(cd "$(dirname "$0")/.." && pwd)}
 cd "$root"
+export NO_LANGUAGE_NAMES_ROOT="$root"
 find crates -path 'crates/*/src/*' -name '*.rs' -print0 2>/dev/null | sort -z | perl -0 -ne '
   BEGIN {
-    $tools = join "|", qw(ruff black mypy pyright pytest pip pipx uv poetry tox
-                          cargo rustc rustfmt rustup clippy
-                          npm npx yarn pnpm eslint prettier tsc jest vitest
-                          gofmt mvn gradle);
+    @tools = qw(ruff black mypy pyright pytest pip pipx uv poetry tox
+                cargo rustc rustfmt rustup clippy
+                npm npx yarn pnpm eslint prettier tsc jest vitest
+                gofmt mvn gradle
+                dotnet deno bun biome golangci-lint shellcheck sqlfluff yamllint taplo markdownlint);
+    $tools = join "|", map { quotemeta } @tools;
+    # the two tools that are also words, as a command only
+    $word_tools = q{^(?:go\s+(?:test|build|run|vet|fmt|mod|get|install)\b|node(?:\s+-e\b|\s+\S+\.m?js\b|$))};
+    ($names_ref, $exts_ref) = code_languages("$ENV{NO_LANGUAGE_NAMES_ROOT}/crates/sorcerer-core/library/languages");
+    @names = @$names_ref; @exts = @$exts_ref;
+    $name_re = @names ? join("|", map { quotemeta } @names) : undef;
+    $ext_re  = @exts  ? join("|", map { quotemeta } @exts)  : undef;
     $bad = 0;
+    $bad = 1 if rules_toml_drifts("$ENV{NO_LANGUAGE_NAMES_ROOT}/.sorcerer/spellbook/rules.toml");
+
+    # The code languages: directory names and `files` extensions of every language whose
+    # queries capture a unit (@definition.<unit kind> or @unit.<x> but @unit.name).
+    sub code_languages {
+      my ($library) = @_;
+      my (@n, %e);
+      opendir(my $dh, $library) or return ([], []);
+      for my $name (sort grep { !/^\./ && -d "$library/$_" } readdir $dh) {
+        next unless has_units("$library/$name/queries");
+        push @n, $name;
+        if (open my $fh, "<", "$library/$name/language.toml") {
+          local $/; my $toml = <$fh>;
+          if ($toml =~ /^\s*files\s*=\s*\[(.*?)\]/ms) {
+            my $files = $1;
+            $e{lc $1} = 1 while $files =~ /\*\.([A-Za-z0-9_+-]+)"/g;
+          }
+        }
+      }
+      return (\@n, [sort keys %e]);
+    }
+    sub has_units {
+      my ($queries) = @_;
+      opendir(my $qh, $queries) or return 0;
+      local $/ = "\n";
+      for my $file (grep { /\.scm$/ } readdir $qh) {
+        open my $fh, "<", "$queries/$file" or next;
+        while (my $line = <$fh>) {
+          next if $line =~ /^\s*;/;
+          return 1 if $line =~ /\@definition\.(?:function|method|class|interface|module|type|impl|instance)\b/;
+          return 1 if $line =~ /\@unit\.(?!name\b)[\w.-]+/;
+        }
+      }
+      return 0;
+    }
+    # rules.toml lists the same languages, extensions and tools in every regex of its two rules.
+    sub rules_toml_drifts {
+      my ($rules) = @_;
+      open my $fh, "<", $rules or return 0;
+      local $/; my $text = <$fh>;
+      my $section = sub { my ($id) = @_; $text =~ /\[rules\.\Q$id\E\](.*?)(?=^\[|\z)/ms ? $1 : "" };
+      my $languages = $section->("no-language-name-in-the-engine");
+      my $tool_rule = $section->("no-tool-in-the-engine");
+      my $drift = 0;
+      $drift |= differs("languages", $_, \@names) for listed($languages, qr/\^\\"\(([^)]*)\)\\"\$/);
+      $drift |= differs("extensions", $_, \@exts)
+        for listed($languages, qr/\\\\\.\(([^)]*)\)\\"(?:#\*)?\$/);
+      $drift |= differs("tools", $_, \@tools)
+        for listed($tool_rule, qr/\(\^\|\[\^\\\\w-\]\)\(([^)]*)\)/);
+      return $drift;
+    }
+    # Each alternation the pattern finds in the text, as a set: `python|rust`.
+    sub listed {
+      my ($text, $pattern) = @_;
+      my @sets;
+      push @sets, { map { $_ => 1 } split /\|/, $1 } while $text =~ /$pattern/g;
+      return @sets ? @sets : ({});
+    }
+    sub differs {
+      my ($what, $listed, $wanted) = @_;
+      my %want = map { $_ => 1 } @$wanted;
+      my @missing = grep { !$listed->{$_} } @$wanted;
+      my @extra = grep { !$want{$_} } sort keys %$listed;
+      return 0 unless @missing || @extra;
+      print ".sorcerer/spellbook/rules.toml: its $what drift from the library and this script:"
+        . (@missing ? " missing @missing;" : "") . (@extra ? " not shipped @extra;" : "") . "\n";
+      return 1;
+    }
   }
   chomp(my $file = $_);
   open my $fh, "<", $file or die "$file: $!";
@@ -31,8 +118,12 @@ find crates -path 'crates/*/src/*' -name '*.rs' -print0 2>/dev/null | sort -z | 
     $n++;
     next if $line =~ m{^\s*//};
     my @found;
-    push @found, "a language named: \"$1\"" while $line =~ /"(python|rust)"/gi;
-    push @found, "a language named: $1\""   while $line =~ /(\.py|\.rs)"/gi;
+    if (defined $name_re) {
+      push @found, "a language named: \"$1\"" while $line =~ /"($name_re)"/gi;
+    }
+    if (defined $ext_re) {
+      push @found, "a language named: .$1\"" while $line =~ /\.($ext_re)"/gi;
+    }
     push @found, "a grammar\x27s field named: $1("
       while $line =~ /\b(child_by_field_name|field_id_for_name)\(\s*"/g;
     push @found, "a grammar\x27s field named: child_by_field_id("
@@ -46,6 +137,7 @@ find crates -path 'crates/*/src/*' -name '*.rs' -print0 2>/dev/null | sort -z | 
     while ($line =~ /"((?:[^"\\]|\\.)*)"/g) {
       my $literal = $1;
       push @found, "a tool named: $1" while $literal =~ /(?<![\w-])($tools)(?![\w-])/g;
+      push @found, "a tool named: " . (split /\s+/, $literal)[0] if $literal =~ /$word_tools/;
     }
     for my $form (@found) {
       print "$file:$n: $form\n";

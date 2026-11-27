@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-print-in-booking",
+    "file": "booking/close_table.py",
+    "line": 7,
+    "severity": "error",
+    "message": "booking code does not print: write it through a helper",
+    "fingerprint": "ec8696e"
+  }
+]

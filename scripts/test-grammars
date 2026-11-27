@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Fetches the pinned grammar of every shipped language that is not vendored under
+# crates/sorcerer-core/tests/grammars/ (Python and Rust are) into target/test-grammars/, for the
+# tests: no test touches the network, so a test that needs one of these grammars fails until
+# this has run. Run it once after cloning and again when a pin in
+# crates/sorcerer-core/library/languages/*/language.toml changes; a checkout already there is
+# kept. CI runs it before the tests, cached by a hash of those language files.
+#
+# Usage: scripts/test-grammars
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root"
+cargo run -q -p sorcerer-core --example test-grammars -- "$root/target/test-grammars"

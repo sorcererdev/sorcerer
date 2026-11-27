@@ -230,8 +230,9 @@ through the same trait.
 review and the `ScopedFile`s the pass touched. The base is `HEAD`, or for `Since` the view's
 `merge_base(rev)` (a bad rev is that `Error::Git`, naming it), each a `Base::Revision`; with no commit yet it is
 `Base::NoCommitYet` and every file is all new. The files are the named ones, or the view's `changed_since(base)`
-(every file, by `glob("**")`, with no commit). A file is dropped when no language covers it,
-`[scry] exclude` matches it, `Fences::allows` refuses it, or its text is `NotText`.
+(every file, by `glob("**")`, with no commit). A file is dropped when no language covers it, its
+language has no units (`Languages::with_units_for_path`, read from the query texts, so a README
+or a config file's grammar is never loaded), `[scry] exclude` matches it, `Fences::allows` refuses it, or its text is `NotText`.
 
 The file reads top to bottom as these steps. `scope_of` builds a `Scoping` (the project, the
 view, the `Fences`, the `[scry] exclude` set, the base from `Scoping::base_revision`, and
@@ -245,7 +246,7 @@ the file into a `scoped_file`.
 A file that is gone but was at the base is a `ScopedFile` with `deleted` and no units, so the
 pass can sweep its findings. A rename is a deletion and an addition (`changed_since` runs
 with `--no-renames`). Each file considered and left out goes to `Scope::skipped` with why
-(`no language`, `excluded by [scry] exclude`, `fenced`, `not text`, `deleted, and not at the
+(`no language`, `no units`, `excluded by [scry] exclude`, `fenced`, `not text`, `deleted, and not at the
 base`), for the run log. For a file that exists, the units are `compare_units(view.units_at(file,
 base), view.units(file))`'s `Added` and `Changed`, or every unit with `all` or no commit; a
 base whose units do not read counts as none. `ScopedFile::diff` is `view.diff(file, base)`, or

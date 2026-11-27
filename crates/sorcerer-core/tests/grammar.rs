@@ -124,6 +124,7 @@ fn the_key_changes_with_the_rev() {
     let src = |rev: &str| GrammarSource::Git {
         url: "https://example.com/g".into(),
         rev: rev.into(),
+        dir: None,
     };
     let a = grammar::library_path(&cache, "g", &src("aaaaaaa")).unwrap();
     let b = grammar::library_path(&cache, "g", &src("bbbbbbb")).unwrap();
@@ -210,6 +211,7 @@ fn a_git_grammar_is_fetched_at_its_rev() {
     let src = GrammarSource::Git {
         url: support::file_url(repo.path()),
         rev,
+        dir: None,
     };
     let lang = grammar::load(&GrammarCache::at(d.path().into()), "python", &src, PROJECT)
         .unwrap()
@@ -225,6 +227,7 @@ fn a_url_outside_gits_transports_is_refused() {
     let src = GrammarSource::Git {
         url: format!("ext::sh -c touch% {}", pwned.display()),
         rev: "a".repeat(40),
+        dir: None,
     };
     let e = grammar::load(
         &GrammarCache::at(d.path().join("cache")),
@@ -264,6 +267,7 @@ fn a_failed_fetch_is_tried_again_on_the_next_load() {
     let src = GrammarSource::Git {
         url: support::file_url(repo.path()),
         rev,
+        dir: None,
     };
     assert!(matches!(
         grammar::load(&cache, "python", &src, PROJECT),
@@ -299,6 +303,7 @@ fn python_repo() -> (tempfile::TempDir, GrammarSource) {
     let source = GrammarSource::Git {
         url: support::file_url(repo.path()),
         rev,
+        dir: None,
     };
     (repo, source)
 }
@@ -645,4 +650,86 @@ fn a_user_cache_with_no_place_refuses_and_names_what_to_set() {
     let home = tempfile::TempDir::new().unwrap();
     let cache = GrammarCache::user(&MapEnv::default().with_user_dirs(home.path()));
     assert!(cache.dir().unwrap().starts_with(home.path()));
+}
+
+// ---- a repository holding two grammars, each in its own folder (`dir`) ----
+
+/// A local repository holding two copies of the vendored python grammar, in `first/src` and
+/// `second/src`; the second's scanner includes `../../common/extra.h`, a header outside its
+/// own folder, as tree-sitter-typescript's do. The source names the second.
+fn two_grammar_repo() -> (tempfile::TempDir, GrammarSource) {
+    let repo = support::git_project();
+    for dir in ["first", "second"] {
+        for f in [
+            "parser.c",
+            "scanner.c",
+            "tree_sitter/alloc.h",
+            "tree_sitter/array.h",
+            "tree_sitter/parser.h",
+        ] {
+            let mut text = std::fs::read_to_string(support::vendored("python").join(f)).unwrap();
+            if dir == "second" && f == "scanner.c" {
+                text = format!("#include \"../../common/extra.h\"\n{text}");
+            }
+            support::write(repo.path(), &format!("{dir}/src/{f}"), &text);
+        }
+    }
+    support::write(
+        repo.path(),
+        "common/extra.h",
+        "/* a header two grammars share */\n",
+    );
+    support::commit(repo.path(), "two grammars");
+    let rev = support::git(repo.path(), &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let source = GrammarSource::Git {
+        url: support::file_url(repo.path()),
+        rev,
+        dir: Some("second".into()),
+    };
+    (repo, source)
+}
+
+#[test]
+fn a_grammar_in_a_folder_of_its_repository_builds_from_that_folder() {
+    let (_repo, second) = two_grammar_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let lang = grammar::load(
+        &GrammarCache::at(d.path().into()),
+        "python",
+        &second,
+        PROJECT,
+    )
+    .unwrap()
+    .0;
+    let mut p = tree_sitter::Parser::new();
+    p.set_language(&lang).unwrap();
+    assert!(!p.parse("x = 1\n", None).unwrap().root_node().has_error());
+}
+
+#[test]
+fn a_grammar_in_a_folder_builds_in_the_ascii_scratch_copy_too() {
+    // a cache outside Windows-1252 makes the build copy the checkout to an ASCII folder: the
+    // header one folder above the grammar's must come along
+    let (_repo, second) = two_grammar_repo();
+    let d = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(d.path().join("日本 Ж"));
+    assert!(grammar::load(&cache, "python", &second, PROJECT).is_ok());
+}
+
+#[test]
+fn the_key_changes_with_the_folder() {
+    let d = tempfile::TempDir::new().unwrap();
+    let cache = GrammarCache::at(d.path().into());
+    let at = |dir: Option<&str>| GrammarSource::Git {
+        url: "https://example.com/g".into(),
+        rev: "aaaaaaa".into(),
+        dir: dir.map(String::from),
+    };
+    let whole = grammar::library_path(&cache, "g", &at(None)).unwrap();
+    let first = grammar::library_path(&cache, "g", &at(Some("first"))).unwrap();
+    let second = grammar::library_path(&cache, "g", &at(Some("second"))).unwrap();
+    assert_ne!(whole, first);
+    assert_ne!(first, second);
 }

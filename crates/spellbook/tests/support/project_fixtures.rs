@@ -1,19 +1,12 @@
 //! A project on the vendored grammars.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::grammar::GrammarCache;
-use sorcerer_core::domain::language::{GrammarSource, Languages, Loaded};
+use sorcerer_core::domain::language::{Languages, Loaded};
 use sorcerer_core::domain::project::Project;
-
-/// Core's vendored grammar sources for a language (no network).
-pub fn vendored(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../sorcerer-core/tests/grammars")
-        .join(name)
-}
 
 /// A grammar cache shared by every test in this process (built once).
 pub fn test_cache() -> GrammarCache {
@@ -35,11 +28,9 @@ pub fn project_with_vendored_grammars(dir: &Path) -> (Arc<Project>, FilesView) {
     (project, view)
 }
 
-/// The grammars of a set of languages pointed at the vendored sources.
+/// The grammars of a set of languages pointed at their test sources (vendored or fetched).
 pub fn point_at_vendored(languages: &mut Languages) {
-    for name in ["python", "rust"] {
-        languages.override_grammar(name, GrammarSource::Local(vendored(name)));
-    }
+    super::point_at_test_grammars(languages);
 }
 
 /// A shipped language loaded from the vendored grammar.

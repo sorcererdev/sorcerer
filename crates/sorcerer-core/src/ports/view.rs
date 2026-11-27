@@ -29,7 +29,8 @@ pub trait CodebaseView: Send + Sync {
     fn exists(&self, path: &Path) -> bool;
     /// The file's text at a commit; `None` when the file did not exist there.
     fn text_at(&self, path: &Path, rev: &str) -> Result<Option<String>>;
-    /// The file's units as it is now; none when no language covers the file.
+    /// The file's units as it is now; none when no language covers the file, or its language
+    /// has no units (a README, a config file: its grammar is not loaded).
     fn units(&self, path: &Path) -> Result<Vec<Unit>>;
     /// The unit holding the line, or when the file does not parse there, the parser's error
     /// region around it (a unit of kind `BrokenRegion`); `None` when neither holds it.

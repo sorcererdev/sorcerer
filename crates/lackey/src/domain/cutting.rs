@@ -14,12 +14,42 @@ use crate::domain::triage_context::is_heading;
 pub const HUNK_LINES: u32 = 40;
 
 /// A file's shape, from its grammar: its comments' lines, its units (name, lines, and whether
-/// the body does nothing yet), and whether a language covers it at all.
+/// the body does nothing yet), the lines its language calls prose and headings, and whether a
+/// language read it at all.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Shape {
     pub comments: Vec<Span>,
     pub units: Vec<ShapeUnit>,
+    /// The paragraphs (and other runs of prose) the language's queries capture as `@prose`.
+    pub prose: Vec<Span>,
+    /// The headings the language's queries capture as `@heading`.
+    pub headings: Vec<Span>,
+    /// Whether a language covers the file and its grammar parsed it. A file no language
+    /// covers, or whose grammar would not load, is cut as prose throughout.
     pub has_language: bool,
+}
+
+impl Shape {
+    /// Whether the line (from 1) is prose here: in a file no language read, every line; else
+    /// a line the language captures as `@prose` or `@heading`.
+    fn is_prose(&self, line: u32) -> bool {
+        !self.has_language
+            || self
+                .prose
+                .iter()
+                .chain(&self.headings)
+                .any(|span| span.holds(line))
+    }
+
+    /// Whether the line (from 1) is a heading: one the language captures as `@heading`, or in
+    /// a file no language read, one that starts with a heading mark (`# Questions`).
+    fn is_heading(&self, line: u32, text: &str) -> bool {
+        if self.has_language {
+            self.headings.iter().any(|span| span.holds(line))
+        } else {
+            is_heading(text)
+        }
+    }
 }
 
 /// One unit of a file's shape.
@@ -155,9 +185,10 @@ fn runs_of(lines: &[u32]) -> Vec<Span> {
 /// The regions the changed lines of a file make, in file order, each once:
 ///
 /// 1. a comment block (comments on neighbouring lines, joined) touching a changed line;
-/// 2. in a file no language covers, a paragraph (lines between blank lines) touching one; a
-///    paragraph that is only headings is left out when the change touches another paragraph,
-///    which reads it as its section;
+/// 2. in prose (a file no language read, or the lines its language captures as `@prose` or
+///    `@heading`), a paragraph (lines between blank lines) touching one; a paragraph that is
+///    only headings is left out when the change touches another paragraph, which reads it as
+///    its section;
 /// 3. a unit whose body does nothing yet, when its lines changed;
 /// 4. the rest of a changed run, outside comments, when it holds a letter and is at most 40
 ///    lines.
@@ -191,19 +222,17 @@ pub fn regions_of(file: &str, text: &str, changed: &[Span], shape: &Shape) -> Ve
             add(*block, RegionPlace::Comment);
         }
     }
-    if !shape.has_language {
-        // over every run at once: a heading and the question under it are two runs, the
-        // blank line between them not being the person's typing
-        let paragraphs = runs
-            .iter()
-            .flat_map(|run| paragraphs_touching(&lines, *run))
-            .collect();
-        for paragraph in without_lone_headings(&lines, paragraphs) {
-            add(paragraph, RegionPlace::Prose);
-        }
+    let (prose_runs, code_runs) = prose_and_code(&runs, shape, &blocks);
+    // over every run at once: a heading and the question under it are two runs, the blank
+    // line between them not being the person's typing
+    let paragraphs = prose_runs
+        .iter()
+        .flat_map(|run| paragraphs_touching(&lines, *run))
+        .collect();
+    for paragraph in without_lone_headings(&lines, shape, paragraphs) {
+        add(paragraph, RegionPlace::Prose);
     }
-    let code_runs: &[Span] = if shape.has_language { &runs } else { &[] };
-    for run in code_runs {
+    for run in &code_runs {
         let stubs = shape
             .units
             .iter()
@@ -248,11 +277,31 @@ fn overlaps(a: &Span, b: &Span) -> bool {
     a.start <= b.end && b.start <= a.end
 }
 
+/// The changed runs split into their prose parts and their code parts. A line in a comment
+/// block is not prose (the block is a region of its own); in a file no language read, every
+/// line is prose and none is code.
+fn prose_and_code(runs: &[Span], shape: &Shape, blocks: &[Span]) -> (Vec<Span>, Vec<Span>) {
+    let in_a_comment = |line: u32| blocks.iter().any(|block| block.holds(line));
+    let prose = runs
+        .iter()
+        .flat_map(|run| parts_where(*run, |line| shape.is_prose(line) && !in_a_comment(line)))
+        .collect();
+    let code = runs
+        .iter()
+        .flat_map(|run| parts_where(*run, |line| !shape.is_prose(line)))
+        .collect();
+    (prose, code)
+}
+
 /// The parts of a run that no comment block covers.
 fn outside_comments(run: Span, blocks: &[Span]) -> Vec<Span> {
-    let covered = |line: u32| blocks.iter().any(|block| block.holds(line));
+    parts_where(run, |line| !blocks.iter().any(|block| block.holds(line)))
+}
+
+/// The parts of a run whose lines `keep` accepts, as runs of neighbouring lines.
+fn parts_where(run: Span, keep: impl Fn(u32) -> bool) -> Vec<Span> {
     (run.start..=run.end).fold(Vec::new(), |mut parts: Vec<Span>, line| {
-        if covered(line) {
+        if !keep(line) {
             return parts;
         }
         match parts.last_mut() {
@@ -299,9 +348,10 @@ fn paragraphs_touching(lines: &[&str], run: Span) -> Vec<Span> {
 ///
 /// Example: a new note `# Questions`, a blank line, then `What does average return?` gives
 /// one region, the question, so it is answered once; a heading typed alone stays a region.
-fn without_lone_headings(lines: &[&str], paragraphs: Vec<Span>) -> Vec<Span> {
+fn without_lone_headings(lines: &[&str], shape: &Shape, paragraphs: Vec<Span>) -> Vec<Span> {
     let only_headings = |paragraph: &Span| {
-        (paragraph.start..=paragraph.end).all(|line| is_heading(lines[line as usize - 1]))
+        (paragraph.start..=paragraph.end)
+            .all(|line| shape.is_heading(line, lines[line as usize - 1]))
     };
     if paragraphs.iter().all(only_headings) {
         return paragraphs;
@@ -397,6 +447,7 @@ mod tests {
             comments: vec![span(2, 2), span(3, 3)],
             units: vec![unit("f", span(1, 4), false)],
             has_language: true,
+            ..Shape::default()
         };
         let regions = regions_of("a.txt", text, &[span(3, 4)], &shape);
         assert_eq!(regions.len(), 2);
@@ -419,6 +470,7 @@ mod tests {
             comments: Vec::new(),
             units: vec![unit("g", span(1, 2), true)],
             has_language: true,
+            ..Shape::default()
         };
         let regions = regions_of("a.txt", text, &[span(1, 2)], &shape);
         assert_eq!(regions.len(), 1);
@@ -449,6 +501,48 @@ mod tests {
         assert_eq!(lines, [span(3, 3)]);
         let alone = regions_of("mine.md", "# Ideas\n", &[span(1, 1)], &Shape::default());
         assert_eq!(alone.len(), 1, "a heading typed alone is still a region");
+    }
+
+    #[test]
+    fn in_a_language_prose_is_what_its_queries_capture_and_the_rest_is_code() {
+        // a markup file: a heading, a paragraph, and a block the language calls neither
+        let text = "Title\n\nWhat does it return?\n\n<x>\n";
+        let shape = Shape {
+            prose: vec![span(3, 3)],
+            headings: vec![span(1, 1)],
+            has_language: true,
+            ..Shape::default()
+        };
+        let regions = regions_of(
+            "a.page",
+            text,
+            &[span(1, 1), span(3, 3), span(5, 5)],
+            &shape,
+        );
+        let found: Vec<(RegionPlace, Span)> = regions
+            .iter()
+            .map(|region| (region.place, region.lines))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (RegionPlace::Prose, span(3, 3)),
+                (RegionPlace::Hunk, span(5, 5))
+            ],
+            "the heading is the paragraph's section, not a region of its own"
+        );
+    }
+
+    #[test]
+    fn a_heading_the_language_captures_is_one_even_without_a_heading_mark() {
+        let shape = Shape {
+            headings: vec![span(1, 2)],
+            has_language: true,
+            ..Shape::default()
+        };
+        let alone = regions_of("a.page", "Title\n=====\n", &[span(1, 2)], &shape);
+        assert_eq!(alone.len(), 1);
+        assert_eq!(alone[0].place, RegionPlace::Prose);
     }
 
     #[test]

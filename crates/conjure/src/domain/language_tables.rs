@@ -3,10 +3,12 @@
 //! ```toml
 //! [test]
 //! tests_for = "{= dir =}/{= stem =}_test.ext"   # where a file's tests live
+//! dir_replace = ["src/main/", "src/test/"]      # optional: the tests' folder tree beside
 //!
 //! [imports]
 //! resolve = ["{= path =}.ext", "{= path =}/__init__.ext"]   # where an import's file may be
 //! drop_first = ["crate"]                                  # leading words that are no folder
+//! separator = "/"                                         # optional: between an import's words
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -26,16 +28,33 @@ pub struct TestTable {
     /// A template over `{= dir =}` (the file's folder) and `{= stem =}` (its name without the
     /// extension). None: no test file is known for this language.
     pub tests_for: Option<String>,
+    /// `[from, to]`: the tests live in a folder tree beside the code's, so `{= dir =}` is the
+    /// file's folder with its first `from` replaced by `to`. A file whose folder holds no
+    /// `from` has no known test file. None: `{= dir =}` is the file's own folder.
+    pub dir_replace: Option<[String; 2]>,
 }
 
 /// `[imports]`: how an imported name becomes a project path.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ImportsTable {
-    /// Templates over `{= path =}` (the import's words joined by `/`), tried in order.
+    /// Templates over `{= path =}` (the import's words joined by `/`) and `{= dir =}` (the
+    /// importing file's folder), tried in order. A `.` or `..` in the filled path is folded
+    /// away (`booking/./models.ts` is `booking/models.ts`); a path that climbs out of the
+    /// project is never looked at.
     pub resolve: Vec<String>,
     /// Leading words of an import that name no folder, such as `crate`.
     pub drop_first: Vec<String>,
+    /// What separates an import's words, when it is not the language's unit separator: `/`
+    /// for `./models/booking`.
+    pub separator: Option<String>,
+}
+
+impl ImportsTable {
+    /// What separates an import's words: `separator`, else the language's unit separator.
+    pub fn word_separator<'a>(&'a self, lang: &'a Language) -> &'a str {
+        self.separator.as_deref().unwrap_or(&lang.unit_separator)
+    }
 }
 
 /// The language's `[test]` table; an unknown key is an error naming the language and the table.
@@ -61,15 +80,21 @@ fn table_of<T: DeserializeOwned + Default>(lang: &Language, name: &str) -> Resul
     }
 }
 
-/// Where the tests of a file would be, from the language's `[test] tests_for`; `None` when the
-/// language names no place.
+/// Where the tests of a file would be, from the language's `[test] tests_for` (and
+/// `dir_replace`); `None` when the language names no place.
 ///
-/// Example: `src/a/b.ext` with `"{= dir =}/{= stem =}_test.ext"` is `src/a/b_test.ext`.
+/// Example: `src/a/b.ext` with `"{= dir =}/{= stem =}_test.ext"` is `src/a/b_test.ext`; with
+/// `dir_replace = ["src/main/", "src/test/"]` and `"{= dir =}/{= stem =}Test.ext"`,
+/// `src/main/a/B.ext` is `src/test/a/BTest.ext`.
 pub fn tests_path(lang: &Language, file: &Path) -> Result<Option<PathBuf>> {
-    let Some(template) = test_table(lang)?.tests_for else {
+    let table = test_table(lang)?;
+    let Some(template) = table.tests_for else {
         return Ok(None);
     };
-    let dir = file.parent().map(forward_slashes).unwrap_or_default();
+    let folder = file.parent().map(forward_slashes).unwrap_or_default();
+    let Some(dir) = tests_folder(&folder, table.dir_replace.as_ref()) else {
+        return Ok(None);
+    };
     let stem = file
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
@@ -80,4 +105,17 @@ pub fn tests_path(lang: &Language, file: &Path) -> Result<Option<PathBuf>> {
             why: format!("[test] tests_for: {why}"),
         })?;
     Ok(Some(PathBuf::from(filled.trim_start_matches('/'))))
+}
+
+/// The folder a file's tests are in: its own, or with `dir_replace`'s first `from` made `to`
+/// (`None` when the folder holds no `from`).
+fn tests_folder(folder: &str, dir_replace: Option<&[String; 2]>) -> Option<String> {
+    let Some([from, to]) = dir_replace else {
+        return Some(folder.to_string());
+    };
+    let with_slash = format!("{folder}/");
+    with_slash
+        .contains(from.as_str())
+        .then(|| with_slash.replacen(from.as_str(), to, 1))
+        .map(|replaced| replaced.trim_end_matches('/').to_string())
 }

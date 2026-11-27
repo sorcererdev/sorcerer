@@ -4,23 +4,12 @@ use std::path::Path;
 
 use tempfile::TempDir;
 
-/// The vendored grammar sources for NAME (no network).
-pub fn vendored(name: &str) -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/grammars")
-        .join(name)
-}
-
-/// The shipped languages with each grammar pointed at its vendored sources.
+/// The shipped languages with each grammar pointed at its test sources (vendored or fetched by
+/// `scripts/test-grammars`).
 pub fn languages_with_vendored_grammars() -> sorcerer_core::domain::language::Languages {
     let d = TempDir::new().unwrap();
     let mut ls = sorcerer_core::domain::language::Languages::assemble(d.path(), &[]).unwrap();
-    for name in ["python", "rust"] {
-        ls.override_grammar(
-            name,
-            sorcerer_core::domain::language::GrammarSource::Local(vendored(name)),
-        );
-    }
+    super::point_at_test_grammars(&mut ls);
     ls
 }
 

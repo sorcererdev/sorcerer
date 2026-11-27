@@ -1,0 +1,5 @@
+comment 9-9 in Booking::is_for
+  |         // should a cancelled booking still count?
+hunk 10-11 in Booking::is_for
+  |         let wanted = table;
+  |         self.table == wanted

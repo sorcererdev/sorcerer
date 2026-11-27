@@ -93,10 +93,11 @@ impl EditorView {
         }
     }
 
-    /// The file's language, loaded; `None` when no language covers the file.
+    /// The file's language, loaded; `None` when no language covers the file or its language
+    /// has no units (its grammar is then never loaded).
     fn language_of(&self, path: &Path) -> Result<Option<std::sync::Arc<Loaded>>> {
         let project = self.files.project();
-        let Some(language) = project.languages.for_path(path) else {
+        let Some(language) = project.languages.with_units_for_path(path) else {
             return Ok(None);
         };
         Ok(Some(

@@ -1,0 +1,12 @@
+--- a/src/booking/models.rs
++++ b/src/booking/models.rs
+@@ -6,6 +6,8 @@ pub struct Booking {
+ 
+ impl Booking {
+     pub fn is_for(&self, table: u32) -> bool {
++        // should a cancelled booking still count?
++        let wanted = table;
+-        self.table == table
++        self.table == wanted
+     }
+ }

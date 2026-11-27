@@ -12,7 +12,7 @@ use sorcerer_core::domain::unit::Span;
 pub enum RegionPlace {
     /// A comment the language's queries capture.
     Comment,
-    /// A paragraph of a file no language covers.
+    /// A paragraph: of a file no language covers, or what its language captures as prose.
     Prose,
     /// A unit whose body does nothing yet.
     Stub,

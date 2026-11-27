@@ -1,0 +1,33 @@
+# The println! becomes a hole saying what it did, and the helper module is written beside it.
+patch = "planted.patch"
+at    = "src/booking/close_table.rs:6"
+
+[[holes]]
+name = "audit_call"
+kind = "stmt"
+file = "src/booking/close_table.rs"
+line = 6
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "src/booking/audit.rs"
+line = 5
+
+[[holes]]
+name = "helper"
+kind = "ident"
+file = "src/booking/audit.rs"
+line = 3
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "src/booking/audit.rs"
+line = 4
+
+[[holes]]
+name = "value_type"
+kind = "type"
+file = "src/booking/audit.rs"
+line = 3

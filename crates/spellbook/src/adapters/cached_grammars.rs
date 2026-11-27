@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use sorcerer_core::Result;
 use sorcerer_core::adapters::grammar::GrammarCache;
-use sorcerer_core::domain::language::{Languages, Loaded};
+use sorcerer_core::domain::language::{CommentMarks, Languages, Loaded};
 
 use crate::ports::grammars::Grammars;
 
@@ -29,7 +29,7 @@ impl Grammars for CachedGrammars {
     }
 
     /// Read from the language's data: no grammar is loaded.
-    fn line_comment(&self, file: &Path) -> Option<String> {
-        self.languages.for_path(file)?.comment.clone()
+    fn comment_marks(&self, file: &Path) -> Option<CommentMarks> {
+        self.languages.for_path(file)?.comment_marks()
     }
 }

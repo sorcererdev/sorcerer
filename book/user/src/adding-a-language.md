@@ -18,6 +18,12 @@ Then copy the grammar's own `queries/tags.scm` into `.sorcerer/languages/go/quer
 That is enough: tools find the *units* of a Go file (its functions, methods and types),
 which is what scry reads and reports on.
 
+A language whose queries capture no unit (no `@definition.function`, `@definition.class` and the
+like: a config format such as TOML, a markup language such as Markdown) still has its comments,
+`spellbook check` rules, generators and owned regions, but it is not reviewed: scry leaves its
+files out (`no units` in the run log) and conjure does not run in them, and neither loads its
+grammar, so editing a README costs nothing and downloads nothing.
+
 The grammars of the languages sorcerer ships come prebuilt: the first time scry needs one, it
 downloads the file for your platform from the release of your scry's version on GitHub,
 checks its SHA-256 against the release's checksum, and keeps it in your cache. If that cannot
@@ -49,8 +55,9 @@ it never keeps them under the project.
 | key | meaning |
 |---|---|
 | `files` | globs over paths in the project: which files are this language's |
-| `grammar` | `{ git = "…", rev = "…" }`, or `{ path = "…" }` for a grammar on disk (relative to the language file's directory) |
-| `comment` | the line-comment marker: allow comments and owned regions' markers are written with it |
+| `grammar` | `{ git = "…", rev = "…" }`, or `{ path = "…" }` for a grammar on disk (relative to the language file's directory). A repository that holds two grammars names the folder of one with `dir`: `{ git = "…", rev = "…", dir = "tsx" }` builds `tsx/src` |
+| `comment` | how a comment starts (`#`, `//`, `<!--`): allow comments, owned regions' markers and an answer lackey keeps are written with it. Leave it out for a language with no comments (JSON): it then has no allow comments and no regions |
+| `comment_end` | how a comment ends, for a language whose comments close (`-->`, `*/`): markers are then written `<!-- spellbook:region … -->` |
 | `unit_words` | how a prompt describes a unit of this language |
 | `unit_separator` | joins a method to its type in a unit's name; `.` unless set (Rust ships `::`) |
 | `[unit] name` | patterns that read a unit's name from its first line, when the queries do not |
@@ -81,6 +88,24 @@ resolve = ["{= path =}.go"]
 # Leading words that name no folder: Rust's `use crate::a::b` is `src/a/b.rs`.
 drop_first = []
 ```
+
+An import written as a path, as ECMAScript's `import { Booking } from "./models"`, says so with
+two more keys:
+
+```toml
+[imports]
+# What separates an import's words when it is not the unit separator.
+separator = "/"
+# `{= dir =}` is the importing file's folder. A `.` or `..` in the filled path is folded away, so
+# "./models" from booking/closeTable.ts is booking/models.ts; a path that climbs out of the
+# project is never looked at.
+resolve = ["{= dir =}/{= path =}.ts", "{= dir =}/{= path =}/index.ts"]
+```
+
+Tests that live in a folder tree beside the code's, as Maven's `src/test/java` beside
+`src/main/java`, take one more `[test]` key: `dir_replace = ["src/main/", "src/test/"]` makes
+`{= dir =}` the file's folder with its first `src/main/` made `src/test/` (a file whose folder has
+no `src/main/` then has no known test file).
 
 Imports are found by a query file, `queries/imports.scm`, that captures each imported path as
 `@import.path` and nothing else (no `@name`, no `@definition.*`, so it adds no unit). Python's:
@@ -136,6 +161,7 @@ what is missing instead of guessing.
 | `@comment.outer` | `textobjects.scm` | a comment (left out of bodies and lists; allow comments are read from it) | all |
 | `@parameters`, `@arguments` | `lists.scm` | a definition's parameter list, a call's argument list | `parameters in`, `call` |
 | `@docstring` | `docstrings.scm` | a string documenting the file (Python) | `imports` in a file without any |
+| `@preamble` | `preamble.scm` | the line that heads a file before its imports: a `package` or file-scoped `namespace` line | `imports` in a file without any (it goes after it) |
 | `@placeholder` | `placeholders.scm` | a statement that does nothing yet (`pass`, `todo!()`) | core's facts: an empty body |
 
 And one key, for what the code cannot show:
@@ -149,6 +175,19 @@ list_separator = ","
 
 The shipped `lists.scm`, `docstrings.scm`, `placeholders.scm` and Rust's `calls.scm` are
 sorcerer's own and short; start from them for a new language.
+
+### What lackey reads
+
+[Lackey](lackey.md) cuts a saved change into regions from the same captures: a comment from
+`@comment.outer`, a stub from the units and `@placeholder`, and prose from `prose.scm`:
+
+| capture | what it marks |
+|---|---|
+| `@prose` | a paragraph (or any run of prose): a changed line inside one is cut by paragraph |
+| `@heading` | a heading: the section of the paragraph under it, not a region of its own |
+
+A language without them is cut as code; a file no language covers, or whose grammar does not
+load, is cut as prose throughout.
 
 ## Changing a shipped language
 
@@ -174,5 +213,5 @@ spellbook reads are in [What anchors and fixes read](#what-anchors-and-fixes-rea
 Sorcerer's code reaches every language this way, through the captures and the language file,
 and never names one, a grammar's node kinds or fields, or a tool (formatter, linter, test runner,
 package manager). Sorcerer's own `scripts/no-language-names` and the `no-*-in-the-engine` rules
-in its `.sorcerer/spellbook/rules.toml` check that on every change, so a language you add needs
-no code.
+in its `.sorcerer/spellbook/rules.toml` check that on every change (the list of names comes from
+the shipped languages themselves), so a language you add needs no code.

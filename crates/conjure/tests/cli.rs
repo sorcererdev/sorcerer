@@ -15,7 +15,6 @@ use sorcerer_core::adapters::env::MapEnv;
 use sorcerer_core::adapters::files_view::FilesView;
 use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::domain::fences::Fences;
-use sorcerer_core::domain::language::GrammarSource;
 use sorcerer_core::ports::ledger::Ledger;
 use support::*;
 
@@ -61,11 +60,7 @@ fn run_with_env(dir: &Path, env: &MapEnv, rest: &[&str], reply: &str) -> (i32, S
     let wire = move |mut project: sorcerer_core::domain::project::Project,
                      _: &conjure::domain::config::ConjureConfig,
                      _: conjure::domain::record::Attempt| {
-        for name in ["python", "rust"] {
-            project
-                .languages
-                .override_grammar(name, GrammarSource::Local(vendored(name)));
-        }
+        support::point_at_test_grammars(&mut project.languages);
         let ledger = Arc::new(JsonlLedger::for_project(&project)?);
         let project = Arc::new(project);
         Ok(Wired {
@@ -299,11 +294,7 @@ fn doctor_reads_the_languages_tables_and_the_imports_query() {
 
 fn rows_on_vendored(dir: &Path, env: &Env) -> Vec<(String, Result<String, String>)> {
     let mut project = Project::open(dir).unwrap();
-    for name in ["python", "rust"] {
-        project
-            .languages
-            .override_grammar(name, GrammarSource::Local(vendored(name)));
-    }
+    support::point_at_test_grammars(&mut project.languages);
     doctor_rows(&project, env, &test_cache())
         .into_iter()
         .map(|r| (r.name.to_string(), r.result))
