@@ -1,0 +1,7 @@
+name = "triage"
+
+# Set from the recording of 2026-11-27, which offered 38 of 43 asks and 2 of 40 ordinary edits
+# (README.md). Replay is exact; the slack is for a re-recording.
+[passing_scores]
+asks_offered_min = 36
+false_offers_max = 3

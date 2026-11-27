@@ -1,5 +1,6 @@
 //! Triage on idle: the person's changes to a file since the last look, cut into regions, each
-//! new region classified (by a free rule, else by Jev in one batch), and kept.
+//! new region classified (by a free rule, else by Jev in one batch, with the region's context:
+//! the lines around it, its section, the session's changes), and kept.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -13,9 +14,11 @@ use crate::domain::config::ApprenticeConfig;
 use crate::domain::cutting::{persons_changed_lines, regions_of};
 use crate::domain::region::Region;
 use crate::domain::region_record::RegionRecord;
-use crate::domain::triage::{free_kind, questions_for, verdict_of};
+use crate::domain::triage::{Triaged, free_kind, questions_for, verdict_of};
+use crate::domain::triage_context::{SessionDiffs, context_of, latest_change};
 use crate::ports::clock::Clock;
 use crate::ports::region_store::RegionStore;
+use crate::ports::session_changes::SessionChanges;
 use crate::ports::syntax::Syntax;
 
 /// What triage runs with.
@@ -24,6 +27,8 @@ pub struct TriageDeps {
     pub regions: Arc<dyn RegionStore>,
     /// Jev; none when its key is not set, and then only the free rules classify.
     pub decider: Option<Arc<dyn Decider>>,
+    /// The session's changes, fenced files left out; none, and Jev reads only the file.
+    pub session: Option<Arc<dyn SessionChanges>>,
     pub ledger: Arc<dyn Ledger>,
     pub clock: Arc<dyn Clock>,
     pub config: ApprenticeConfig,
@@ -46,8 +51,10 @@ pub struct Look<'a> {
 ///    `persons_changed_lines`) over the file's shape (`regions_of`).
 /// 2. A region already kept (same file, same text) is not asked again.
 /// 3. A free rule classifies what it can (a stub is an instruction).
-/// 4. The rest goes to Jev as one batch, when the triage cap and the day's cap allow; when they
-///    do not, or there is no Jev, the rest stays unclassified (and is asked at its next change).
+/// 4. The rest goes to Jev as one batch, each region with its context (`context_of`: the lines
+///    around it, its section, the session's changes and this change), when the triage cap and
+///    the day's cap allow; when they do not, or there is no Jev, the rest stays unclassified
+///    (and is asked at its next change).
 ///
 /// Example: a new sentence in a docstring is a hunk region; Jev says claim 0.91, addressed 0.82,
 /// and it is kept as a claim to check on save.
@@ -78,7 +85,7 @@ pub fn triage_change(look: &Look, deps: &TriageDeps, cancel: &Cancel) -> Vec<Reg
         })
         .collect();
     records.extend(
-        asked_of_jev(&for_jev, deps, cancel)
+        asked_of_jev(&for_jev, look, deps, cancel)
             .into_iter()
             .map(|(region, triaged)| record(region, triaged)),
     );
@@ -89,16 +96,27 @@ pub fn triage_change(look: &Look, deps: &TriageDeps, cancel: &Cancel) -> Vec<Reg
 /// The regions Jev classified, each with its verdict; none when the caps or Jev say no.
 fn asked_of_jev(
     regions: &[Region],
+    look: &Look,
     deps: &TriageDeps,
     cancel: &Cancel,
-) -> Vec<(Region, crate::domain::triage::Triaged)> {
+) -> Vec<(Region, Triaged)> {
     let Some(decider) = &deps.decider else {
         return Vec::new();
     };
     if regions.is_empty() || !triage_affordable(deps) {
         return Vec::new();
     }
-    let questions: Vec<_> = regions.iter().flat_map(questions_for).collect();
+    let session = deps
+        .session
+        .as_ref()
+        .map_or_else(SessionDiffs::default, |session| session.diffs(look.file));
+    let latest = latest_change(look.file, look.before, look.after);
+    let questions: Vec<_> = regions
+        .iter()
+        .flat_map(|region| {
+            questions_for(region, &context_of(region, look.after, &session, &latest))
+        })
+        .collect();
     let Ok(answers) = decider.ask(&questions, cancel) else {
         return Vec::new();
     };

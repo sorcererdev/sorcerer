@@ -9,3 +9,6 @@ corpus/scry/*/bare/** -text
 *.patch -text
 # The conjure eval's recorded replies are compared byte for byte: never converted.
 corpus/conjure/*/replies/** -text
+# The triage eval's recordings are keyed by the texts Jev reads, its scenarios among them.
+corpus/apprentice/*/jev/** -text
+corpus/apprentice/*/scenarios/** -text

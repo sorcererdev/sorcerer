@@ -83,9 +83,19 @@ connections answered at once; past that a connection is closed unanswered.
   file), `regions_of` (comment
   blocks touching a change; prose paragraphs where no language covers the file; stubs; the rest
   as hunks of at most 40 lines with a letter in them).
-- `triage.rs`: `Kind`, `Triaged`, `KIND_CUT` and `ADDRESSED_CUT` (0.70), `free_kind` (a stub
-  is an instruction), `questions_for` (the four questions, sharing the region's `text` and
-  `where`, so Jev takes them as one request), `verdict_of`.
+- `triage.rs`: `Kind`, `Triaged`, `KIND_CUT` (0.25: the kinds other than aside together) and
+  `ADDRESSED_CUT` (0.12: "do you want it answered, checked or done now"), `free_kind` (a stub
+  is an instruction), `questions_for` (the four questions, sharing the region's `text`,
+  `where` and its context through `state_of`, so Jev takes them as one request), `verdict_of`
+  (the likeliest kind other than aside, from the choice's distribution: `likeliest_ask`).
+- `triage_context.rs`: what Jev reads beside a region. `TriageContext` (`around`, `section`,
+  `session_changes`), `context_of`, `around_text` (20 lines above and 10 below, the region's
+  marked `> `), `section_text` (for a paragraph: the heading above it, from the marks in
+  `library/prose.toml`, and whether the section holds anything else), `session_changes_text`
+  (`SessionDiffs` in order, at most `SESSION_CHARS` (12,000), a diff that does not fit counted
+  instead, then the latest change cut at `LATEST_CHARS` (4,000)), `latest_change` and
+  `added_file_diff` (over `similar`). The strategy and the cuts were chosen on the triage corpus
+  (below); its report is in the notes (`apprentice-triage-context-report-2026-11-27.md`).
 - `region_record.rs`: `RegionRecord` (the region, its triage, its `Reply`, dismissed),
   `ReplyVerdict`, `RegionRecords` (`regions.json`, `Versioned`), `Label` (a line of
   `labels.jsonl`); `offers_a_task` (an instruction, or a claim that does not hold),
@@ -100,7 +110,8 @@ connections answered at once; past that a connection is closed unanswered.
 Asked`, `edits_since_look`, `progress`, `finished`), `task_store.rs`, `journal.rs`,
 `permission_store.rs`, `project_context.rs` (the unit at a line, scry's notes near it, the
 rules), `syntax.rs` (`Syntax::shape`, `comment_prefix`), `region_store.rs` (`RegionStore`:
-`get`, `of_file`, `put`, `label`), `clock.rs`.
+`get`, `of_file`, `put`, `label`), `session_changes.rs` (`SessionChanges::diffs`: the branch's
+changed files, the region's first), `clock.rs`.
 
 **Use cases** (`src/usecases/`): `run_task/` (below), `triage_regions.rs` (`triage_change`,
 `TriageDeps`, `Look`, `acted_on_in`), `answer_regions.rs` (`answer_saved`, `AnswerDeps`),
@@ -114,7 +125,10 @@ id), `jsonl_task_store.rs`, `markdown_journal.rs`, `json_permissions.rs`, `proje
 (`FilesContext`), `scry_files.rs`, `steering_files.rs`, `state_files.rs` (`StateFiles`: every
 path under `.sorcerer/state/apprentice/`), `disk_editor.rs` (`DiskEditor`, the command line's
 editor), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
-`COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `json_region_store.rs`,
+`COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `git_session.rs`
+(`GitSession`: the merge base with `origin/HEAD`, `main` or `master` through core's
+`CodebaseView`, `changed_since` less what the `Fences` refuse, each file's `diff`, a file git
+does not track as `added_file_diff`, until the budget), `json_region_store.rs`,
 `system_clock.rs`, `wiring.rs` (`live_agent`, `task_deps`, `WireAgent`), and `lsp/` (the
 server, below).
 
@@ -290,8 +304,10 @@ untrusted, says `NOT_TRUSTED` once and does nothing.
 **The two clocks** (`watch.rs`). `opened` starts a file's look at its saved text (`look_from_open`): when the buffer is not the disk (the person typed while the editor was still starting the server, which VS Code does without waiting, or the editor restored an unsaved buffer) the look is the disk's and a `look_at` is submitted as if they had typed, so those edits are triaged too; a file not on the disk starts at its text now. `changed` submits `look_at` under `idle:<path>`; `saved` cancels
 it, then runs `look_at` and `answer_on_save` under `save:<path>`. `look_at` takes the text now,
 swaps it for the last look, and (unless `head_moved`, which resets every look) runs `triage`
-(`regions.rs`, building `TriageDeps` over `GrammarSyntax`, `JsonRegionStore`, the ledger and the
-decider) on the change, then `publish`. A task's own `write_file` moves the look
+(`regions.rs`, building `TriageDeps` over `GrammarSyntax`, `JsonRegionStore`, a `GitSession`
+over the disk view and the project's fences, the ledger and the decider) on the change, then
+`publish`. In `triage_change`, `asked_of_jev` gathers the session once a look, makes
+`latest_change` from the look's two texts, and asks each region with its `context_of`. A task's own `write_file` moves the look
 (`looked_at_own_edit`), so its edits are never triaged as the person's. Edits the other
 servers land are told apart through the host's `tool_edits` note: `triage` reads
 `lines_tools_landed` for the file into `Look::landed_by_tools`, and `persons_changed_lines`
@@ -418,7 +434,21 @@ and reported, pickers answered from a queue), `StubJev` and `StubResearcher`
 (`tests/support/model_doubles.rs`) and the vendored grammars: the design's walk (a claim
 checked on save and offered, a task that writes, asks on a line, asks before a command, then
 *Show diff* and *Undo this task*), keeping on save, a stub offered by rule, a question answered
-and kept, labels and dismissal, an untrusted project, ghost and note. No test calls a model.
+and kept, labels and dismissal, an untrusted project, ghost and note. `tests/session_changes.rs`:
+`GitSession` over a real git repository (a branch commit, an unsaved-in-git change, a new
+file, and a `.env` that never shows). No test calls a model.
+
+**The triage eval** (`tests/triage_eval.rs`, corpus `corpus/apprentice/triage/`): 83 labelled
+regions (43 asks: instructions such as `Fill this in` under an empty heading, `TODO: handle
+errors`, `example here`, a bare `?`, `flesh out`; questions; claims; and 40 ordinary edits,
+hard negatives among them: a note for later, documentation that states a behaviour, a
+rhetorical question). Each case is `[find, replace]` edits on a scenario file
+(`scenarios/<name>/files/`) with the scenario's `session.patch` as the session; the eval cuts
+it with the vendored grammars, runs `triage_change` with Jev replayed from `jev/` (by
+`question_key`) and checks `corpus.toml`'s `[passing_scores]` (`asks_offered_min`,
+`false_offers_max`). `APPRENTICE_RECORD=jev` records the missing answers live and drops the
+unused; `APPRENTICE_EVAL_VERBOSE=1` prints every case. `tools/measure.py` and `tools/score.py`
+measured the context strategies against live Jev; the corpus's `README.md` says how.
 
 The VS Code extension (`editors/vscode/apprentice/`): `npm run test:unit` covers the pure
 files (`keys`, `marks`, `ghost`, `diff`, the copies, and `package.test.ts`: the manifest, the

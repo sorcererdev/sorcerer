@@ -15,6 +15,7 @@ use sorcerer_lsp::landing::{FileChange, NewFiles, OpenDocument, Snapshot, worksp
 use sorcerer_lsp::line_edits::line_edits;
 use sorcerer_lsp::tool_edits::lines_tools_landed;
 
+use crate::adapters::git_session::GitSession;
 use crate::adapters::grammar_syntax::GrammarSyntax;
 use crate::adapters::json_region_store::JsonRegionStore;
 use crate::adapters::state_files::StateFiles;
@@ -22,6 +23,7 @@ use crate::domain::config::{ApprenticeConfig, apprentice_config};
 use crate::domain::region_record::RegionRecord;
 use crate::domain::triage::Kind;
 use crate::ports::region_store::RegionStore;
+use crate::ports::session_changes::SessionChanges;
 use crate::ports::syntax::Syntax;
 use crate::usecases::answer_regions::{AnswerDeps, answer_saved};
 use crate::usecases::label_region::{dismiss_region, label_region};
@@ -51,7 +53,7 @@ impl Server {
     }
 
     /// Triage of one change, through the use case; a fenced file is never triaged (its text
-    /// would reach Jev).
+    /// would reach Jev), and the session's changes Jev reads leave fenced files out.
     pub(super) fn triage(&self, path: &Path, before: &str, after: &str, cancel: &Cancel) {
         let (Some(project), Some(file)) = (self.trusted_project(), self.relative(path)) else {
             return;
@@ -65,10 +67,17 @@ impl Server {
         ) else {
             return;
         };
+        let session = Fences::for_project(&project).ok().map(|fences| {
+            Arc::new(GitSession {
+                view: self.cfg.disk_view(&project),
+                fences,
+            }) as Arc<dyn SessionChanges>
+        });
         let deps = TriageDeps {
             syntax: Arc::new(self.syntax(&project)),
             regions,
             decider: (self.cfg.decider)(&project),
+            session,
             ledger: Arc::new(ledger),
             clock: self.cfg.clock.clone(),
             config: Self::config(&project),

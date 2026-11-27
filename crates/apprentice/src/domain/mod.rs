@@ -23,4 +23,5 @@ pub mod task;
 pub mod token_cost;
 pub mod tree_readers;
 pub mod triage;
+pub mod triage_context;
 // spellbook:end domain-modules
