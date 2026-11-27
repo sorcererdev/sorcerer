@@ -38,6 +38,14 @@ pub struct Finding {
     /// For a region's finding: the region and how many lines a sync would add and remove.
     #[serde(flatten, default, skip_serializing_if = "Option::is_none")]
     pub region: Option<RegionDrift>,
+    /// Whether the baseline records this finding (`spellbook check --baseline`): known debt that
+    /// never fails `check`. Left out of the JSON when it is not.
+    #[serde(default, skip_serializing_if = "is_new")]
+    pub existing: bool,
+}
+
+fn is_new(existing: &bool) -> bool {
+    !*existing
 }
 
 /// A region's finding: which region, and what `spellbook sync` would do to its block.

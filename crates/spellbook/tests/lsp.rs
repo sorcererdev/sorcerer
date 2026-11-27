@@ -816,6 +816,36 @@ fn saving_a_command_with_sqlite3_shows_an_error() {
 }
 
 #[test]
+fn a_baselined_finding_is_a_hint_marked_existing() {
+    let dir = bistro_project();
+    use_corpus_rules(dir.path(), "bistro");
+    write_file(
+        dir.path(),
+        CLOSE,
+        "from dataclasses import dataclass\nimport sqlite3\n",
+    );
+    let wired = support::wired_at(dir.path());
+    let checking = wired.checking().unwrap();
+    let found = spellbook::usecases::check_project::check_project(&checking.deps()).unwrap();
+    spellbook::adapters::baseline_toml::write_baseline(
+        &wired.project,
+        &spellbook::domain::baseline::Baseline::of(&found),
+    )
+    .unwrap();
+    let s = served(dir.path());
+    s.open(CLOSE);
+    let marks = s.marks(CLOSE);
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].severity, Some(lsp_types::DiagnosticSeverity::HINT));
+    assert!(
+        marks[0].message.ends_with(" (existing)"),
+        "{}",
+        marks[0].message
+    );
+    s.stop();
+}
+
+#[test]
 fn marks_and_findings_are_published_together() {
     let dir = bistro_project();
     use_corpus_rules(dir.path(), "bistro");

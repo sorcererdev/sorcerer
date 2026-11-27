@@ -221,6 +221,7 @@ fn finding_of(instance: &RegionInstance, before: &str, state: State) -> Option<F
         fingerprint: fingerprint(rule, &format!("{name} {}", instance.file)),
         node_text: String::new(),
         region: Some(drift),
+        existing: false,
     })
 }
 

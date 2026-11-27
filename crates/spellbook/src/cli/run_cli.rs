@@ -141,9 +141,21 @@ fn run_command(
             };
             sync::sync(&wire(project)?, &request, out, err)
         }
-        Cmd::Check { files, json } => {
-            let files = relative_to_root(&project, cwd, &files)?;
-            check::check(&wire(project)?, &files, json, out)
+        Cmd::Check {
+            files,
+            since,
+            baseline,
+            json,
+        } => {
+            if baseline {
+                return check::record_baseline(&wire(project)?, json, out);
+            }
+            let scope = match since {
+                Some(rev) => check::CheckScope::Since(rev),
+                None if files.is_empty() => check::CheckScope::Project,
+                None => check::CheckScope::Files(relative_to_root(&project, cwd, &files)?),
+            };
+            check::check(&wire(project)?, &scope, json, out)
         }
     }
 }

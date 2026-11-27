@@ -61,6 +61,7 @@ mod tests {
             message: "m".into(),
             fingerprint: "0000000".into(),
             node_text: String::new(),
+            existing: false,
         }
     }
 

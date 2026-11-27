@@ -25,6 +25,6 @@ pub fn check_project(deps: &CheckDeps) -> Result<Vec<Finding>> {
 }
 
 /// The project's own settings and state are never checked.
-fn is_spellbooks_own(file: &std::path::Path) -> bool {
+pub(super) fn is_spellbooks_own(file: &std::path::Path) -> bool {
     file.starts_with(".sorcerer") || file.starts_with(".git")
 }

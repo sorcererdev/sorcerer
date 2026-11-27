@@ -167,6 +167,7 @@ mod tests {
             message: "m".into(),
             fingerprint: "f".into(),
             node_text: "x".into(),
+            existing: false,
         }
     }
 

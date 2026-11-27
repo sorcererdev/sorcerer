@@ -1,6 +1,8 @@
 //! Changes to a file that is already there, made of whole lines: what an `insert` edit or a fix's
 //! `replace` does to the text, and the line diff a plan shows for it.
 
+use std::collections::BTreeSet;
+
 use serde::Serialize;
 
 use crate::domain::anchor::Place;
@@ -176,6 +178,21 @@ pub fn hunks(old: &str, new: &str) -> Vec<Hunk> {
                 })
                 .collect(),
         })
+        .collect()
+}
+
+/// The lines of `new` (counted from 1) that are not in `old`: added, or changed. Line endings do
+/// not count, so a file git checked out with `\r\n` is not all new against its commit.
+///
+/// Example: `a\nb\nc\n` to `a\nB\nc\nd\n` is lines 2 and 4; removing a line adds none.
+pub fn added_lines(old: &str, new: &str) -> BTreeSet<u32> {
+    let (old, new) = (old.replace("\r\n", "\n"), new.replace("\r\n", "\n"));
+    TextDiff::from_lines(&old, &new)
+        .ops()
+        .iter()
+        .filter(|op| !matches!(op, DiffOp::Equal { .. } | DiffOp::Delete { .. }))
+        .flat_map(|op| op.new_range())
+        .map(|row| u32::try_from(row + 1).unwrap_or(u32::MAX))
         .collect()
 }
 
@@ -358,6 +375,15 @@ mod tests {
                 new: "B\n".into()
             }
         );
+    }
+
+    #[test]
+    fn added_lines_are_the_new_and_changed_ones() {
+        let lines = |old, new| added_lines(old, new).into_iter().collect::<Vec<u32>>();
+        assert_eq!(lines("a\nb\nc\n", "a\nB\nc\nd\n"), [2, 4]);
+        assert!(lines("a\nb\n", "a\n").is_empty());
+        assert!(lines("a\nb\n", "a\r\nb\r\n").is_empty());
+        assert_eq!(lines("", "a\nb"), [1, 2]);
     }
 
     #[test]

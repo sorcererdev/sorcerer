@@ -67,6 +67,12 @@ pub(super) enum Cmd {
     Check {
         /// Only these files
         files: Vec<PathBuf>,
+        /// Only the findings on lines changed since this commit (and every region)
+        #[arg(long, value_name = "REV", conflicts_with = "files")]
+        since: Option<String>,
+        /// Record today's findings as known debt in .sorcerer/spellbook/baseline.toml
+        #[arg(long, conflicts_with_all = ["files", "since"])]
+        baseline: bool,
         /// Print the findings as JSON (for an agent or a script)
         #[arg(long)]
         json: bool,
