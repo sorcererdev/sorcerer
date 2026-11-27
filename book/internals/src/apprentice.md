@@ -43,9 +43,12 @@ connections answered at once; past that a connection is closed unanswered.
   `UsageSeen` (the calls by message id, the last usage of each; `cost` at a model's
   `[input, output]` price, cache reads at 0.1, writes at 1.25 or 2 times the input price;
   `None` when nothing was seen or a model has no price).
-- `status.rs`: `activity_of` (`reading booking.py`, `running make`, `subagent: …`; Claude
-  Code's `ToolSearch` is `getting ready`),
-  `CommandVerdict` and `command_activity` (`waiting for you: ls`, `running ls`, `denied: ls`),
+- `status.rs`: `activity_of` (`reading booking.py`, `subagent: …`; a `Bash` call the stream
+  shows is `waiting until allowed: make`, since every command passes the permission tool, which
+  says `running make` once allowed; Claude Code's `ToolSearch` is `getting ready`),
+  `CommandVerdict` and `command_activity` (`waiting for you: ls`, `running ls`, `denied: ls`; a
+  chain is named by `programs_of`: the first word of each part split at `;`, `&&`, `||`, `|`,
+  `&`, past `NAME=value` and brackets, each once, at most 3, so `ls; cat x` is `ls, cat`),
   and `status_text`; the status line is derived, never written by the agent.
 - `mediums.rs`: the six tools and the permission tool (`tool_definitions`: names, descriptions,
   JSON schemas), `ToolCall` and `tool_call_of`, `Ask`, `AskWay`, `MarkSeverity`, `is_a_medium`.
@@ -160,7 +163,8 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
      (`say_where_the_command_stands`, which journals each as a `tool` entry), and the verdict is
      kept for the stream. Because every command goes through here, `saw` (`follow.rs`) journals
      no command itself: the stream usually shows the call before the question, and the journal
-     would say `running ls` for a command still waiting.
+     would say `running ls` for a command still waiting. The status line it sets for such a call
+     is `waiting until allowed: ls` (`activity_of`), never `running`.
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
 4. **Finish** (`finish.rs`, `finish_task`): the state (`done`, `failed`, `stopped`), the cost

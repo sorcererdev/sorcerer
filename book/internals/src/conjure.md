@@ -198,7 +198,8 @@ the mark's *Show `<file>`* titles use too (`other_files` in `commands.rs`),
    and still say applied): all as sent, `show` makes it the shown change (`Open`; the one before
    is recorded `kept` by `end_with`) and `publish_marks` replaces every mark; some not, it is
    said, recorded `landed-in-part` and shown `Recorded` with the note; none, it is said and
-   recorded `dropped`. On a refusal the person is told and it is recorded `dropped`. `ended` ends
+   recorded `dropped`. Both messages name the files by `names_told_apart` over all the change's
+   files. On a refusal the person is told and it is recorded `dropped`. `ended` ends
    the progress line and lets `running` go.
 4. **Marked.** `marks.rs`: `marks_of` (the main mark on the asked file, else the first changed
    file; an `Other` mark per other file; a `NoChange` mark on the unit's first line) and
@@ -288,7 +289,10 @@ The flag makes Neovim send each `didChange` at once: Neovim otherwise sends it u
 and `moved_on` could not see typing in that window. The attach to every buffer matters because
 Neovim checks only the first file's version in a `WorkspaceEdit`, loads an unopened file for an
 edit without conjure attached to it, and the server would then read that file as "did not land as
-sent" (`confirm_landed`). `status()` of the plugin joins scry's and conjure's progress lines. `lua/sorcerer/working.lua`
+sent" (`confirm_landed`). A file the change creates is attached too though it is not on disk:
+Neovim's `create_file` (`runtime/lua/vim/lsp/util.lua`) writes nothing for a `CreateFile` with
+`ignoreIfExists`, only `bufadd`s the name, so `M.attach` skips a name with another scheme
+(`fugitive://…`) rather than a name not on disk. The same goes for apprentice's `M.attach`. `status()` of the plugin joins scry's and conjure's progress lines. `lua/sorcerer/working.lua`
 draws `sorcerer/working` for both servers: `client_config()` adds `init_options = { drawsWorking =
 true }`, the `sorcerer/working` handler and an `on_exit` that clears, to each `vim.lsp.start`;
 `show` puts one `eol` extmark per unit in the `sorcerer_working` namespace (highlight

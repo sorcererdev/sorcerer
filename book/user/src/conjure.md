@@ -33,8 +33,8 @@ binds none, `keys = { undo = false }` skips one, and a key you already mapped is
 The plugin starts `conjure lsp` on the files you open, one server per project root, and does two
 things the server relies on: it reports every edit at once (`debounce_text_changes = 0`, so a
 change never lands over what you typed a moment ago), and it attaches conjure to every buffer
-under the project root, including the files a change opens (a file the server cannot see counts
-as not landed). Marks show in `vim.diagnostic` (`vim.diagnostic.setloclist()`), and a conjured change draws `✦` in the sign
+under the project root, including the files a change opens and the files it creates, which in
+Neovim are buffers not yet on disk (a file the server cannot see counts as not landed). Marks show in `vim.diagnostic` (`vim.diagnostic.setloclist()`), and a conjured change draws `✦` in the sign
 column with its line number tinted (`SorcererConjured`, linking `DiagnosticSignOk`), apart from a
 hole's `◇` and a rule finding's `≡`; `conjure.sign = false` gives Neovim's own display back.
 `require("sorcerer").status()` says `conjure: conjuring a change` while one runs (joined to
@@ -82,7 +82,8 @@ not started`; the running one goes on.
 
 **The change lands.** One edit carries every file: a file you have open is edited where you see
 it (only the lines the writer changed); a file you do not have open opens as an unsaved buffer; a
-new file is created on disk by the editor, empty, and filled in your buffer. Nothing is saved:
+new file is created by the editor and filled in your buffer (VS Code creates it on disk, empty;
+Neovim makes only the buffer, and the file is on disk once you save it). Nothing is saved:
 the change is in your buffers, yours to read, keep or undo. Conjure reads your unsaved text when
 it asks, and the edit is made against exactly that text: if a file the change touches changes
 while it is being conjured (you type in it, or a tool rewrites it on disk, or a new file it would
@@ -91,7 +92,9 @@ conjured; your text stands`. Once the editor says it applied the edit, conjure c
 file reads as the change made it. When one does not (an editor may skip a file and still say it
 applied the edit), you are told `conjure: the change did not land as sent in <files>; the other
 files were changed, and conjure will not undo them`, the marks end with ` · did not land as sent:
-<files>, so no Undo`, and the change is recorded `landed-in-part`. An editor that cannot create files gets the rest of the change and the line
+<files>, so no Undo`, and the change is recorded `landed-in-part`. Each file is named by its name,
+or by its path when two files of the change share a name (`src/ports/mod.rs`,
+`src/ports/walk_in_log/mod.rs`). An editor that cannot create files gets the rest of the change and the line
 `conjure: this editor cannot create files; not created: <paths>`.
 
 **The marks.** On the first changed line of the file you asked in, an information mark says what

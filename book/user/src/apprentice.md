@@ -63,8 +63,10 @@ words. A checkout or a pull (`.git/HEAD` moved) starts every look over, saying n
 **While a task runs**, the status line says what it does (`apprentice: refuse late
 cancellations · reading booking.py · $0.00`, then `writing cancel_booking.py`, `running uv`,
 `subagent: reading routes.py`; `getting ready` while the agent loads its own tools), and the place it writes shows `⟳ apprentice: writing…`. A
-command waiting for your permission says `waiting for you: ls`, then `running ls`, or `denied:
-ls` when you said no. The amount is what the calls seen so far would cost at the model's price. Its
+command says `waiting until allowed: uv` until it is allowed (by a line you allowed always, or by
+you), and one waiting for your permission says `waiting for you: ls`, then `running ls`, or `denied:
+ls` when you said no. A chain is named by its programs, each once and at most three: `ls; cat
+pyproject.toml` is `denied: ls, cat`. The amount is what the calls seen so far would cost at the model's price. Its
 changes land in your buffers, unsaved, each one undoable with your editor's undo. A question it
 asks on a line is a mark there (`apprentice asks: …`) with one code action per option; a
 command it wants to run is asked in a list. *Stop this task* is offered on any line while it
