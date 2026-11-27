@@ -1,0 +1,11 @@
+# JSON: tree-sitter-json 0.24.8. JSON has no comments, so no allows and no regions: a config format. It has no units (no definitions), so scry and conjure never load it; spellbook
+# reads its rules, comments and holes.
+files = ["**/*.json"]
+grammar = { git = "https://github.com/tree-sitter/tree-sitter-json", rev = "ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24" }
+
+# The code spellbook writes where a generator leaves a hole.
+[holes]
+expr = "\"hole {= name =}: {= instruction =}\""
+
+[syntax]
+list_separator = ","

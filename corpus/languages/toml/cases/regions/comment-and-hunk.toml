@@ -1,0 +1,3 @@
+# A question typed as a comment above a dependency, and a line of config below it.
+file  = "Cargo.toml"
+patch = "comment-and-hunk.patch"

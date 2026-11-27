@@ -1,0 +1,4 @@
+{
+  "name": "{= name =}",
+  "limit": {= ? limit: expr | the largest value allowed =}
+}

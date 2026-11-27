@@ -1,0 +1,2 @@
+# serde turned to "*": the rule's finding.
+patch = "planted.patch"

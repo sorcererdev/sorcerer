@@ -1,0 +1,2 @@
+hunk 8-8 in -
+  |     "lint": "eslint src"

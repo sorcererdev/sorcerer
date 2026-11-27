@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A module file with one value left as a hole"
+description = "modules/NAME.toml: a name and a retry count that is a hole"
+language    = "toml"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The module (audit, report)"
+
+[[edits]]
+create   = "modules/{= name|snake =}.toml"
+template = "thing.toml.dt"

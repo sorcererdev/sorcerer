@@ -1,0 +1,9 @@
+# A thing: a hole of the kind in [holes], parsing where it is.
+generator = "thing"
+inputs    = { name = "audit" }
+
+[[holes]]
+name = "limit"
+kind = "expr"
+file = "config/audit.json"
+line = 3

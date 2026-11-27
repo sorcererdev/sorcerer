@@ -1,0 +1,2 @@
+sync (1 file changed)
+  ~ stacks.yml  (region stacks: set up, 2 items)

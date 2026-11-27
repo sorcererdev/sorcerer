@@ -1,0 +1,5 @@
+# One rule: a dependency names its version, never "*".
+[rules.no-wildcard-dependency]
+files   = "Cargo.toml"
+match   = { kind = "pair", regex = "^[A-Za-z0-9_-]+\\s*=\\s*\"\\*\"\\s*$" }
+message = "pin the dependency to a version: \"*\" takes whatever is newest"

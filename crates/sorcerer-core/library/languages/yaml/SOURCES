@@ -1,0 +1,7 @@
+# YAML: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-yaml 0.7.2, git 7708026449bed86239b1cd5bce6e3c34dbca6415. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/yaml/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+# changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of?, #not-any-of? and
+# nothing else; a pattern using another predicate or directive is removed):
+#   textobjects.scm: removed the two `(comment) @comment.inner @comment.outer` patterns (they use
+#   #offset! and #lua-match?), and added `(comment) @comment.outer` at the end in their place.

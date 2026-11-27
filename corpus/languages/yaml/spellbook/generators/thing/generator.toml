@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A stack file with one value left as a hole"
+description = "stacks/NAME.yml: a name and a replica count that is a hole"
+language    = "yaml"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The stack (audit, report)"
+
+[[edits]]
+create   = "stacks/{= name|snake =}.yml"
+template = "thing.yml.dt"

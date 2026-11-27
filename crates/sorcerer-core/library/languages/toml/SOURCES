@@ -1,0 +1,4 @@
+# TOML: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-toml 0.7.0, git 64b56832c2cffe41758f28e05c756a3a98d16f41. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/toml/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+# changes: none (byte-for-byte the pinned upstream file).

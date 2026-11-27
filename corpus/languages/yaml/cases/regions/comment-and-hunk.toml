@@ -1,0 +1,3 @@
+# A question typed as a comment above a service, and a line of config below it.
+file  = "docker-compose.yml"
+patch = "comment-and-hunk.patch"

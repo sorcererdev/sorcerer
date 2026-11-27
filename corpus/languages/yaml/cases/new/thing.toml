@@ -1,0 +1,9 @@
+# A thing: a hole of the kind in [holes], parsing where it is.
+generator = "thing"
+inputs    = { name = "audit" }
+
+[[holes]]
+name = "replicas"
+kind = "expr"
+file = "stacks/audit.yml"
+line = 2

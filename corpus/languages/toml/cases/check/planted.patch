@@ -1,0 +1,9 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -5,5 +5,5 @@
+ edition = "2021"
+ 
+ [dependencies]
+-serde = "1.0.200"
++serde = "*"
+ chrono = { version = "0.4.38", features = ["serde"] }

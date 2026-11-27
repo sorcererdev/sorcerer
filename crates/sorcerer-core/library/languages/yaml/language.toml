@@ -1,0 +1,9 @@
+# YAML: tree-sitter-yaml 0.7.2: a config format. It has no units (no definitions), so scry and conjure never load it; spellbook
+# reads its rules, comments and holes.
+files = ["**/*.yml", "**/*.yaml"]
+comment = "#"
+grammar = { git = "https://github.com/tree-sitter-grammars/tree-sitter-yaml", rev = "7708026449bed86239b1cd5bce6e3c34dbca6415" }
+
+# The code spellbook writes where a generator leaves a hole.
+[holes]
+expr = "null  # hole {= name =}: {= instruction =}"

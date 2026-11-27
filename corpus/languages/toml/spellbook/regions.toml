@@ -1,0 +1,6 @@
+# modules.toml names each module file.
+[regions.modules]
+file    = "modules.toml"
+query   = { glob = "modules/*.toml" }
+item    = "{= stem =} = true"
+init_at = "end of file"

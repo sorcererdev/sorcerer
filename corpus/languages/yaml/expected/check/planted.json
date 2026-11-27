@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-latest-image",
+    "file": "docker-compose.yml",
+    "line": 10,
+    "severity": "error",
+    "message": "pin the image to a version: :latest changes under you",
+    "fingerprint": "d7365eb"
+  }
+]
