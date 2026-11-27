@@ -9,6 +9,9 @@ on:
       plan:
         required: true
         type: string
+  # a dry run by hand (Actions → build-grammars → Run workflow, on any branch): every grammar
+  # on every runner, uploaded as the run's artifacts, attached to nothing
+  workflow_dispatch:
 jobs:
   grammars:
     strategy:
@@ -25,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # prints each library and its size; fails on one over the 20 MB scry downloads
       - run: cargo run --release -p sorcerer-core --example build-grammars -- grammars
         shell: bash
       - uses: actions/upload-artifact@v4

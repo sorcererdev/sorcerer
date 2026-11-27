@@ -4,8 +4,10 @@
 # a stranger gets), reviewed by the installed `scry` through the Anthropic API. Needs
 # ANTHROPIC_API_KEY and JEV_API_KEY; spends at most $0.20.
 #
-# It fails unless doctor is green and its languages row says the grammar was downloaded, and
-# unless scry exits 1 (a finding shown). It prints doctor's rows, the review and `scry cost`.
+# A TypeScript corner (corpus/languages/typescript/base) sits beside the Python, so doctor loads
+# more than one grammar (with bistro's HTML and TOML). It fails unless doctor is green and its
+# languages row names typescript and says every grammar was downloaded (none built), and unless
+# scry exits 1 (a finding shown). It prints doctor's rows, the review and `scry cost`.
 # It checks `conjure --version` too (conjure is installed with its README line; no live conjure
 # call).
 # Usage: scripts/smoke-review   (scry and conjure on PATH)
@@ -13,6 +15,8 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 cp -R "$here/corpus/scry/bistro/base/." "$work/"
+mkdir -p "$work/web"
+cp -R "$here/corpus/languages/typescript/base/." "$work/web/"
 mkdir -p "$work/.sorcerer"
 cat > "$work/.sorcerer/config.toml" <<'TOML'
 [model]
@@ -34,8 +38,12 @@ conjure --version
 echo "== scry doctor"
 doctor=$(scry doctor) || { echo "$doctor"; echo "doctor is not green"; exit 1; }
 echo "$doctor"
-if ! grep -E '^languages +ok .*downloaded' <<<"$doctor" > /dev/null; then
-  echo "the languages row does not say downloaded"
+if ! grep -E '^languages +ok .*typescript.*downloaded' <<<"$doctor" > /dev/null; then
+  echo "the languages row does not name typescript as downloaded"
+  exit 1
+fi
+if grep -E '^languages .*built with' <<<"$doctor" > /dev/null; then
+  echo "a grammar was built, not downloaded"
   exit 1
 fi
 

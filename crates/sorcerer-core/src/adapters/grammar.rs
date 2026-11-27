@@ -278,8 +278,10 @@ fn compiler_name(compiler: Option<&CCompiler>) -> String {
         .unwrap_or_default()
 }
 
-/// The largest library accepted from a release: 20 MB (the shipped grammars are under 3 MB).
-const LIBRARY_CAP: u64 = 20 * 1024 * 1024;
+/// The largest library accepted from a release: 20 MB. The largest shipped grammar, SQL's, is
+/// about 13.4 MB; the release job (`examples/build-grammars.rs`) refuses to ship one over this
+/// cap, since scry would never download it.
+pub const LIBRARY_CAP: u64 = 20 * 1024 * 1024;
 
 /// The largest `.sha256` file accepted: one line of a 64-digit sum and a file name.
 const SUM_CAP: u64 = 4096;
