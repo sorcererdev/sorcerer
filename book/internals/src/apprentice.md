@@ -115,7 +115,8 @@ id), `jsonl_task_store.rs`, `markdown_journal.rs`, `json_permissions.rs`, `proje
 path under `.sorcerer/state/apprentice/`), `disk_editor.rs` (`DiskEditor`, the command line's
 editor), `grammar_syntax.rs` (`GrammarSyntax`: comments from core's `Captures` and
 `COMMENT`, units from `units_of`, stubs from `facts_of`'s `body_empty`), `json_region_store.rs`,
-`system_clock.rs`, `wiring.rs` (`live_agent`, `task_deps`, `WireAgent`), and `lsp/` (the
+`system_clock.rs`, `wiring.rs` (`live_agents`: the agent builder, holding one core
+`FencedLinksCache` per project root for the server's life; `task_deps`, `WireAgent`), and `lsp/` (the
 server, below).
 
 **Command line** (`src/cli/`): `run_cli.rs` (`main`, `main_with`, `Wiring`), `arguments.rs`,
@@ -186,7 +187,9 @@ person's verdict on each command asked about, the `Cancel`.
 `--setting-sources ""` (no project settings, hooks or `CLAUDE.md` reach the child; core's trust
 gate stays in front), `--settings` (the two hooks, `PostToolUse` and `Stop`, each `"<apprentice>"
 hook <event>` with `/` in the path on every system; then `permissions`: `deny` holds the five
-tools and every fence as `Read(./…)` (a `dir/**` fence also as `Read(./dir)`, each rule once),
+tools and every fence as `Read(./…)` (a `dir/**` fence also as `Read(./dir)`, each rule once,
+and `Read(./link)` with `Read(./link/**)` for each fenced link, from the project's
+`FencedLinksCache` given by `with_links_cache`, else a fresh `Fences::fenced_links` walk),
 which Claude Code applies to Read, Grep, Glob, `@`-mentions and the file commands it parses
 (`cat .env`, `head`, `cp .env x`); `ask` is `ASKED_TOOLS`, `Bash`, `PowerShell` and `Monitor`,
 so every command reaches the permission tool, even the ones Claude Code otherwise runs unasked

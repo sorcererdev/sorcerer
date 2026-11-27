@@ -173,6 +173,10 @@ reading and searching your files, running commands. What it may not do:
   that names a fenced path plainly (`git show HEAD:.env`, `ls .git`) is refused before you are
   asked, even one you allowed always; one that spells it some other way (`X=.env; cat $X`) is
   caught by you, since every command is asked about. Nothing outside the project can be read with the file tools.
+  A symbolic link that leads out of the project or onto a fenced file is denied by name; the
+  links are looked for when each task starts, so a link made since the last task is denied too.
+  The look walks again only the folders that changed since the last task, so a large project
+  starts its tasks fast.
   apprentice itself never hands it a fenced file either: what you type in an open `.env`, a
   `not_evidence` file or a task's journal is left out of the edits it is fed and of its first
   message, a fenced file is never triaged, and an instruction written in one does not start.

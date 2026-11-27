@@ -4,6 +4,7 @@
 
 // spellbook:region adapters-modules (from crates/sorcerer-core/src/adapters/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod env;
+pub mod fenced_links_cache;
 pub mod fences;
 pub mod files_view;
 pub mod grammar;

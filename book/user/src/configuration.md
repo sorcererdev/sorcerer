@@ -87,6 +87,9 @@ Some paths are fenced: no model is shown them, and no citation may point at them
 When the model runs through sorcerer's own tools (Anthropic's API, an OpenAI-compatible
 server), every path is checked before it is read. When it runs through `claude -p`,
 Claude Code enforces the fences with deny rules, including one for each symbolic link
-that leads out of the project. Claude Code cannot be told to refuse every path outside the
+that leads out of the project or onto a fenced path. The links are looked for in the whole
+project except the folders your project's own `.gitignore` and `.ignore` files leave out (a
+global gitignore or `.git/info/exclude` does not count), so a link to a secret under
+`node_modules/` or `target/` is not named: keep those folders free of such links. Claude Code cannot be told to refuse every path outside the
 project, though: there, only the instructions keep it inside. Keep secrets out of the
 project's files, or under a fenced path, either way.

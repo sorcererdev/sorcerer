@@ -46,7 +46,14 @@ ships are data in `crates/sorcerer-core/library/languages/<name>/`, embedded wit
 - `adapters/`: `project.rs` (`Project::open`, `state_dir`), `grammar.rs` (grammars downloaded
   prebuilt or fetched and built, then loaded; `Languages::assemble`, `Languages::load`), `files_view.rs` (`FilesView`),
   `json_store.rs` (`Store`), `jsonl_ledger.rs` (`JsonlLedger`),
-  `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`), `env.rs`
+  `fences.rs` (`Fences::for_project`, `allows`, `relative`, `fenced_links`, and `link_walk`, the
+  walk for links: no `.git`, no root `.sorcerer/`, only the project's own `.gitignore` and
+  `.ignore` files), `fenced_links_cache.rs` (`FencedLinksCache`: the fenced links kept between
+  asks; each ask walks again every directory whose modification time differs or was too recent
+  to trust (`SETTLE`, against the time the file system gives `fence-walk.clock` in the state
+  directory), and the directory of every `.gitignore`/`.ignore` whose digest differs, and
+  resolves every known link again; the module comment holds the argument that it never misses a
+  link), `env.rs`
   (`SystemEnv`, `MapEnv`), `trust_list.rs` (`TrustList`), and `platform/`, the platform
   adapter (below).
 

@@ -64,6 +64,32 @@ fn make_link(target: &Path, link: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Sets a directory's modification time, for tests: the fenced-links cache trusts a directory
+/// whose time is old enough, so a test sets the times back. Windows opens a directory only with
+/// the backup-semantics flag.
+///
+/// Example: `set_directory_modified(&root.join("src"), UNIX_EPOCH + one_day)`.
+#[doc(hidden)]
+pub fn set_directory_modified(dir: &Path, time: std::time::SystemTime) -> std::io::Result<()> {
+    open_directory_for_times(dir)?.set_modified(time)
+}
+
+#[cfg(unix)]
+fn open_directory_for_times(dir: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(dir)
+}
+
+#[cfg(windows)]
+fn open_directory_for_times(dir: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    std::fs::OpenOptions::new()
+        .access_mode(FILE_WRITE_ATTRIBUTES)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(dir)
+}
+
 /// Whether the path is plain ASCII, which every program reads the same way. A path with other
 /// characters (a user named `日本`) can reach a Windows tool, such as MinGW's `ld`, with its
 /// letters turned into `?`.
