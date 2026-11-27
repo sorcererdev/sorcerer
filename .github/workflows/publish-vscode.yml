@@ -1,7 +1,9 @@
 # Publishes the Scry, Conjure and Spellbook VS Code extensions to the Marketplace (VSCE_PAT) and Open VSX
 # (OVSX_PAT). Called by the generated release.yml after the release is announced
 # (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone; also run by
-# hand (Actions, publish-vscode) to publish again.
+# hand (Actions, publish-vscode) to publish again. Apprentice's extension is not here: it is a
+# prototype no registry takes until the subscription question is asked (ruling Q1, 2026-11-26);
+# CI packages it as a .vsix artifact instead.
 name: publish-vscode
 on:
   workflow_call:

@@ -65,7 +65,7 @@ while a task runs (the editor closes or crashes, or its server is killed), the a
 its next tool call: that call fails, saying the task is over, and nothing more is read, run or
 spent.
 
-The editor clients: Neovim's is below; VS Code's comes in a later part of the prototype. Any other editor that speaks LSP
+The editor clients for Neovim and VS Code are below. Any other editor that speaks LSP
 gets the marks, the code actions, the questions in a list, the edits and the notes (opened over
 the current window, and the diff as a file); grey suggested lines are a message there.
 
@@ -97,6 +97,41 @@ are your code-action key's. The keys:
 
 `require("sorcerer").status()` says `apprentice: <task> · <what it does> · <spent>` while a task
 runs. `:checkhealth sorcerer` checks that `apprentice` is found.
+
+## In VS Code
+
+The **Apprentice** extension (`editors/vscode/apprentice/`) is not on the Marketplace while
+apprentice is a prototype. Install it from a `.vsix`: CI's `apprentice-vsix` artifact, or
+`npm ci && npm run package` in that folder, then `code --install-extension
+apprentice-0.2.0.vsix`. It finds `apprentice` from the `apprentice.path` user setting, then your
+PATH, `~/.cargo/bin` and `~/.local/bin`; with none it says the `cargo install` line above, once
+per version.
+
+It starts one `apprentice lsp` per workspace folder, for every file under it, and sends each of
+your edits at once (so a task never writes over what you typed a moment ago). Marks are VS
+Code's diagnostics and the code actions are the lightbulb's; the progress of a task is in the
+status bar; the agent's messages are notifications, and a command it wants to run is a
+notification with *Allow once*, *Always for this project (…)* and *Deny*: closing it, or leaving
+it for two minutes, denies the command. With *Do Not Disturb* on the question is hidden under
+the bell, so it is denied when the two minutes are up unless you open it there. What the
+extension draws itself: a suggested line as grey text after the line it belongs under (`⤷ …`,
+the whole of it on hover; your next edit of that line takes it away), the agent's notes in the
+column beside your code, *Show diff* as VS Code's diff view of the text before the task against
+the live buffer (in a tab of its own), and a violet sparkle in the gutter on each file's first
+line a finished task changed. The keys, the same letters as Neovim's:
+
+| keys | does |
+|---|---|
+| `ctrl+m a` | `apprentice: do this` on the line, whatever its price |
+| `ctrl+m q` | `apprentice: Stop this task` |
+| `ctrl+m d` | `apprentice: Show diff` |
+| `ctrl+m z` | `apprentice: Undo this task` |
+| `ctrl+m j` | `apprentice: Show journal` |
+| `ctrl+m x` | `apprentice: Dismiss` |
+| `ctrl+m l` | the four labels, to pick one |
+
+On macOS `ctrl` is the Control key. Change a binding in Keyboard Shortcuts (search
+`apprentice.keys`).
 
 ## What a task is
 

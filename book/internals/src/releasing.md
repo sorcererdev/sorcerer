@@ -1,8 +1,11 @@
 # Releasing
 
 A release is a tag `v<version>` on main; everything after the tag is GitHub Actions. All six
-crates and the three VS Code extensions carry the workspace's one version (`Cargo.toml`,
-`[workspace.package] version`).
+crates and the four VS Code extensions carry the workspace's one version (`Cargo.toml`,
+`[workspace.package] version`). Apprentice (crate and extension) is a prototype in no release:
+`publish = false`, `dist = false`, and its extension is `"private": true` and absent from
+`publish-vscode.yml` (a unit test checks the matrix); CI uploads its `.vsix` as the
+`apprentice-vsix` artifact instead.
 
 The files:
 
