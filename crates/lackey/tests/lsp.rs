@@ -203,6 +203,9 @@ fn a_claim_checked_on_save_is_offered_done_as_a_task_shown_diffed_and_undone() {
     );
     assert_eq!(s.text(FILE).as_deref(), Some(with_claim().as_str()));
     state_holds(&project, &s, "tasks.jsonl", r#""state":"undone""#);
+    s.marks_until(FILE, |marks| {
+        !marks.iter().any(|m| m.message.starts_with("\u{2726}"))
+    });
     s.stop();
 }
 
@@ -235,9 +238,14 @@ fn saving_every_file_a_task_changed_keeps_it() {
     s.run_action(FILE, 5, "lackey: do this");
     s.shown_message("lackey: done");
     assert_eq!(s.shown_count("lackey: done"), 0, "the done message, once");
-    s.marks_until(FILE, |marks| {
+    let marks = s.marks_until(FILE, |marks| {
         marks.iter().any(|m| m.message.starts_with("\u{2726}"))
     });
+    let done = marks
+        .iter()
+        .find(|m| m.message.starts_with("\u{2726}"))
+        .unwrap();
+    assert_eq!(done.range.start.line + 1, 7, "on the first changed line");
     s.save(FILE);
     state_holds(&project, &s, "tasks.jsonl", r#""state":"kept""#);
     s.marks_until(FILE, |marks| {

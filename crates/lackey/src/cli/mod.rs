@@ -19,5 +19,5 @@ mod trust;
 // spellbook:end cli-modules
 
 use arguments::RunArgs;
-pub use doctor::{DoctorRow, doctor_rows};
+pub use doctor::{DoctorRow, Finding, doctor_rows};
 pub use run_cli::{Wiring, main, main_with};

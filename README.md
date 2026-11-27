@@ -2,14 +2,21 @@
 
 Small tools that read your code alongside you. **scry** reviews what you changed and puts each
 finding on its line. **conjure** writes one small change where you ask, and marks it so you can
-undo it. **spellbook** (conventions as data) is in its first milestone: generators write every file of a
-convention, with holes that say what belongs there, and rules check that the conventions hold.
+undo it. **spellbook** (conventions as data): generators write every file of a convention, with holes
+that say what belongs there, and rules check that the conventions hold, with fixes.
 **lackey** is a coding agent whose whole interface is your editor: you write in your code, it
 answers there or offers to do it, and works in your buffers when you accept. It runs Claude Code
 (`claude -p`) on your own subscription, so it needs `claude` installed and signed in. They share
 one core and talk through files in `.sorcerer/`.
 
-**Status:** scry, conjure, spellbook and lackey (the newest, an early release); Python and Rust; Windows, macOS and Linux; early (0.1).
+**The user book** has a chapter for each: [Scry](book/user/src/scry.md) (and
+[in your editor](book/user/src/editor.md)), [Conjure](book/user/src/conjure.md),
+[Spellbook](book/user/src/spellbook.md), [Lackey](book/user/src/lackey.md), plus
+[what Sorcerer is](book/user/src/what-sorcerer-is.md) and
+[configuration](book/user/src/configuration.md). Here to try Lackey? Go to
+[Get started > Lackey](#lackey), then [its chapter](book/user/src/lackey.md).
+
+**Status:** scry, conjure, spellbook and lackey (the newest, an early release); Python and Rust; Windows, macOS and Linux; early (0.3).
 
 ## Install
 
@@ -147,6 +154,38 @@ haiku · $0.000 · 2 s
 To get the change into your file, use conjure in an editor (below): it lands in your buffer,
 unsaved, with an Undo.
 
+### Lackey
+
+Lackey needs its program, Claude Code and a Jev key. The full path, with what to type and
+what you see, is [Getting started in the Lackey chapter](book/user/src/lackey.md#getting-started);
+in short:
+
+1. Install `lackey` (the installer line above), and [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+   Run `claude` once in a terminal and log in: lackey runs your tasks on your own login.
+2. Get a free Jev key at [typesafe.ai](https://typesafe.ai) and `export JEV_API_KEY=…` in
+   your shell profile (Jev reads what you write; without it only empty function bodies are
+   offered).
+3. In your project, `lackey doctor`: every row `ok` (a `warn` row says what lackey will not
+   do, and how to fix it).
+4. Turn it on in your editor ([Neovim](#neovim) or [VS Code](#vs-code), below).
+5. At the end of `src/cart.py`, on a line of its own, write
+   `# Add a median(prices) function that returns the middle price.` and stop typing. About two
+   seconds later a faint `lackey: I can do this · ~$0.50 · sonnet` hint appears; `<leader>ma`
+   (VS Code `ctrl+m a`) runs it, and the change lands in your buffer, unsaved, with a `✦` mark
+   that offers *Show diff* and *Undo this task*. Save to keep it.
+
+`.sorcerer/` appears in your project after the first run: commit `config.toml` and `notes/` if
+you like; `state/` ignores itself.
+
+### Spellbook
+
+Spellbook calls no model and needs no key. A generator, a folder under
+`.sorcerer/spellbook/generators/<name>/`, writes every file of a convention; the chapter walks
+through writing one. Then `spellbook new <name> --set input=value --plan` shows what it would
+write (an input you left out is named with its choices), the same without `--plan` writes it,
+`spellbook check` checks the rules, and `spellbook doctor` checks the setup. All of it is in
+[the Spellbook chapter](book/user/src/spellbook.md).
+
 ### When it asks you to trust a project
 
 A project's own `.sorcerer/config.toml` can name a program to run or a URL to send your code
@@ -173,7 +212,9 @@ On a finding, the same menu has **Show why**, **Show code** and **Dismiss**.
 
 Install **Scry**, **Conjure**, **Spellbook** and **Lackey** (publisher `sorcererdev`; ids
 `sorcererdev.scry`, `sorcererdev.conjure`, `sorcererdev.spellbook` and `sorcererdev.lackey`) from the Extensions view, which uses the Marketplace. VS Code forks such
-as VSCodium get them from Open VSX. From a terminal:
+as VSCodium get Scry and Conjure from Open VSX; Lackey and Spellbook are not listed there yet,
+so in a fork install the `.vsix` attached to the release (each release after 0.3.0). From a
+terminal:
 
 ```sh
 code --install-extension sorcererdev.scry
@@ -186,6 +227,8 @@ code --install-extension sorcererdev.lackey
   `scry.path` / `conjure.path` (your user settings only), then on PATH, then `~/.cargo/bin` and
   `~/.local/bin`. If it finds none it offers to download that version for you, checked against
   its sha256, so installing the binary first is optional.
+- **Lackey's keys** are `ctrl+m` chords (`ctrl+m a` runs an offer); the list is in
+  [its README](editors/vscode/lackey/README.md#keys).
 - **Keys.** VS Code copies the environment of your login shell when it starts. Put
   `JEV_API_KEY` and `ANTHROPIC_API_KEY` in your shell's profile (`~/.zshrc`, `~/.profile`),
   then quit VS Code completely and start it again. Started from a launcher or the Dock, it may
@@ -194,26 +237,33 @@ code --install-extension sorcererdev.lackey
 ### Neovim
 
 Needs Neovim 0.10 or newer. With [lazy.nvim](https://github.com/folke/lazy.nvim), the plugin
-[`sorcerer.nvim`](https://github.com/sorcererdev/sorcerer.nvim) with conjure turned on:
+[`sorcerer.nvim`](https://github.com/sorcererdev/sorcerer.nvim). Turn on the tools you
+installed (scry is on by default; conjure, spellbook and lackey are off):
 
 ```lua
 {
   "sorcererdev/sorcerer.nvim",
   opts = {
-    scry = { enabled = true },
-    conjure = { enabled = true },   -- off by default
+    scry = { enabled = true },      -- false if you did not install scry
+    conjure = { enabled = true },
+    lackey = { enabled = true },
   },
   keys = {
-    -- the plugin binds no keys: this is Neovim's own code-action menu
+    -- the plugin binds `<leader>m…` keys for the tools you turn on (see sorcerer.nvim's
+    -- README); `<leader>ca` here is Neovim's own code-action menu, for everything else
     { "<leader>ca", vim.lsp.buf.code_action, mode = { "n", "v" }, desc = "Code action" },
   },
 }
 ```
 
 On a finding's line, `<leader>ca` offers Show why, Show code and Dismiss; in a function it
-offers **Conjure here**.
+offers **Conjure here** (also `<leader>mc`). Lackey's keys: `<leader>ma` runs an offer,
+`<leader>md` shows a task's diff, `<leader>mz` undoes it; the full table is in
+[the Lackey chapter](book/user/src/lackey.md#in-neovim). Lackey only? Use
+`scry = { enabled = false }, lackey = { enabled = true }`, or the plugin says `scry` is not on
+the path.
 
-Neovim must be able to find `scry` and `conjure`: they are in `~/.local/bin`, so that folder
+Neovim must be able to find `scry`, `conjure` and `lackey`: they are in `~/.local/bin`, so that folder
 has to be on the PATH Neovim starts with. Started from a launcher rather than a terminal, it
 often is not; then give the full path in `opts`:
 
@@ -242,6 +292,8 @@ Sorcerer spends your model account, and keeps its own count.
 
 ## When something is wrong
 
+- **`lackey doctor`** checks `claude`, the model provider, `JEV_API_KEY`, its config and the
+  trust; a `warn` row means lackey runs but does less.
 - **`scry doctor` / `conjure doctor`** check git, your keys, the model, the languages and the
   trust, one row each, and say what to do about a row that is not `ok`.
 - **The editor shows nothing.** Run the doctor in the same terminal you start the editor from;
@@ -254,6 +306,9 @@ Sorcerer spends your model account, and keeps its own count.
   doctor's output and the run log.
 
 ## For contributors
+
+The user book above is plain Markdown that GitHub renders; `mdbook serve book/user` serves it
+locally with search.
 
 How it works is in `book/internals/` (build with `mdbook serve book/internals`; start with its
 Architecture chapter). Scry's quality is measured by the eval

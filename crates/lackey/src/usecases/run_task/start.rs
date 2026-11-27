@@ -7,7 +7,7 @@ use sorcerer_core::domain::generated_regions::generated_regions_line;
 use crate::domain::budget::{day_allows, spent_today};
 use crate::domain::edits_text::{FileEdit, unsaved_edits_text};
 use crate::domain::log_text::usd;
-use crate::domain::prompt::{EDITOR_RULES, TaskPlace, task_prompt};
+use crate::domain::prompt::{TaskPlace, agent_rules, task_prompt};
 use crate::domain::task::{TaskRecord, TaskState, task_id};
 use crate::ports::agent::{Running, TaskRequest, WayBack};
 
@@ -102,7 +102,7 @@ pub fn start_task(
     let request = TaskRequest {
         task: live.id.clone(),
         prompt: task_prompt(&place_of(order, deps)),
-        system: EDITOR_RULES.to_string(),
+        system: agent_rules(deps.editor.writes_land()),
         model: deps.config.model.clone(),
         budget_usd: deps.config.budget_per_task,
         max_turns: deps.config.max_turns,

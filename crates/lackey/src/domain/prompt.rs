@@ -7,6 +7,29 @@ use sorcerer_core::domain::paths::forward_slashes;
 /// The rules of the editor, appended to the agent's system prompt.
 pub const EDITOR_RULES: &str = "You are working inside the person's code editor, not in a chat. Nobody reads your text output: there is no transcript. Everything you want the person to see goes through the lackey tools: notify (one sentence), mark (a line in the margin of a file, with hover text), ghost (grey suggested lines), note (more than a paragraph, opened beside the code), ask (a decision, with options), and write_file, the only way to change a file. Edit, Write and the other file tools are not available. The person keeps working while you do: after each tool call you may be told what they changed, and their edits are authoritative; keep them and build on them. When write_file is refused because a file moved on, rebase on its text now and write again. Do the one task you are given, verify it (run the project's tests when there are any), then stop with one notify that says what you did.";
 
+/// Where a task's `write_file` lands: in an editor's buffer, unsaved, or straight on the disk
+/// (a task started from the terminal, which has no buffer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WritesLand {
+    InTheEditor,
+    OnTheDisk,
+}
+
+/// What the agent is told in a task started from the terminal, after the editor's rules, so
+/// its closing notify does not say the change waits unsaved in an editor.
+pub const ON_THE_DISK: &str = "This task was started from the terminal, not from an editor: write_file saves the file to the disk at once and no editor buffer holds it. When you say what you did, say the change is written to the disk; never call it unsaved or in the editor.";
+
+/// The agent's system prompt for where its writes land.
+///
+/// Example: a task from `lackey src/cart.py:10 "..."` gets the editor's rules followed by
+/// `ON_THE_DISK`; a task from the editor gets the editor's rules alone.
+pub fn agent_rules(lands: WritesLand) -> String {
+    match lands {
+        WritesLand::InTheEditor => EDITOR_RULES.to_string(),
+        WritesLand::OnTheDisk => format!("{EDITOR_RULES} {ON_THE_DISK}"),
+    }
+}
+
 /// Where the task was asked and what surrounds it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskPlace {
@@ -126,5 +149,13 @@ mod tests {
             assert!(EDITOR_RULES.contains(medium), "{medium}");
         }
         assert!(!EDITOR_RULES.contains('\n'));
+    }
+
+    #[test]
+    fn a_task_from_the_terminal_is_told_its_writes_are_on_the_disk() {
+        assert_eq!(agent_rules(WritesLand::InTheEditor), EDITOR_RULES);
+        let terminal = agent_rules(WritesLand::OnTheDisk);
+        assert!(terminal.starts_with(EDITOR_RULES) && terminal.contains("written to the disk"));
+        assert!(!terminal.contains('\n'));
     }
 }

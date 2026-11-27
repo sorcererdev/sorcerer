@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **A newcomer can start from the README.** The README links the user book and each tool's
+  chapter, and has quick starts for Lackey and Spellbook; the Lackey chapter opens with
+  Getting started (Claude Code login, a Jev key from typesafe.ai, `lackey doctor`, what to
+  write for a first offer and why a comment inside a function may get none).
+- **`lackey doctor` warns.** No model provider and no `JEV_API_KEY` are `warn` rows (with how
+  to fix them), not `ok`; only a `FAIL` makes it exit 2.
+- **A terminal task says its change is on the disk**, not "in your editor, unsaved".
+- **A question under a heading in a new note is answered once**: the heading is its section,
+  not a second region.
+- **Task titles drop the comment mark** (`# `) and a number such as `0.0` no longer ends the
+  title's sentence.
+- **VS Code**: `ctrl+m a` on a line with no offer says why; each release attaches the `.vsix`
+  files, for VS Code forks while Open VSX does not list Lackey and Spellbook.
+
 ## 0.3.0 — 2026-11-27
 
 - **Lackey is released.** The coding agent whose whole interface is your editor ships like
