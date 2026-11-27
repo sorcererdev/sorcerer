@@ -59,14 +59,34 @@ export function preferredFix<T extends FixAction>(actions: readonly T[]): T | un
   return fixes.find(action => action.isPreferred) ?? fixes[0];
 }
 
-// fixedText is the status line once a fix is applied: the rule and file, the files changed, and
-// the files written and holes left when there are any.
-// Example: `spellbook: fixed commands-use-ports in close_table.py · changed 2 files · wrote 4 files · 2 holes, marked`.
-export function fixedText(rule: string, file: string, changed: number, written: number, holes: number): string {
-  const parts = [`spellbook: fixed ${rule} in ${file.split('/').at(-1) ?? file}`, `changed ${counted(changed, 'file')}`];
+// fixedText is the status line once a fix is applied: the rule and file, the files changed, the
+// changed files no tab shows (the edit leaves them unsaved, out of sight, so they are named), and
+// the files written and holes left when there are any. At most three are named.
+// Example: `spellbook: fixed commands-use-ports in close_table.py · changed 2 files ·
+// close_table__test.py not shown, unsaved · wrote 4 files · 2 holes, marked`.
+export function fixedText(rule: string, file: string, changed: number, written: number, holes: number,
+  hidden: readonly string[] = []): string {
+  const parts = [`spellbook: fixed ${rule} in ${baseName(file)}`, `changed ${counted(changed, 'file')}`];
+  if (hidden.length > 0) parts.push(`${namedAtMostThree(hidden)} not shown, unsaved`);
   if (written > 0) parts.push(`wrote ${counted(written, 'file')}`);
   if (holes > 0) parts.push(`${counted(holes, 'hole')}, marked`);
   return parts.join(' · ');
+}
+
+// notShown is the changed files (paths from the project's root) that `shown` says no tab holds.
+// Example: changed a.py and b.py, a tab on a.py: [b.py].
+export function notShown(changed: readonly string[], shown: (path: string) => boolean): string[] {
+  return changed.filter(path => !shown(path));
+}
+
+// Example: [a.py, b.py] gives `a.py, b.py`; five files give `a.py, b.py, c.py and 2 more`.
+function namedAtMostThree(paths: readonly string[]): string {
+  const names = paths.slice(0, 3).map(baseName).join(', ');
+  return paths.length > 3 ? `${names} and ${paths.length - 3} more` : names;
+}
+
+function baseName(path: string): string {
+  return path.split('/').at(-1) ?? path;
 }
 
 function counted(n: number, noun: string): string {

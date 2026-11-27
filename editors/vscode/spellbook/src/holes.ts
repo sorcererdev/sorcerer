@@ -35,6 +35,12 @@ export function endText(written: number, holes: number, conjureActive: boolean):
     : `${wrote} · ${counted(holes, 'hole')}, marked (Problems)`;
 }
 
+// holesOnEndLine is the hole count the end line says: none once a hole session started, since the
+// session's own message says the holes and follows the end line.
+export function holesOnEndLine(sessionStarted: boolean, holes: number): number {
+  return sessionStarted ? 0 : holes;
+}
+
 // stopsInFile splits the apply reply's stops: those of the first stop's file, in order (the
 // session runs there), and a count of the rest by file name (the end line names them).
 // Example: two stops in cancel_table.py and one in cancel_table__test.py give mine = the two,

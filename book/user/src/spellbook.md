@@ -1006,7 +1006,10 @@ follow, `+` lines in `DiffAdd` and `-` lines in `DiffDelete`; a new file is `+ p
 as in `new`. `<CR>` applies. The changed files land through the server's own `workspace/applyEdit`
 (Neovim's default handler): one `u` in each buffer takes the fix back, and the buffers stay
 modified until you save them (`:wa`); the new files are written, and the end line says
-`spellbook: fixed commands-use-ports in close_table.py · changed 2 files · wrote 4 files`, with
+`spellbook: fixed commands-use-ports in close_table.py · changed 2 files · wrote 4 files`. A
+changed file no window shows is named, since the edit left it modified in a hidden buffer:
+`· changed 2 files · close_table__test.py not shown, unsaved` (at most three names, then `and N
+more`). The end line ends with
 `· 2 holes, marked; ]d walks them` after a fix that leaves holes when no session runs. When a hole
 session starts (as after `new`), the end line is said first and the hole's message follows on the
 message line (`:messages` keeps the end line). The session walks only the holes this fix wrote: a
@@ -1039,8 +1042,9 @@ in the folder of the file you are in (with no file open and several folders, it 
    scroll, and the pick stays. **Apply** writes; **Cancel** or `Esc` writes nothing. Either way
    the previews close. If the plan stops on an input, you are asked it once more.
 4. **Apply.** The server writes the files, opens the first at its first hole and puts the hole
-   marks in Problems (Information, source `spellbook`, code `hole`). When no hole session follows
-   (step 5), the status bar says `spellbook: wrote 2 files · 3 holes, marked (Problems)`, or
+   marks in Problems (Information, source `spellbook`, code `hole`). The status bar says
+   `spellbook: wrote 2 files`; when a hole session follows (step 5) the session's line says the
+   holes, otherwise the end line goes on `· 3 holes, marked (Problems)`, or
    `· ctrl+m c to conjure the first` when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
    a function. With `spellbook.conjureHoles` on, the extension runs conjure on the first hole for
    you, and no hole session starts.
@@ -1104,7 +1108,10 @@ a title such as `spellbook: fix commands-use-ports · Use a port the service has
 a new file is `+ path` and opens as in New. **Apply** changes the open files in the editor (one
 `ctrl+z` per file takes the fix back; they stay unsaved until you save) and writes the new ones;
 the status bar says `spellbook: fixed commands-use-ports in close_table.py · changed 2 files`, and
-`· wrote 4 files · 2 holes, marked` when the fix leaves holes (a hole session starts as after New).
+`· wrote 4 files · 2 holes, marked` when the fix leaves holes and no hole session starts (a session
+starts as after New, and its own line says the holes). A changed file no tab shows is named, since
+the edit left it unsaved out of sight: `· close_table__test.py not shown, unsaved` (at most three
+names).
 
 ## The files it writes
 
