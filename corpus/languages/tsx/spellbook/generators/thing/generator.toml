@@ -1,0 +1,13 @@
+name        = "Thing"
+summary     = "A module with one helper, a hole of every kind the language has"
+description = "booking/NAME.tsx: a helper whose name, type, value and body are holes"
+language    = "tsx"
+examples    = ["spellbook new thing --set name=audit"]
+
+[inputs.name]
+type   = "ident"
+prompt = "The module (audit, report)"
+
+[[edits]]
+create   = "booking/{= name|snake =}.tsx"
+template = "thing.tsx.dt"

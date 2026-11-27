@@ -1,0 +1,14 @@
+# One rule, with a fix: the booking service logs through a helper, never console.log().
+[rules.no-console-in-booking]
+files   = "booking/*.tsx"
+exclude = ["**/*.test.tsx"]
+match   = { kind = "call_expression", regex = "^console\\.log\\(" }
+message = "booking code does not log with console.log: write it through a helper"
+
+[[rules.no-console-in-booking.fixes]]
+generator = "thing"
+label     = "Write it through a new helper"
+with      = { name = "audit" }
+replace   = [
+  { enclosing = ["expression_statement"], text = "{= ? audit_call: stmt | the same as {= finding =} through the helper =}" },
+]

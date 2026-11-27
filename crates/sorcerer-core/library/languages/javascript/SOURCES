@@ -1,0 +1,18 @@
+# JavaScript: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-javascript 0.25.0, git 44c892e0be055ac465d5eeddae6d3e194424e7de. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/ecma/textobjects.scm + queries/jsx/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+tags.scm         tree-sitter/tree-sitter-javascript v0.25.0  44c892e0be055ac465d5eeddae6d3e194424e7de  queries/tags.scm  MIT (queries/LICENSE-tree-sitter-javascript)
+calls.scm        sorcerer's own (not vendored): `@reference.call`, `new Type(…)` as a call of Type.
+imports.scm      sorcerer's own (not vendored): `@import.path`, the string of an import, export-from or require().
+lists.scm        sorcerer's own (not vendored): `@parameters` and `@arguments`, the lists anchors put items into.
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, `throw new Error("hole …" | "not implemented…")`.
+# changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of?, #not-any-of? and
+# nothing else; a pattern using another predicate or directive is removed or rewritten):
+#   textobjects.scm: flattened: ecma's patterns, then jsx's (the two `; inherits:` lines removed);
+#     no pattern used an unsupported directive.
+#   tags.scm: the method, class, function and arrow-function patterns each began
+#     `(comment)* @doc .` and ended with #strip! and #select-adjacent! (documentation text, which
+#     sorcerer does not read). Rather than lose the definitions, those two directives and the
+#     `@doc` comment are removed from each pattern and the definition is kept. The member call
+#     `(call_expression function: (member_expression …) arguments: (_) @reference.call)` marks the
+#     whole call, not its arguments (`@reference.call` on the call_expression).

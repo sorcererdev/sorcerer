@@ -1,0 +1,10 @@
+--- a/booking/closeTable.tsx
++++ b/booking/closeTable.tsx
+@@ -2,5 +2,7 @@
+ import { Booking } from "./models";
+ 
+ export function closeTable(bookings: Booking[], table: number): Booking[] {
++  // which bookings stay open?
+   throw new Error("not implemented");
++  const kept = bookings.filter((b) => !b.isFor(table));
+ }

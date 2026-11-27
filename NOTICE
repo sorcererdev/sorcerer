@@ -1,2 +1,6 @@
 Sorcerer
 Copyright 2026 The sorcerer authors
+
+Shipped language grammars and queries (crates/sorcerer-core/library/languages/*/SOURCES):
+- tree-sitter-javascript, tree-sitter-typescript: MIT, Copyright Max Brunsfeld
+- nvim-treesitter-textobjects: Apache-2.0

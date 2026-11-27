@@ -1,0 +1,10 @@
+--- a/booking/closeTable.js
++++ b/booking/closeTable.js
+@@ -2,5 +2,7 @@
+ import { Booking } from "./models";
+ 
+ export function closeTable(bookings, table) {
++  // which bookings stay open?
+   throw new Error("not implemented");
++  const kept = bookings.filter((b) => !b.isFor(table));
+ }

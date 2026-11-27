@@ -1,0 +1,6 @@
+# booking/index.tsx names each module of the service (tests left out).
+[regions.modules]
+file    = "booking/index.tsx"
+query   = { glob = "booking/*.tsx", exclude = ["booking/index.tsx", "booking/*.test.tsx"] }
+item    = "export * from \"./{= stem =}\";"
+init_at = "end of imports"

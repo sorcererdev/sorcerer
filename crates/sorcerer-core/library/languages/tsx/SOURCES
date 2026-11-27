@@ -1,0 +1,15 @@
+# tsx: the grammar pin and the queries, with their upstream sources and licences.
+# grammar (language.toml): tree-sitter-typescript 0.23.2 (its `tsx` grammar), git f975a621f4e7f532fe322e13c4f79495e0a7b2e7. MIT.
+textobjects.scm  nvim-treesitter/nvim-treesitter-textobjects  5c7b0263797dfd1bd6202f2b219f3b53a80b2187  queries/ecma/textobjects.scm + queries/typescript/textobjects.scm + queries/jsx/textobjects.scm  Apache-2.0 (queries/LICENSE-nvim-treesitter)
+tags.scm         tree-sitter/tree-sitter-javascript v0.25.0 queries/tags.scm (44c892e0be055ac465d5eeddae6d3e194424e7de) followed by tree-sitter/tree-sitter-typescript v0.23.2 queries/tags.scm (f975a621f4e7f532fe322e13c4f79495e0a7b2e7)  MIT (queries/LICENSE-tree-sitter-typescript)
+calls.scm        sorcerer's own (not vendored): `@reference.call`, `new Type(…)` as a call of Type.
+imports.scm      sorcerer's own (not vendored): `@import.path`, the string of an import, export-from or require().
+lists.scm        sorcerer's own (not vendored): `@parameters` and `@arguments`, the lists anchors put items into.
+placeholders.scm sorcerer's own (not vendored): `@placeholder`, `throw new Error("hole …" | "not implemented…")`.
+# changes (sorcerer evaluates #eq?, #not-eq?, #match?, #not-match?, #any-of?, #not-any-of? and
+# nothing else; a pattern using another predicate or directive is removed or rewritten):
+#   textobjects.scm: flattened: the `; inherits:` lines removed, the inherited files' patterns
+#     joined in order (ecma, typescript, jsx); no pattern used an unsupported directive.
+#   tags.scm: JavaScript's patterns as in javascript/SOURCES (the `(comment)* @doc .` prefix and the
+#     #strip! and #select-adjacent! directives removed, the definitions kept; the member call
+#     marks the whole call), then TypeScript's file unchanged.

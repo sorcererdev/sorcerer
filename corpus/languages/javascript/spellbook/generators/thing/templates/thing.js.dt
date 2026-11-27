@@ -1,0 +1,5 @@
+/** {= name|sentence =}. */
+export function {= ? helper: ident | the helper's name =}(value) {
+  const limit = {= ? limit: expr | the largest value allowed =};
+  {= ? body: block | what the helper does with value under limit =}
+}

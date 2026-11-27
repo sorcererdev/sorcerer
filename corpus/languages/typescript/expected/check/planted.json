@@ -1,0 +1,10 @@
+[
+  {
+    "rule": "no-console-in-booking",
+    "file": "booking/closeTable.ts",
+    "line": 5,
+    "severity": "error",
+    "message": "booking code does not log with console.log: write it through a helper",
+    "fingerprint": "53508bb"
+  }
+]
