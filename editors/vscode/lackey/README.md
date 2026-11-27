@@ -74,8 +74,8 @@ deny. With VS Code's *Do Not Disturb* on, the notification is hidden in the noti
 ## Install
 
 Install the extension from the Marketplace. VS Code forks such as VSCodium and Cursor use Open
-VSX, which does not list Lackey yet: install the `.vsix` attached to the GitHub release (each
-release after 0.3.0) with `codium --install-extension lackey-<version>.vsix`.
+VSX, which does not list Lackey yet: install the `.vsix` attached to the GitHub release (0.3.0 and every
+release after) with `codium --install-extension lackey-<version>.vsix`.
 
 ```sh
 code --install-extension sorcererdev.lackey

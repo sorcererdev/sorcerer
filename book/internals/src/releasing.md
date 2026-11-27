@@ -59,6 +59,14 @@ The files:
   stands. Each extension's `package.json` `version` must equal the release's: both registries
   refuse a version they already hold, so a re-run after a half-done publish fails on the
   registry that took it the first time.
+  Each job first runs `npx @vscode/vsce package` and attaches the `.vsix` to the release
+  (`gh release upload --clobber`), before either publish, so VS Code forks always get it.
+  **Publishing to one registry later:** run the workflow by hand with `gh workflow run
+  publish-vscode.yml -f tag=v<version> -f extensions=<comma list> -f registries=openvsx`
+  (`registries` is `openvsx`, `marketplace` or `both`; `extensions` defaults to all four). It
+  checks out and builds that tag, so the tag's `package.json` versions are what is published.
+  Use it when one registry refused or lacked an extension, for instance after claiming the Open
+  VSX namespace.
 - **`.github/workflows/smoke.yml`**: run by hand after a release (Actions, smoke, with the
   version). On a bare `ubuntu:24.04` container it installs with the README's shell line,
   installs conjure, spellbook and lackey with their lines too, checks that no `cc` and no `cargo` are there and that `scry --version`, `conjure --version`, `spellbook --version` and `lackey --version` are the version (no lackey task runs: it needs a signed-in `claude`), and

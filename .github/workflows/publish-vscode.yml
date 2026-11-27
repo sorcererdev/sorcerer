@@ -1,8 +1,12 @@
 # Publishes the Scry, Conjure, Spellbook and Lackey VS Code extensions to the Marketplace (VSCE_PAT) and Open VSX
 # (OVSX_PAT). Called by the generated release.yml after the release is announced
-# (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone; also run by
-# hand (Actions, publish-vscode) to publish again. From a release it also attaches each .vsix
-# to the release, for VS Code forks when Open VSX does not list an extension yet.
+# (dist-workspace.toml, `post-announce-jobs`), so a missing token fails here alone. Each
+# .vsix is attached to the GitHub release first, for VS Code forks, so a failed publish
+# does not stop that.
+#
+# Run by hand (Actions, publish-vscode) to publish later to one registry or for some
+# extensions: `tag` is the release tag whose code is built, `extensions` a comma list
+# (default all four), `registries` is openvsx, marketplace or both.
 name: publish-vscode
 on:
   workflow_call:
@@ -11,33 +15,68 @@ on:
         required: true
         type: string
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and publish, e.g. v0.3.0
+        required: true
+        type: string
+      extensions:
+        description: Comma list of extensions, e.g. lackey,spellbook
+        required: false
+        default: scry,conjure,spellbook,lackey
+        type: string
+      registries:
+        description: Where to publish
+        required: false
+        default: both
+        type: choice
+        options: [both, openvsx, marketplace]
 jobs:
+  choose:
+    runs-on: ubuntu-latest
+    outputs:
+      extensions: ${{ steps.pick.outputs.extensions }}
+    steps:
+      - id: pick
+        env:
+          EXTENSIONS: ${{ inputs.extensions }}
+        run: |
+          list="${EXTENSIONS:-scry,conjure,spellbook,lackey}"
+          echo "extensions=$(echo "$list" | tr -d ' ' | jq -R -c 'split(",") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
   publish:
+    needs: choose
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        extension: [scry, conjure, spellbook, lackey]
+        extension: ${{ fromJson(needs.choose.outputs.extensions) }}
     defaults:
       run:
         working-directory: editors/vscode/${{ matrix.extension }}
+    env:
+      # From a release the plan names the tag; by hand it is the `tag` input.
+      TAG: ${{ inputs.plan != '' && fromJson(inputs.plan).announcement_tag || inputs.tag }}
+      REGISTRIES: ${{ inputs.registries || 'both' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm ci
-      - run: npx @vscode/vsce publish -p "$VSCE_PAT"
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - run: npx @vscode/vsce package
       - name: Attach the .vsix to the release
-        if: ${{ inputs.plan != '' }}
-        run: |
-          npx @vscode/vsce package
-          gh release upload "$TAG" *.vsix --clobber
+        run: gh release upload "$TAG" *.vsix --clobber
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ fromJson(inputs.plan).announcement_tag }}
-      - run: npx ovsx publish -p "$OVSX_PAT"
+      - name: Marketplace
+        if: ${{ env.REGISTRIES != 'openvsx' }}
+        run: npx @vscode/vsce publish -p "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Open VSX
+        if: ${{ env.REGISTRIES != 'marketplace' }}
+        run: npx ovsx publish -p "$OVSX_PAT"
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}

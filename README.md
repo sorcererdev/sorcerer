@@ -213,7 +213,7 @@ On a finding, the same menu has **Show why**, **Show code** and **Dismiss**.
 Install **Scry**, **Conjure**, **Spellbook** and **Lackey** (publisher `sorcererdev`; ids
 `sorcererdev.scry`, `sorcererdev.conjure`, `sorcererdev.spellbook` and `sorcererdev.lackey`) from the Extensions view, which uses the Marketplace. VS Code forks such
 as VSCodium get Scry and Conjure from Open VSX; Lackey and Spellbook are not listed there yet,
-so in a fork install the `.vsix` attached to the release (each release after 0.3.0). From a
+so in a fork install the `.vsix` attached to the release (0.3.0 and every release after). From a
 terminal:
 
 ```sh
