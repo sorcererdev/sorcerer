@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-11-27
 
 - **Fourteen more languages.** Sorcerer ships TypeScript, TSX, JavaScript, Go, Java, C#, Bash,
   SQL, HTML, CSS, Markdown, YAML, TOML and JSON beside Python and Rust, each as data under
