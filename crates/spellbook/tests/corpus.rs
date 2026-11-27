@@ -629,3 +629,94 @@ fn bistro_keeps_its_regions() {
 fn bistro_rs_keeps_its_regions() {
     run_sync_cases("bistro-rs");
 }
+
+/// An `adopt` case: patches over the base, committed in a fresh git repository; more patches
+/// over that (the branch's work); then commands after `spellbook`, in order. What they printed,
+/// each after a `$ spellbook …` line, is `expected/adopt/<id>.txt`; `exit` is the last one's.
+#[derive(Deserialize)]
+struct AdoptCase {
+    #[serde(default)]
+    committed: Vec<String>,
+    #[serde(default)]
+    patches: Vec<String>,
+    commands: Vec<String>,
+    exit: i32,
+}
+
+fn git_in(root: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=corpus",
+            "-c",
+            "user.email=corpus@example.invalid",
+        ])
+        .args(["-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"])
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+}
+
+/// Runs one `adopt` case: the committed patches, the commit, the branch's patches, the commands,
+/// what they printed against `expected/adopt/<id>.txt` and the last exit code against the case's.
+fn run_adopt_case(dir: &Path, corpus: &CorpusFile, id: &str) {
+    let cases = dir.join("cases/adopt");
+    let case: AdoptCase = read_toml(&cases.join(format!("{id}.toml")));
+    let project = project_of(dir, corpus, Base::Overlaid);
+    for patch in &case.committed {
+        git_apply(project.path(), &cases.join(patch));
+    }
+    if !case.committed.is_empty() {
+        git_in(project.path(), &["init", "-q"]);
+        git_in(project.path(), &["add", "-A"]);
+        git_in(project.path(), &["commit", "-q", "-m", "base"]);
+    }
+    for patch in &case.patches {
+        git_apply(project.path(), &cases.join(patch));
+    }
+    let mut printed = String::new();
+    let mut code = 0;
+    for command in &case.commands {
+        let words: Vec<String> = command.split_whitespace().map(String::from).collect();
+        let (exit, said) = run_spellbook(project.path(), &words);
+        printed.push_str(&format!("$ spellbook {command}\n{said}"));
+        code = exit;
+    }
+    let path = dir.join(format!("expected/adopt/{id}.txt"));
+    if blessing() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &printed).unwrap();
+        println!("# adopt/{id}: exit {code}");
+        return;
+    }
+    let expected =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    assert_eq!(
+        unix_newlines(&printed),
+        unix_newlines(&expected),
+        "adopt/{id}"
+    );
+    assert_eq!(code, case.exit, "adopt/{id}: the exit code");
+}
+
+fn run_adopt_cases(name: &str) {
+    let dir = corpus_dir(name);
+    let corpus: CorpusFile = read_toml(&dir.join("corpus.toml"));
+    let ids = case_ids(&dir, "adopt", "toml");
+    assert!(!ids.is_empty(), "{name} has no adopt cases");
+    for id in ids {
+        run_adopt_case(&dir, &corpus, &id);
+    }
+}
+
+#[test]
+fn bistro_adopts_check_on_old_code() {
+    run_adopt_cases("bistro");
+}
+
+#[test]
+fn bistro_rs_adopts_check_on_old_code() {
+    run_adopt_cases("bistro-rs");
+}

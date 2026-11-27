@@ -24,6 +24,16 @@ See [Conjure](conjure.md).
 | `exclude` | globs of files no rule looks at, such as `gen/**`: `spellbook check` and the editor's findings skip them. It is the rules', not generation's: a generator ignores it, since it writes only what you ask for by name |
 | `sync_on_save` | whether the editor's server refreshes stale owned regions when a file is saved: `true` by default. The project's setting, not the editor's, since the team decides whether its lists are kept by hand. Off, a stale block is left for its `region-stale` finding and its quick fix ([Spellbook](spellbook.md#in-the-editor)) |
 
+`[spellbook.rules]` is a table of rule ids, each `"hint"`, `"warn"`, `"error"` or `"off"`: how strict
+the project is with that rule, over the rule's own `severity` (`off` does not run it). A setting for
+no rule stops the check, naming it. See [Adopting check on code with
+debt](spellbook.md#adopting-check-on-code-with-debt).
+
+```toml
+[spellbook.rules]
+commands-use-ports = "warn"
+```
+
 See [Spellbook](spellbook.md).
 
 ## `[apprentice]`

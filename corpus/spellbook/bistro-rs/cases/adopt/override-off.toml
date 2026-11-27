@@ -1,0 +1,4 @@
+# The project turns commands-no-panic off in [spellbook.rules]: the panic is not a finding.
+patches  = ["../check/panic-in-command.patch", "override-off.patch"]
+commands = ["check"]
+exit     = 0

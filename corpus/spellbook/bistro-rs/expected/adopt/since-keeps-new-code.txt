@@ -1,0 +1,4 @@
+$ spellbook check --since HEAD
+✗ src/booking/commands/mod.rs:3  region-stale — region modules is out of date (+1 −0)  (fixes: Sync region modules)
+✗ src/booking/commands/seat_walk_in.rs:5  commands-no-panic — A command returns its failure instead of panicking
+2 blocking findings

@@ -1,0 +1,3 @@
+$ spellbook check
+! src/bistro/booking/commands/create_booking.py:5  commands-use-ports — Commands and queries talk to ports, not the database (python-htmx: ports & adapters)  (fixes: Use a port the service has · Add a port and use it)
+conventions hold (1 finding, none blocking)

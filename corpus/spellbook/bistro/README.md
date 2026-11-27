@@ -14,5 +14,6 @@ overlay: that `__init__.py` with its markers, laid over the shared base for ever
 commands-exports: +1 −0)`.
 
 Cases: `new/` (four), `holes/one-filled`, `check/` (clean, four planted breaks and `region-stale`), `fix/`,
-`sync/` (`init-commands-exports` on the shared base, `hand-made-command`) and `load/`. The layout and how to add a case are
+`sync/` (`init-commands-exports` on the shared base, `hand-made-command`), `adopt/` (a baseline then
+a check, `check --since HEAD` on a branch, a rule made a warning in `[spellbook.rules]`) and `load/`. The layout and how to add a case are
 in [`../README.md`](../README.md).

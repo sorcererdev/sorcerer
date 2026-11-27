@@ -1,6 +1,8 @@
 //! spellbook's settings: the `[spellbook]` table of `.sorcerer/config.toml`. An unknown key, or an
 //! `exclude` entry that is not a glob, is an error naming the key.
 
+use std::collections::BTreeMap;
+
 use globset::Glob;
 use serde::{Deserialize, Serialize};
 use sorcerer_core::domain::project::Project;
@@ -23,6 +25,19 @@ pub struct SpellbookConfig {
     /// Whether the editor's server refreshes stale regions when a file is saved: on by default.
     /// The team's setting, not the editor's, since it decides whether its lists are kept by hand.
     pub sync_on_save: bool,
+    /// `[spellbook.rules]`: how strict the project is with each rule, by its id, over the rule's
+    /// own `severity`. Example: `commands-use-ports = "warn"`, or `"off"` to not run it.
+    pub rules: BTreeMap<String, RuleSetting>,
+}
+
+/// What the project says of one rule in `[spellbook.rules]`: a severity, or `off`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleSetting {
+    Hint,
+    Warn,
+    Error,
+    Off,
 }
 
 impl Default for SpellbookConfig {
@@ -31,6 +46,7 @@ impl Default for SpellbookConfig {
             enabled: true,
             exclude: Vec::new(),
             sync_on_save: true,
+            rules: BTreeMap::new(),
         }
     }
 }
@@ -90,6 +106,17 @@ mod tests {
         let (_dir, project) = project(Some("[spellbook]\nexclud = []\n"));
         let error = spellbook_config(&project).unwrap_err().to_string();
         assert!(error.contains("exclud"), "{error}");
+    }
+
+    #[test]
+    fn rule_settings_are_read_and_a_wrong_word_is_refused() {
+        let (_dir, read) = project(Some("[spellbook.rules]\na = \"warn\"\nb = \"off\"\n"));
+        let config = spellbook_config(&read).unwrap();
+        assert_eq!(config.rules["a"], RuleSetting::Warn);
+        assert_eq!(config.rules["b"], RuleSetting::Off);
+        let (_dir, loud) = project(Some("[spellbook.rules]\na = \"loud\"\n"));
+        let error = spellbook_config(&loud).unwrap_err().to_string();
+        assert!(error.contains("loud") && error.contains("off"), "{error}");
     }
 
     #[test]

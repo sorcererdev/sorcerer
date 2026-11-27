@@ -1,6 +1,7 @@
 //! The ports implemented: the disk, the grammars, the records.
 
 // spellbook:region adapters-modules (from crates/spellbook/src/adapters/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
+pub mod baseline_toml;
 pub mod cached_grammars;
 pub mod checking;
 pub mod disk_workspace;

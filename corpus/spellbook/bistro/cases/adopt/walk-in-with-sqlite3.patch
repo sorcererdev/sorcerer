@@ -1,0 +1,13 @@
+diff --git a/src/bistro/booking/commands/seat_walk_in.py b/src/bistro/booking/commands/seat_walk_in.py
+new file mode 100644
+index 0000000..fc4f49a
+--- /dev/null
++++ b/src/bistro/booking/commands/seat_walk_in.py
+@@ -0,0 +1,7 @@
++"""Seat a party that walks in, written by hand."""
++
++import sqlite3
++
++class SeatWalkIn:
++    def handle(self, party: int) -> bool:
++        return party > 0

@@ -351,8 +351,9 @@ $ spellbook check
 A row ends with `(fixes: … · …)` when the rule has fixes.
 
 `!` is a warning, `·` a hint, `✗` an error. A rule is an error unless it says `severity = "warn"`
-or `"hint"`. The exit code is 0 when the conventions hold (hints and warnings do not fail), 1 when a
-finding is an error, and 2 when it could not run (the rules file has
+or `"hint"` (or the project says otherwise, [below](#adopting-check-on-code-with-debt)). The exit code
+is 0 when the conventions hold (hints, warnings and baselined findings do not fail), 1 when a new
+finding is an error, and 2 when it could not run (the rules, regions, baseline or settings file has
 a mistake, which the message names). `--json` prints `{ "checked", "findings": [ … ] }`: each finding
 has `rule`, `file`, `line`, `severity`, `message` and a `fingerprint` (seven hex digits that stay the
 same when the code is moved or re-indented), and, when its rule has fixes, `fixes`: `[{ "index",
@@ -381,6 +382,82 @@ code), beside the marks of the holes in the file. Edit `rules.toml` and the next
 problem.
 
 The last check is kept in `.sorcerer/state/spellbook/report.json`.
+
+### Adopting check on code with debt
+
+A new rule, or a stricter one, usually finds plenty of old code that breaks it. Fixing it all first
+is one giant change; making the rule a warning means nobody notices new breakage. Three things let a
+team adopt a rule today and pay the debt down as people touch the code.
+
+**The baseline.** Record what is there now, and fail only on what is new:
+
+```
+$ spellbook check --baseline
+baselined 1 finding in .sorcerer/spellbook/baseline.toml
+$ spellbook check
+· src/bistro/booking/commands/create_booking.py:5  commands-use-ports — Commands and queries talk to ports, not the database (python-htmx: ports & adapters)  (fixes: Use a port the service has · Add a port and use it)  (existing)
+conventions hold (1 finding, 1 existing, none blocking)
+```
+
+`baseline.toml` sits beside `rules.toml`; commit it:
+
+```toml
+# Findings recorded by `spellbook check --baseline`: known debt. `spellbook check` shows them as
+# existing and fails only on findings not listed here. Re-run --baseline as the debt is paid.
+
+[[baseline]]
+file = "src/bistro/booking/commands/create_booking.py"
+rule = "commands-use-ports"
+fingerprint = "7b9ca4a"
+```
+
+- A baselined finding is `·` and ends `(existing)`, whatever its severity, and never fails `check`.
+  In `--json` it has `"existing": true`; in the editor it is a hint whose message ends `(existing)`.
+- **An entry is what the finding is about, not where**: the rule, the file and the finding's
+  fingerprint (its code with the whitespace collapsed). Lines can move above it and it is still the
+  same finding; renaming the file makes it new. Each entry stands for one finding, so a second copy of
+  the same line pasted into the file is new.
+- `--baseline` checks the whole project and writes the whole file from today's findings, of every
+  severity. Region findings are never recorded: their fix is `spellbook sync`. Run it to record *less*
+  debt, not to bless new findings: once a baseline is there it says what changed,
+  `baselined 3 findings in .sorcerer/spellbook/baseline.toml (1 paid off, 0 new)`.
+- When code is fixed, its entry is no longer used, and a whole-project `check` says so:
+  `1 baseline entry is paid off (spellbook check --baseline records less debt)`.
+- `--baseline` takes no files and no `--since`, and exits 0. A `baseline.toml` that does not parse
+  stops every check (exit 2), naming the file.
+
+**A branch is judged on what it touched.**
+
+```
+$ spellbook check --since main
+✗ src/bistro/booking/commands/__init__.py:1  region-stale — region commands-exports is out of date (+1 −0)  (fixes: Sync region commands-exports)
+✗ src/bistro/booking/commands/seat_walk_in.py:3  commands-use-ports — Commands and queries talk to ports, not the database (python-htmx: ports & adapters)  (fixes: Use a port the service has · Add a port and use it)
+2 blocking findings
+```
+
+`--since REV` (anything git knows as a commit: `main`, `HEAD~3`, a commit id) checks the files that
+differ from `REV` on disk, and files git does not track yet, and keeps a rule's finding only when its
+line is new or changed since then. A file `REV` did not have is new throughout. Line endings do not
+count, so a checkout with `\r\n` is not all new. Every owned region is checked and its findings kept
+whatever lines changed, since a new file makes a list stale without touching it. The baseline still
+applies. `--since` leaves `report.json` alone (it is a part of the project), takes no files, and a
+commit git does not know stops with git's sentence, exit 2. `--json` adds `"since": "main"`.
+
+**The project's say: `[spellbook.rules]`.** How strict to be with each rule is the team's choice,
+in `.sorcerer/config.toml`, over the rule's own `severity`:
+
+```toml
+[spellbook.rules]
+commands-use-ports = "warn"   # or hint, error, off
+commands-no-panic  = "off"
+```
+
+`off` does not run the rule (an allow comment naming it is still a known rule, not `unknown-rule`).
+The settings apply everywhere the rules run: `check`, `fix` and the editor. A word other than the four
+is refused naming it, and a setting for no rule stops the check: ``[spellbook.rules]:
+`comands-use-ports` names no rule (the rules are: commands-use-ports, …)``. A rule can
+so arrive as a `hint`, become a `warn` once people have seen it, and an `error` once the baseline is
+small, each step one line. A region's finding is not a rule: its `severity` is in `regions.toml`.
 
 ## Fixes
 
@@ -994,25 +1071,26 @@ the status bar says `spellbook: fixed commands-use-ports in close_table.py · ch
 
 ## The files it writes
 
-Besides the files you ask for by name, spellbook writes only its own state under
-`.sorcerer/state/spellbook/`:
+Besides the files you ask for by name, and `.sorcerer/spellbook/baseline.toml` when you run `spellbook
+check --baseline`, spellbook writes only its own state under `.sorcerer/state/spellbook/`:
 
 | file | what it holds |
 |---|---|
 | `generations.jsonl` | one line per generation applied: its id, time, generator, inputs, files and holes, and for a fix `"fix": { "rule", "file", "line", "fingerprint", "index" }` and `"changed": [{ "path", "added", "removed", "region" }]` (`region` when an owned region rewrote the file; a `spellbook sync` is a line whose generator is `"sync"`; each line has `"version": 1`) |
 | `holes.json` | the open holes, `{"version": 1, "data": {"holes": [...]}}`, refreshed by `new` and `holes` |
-| `report.json` | the findings of the last check, `{"version": 1, "data": {"checked": …, "findings": [...]}}`: rewritten whole by `spellbook check`, a file at a time by the editor's server |
+| `report.json` | the findings of the last check (a baselined one with `"existing": true`), `{"version": 1, "data": {"checked": …, "findings": [...]}}`: rewritten whole by `spellbook check`, a file at a time by the editor's server |
 
 ## Settings
 
-`[spellbook]` in `.sorcerer/config.toml` has three keys, `enabled`, `exclude` and `sync_on_save`; see
+`[spellbook]` in `.sorcerer/config.toml` has three keys, `enabled`, `exclude` and `sync_on_save`, and
+one table, `[spellbook.rules]`; see
 [Configuration](configuration.md). With `enabled = false` the command line (everything but
 `trust` and `doctor`) says `spellbook is off in this project ([spellbook] enabled = false)` and
 exits 2, and the editor server shows no marks and answers commands with that sentence.
 
 ## What is coming
 
-The rest of milestone 2 brings `missing` rules, check adoption (a baseline of today's findings, `check --since`, severity overrides), list inputs and
+The rest of milestone 2 brings `missing` rules, list inputs and
 `if`/`for` in templates, and packs of generators and rules shared between projects.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything

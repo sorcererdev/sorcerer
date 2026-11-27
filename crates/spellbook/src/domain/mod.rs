@@ -3,6 +3,7 @@
 // spellbook:region domain-modules (from crates/spellbook/src/domain/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod allow;
 pub mod anchor;
+pub mod baseline;
 pub mod change;
 pub mod config;
 pub mod finding;
@@ -22,5 +23,6 @@ pub mod region;
 pub mod report;
 pub mod rule;
 pub mod rule_query;
+pub mod rule_settings;
 pub mod template;
 // spellbook:end domain-modules
