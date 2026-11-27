@@ -13,7 +13,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use lsp_types::{DocumentChangeOperation, DocumentChanges, OneOf, WorkspaceEdit};
+use lsp_types::{DocumentChangeOperation, DocumentChanges, OneOf, TextDocumentEdit, WorkspaceEdit};
 use serde::{Deserialize, Serialize};
 
 use crate::uri::path_of;
@@ -72,29 +72,41 @@ pub fn lines_tools_landed(state_dir: &Path, file: &Path, now: SystemTime) -> Has
         .collect()
 }
 
-/// Each edited file of the edit with the lines its text edits put there.
+/// Each edited file of the edit with the lines its text edits put there, whichever of the
+/// protocol's three shapes the edit takes (`documentChanges` as edits only, or with file
+/// operations, or the plain `changes` map).
 fn lines_by_file(edit: &WorkspaceEdit) -> Vec<(PathBuf, Vec<String>)> {
-    let Some(DocumentChanges::Operations(operations)) = &edit.document_changes else {
-        return Vec::new();
+    let documents: Vec<&TextDocumentEdit> = match &edit.document_changes {
+        Some(DocumentChanges::Edits(edits)) => edits.iter().collect(),
+        Some(DocumentChanges::Operations(operations)) => operations
+            .iter()
+            .filter_map(|operation| match operation {
+                DocumentChangeOperation::Edit(edit) => Some(edit),
+                DocumentChangeOperation::Op(_) => None,
+            })
+            .collect(),
+        None => Vec::new(),
     };
-    operations
-        .iter()
-        .filter_map(|operation| match operation {
-            DocumentChangeOperation::Edit(edit) => {
-                let file = path_of(&edit.text_document.uri)?;
-                let lines = edit
-                    .edits
-                    .iter()
-                    .flat_map(|text_edit| match text_edit {
-                        OneOf::Left(text_edit) => non_blank_lines(&text_edit.new_text),
-                        OneOf::Right(annotated) => non_blank_lines(&annotated.text_edit.new_text),
-                    })
-                    .collect();
-                Some((file, lines))
-            }
-            DocumentChangeOperation::Op(_) => None,
-        })
-        .collect()
+    let from_documents = documents.into_iter().filter_map(|document| {
+        let file = path_of(&document.text_document.uri)?;
+        let lines = document
+            .edits
+            .iter()
+            .flat_map(|text_edit| match text_edit {
+                OneOf::Left(text_edit) => non_blank_lines(&text_edit.new_text),
+                OneOf::Right(annotated) => non_blank_lines(&annotated.text_edit.new_text),
+            })
+            .collect();
+        Some((file, lines))
+    });
+    let from_changes = edit.changes.iter().flatten().filter_map(|(uri, edits)| {
+        let lines = edits
+            .iter()
+            .flat_map(|e| non_blank_lines(&e.new_text))
+            .collect();
+        Some((path_of(uri)?, lines))
+    });
+    from_documents.chain(from_changes).collect()
 }
 
 fn non_blank_lines(text: &str) -> Vec<String> {
@@ -177,5 +189,28 @@ mod tests {
         assert!(lines_tools_landed(state.path(), &other, then).is_empty());
         let later = then + NOTED_FOR + Duration::from_secs(1);
         assert!(lines_tools_landed(state.path(), &file, later).is_empty());
+    }
+
+    #[test]
+    fn an_edit_of_documents_only_is_noted_too() {
+        let state = tempfile::TempDir::new().unwrap();
+        let file = std::path::absolute(state.path().join("a.txt")).unwrap();
+        let edit = WorkspaceEdit {
+            document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+                text_document: lsp_types::OptionalVersionedTextDocumentIdentifier {
+                    uri: crate::uri::uri_of(&file),
+                    version: Some(3),
+                },
+                edits: vec![OneOf::Left(lsp_types::TextEdit {
+                    range: lsp_types::Range::default(),
+                    new_text: "    use the port\n\n".into(),
+                })],
+            }])),
+            ..WorkspaceEdit::default()
+        };
+        let now = SystemTime::now();
+        note_tool_edit(state.path(), &edit, now);
+        let landed = lines_tools_landed(state.path(), &file, now);
+        assert_eq!(landed, HashSet::from(["use the port".to_string()]));
     }
 }
