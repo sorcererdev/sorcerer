@@ -199,12 +199,12 @@ reading and searching your files, running commands. What it may not do:
 - **Write a file any other way than `write_file`.** Claude Code's `Edit`, `Write`, `MultiEdit`
   and `NotebookEdit` are denied. A `write_file` lands in your editor as one undoable change to
   the buffer, never to the disk: saving is yours. Some paths it never writes at all, even
-  through `write_file`: `.sorcerer/`, `.git/`, and the config a tool obeys the next time it
+  through `write_file`: `.sorcerer/` (but its notes, `.sorcerer/notes/`), `.git/`, and the config a tool obeys the next time it
   starts in the project (`.claude/`, `.mcp.json`, `.envrc`, anywhere in the tree), since a
   change there could run code later without anyone asking. The list is
   `crates/lackey/library/never-written.toml`.
-- **Read what is fenced.** `.env` files, `.git/`, `.sorcerer/` and your `[model] not_evidence`
-  globs are denied to it, as they are to every sorcerer tool, so it cannot read its own journal
+- **Read what is fenced.** `.env` files, `.git/`, `.sorcerer/` (but the notes) and your
+  `[model] not_evidence` globs are denied to it, as they are to every sorcerer tool, so it cannot read its own journal
   or the ledger. Claude Code's file tools (Read, Grep, Glob, and a file you `@`-mention) refuse
   them, and so do the commands Claude Code reads paths from, such as `cat .env`. Any command
   that names a fenced path plainly (`git show HEAD:.env`, `ls .git`) is refused before you are
@@ -256,7 +256,7 @@ reading and searching your files, running commands. What it may not do:
 | `mark` | a line in the margin of a file, with hover text |
 | `ghost` | grey lines under a line, not in the buffer: a line you may want to type |
 | `write_file` | the change in your buffer, undoable |
-| `note` | a markdown file beside your code (`.sorcerer/state/lackey/notes/`) |
+| `note` | a markdown file beside your code, in `.sorcerer/notes/` (see [Notes](#notes)) |
 | `ask` | a decision to make: choices on a line, or a list to pick from |
 
 When it ends a turn without using any of them, its last text is posted for it (a message when
@@ -274,6 +274,11 @@ you changed since it read it is refused with the file's text now, so it rebases 
 writing over you. The same holds for edits you had not saved when the task started: the agent
 reads files from the disk, so its first `write_file` to a buffer with unsaved edits is refused
 with the buffer's text (one extra step for it, only then).
+
+**Spellbook regions.** When the file you asked in holds a spellbook region, the task's first
+message says that lines inside a `spellbook:region` are generated from files (to add one, create
+the file, and saving adds its line); so does the answer to a `write_file` of a file that holds
+one.
 
 A question (`ask`) waits for you for two minutes (`ask_timeout_seconds`); then the agent is
 told to carry on with its default.
@@ -315,11 +320,27 @@ local day a row.
 | `lackey trust [--revoke]` | trusts the project for the editor's server, as `scry trust` does |
 | `lackey mcp`, `lackey hook EVENT` | the helpers a task's agent runs; not for you |
 
+## Notes
+
+Notes live in `.sorcerer/notes/`: a task's notes (`t3-why-is-it-slow.md`) and the long answers
+you open (`r12.md`). It is the one place in `.sorcerer/` that is not fenced, so a note is a file
+like any other. Write in one and lackey works on it as it does on your code: what you type
+is triaged (a heading and *Give me the step by step files to update here.* is offered as a task),
+a question is researched when you save, and *do this* may write its answer into the note. You can
+add notes of your own there too. Git sees the directory: commit your notes or add it to your
+`.gitignore`, as you like.
+
+The rest of `.sorcerer/` stays fenced, and so does anything a note points at: a link in
+`.sorcerer/notes/` onto `.sorcerer/state/` or out of the project is denied, a `.env` file there is
+still a secret, and your `not_evidence` globs still hold inside it. Notes written by an older
+version under `.sorcerer/state/lackey/notes/` move here when lackey next starts (a note
+whose name is already taken stays where it was).
+
 ## Where it keeps things
 
-Everything is under `.sorcerer/state/lackey/`, which git never sees: `tasks.jsonl` (one
-line each time a task changes state), `tasks/<id>/journal.md` (every message the agent sent and
-through which medium, every question and answer, every refused write, the diffs it was fed),
-`tasks/<id>/before/<path>` (each changed file's text before the task, for undo and the diff
-view), `notes/`, `permissions.json`. The Claude Code session itself stays where Claude keeps it,
+Notes are in `.sorcerer/notes/` (above). Everything else is under `.sorcerer/state/lackey/`,
+which git never sees: `tasks.jsonl` (one line each time a task changes state),
+`tasks/<id>/journal.md` (every message the agent sent and through which medium, every question
+and answer, every refused write, the diffs it was fed), `tasks/<id>/before/<path>` (each changed
+file's text before the task, for undo and the diff view), `permissions.json`. The Claude Code session itself stays where Claude keeps it,
 under your `~/.claude/projects/`; lackey keeps only its id.

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use sorcerer_core::domain::fences::Fences;
+use sorcerer_core::domain::fences::{Fences, is_in_notes};
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::needs_trust;
@@ -122,11 +122,13 @@ impl Server {
     }
 
     /// The editor's path as the project names it: relative to the root, with `/`; `None` for a
-    /// file outside the project or under `.sorcerer/` (the notes are the agent's, not regions).
+    /// file outside the project, under `.git/`, or under `.sorcerer/` but not in its notes
+    /// (`.sorcerer/notes/`, worked on like any file). The fences judge the resolved path after.
     pub fn relative(&self, path: &Path) -> Option<String> {
         let relative = path.strip_prefix(&self.root).ok()?;
         let text = forward_slashes(relative);
-        (!text.starts_with(".sorcerer/") && !text.starts_with(".git/")).then_some(text)
+        let sorcerers_own = text.starts_with(".sorcerer/") && !is_in_notes(relative);
+        (!sorcerers_own && !text.starts_with(".git/")).then_some(text)
     }
 
     /// Whether a file's text may be read for a model (the agent, Jev, the researcher): inside

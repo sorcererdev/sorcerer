@@ -23,6 +23,9 @@ pub struct TaskPlace {
     pub rules: String,
     /// The open files' unsaved edits, as `unsaved_edits_text` says them.
     pub unsaved: Option<String>,
+    /// The line about spellbook's generated regions, when the file holds one
+    /// (`generated_regions_line`).
+    pub generated_regions: Option<&'static str>,
 }
 
 /// The task's first message.
@@ -44,6 +47,7 @@ pub fn task_prompt(place: &TaskPlace) -> String {
             .unit
             .as_ref()
             .map(|(name, text)| format!("It sits in {name}:\n\n```\n{}\n```", text.trim_end())),
+        place.generated_regions.map(str::to_string),
         notes_text(&place.notes),
         (!place.rules.trim().is_empty())
             .then(|| format!("The project's rules:\n\n{}", place.rules.trim())),
@@ -100,6 +104,7 @@ mod tests {
             notes: Vec::new(),
             rules: "- Money is cents.".into(),
             unsaved: None,
+            generated_regions: None,
         };
         let text = task_prompt(&place);
         assert!(

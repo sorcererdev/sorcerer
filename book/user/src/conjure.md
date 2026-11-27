@@ -227,7 +227,11 @@ For the function at the line, in this order, each part cut as shown:
   (conjure reads scry's `.sorcerer/state/scry/findings.json` when it is version 2);
 - your project's rules, from `.sorcerer/scry.toml` (its `context`, its `include`d files and its
   rules), cut at 3000 characters;
-- with `--finding`, that finding leads.
+- with `--finding`, that finding leads;
+- when the file, its test file or a related file holds a spellbook region, one line: *Lines inside a
+  spellbook:region are generated from files: to add one, create the file, and saving adds its
+  line.* The region's own comment is unchanged; the line keeps a writer from typing a module into
+  the list, or from thinking it may not add one.
 
 Nothing a model may not read is sent: a file under `[model] not_evidence`, a `.env` file, anything
 under `.sorcerer/` or `.git/`, and anything outside the project (an import that resolves through a

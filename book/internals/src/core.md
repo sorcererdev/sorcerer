@@ -285,6 +285,12 @@ hole is an error there ("a hole has no value here"), because only spellbook know
 one. Conjure fills its language files' path templates with it; spellbook renders generators
 with `pieces`.
 
+`domain/generated_regions.rs`: `REGION_OPENS` (`spellbook:region`, the words that open a region
+spellbook keeps; spellbook's `region.rs` takes its `OPENS` from it) and `generated_regions_line(texts)`,
+`GENERATED_REGIONS_LINE` when any text holds a region. Conjure's situation and lackey's
+first message and `write_file` answer add the line, so a writer adds a module by creating its
+file rather than typing a line into the region.
+
 `domain/name_forms.rs`: `words_of(name)` splits a name written in any case style
 (`cancel_table`, `CancelTable`, `cancel-table`, `cancelTable`, `Cancel table`) into the same
 lowercase words, and `apply_filter(filter, value)` writes them again as `snake`, `pascal`,
@@ -354,14 +360,30 @@ paid for.
 ## Fences
 
 `domain/fences.rs` matches; `adapters/fences.rs` resolves. `Fences::for_project(project)` lists what a researcher may never read or send
-to a model: `.env*` anywhere, `.sorcerer/` (other findings, the ledger), `.git/`, anything
-outside the root, and the user's `[model] not_evidence` globs. `allows(path)` resolves the
+to a model: `.env*` anywhere, `.sorcerer/` (other findings, the ledger) but its notes, `.git/`,
+anything outside the root, and the user's `[model] not_evidence` globs. `allows(path)` resolves the
 path first (symlinks and `..`, through the nearest existing ancestor for a file not yet
 written) and then matches with `allows_relative`, ignoring case. A path that cannot be resolved for certain (a
 `..` past a missing directory, a dangling symlink) is fenced.
 
+**The notes carve-out.** `NOTES_DIR` (`.sorcerer/notes`) is the one place under `.sorcerer/`
+that is not fenced. `Fences` keeps `.sorcerer/**` (`SORCERER_DIR_FENCE`) in a glob set of its
+own, and `allows_relative` lets a path through it only when `is_in_notes` holds: the first two
+names are `.sorcerer` and `notes` (ignoring case) and there is no `.` or `..` in it. It is judged
+on the resolved path, so a link in the notes onto `.sorcerer/state/` (or `.sorcerer/notes` itself
+a link) resolves to a fenced path and is fenced, and `fenced_links` names it, since `link_walk`
+walks the notes. The other fences (`.env*`, `not_evidence`) still hold inside the notes.
+
 The researcher's tools check every path they read, and every citation is checked before
-it is shown. `patterns()` gives the list for prompts and for `claude`'s deny rules; a
+it is shown. `patterns()` gives the list as configured (and tells one walk's fences from
+another's); `described()` is what a prompt says, `.sorcerer/** (except .sorcerer/notes/)`; and
+`deny_patterns()` is the list for `claude`'s deny rules, which take no exception, so
+`.sorcerer/**` becomes `.sorcerer/<entry>` and `.sorcerer/<entry>/**` for each entry of
+`.sorcerer/` but the notes as it stands, plus the ones sorcerer always keeps there (`state`,
+`config.toml`, `spellbook`, `scry.toml`). Measured with `claude` 2.1.331 on haiku: under such
+rules a Grep of `.sorcerer` with a canary in `.sorcerer/state/` and `.sorcerer/config.toml`
+printed only the note's line, and Read and Grep of `.sorcerer/state` were refused. An entry made
+in `.sorcerer/` while a `claude` runs is not denied until the next start (no task writes there); a
 `not_evidence` entry with no glob characters (`docs/plans`) fences the directory and
 everything under it. `fenced_links()` lists the symbolic links in the project that lead out
 of the root or onto a fenced path, for a researcher that cannot check each path itself.

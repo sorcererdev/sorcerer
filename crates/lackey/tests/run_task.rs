@@ -849,3 +849,40 @@ fn a_task_in_a_fenced_file_is_refused_and_fenced_unsaved_edits_are_left_out() {
     let prompt = agent.requests.lock().unwrap()[0].prompt.clone();
     assert!(!prompt.contains("sk_live"), "{prompt}");
 }
+
+/// lackey-notes-workable: a *do this* in a note may write the note; a task asked in a file
+/// with a spellbook region is told the region's lines come from files, and so is a write to one.
+#[test]
+fn a_task_writes_a_note_and_is_told_about_generated_regions() {
+    const MOD: &str = "// spellbook:region modules (from src/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)\npub mod a;\n// spellbook:end modules\n";
+    let line = "Lines inside a spellbook:region are generated from files: to add one, create the file, and saving adds its line.";
+    let project =
+        TempProject::with(&[("src/mod.rs", MOD), (".sorcerer/notes/plan.md", "# Plan\n")]);
+    let editor = Arc::new(RecordingEditor::at(&project.root));
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool(
+            "write_file",
+            json!({ "path": ".sorcerer/notes/plan.md", "text": "# Plan\n\n1. src/b.rs\n" }),
+        ),
+        Step::Tool(
+            "write_file",
+            json!({ "path": "src/mod.rs", "text": format!("{MOD}// b\n") }),
+        ),
+        Step::Finish(0.1),
+    ]));
+    let runner = TaskRunner::open(project.deps(editor, agent.clone())).unwrap();
+    let in_mod = TaskOrder {
+        file: "src/mod.rs".into(),
+        text: MOD.into(),
+        ..order()
+    };
+    runner.run(&in_mod).unwrap();
+    assert!(agent.requests.lock().unwrap()[0].prompt.contains(line));
+    assert_eq!(
+        replies_text(&agent),
+        [
+            "written: .sorcerer/notes/plan.md (in the editor, unsaved)".to_string(),
+            format!("written: src/mod.rs (in the editor, unsaved)\n{line}"),
+        ]
+    );
+}

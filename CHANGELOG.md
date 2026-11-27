@@ -10,6 +10,13 @@
   subscription, so it needs `claude` installed and signed in; `lackey doctor` checks.
   The test program `lackey-fake-claude` is built only with the `fake-claude` feature, so it
   is in neither the release nor `cargo install`.
+- **Notes are files lackey works on.** Notes moved from `.sorcerer/state/lackey/notes/`
+  to `.sorcerer/notes/`, the one place in `.sorcerer/` that is not fenced: what you write in a
+  note is triaged, offered, researched on save and done like in any file. Old notes move on the
+  next start. A link in the notes onto a fenced path stays fenced.
+- **Writers are told what a spellbook region is.** When a file conjure or lackey may edit
+  holds a `spellbook:region`, the writer is told its lines come from files, and that creating
+  the file adds its line on save.
 - **Lackey starts tasks fast in a large project.** The symbolic links it denies by name are
   kept between tasks; a task's start walks again only the folders that changed since the last
   one, and checks every known link afresh, so a link made since the last task is still denied.

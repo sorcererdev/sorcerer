@@ -184,14 +184,15 @@ impl FencedLinksCache {
 
     /// Whether this file system gives a directory a new time when an entry is added to it,
     /// which the cache relies on. The probe directory's time is set long back, an entry is
-    /// added, and its time must have moved. Anything that fails answers no.
+    /// added, and its time must have moved. Anything that fails answers no, and so does a link
+    /// standing where the state directory or the probe directory should be: the probe never
+    /// works through a link (a committed one could point it at any directory).
     fn directory_times_follow_entries(&self) -> bool {
         let Some(state) = self.clock_file.parent() else {
             return false;
         };
         let dir = state.join("fence-probe");
-        let _ = std::fs::create_dir_all(&dir);
-        if modified_dir(&dir).is_none() {
+        if !made_or_already_a_directory(state) || !made_or_already_a_directory(&dir) {
             return false;
         }
         let entry = dir.join("entry");
@@ -350,6 +351,12 @@ fn write_new(path: &Path, text: &[u8]) -> std::io::Result<()> {
         .create_new(true)
         .open(path)?
         .write_all(text)
+}
+
+/// Whether the path is now a directory of its own: made here, or already one (not a link to one).
+fn made_or_already_a_directory(path: &Path) -> bool {
+    let _ = std::fs::create_dir_all(path);
+    modified_dir(path).is_some()
 }
 
 /// The path's own time (a link's, not its target's).

@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use sorcerer_core::Result;
 use sorcerer_core::domain::paths::forward_slashes;
-use sorcerer_core::{Error, Result};
 
+use crate::adapters::notes_dir::NotesDir;
 use crate::domain::edits_text::FileEdit;
 use crate::domain::mediums::{Ask, MarkSeverity};
 use crate::domain::status::TaskProgress;
@@ -19,7 +20,7 @@ use crate::ports::editor::{Asked, Editor, Written};
 
 pub struct DiskEditor {
     root: PathBuf,
-    notes: PathBuf,
+    notes: NotesDir,
     /// What was said, in order, for the command line to print.
     said: Arc<Mutex<Vec<String>>>,
     /// Each task's last look at each file it wrote: the text it wrote.
@@ -27,8 +28,8 @@ pub struct DiskEditor {
 }
 
 impl DiskEditor {
-    /// An editor over the project root; notes go under `notes`.
-    pub fn new(root: PathBuf, notes: PathBuf) -> DiskEditor {
+    /// An editor over the project root; notes go in `notes`.
+    pub fn new(root: PathBuf, notes: NotesDir) -> DiskEditor {
         DiskEditor {
             root,
             notes,
@@ -89,9 +90,7 @@ impl Editor for DiskEditor {
     }
 
     fn note(&self, task: &str, title: &str, text: &str) -> Result<PathBuf> {
-        let path = self.notes.join(format!("{task}-{}.md", slug_of(title)));
-        std::fs::create_dir_all(&self.notes).map_err(|e| Error::io(&self.notes, e))?;
-        std::fs::write(&path, format!("# {title}\n\n{text}\n")).map_err(|e| Error::io(&path, e))?;
+        let path = self.notes.write_task_note(task, title, text)?;
         self.say(format!("note: {}", path.display()));
         Ok(path)
     }
@@ -132,19 +131,6 @@ impl Editor for DiskEditor {
     fn finished(&self, _task: &TaskRecord, done_text: &str) {
         self.say(done_text.to_string());
     }
-}
-
-/// A title as a file name: lowercase words joined by `-`, at most 40 characters.
-///
-/// Example: `Late cancellations: research` is `late-cancellations-research`.
-pub fn slug_of(title: &str) -> String {
-    let words: Vec<String> = title
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| !word.is_empty())
-        .map(str::to_lowercase)
-        .collect();
-    let slug: String = words.join("-").chars().take(40).collect();
-    if slug.is_empty() { "note".into() } else { slug }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

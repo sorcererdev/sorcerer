@@ -15,6 +15,7 @@ pub mod jsonl_task_store;
 pub mod loopback;
 pub mod markdown_journal;
 pub mod mcp_server;
+pub mod notes_dir;
 pub mod project_context;
 pub mod scry_files;
 pub mod state_files;

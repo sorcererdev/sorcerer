@@ -151,3 +151,137 @@ fn fenced_links_lists_symlinks_out_of_the_root_or_onto_fenced_files() {
         ]
     );
 }
+
+/// The project with a note, sorcerer's config and its state.
+fn project_with_notes() -> tempfile::TempDir {
+    let d = project();
+    support::write(d.path(), ".sorcerer/notes/plan.md", "## Plan\n");
+    support::write(d.path(), ".sorcerer/config.toml", "");
+    d
+}
+
+#[test]
+fn the_notes_are_the_one_place_in_the_sorcerer_dir_that_is_not_fenced() {
+    let d = project_with_notes();
+    let f = fences(d.path());
+    assert!(f.allows(Path::new(".sorcerer/notes/plan.md")));
+    assert!(f.allows(Path::new(".sorcerer/notes/new-one.md")));
+    assert!(f.allows(Path::new(".sorcerer/notes")));
+    for fenced in [
+        ".sorcerer/config.toml",
+        ".sorcerer/state/ledger.jsonl",
+        ".sorcerer/notes2/x.md",
+        ".sorcerer/state/notes/x.md",
+        ".sorcerer/notes/../state/ledger.jsonl",
+        ".sorcerer/notes/../config.toml",
+        ".sorcerer/notes/missing/../../state/ledger.jsonl",
+    ] {
+        assert!(!f.allows(Path::new(fenced)), "{fenced} is fenced");
+    }
+}
+
+#[test]
+fn the_other_fences_still_hold_inside_the_notes() {
+    let d = project_with_notes();
+    support::write(
+        d.path(),
+        ".sorcerer/config.toml",
+        "[model]\nnot_evidence = [\".sorcerer/notes/private\"]\n",
+    );
+    support::write(d.path(), ".sorcerer/notes/.env", "SECRET=z\n");
+    support::write(d.path(), ".sorcerer/notes/private/p.md", "p\n");
+    let f = fences(d.path());
+    assert!(!f.allows(Path::new(".sorcerer/notes/.env")));
+    assert!(!f.allows(Path::new(".sorcerer/notes/private/p.md")));
+    assert!(f.allows(Path::new(".sorcerer/notes/plan.md")));
+}
+
+#[test]
+fn a_link_in_the_notes_onto_a_fenced_place_stays_fenced_and_is_named() {
+    let d = project_with_notes();
+    link_to(
+        &d.path().join(".sorcerer/state/ledger.jsonl"),
+        &d.path().join(".sorcerer/notes/ledger.md"),
+    )
+    .unwrap();
+    link_to(
+        &d.path().join(".env"),
+        &d.path().join(".sorcerer/notes/env.md"),
+    )
+    .unwrap();
+    let f = fences(d.path());
+    assert!(!f.allows(Path::new(".sorcerer/notes/ledger.md")));
+    assert!(!f.allows(Path::new(".sorcerer/notes/env.md")));
+    let mut links = f.fenced_links();
+    links.sort();
+    assert_eq!(
+        links,
+        vec![
+            Path::new(".sorcerer/notes/env.md").to_path_buf(),
+            Path::new(".sorcerer/notes/ledger.md").to_path_buf(),
+        ]
+    );
+}
+
+#[test]
+fn a_notes_directory_that_is_a_link_into_the_state_or_out_is_fenced() {
+    for target in ["state", "outside"] {
+        let d = project();
+        let outside = tempfile::TempDir::new().unwrap();
+        std::fs::write(outside.path().join("ledger.jsonl"), "x").unwrap();
+        let to = match target {
+            "state" => d.path().join(".sorcerer/state"),
+            _ => outside.path().to_path_buf(),
+        };
+        link_to(&to, &d.path().join(".sorcerer/notes")).unwrap();
+        let f = fences(d.path());
+        assert!(
+            !f.allows(Path::new(".sorcerer/notes/ledger.jsonl")),
+            "{target}"
+        );
+        assert!(!f.allows(Path::new(".sorcerer/notes")), "{target}");
+        assert_eq!(
+            f.fenced_links(),
+            vec![Path::new(".sorcerer/notes").to_path_buf()],
+            "{target}"
+        );
+    }
+}
+
+#[test]
+fn deny_patterns_name_each_entry_of_the_sorcerer_dir_but_the_notes() {
+    let d = project_with_notes();
+    support::write(d.path(), ".sorcerer/inspect.md", "x\n");
+    let patterns = fences(d.path()).deny_patterns();
+    for wanted in [
+        "**/.env*",
+        ".git/**",
+        ".sorcerer/state",
+        ".sorcerer/state/**",
+        ".sorcerer/config.toml",
+        ".sorcerer/inspect.md",
+        ".sorcerer/spellbook/**",
+        ".sorcerer/scry.toml",
+    ] {
+        assert!(
+            patterns.contains(&wanted.to_string()),
+            "{wanted}: {patterns:?}"
+        );
+    }
+    assert!(
+        !patterns
+            .iter()
+            .any(|p| p == ".sorcerer/**" || p.starts_with(".sorcerer/notes")),
+        "{patterns:?}"
+    );
+}
+
+#[test]
+fn a_model_is_told_the_notes_are_the_exception() {
+    let d = project();
+    let described = fences(d.path()).described();
+    assert!(
+        described.contains(".sorcerer/** (except .sorcerer/notes/)"),
+        "{described}"
+    );
+}

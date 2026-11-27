@@ -18,6 +18,7 @@ use crate::adapters::claude_agent::ClaudeAgent;
 use crate::adapters::json_permissions::JsonPermissions;
 use crate::adapters::jsonl_task_store::JsonlTaskStore;
 use crate::adapters::markdown_journal::MarkdownJournal;
+use crate::adapters::notes_dir::NotesDir;
 use crate::adapters::project_context::FilesContext;
 use crate::adapters::state_files::StateFiles;
 use crate::adapters::system_clock::SystemClock;
@@ -106,7 +107,10 @@ pub fn system_clock() -> Arc<dyn Clock> {
     Arc::new(SystemClock)
 }
 
-/// Where the notes of a project go.
-pub fn notes_dir(project: &Project) -> Result<PathBuf> {
-    Ok(StateFiles::for_project(project)?.notes())
+/// Where the notes of a project go, with the notes kept in the old place (under the state
+/// directory) moved there first.
+pub fn notes_dir(project: &Project) -> Result<NotesDir> {
+    let notes = NotesDir::for_project(project);
+    notes.move_from(&StateFiles::for_project(project)?.old_notes());
+    Ok(notes)
 }
