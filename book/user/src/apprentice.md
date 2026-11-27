@@ -85,7 +85,7 @@ are your code-action key's. The keys:
 | key | does |
 |---|---|
 | `<leader>ma` | `apprentice: do this` on the line, whatever its price |
-| `<leader>ms` | `apprentice: Stop this task` |
+| `<leader>mq` | `apprentice: Stop this task` |
 | `<leader>md` | `apprentice: Show diff` |
 | `<leader>mz` | `apprentice: Undo this task` |
 | `<leader>mj` | `apprentice: Show journal` |

@@ -107,7 +107,7 @@ one key to `false`, to bind none; a key you already mapped is left alone and lis
 
 Apprentice (a prototype) is off too (`apprentice = { enabled = true }`); build it with `cargo
 install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice`. Its keys are
-`<leader>ma` (do this), `ms` (stop), `md` (show diff), `mz` (undo the task), `mj` (journal), `mx`
+`<leader>ma` (do this), `mq` (stop; q for quit, since `ms` is spellbook sync), `md` (show diff), `mz` (undo the task), `mj` (journal), `mx`
 (dismiss) and `ml` (label); see [Apprentice](apprentice.md#in-neovim).
 
 ### VS Code
