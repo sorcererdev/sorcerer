@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Span;
 
+use crate::domain::conjure_drops::{ConjureDrop, drops_section};
 use crate::domain::finding::Finding;
 use crate::domain::issue_type::ISSUE_TYPES;
 
@@ -44,6 +45,8 @@ pub struct ReviewAsk {
     /// Always empty in v1 (spellbook's slot).
     pub reported: Vec<String>,
     pub open: Vec<Finding>,
+    /// What conjure dropped in these files when it was asked again to keep a rule.
+    pub conjure_drops: Vec<ConjureDrop>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,7 +88,7 @@ pub struct ReviewReply {
 /// 1. that a developer just saved a change;
 /// 2. the changed units, each with its lines numbered as in the file;
 /// 3. the diff;
-/// 4. the project's steering;
+/// 4. the project's steering, then what conjure dropped in these files, if anything;
 /// 5. the findings already reported, not to raise again;
 /// 6. the findings still open on these units, each to answer "still holds"
 ///    or "no longer holds";
@@ -97,6 +100,7 @@ pub fn review_prompt(ask: &ReviewAsk) -> String {
         &changed_units_section(&ask.units),
         &diff_section(&ask.diff),
         &steering_section(&ask.steering),
+        &drops_section(&ask.conjure_drops),
         &reported_section(&ask.reported),
         &open_findings_section(&ask.open),
         in_progress_note(&ask.units),

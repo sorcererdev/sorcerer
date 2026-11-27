@@ -8,6 +8,7 @@ use super::find_site::{Site, find_site};
 use super::request_and_result::{
     ChangeDeps, ChangeRefused, ChangeRequest, ChangedFile, ConjuredChange,
 };
+use super::retry_drops::{TwoAnswers, drops_of_retry};
 use super::rules_check::rules_broken_by;
 use super::{check, situation, write};
 use crate::domain::budget::day_allows;
@@ -15,6 +16,7 @@ use crate::domain::config::PRODUCT;
 use crate::domain::edits::DropReason;
 use crate::domain::record::{Attempt, change_id};
 use crate::domain::reply::read_reply;
+use crate::domain::retry_drops::CheckedDrop;
 use crate::domain::spellbook_findings::{
     RuleFinding, RulesOutcome, TIMED_OUT_NOTE, broken_rules_text, held_back_text,
 };
@@ -50,6 +52,7 @@ pub fn conjure_change(
         files: last.files,
         dropped: last.dropped,
         rules: last.rules,
+        retry_drops: last.retry_drops,
         errand: last.errand,
     })
 }
@@ -64,6 +67,8 @@ struct Answer {
     dropped: Vec<(String, DropReason)>,
     broken: Vec<RuleFinding>,
     rules: RulesOutcome,
+    /// What a retry dropped of the first answer; empty for a first answer.
+    retry_drops: Vec<CheckedDrop>,
     errand: Errand,
 }
 
@@ -113,13 +118,14 @@ fn written_and_checked(
         dropped,
         broken: checked.broken,
         rules,
+        retry_drops: Vec::new(),
         errand: written.errand,
     })
 }
 
 /// The answer that keeps the rules: the first when it does; else a second, asked with the
-/// broken rules named after the situation; else the change held back. A day spent by the first
-/// answer holds it back without asking again.
+/// broken rules named after the situation, carrying what it dropped of the first; else the
+/// change held back. A day spent by the first answer holds it back without asking again.
 fn within_the_rules(
     site: &Site,
     first: Answer,
@@ -145,11 +151,24 @@ fn within_the_rules(
     let errand = both_calls(&first.errand, &second.errand);
     let second = Answer { errand, ..second };
     if second.broken.is_empty() {
+        let retry_drops = drops_of_retry(
+            &TwoAnswers {
+                first: &first.files,
+                retry: &second.files,
+                broken: &first.broken,
+                retry_goal: second.goal.as_deref(),
+            },
+            deps,
+        );
         let rules = match second.rules {
             RulesOutcome::NotChecked(why) => RulesOutcome::NotChecked(why),
             _ => RulesOutcome::AskedAgain(first.broken),
         };
-        return Ok(Answer { rules, ..second });
+        return Ok(Answer {
+            rules,
+            retry_drops,
+            ..second
+        });
     }
     Ok(held_back(second))
 }

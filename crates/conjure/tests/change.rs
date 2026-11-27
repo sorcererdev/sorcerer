@@ -517,6 +517,7 @@ fn a_record(id: &str) -> ChangeRecord {
         seconds: 4.2,
         cost_usd: Some(0.02),
         choice: Choice::NoChange,
+        retry_drops: vec![],
     }
 }
 

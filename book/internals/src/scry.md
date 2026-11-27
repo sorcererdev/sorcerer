@@ -199,8 +199,13 @@ no filter of its own, so the editor and `scry list` agree about what is open.
 
 `domain/review_prompt.rs` is the review call as data; its words are the eval's. A `ReviewAsk` carries the batch's
 `ReviewUnit`s (file, name, `lines`, enclosing `header`, `text`, `in_progress`), the diff, the
-steering text, `reported` (always empty in v1; spellbook's slot) and the `open` findings to
-re-answer. `review_prompt` renders it; `tests/golden/review-prompt.txt` is the golden, matched
+steering text, `reported` (always empty in v1; spellbook's slot), the `open` findings to
+re-answer and `conjure_drops`: what conjure's rules retry dropped in the batch's files
+(`domain/conjure_drops.rs`: `ConjureDrop`, `ConjureDropNotes`, scry's own reader of conjure's
+`.sorcerer/state/conjure/drops.json`, version 1; `Settings::conjure_drops`, empty by default, read
+by `ScryToml`; `Pass::conjure_drops_in` keeps a drop whose file is in the batch and whose text
+still lacks the name, `still_dropped`). `drops_section` renders them after the steering, and
+nothing when there are none, so the golden is unchanged. `review_prompt` renders it; `tests/golden/review-prompt.txt` is the golden, matched
 byte for byte. Unit lines are numbered `{:>5}  {text}` from the unit's first line.
 
 `parse_review` reads the reply: JSON is located from fenced chunks last-first, then the longest text that starts at a

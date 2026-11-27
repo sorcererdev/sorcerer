@@ -8,7 +8,10 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::{Error, Result};
 
+use sorcerer_core::adapters::json_store::{Snapshot, Store};
+
 use crate::domain::config::{ScryConfig, scry_config};
+use crate::domain::conjure_drops::{ConjureDrop, ConjureDropNotes};
 use crate::domain::steering::{Include, Steering, parse_steering};
 use crate::ports::settings::Settings;
 
@@ -32,7 +35,19 @@ impl ScryToml {
     }
 }
 
+/// conjure's drop notes, relative to the project's state directory.
+const CONJURE_DROPS_FILE: &str = "conjure/drops.json";
+
 impl Settings for ScryToml {
+    /// conjure's drop notes, read without creating anything.
+    fn conjure_drops(&self) -> Vec<ConjureDrop> {
+        let store = Store::<ConjureDropNotes>::at(self.project.state.join(CONJURE_DROPS_FILE));
+        match store.read() {
+            Ok(Snapshot::Current(notes)) => notes.drops(),
+            _ => Vec::new(),
+        }
+    }
+
     fn scry_config(&self) -> Result<ScryConfig> {
         scry_config(&self.project)
     }

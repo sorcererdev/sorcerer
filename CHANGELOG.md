@@ -23,6 +23,11 @@
 - **conjure tells you what a step did.** After every step the editor shows one message, such as
   `conjure: changed seat_party__test.py (1 line), seat_party.py (2 lines) · <goal>` or
   `conjure: no change · <goal>`, so a change to a file you are not looking at is not missed.
+- **conjure says what a rules retry dropped.** When the writer is asked again to keep a spellbook
+  rule and the second answer loses a call or definition the first added (it deleted a
+  `std::fs::write` instead of moving it into a port), Jev judges each drop and the step says the
+  doubtful ones: `asked again for commands-use-ports · dropped: std::fs::write in close_table.rs
+  (looks unintended)`. Nothing is held back; scry's next review of the file is told.
 
 ## 0.2.0 — 2026-11-24
 

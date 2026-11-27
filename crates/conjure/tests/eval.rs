@@ -409,6 +409,7 @@ fn run_case(
         config: &config,
         writer: &writer,
         checker: &NotChecking,
+        decider: None,
         ledger: &ledger,
         clock: &clock,
         cancel: &cancel,

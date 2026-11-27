@@ -81,6 +81,7 @@ fn run_with_env(dir: &Path, env: &MapEnv, rest: &[&str], reply: &str) -> (i32, S
                 ledger: ledger.clone(),
             }),
             checker: Box::new(NotChecking),
+            decider: None,
             ledger,
             name_case: conjure::domain::edits::NameCase::Matters,
             clock: Arc::new(FixedClock::at("2026-11-22T12:00:00Z".parse().unwrap())),
@@ -463,6 +464,7 @@ fn record(id: &str, at: &str, choice: Choice) -> ChangeRecord {
         seconds: 4.0,
         cost_usd: Some(0.001),
         choice,
+        retry_drops: vec![],
     }
 }
 

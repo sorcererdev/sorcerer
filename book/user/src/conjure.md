@@ -270,6 +270,39 @@ asked twice`. Asking again is a second call: its cost is added to the change's, 
 records it as a `conjure-retry` (so `conjure cost` shows it in its own `retries` column and does
 not count it as a second change), and it is not made when the first call spent the day's budget (the change is held back instead).
 
+#### What a retry dropped
+
+A second answer can keep the rule by deleting what the first did instead of moving it: the
+first wrote `std::fs::write(…)` in a command, the second just leaves the line out, and the
+walk-in is no longer saved. Conjure never holds a change back for this, but it says it.
+
+After a retry that keeps the rules, conjure compares the two answers by the language's queries:
+each call (named by its callee as written, `std::fs::write`, `self.clock.record`) and each
+definition the first answer added and the second has nowhere in the change. A call the second
+answer moved into another file of the change (an adapter) is not a drop, and neither is a
+placeholder the first answer left alone. One drop is kept per line.
+
+Each drop is put to Jev, when `JEV_API_KEY` is set, as one question (one call for all of them, at
+most 5): was the code not needed (the rule asked for its removal), does other code in the second
+answer do the same job (moved elsewhere), or was behaviour lost? When at least 0.7 of Jev's
+answer is on the first two together, the drop is legitimate; at most 0.3, it looks unintended;
+between, Jev is unsure. A Jev call costs a fraction of a cent and is counted in `conjure cost`'s
+total (verb `decide`).
+
+- A drop that looks unintended, an unsure one, and one Jev was not asked about (no key, the call
+  failed, more than 5) are in the step message: `conjure: changed seat_walk_in.rs (1 line) ·
+  seat the walk-in · asked again for commands-use-ports · dropped: std::fs::write in
+  seat_walk_in.rs (looks unintended)` (`maybe unintended`, `not checked`). The command line prints
+  `dropped: …` on its own line.
+- A drop Jev calls legitimate is said quietly: on the change's mark (`dropped on purpose:
+  std::fs::write in seat_walk_in.rs (moved elsewhere)`), on the command line, and in the change's
+  record (`retry_drops` in `changes.jsonl`, every drop with its verdict).
+
+The diff and Undo are as for any change. The drops that are said are also left for scry, in
+`.sorcerer/state/conjure/drops.json` (the newest 20; Undo and Try harder take a change's back):
+scry's next review of that file is told the dropped code, the rule and Jev's verdict, while the
+file still lacks it, so it can raise a finding where behaviour went missing.
+
 Each call to spellbook waits at most 10 seconds. When the check times out (spellbook hung or the
 machine is busy), the change goes ahead unchecked and says so: its goal ends `(rules not checked:
 the check timed out)`, and the command line prints `rules not checked: the check timed out`.
@@ -279,7 +312,7 @@ Without spellbook, or without rules, changes are not checked, and `conjure docto
 failure: conjure works without spellbook.
 
 Conjure itself writes nothing to your project, and only its own memory under
-`.sorcerer/state/conjure/`.
+`.sorcerer/state/conjure/` (its records, and the drops it leaves for scry).
 
 ## Settings
 

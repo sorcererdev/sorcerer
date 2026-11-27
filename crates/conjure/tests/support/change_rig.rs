@@ -125,6 +125,7 @@ impl Rig {
             config: &self.config,
             writer: &self.writer,
             checker: &self.checker,
+            decider: None,
             ledger: &self.ledger,
             clock: &self.clock,
             cancel: &self.cancel,

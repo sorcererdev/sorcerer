@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 mod change_rig;
+mod deciders;
 mod fixed_clock;
 mod git_fixtures;
 mod project_fixtures;
@@ -10,6 +11,8 @@ mod rule_checkers;
 
 #[allow(unused_imports)]
 pub use change_rig::*;
+#[allow(unused_imports)]
+pub use deciders::*;
 #[allow(unused_imports)]
 pub use fixed_clock::*;
 #[allow(unused_imports)]

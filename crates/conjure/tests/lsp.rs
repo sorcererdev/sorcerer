@@ -159,6 +159,10 @@ struct Setup {
     capabilities: Value,
     /// The editor's `initializationOptions`.
     options: Value,
+    /// A rule forbidding a word (the word, the rule's id); none checks nothing.
+    forbid: Option<(&'static str, &'static str)>,
+    /// The decider's answer to every question; none is no decider.
+    decider: Option<Vec<(&'static str, f64)>>,
 }
 
 impl Default for Setup {
@@ -166,6 +170,8 @@ impl Default for Setup {
         Setup {
             capabilities: full_capabilities(),
             options: json!({}),
+            forbid: None,
+            decider: None,
         }
     }
 }
@@ -204,6 +210,8 @@ fn served_with(dir: &Path, script: Arc<Script>, setup: Setup) -> Served {
     let trust_home = TempDir::new().unwrap();
     let trust = TrustList::at(trust_home.path());
     let for_wire = Arc::clone(&script);
+    let forbid = setup.forbid;
+    let answers = setup.decider.clone();
     let cfg = ServerConfig {
         open: Box::new(open_with_vendored_grammars),
         cache: support::test_cache(),
@@ -217,7 +225,16 @@ fn served_with(dir: &Path, script: Arc<Script>, setup: Setup) -> Served {
                 attempt,
             }) as Box<dyn Writer>)
         }),
-        checker: Box::new(|_| Box::new(support::NotChecking)),
+        checker: Box::new(move |_| match forbid {
+            Some((word, rule)) => Box::new(support::ForbiddenWord::error(word, rule)),
+            None => Box::new(support::NotChecking),
+        }),
+        decider: Box::new(move |_| {
+            answers.as_ref().map(|answers| {
+                Arc::new(support::SameAnswer::choosing(answers))
+                    as Arc<dyn sorcerer_models::ports::decider::Decider>
+            })
+        }),
     };
     let (server_end, editor_end) = Connection::memory();
     let server = std::thread::spawn(move || serve(server_end, cfg).unwrap());
@@ -820,6 +837,7 @@ fn the_server_tracks_text() {
         }),
         wire: Box::new(|_, _, _, _| anyhow::bail!("no writer")),
         checker: Box::new(|_| Box::new(support::NotChecking)),
+        decider: Box::new(|_| None),
     };
     let server = std::thread::spawn(move || serve(server_end, cfg).unwrap());
     let init = Request::new(
@@ -2270,5 +2288,65 @@ fn undo_deletes_an_empty_created_file_whose_buffer_was_closed() {
         "{kinds:?}"
     );
     assert!(!s.path("src/a__test.py").exists());
+    s.stop();
+}
+
+// ---- a rules retry that dropped what the first answer did ----
+
+#[test]
+fn a_retry_that_drops_a_call_says_so_leaves_it_for_scry_and_undo_takes_it_back() {
+    let first = "<goal>fill total, saved</goal>\n<file path=\"src/a.py\">\nimport b\nimport sqlite3\n\n\ndef total(cart):\n    save_total(sqlite3, cart)\n    return sum(cart)\n\n\nX = 1\n</file>\n";
+    let retry = format!("<goal>fill total</goal>\n<file path=\"src/a.py\">\n{NEW_A}</file>\n");
+    let dir = project();
+    let s = served_with(
+        dir.path(),
+        Script::replying(&[first, &retry]),
+        Setup {
+            forbid: Some(("sqlite3", "commands-use-ports")),
+            decider: Some(vec![
+                ("rule_asked_for_removal", 0.1),
+                ("moved_elsewhere", 0.1),
+                ("behaviour_lost", 0.8),
+            ]),
+            ..Setup::default()
+        },
+    );
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.apply_next_edit();
+    assert_eq!(
+        s.shown_message(),
+        "conjure: changed a.py (1 line) \u{b7} fill total \u{b7} asked again for commands-use-ports \u{b7} dropped: save_total in a.py (looks unintended)"
+    );
+    let main = s.marks("src/a.py");
+    assert!(
+        main[0]
+            .message
+            .contains(" · dropped: save_total in a.py (looks unintended)"),
+        "{main:?}"
+    );
+    let notes_file = dir.path().join(".sorcerer/state/conjure/drops.json");
+    let notes: Value =
+        serde_json::from_str(&std::fs::read_to_string(&notes_file).unwrap()).unwrap();
+    assert_eq!(notes["version"], 1);
+    assert_eq!(notes["data"]["notes"][0]["drop"]["name"], "save_total");
+    assert_eq!(notes["data"]["notes"][0]["drop"]["file"], "src/a.py");
+    assert_eq!(
+        notes["data"]["notes"][0]["drop"]["verdict"],
+        "looks unintended"
+    );
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    s.apply_next_edit();
+    let records = s.records_reach(1);
+    assert_eq!(records[0].choice, Choice::Undone);
+    assert_eq!(records[0].retry_drops.len(), 1);
+    assert_eq!(records[0].retry_drops[0].name, "save_total");
+    let notes: Value =
+        serde_json::from_str(&std::fs::read_to_string(&notes_file).unwrap()).unwrap();
+    assert_eq!(
+        notes["data"]["notes"],
+        json!([]),
+        "an undone change takes its drops back"
+    );
     s.stop();
 }

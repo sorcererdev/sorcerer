@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use sorcerer_core::Result;
 
 use crate::domain::config::ScryConfig;
+use crate::domain::conjure_drops::ConjureDrop;
 use crate::domain::steering::Steering;
 
 pub trait Settings: Send + Sync {
@@ -14,4 +15,9 @@ pub trait Settings: Send + Sync {
     fn steering(&self) -> Result<Steering>;
     /// The steering file, when the project has one.
     fn steering_source(&self) -> Option<PathBuf>;
+    /// What conjure left for the next review: code a rules retry dropped. None by default, and
+    /// none when conjure's file is missing or of another version.
+    fn conjure_drops(&self) -> Vec<ConjureDrop> {
+        Vec::new()
+    }
 }

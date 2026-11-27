@@ -87,6 +87,7 @@ fn ask0() -> ReviewAsk {
             model: "sonnet".into(),
             cost_usd: 0.0,
         }],
+        conjure_drops: vec![],
     }
 }
 

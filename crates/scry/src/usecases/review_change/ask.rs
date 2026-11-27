@@ -19,6 +19,7 @@ use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::unit::Unit;
 
 use super::{Pass, Progress, SentUnit};
+use crate::domain::conjure_drops::{ConjureDrop, still_dropped};
 use crate::domain::finding::{Finding, Status};
 use crate::domain::log_text::{block, count, section, sub, usd};
 use crate::domain::review_prompt::{
@@ -277,8 +278,28 @@ impl Pass<'_, '_> {
             // spellbook's slot: what was reported before; always empty in v1
             reported: Vec::new(),
             open: self.open_on(&batch),
+            conjure_drops: self.conjure_drops_in(&batch),
             units: batch,
         }
+    }
+
+    /// What conjure dropped in the batch's files that the files still lack.
+    fn conjure_drops_in(&self, batch: &[ReviewUnit]) -> Vec<ConjureDrop> {
+        self.deps
+            .settings
+            .conjure_drops()
+            .into_iter()
+            .filter(|drop| batch.iter().any(|unit| unit.file == drop.file))
+            .filter(|drop| {
+                let text = self.file_texts.get(&drop.file).cloned().or_else(|| {
+                    self.fences
+                        .allows(&drop.file)
+                        .then(|| self.deps.view.text(&drop.file).ok())
+                        .flatten()
+                });
+                text.is_some_and(|text| still_dropped(drop, &text))
+            })
+            .collect()
     }
 
     /// The open and unverified findings on the batch's units, for the
