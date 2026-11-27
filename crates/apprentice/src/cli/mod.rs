@@ -3,6 +3,7 @@
 //! `apprentice hook` are the helpers a task's agent runs; `cost`, `log`, `doctor` and `trust`
 //! are as in the other products.
 
+// spellbook:region cli-modules (from crates/apprentice/src/cli/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 mod arguments;
 mod console;
 mod cost;
@@ -15,6 +16,7 @@ mod mcp;
 mod run;
 mod run_cli;
 mod trust;
+// spellbook:end cli-modules
 
 use arguments::RunArgs;
 pub use doctor::{DoctorRow, doctor_rows};

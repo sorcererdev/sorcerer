@@ -1,5 +1,6 @@
 //! Data and the rules over it, with no I/O.
 
+// spellbook:region domain-modules (from crates/apprentice/src/domain/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 pub mod agent_event;
 pub mod answer_prompt;
 pub mod budget;
@@ -21,3 +22,4 @@ pub mod status;
 pub mod task;
 pub mod tree_readers;
 pub mod triage;
+// spellbook:end domain-modules

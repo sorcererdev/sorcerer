@@ -12,6 +12,7 @@
 //! - `asks.rs`: the agent's questions waiting on a line or in the picker.
 //! - `publisher.rs`: a file's marks; `commands.rs`: the capabilities, code actions, commands.
 
+// spellbook:region lsp-modules (from crates/apprentice/src/adapters/lsp/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
 mod apprentice_server;
 mod asks;
 mod commands;
@@ -22,6 +23,7 @@ mod server_config;
 mod server_state;
 mod tasks;
 mod watch;
+// spellbook:end lsp-modules
 
 pub use apprentice_server::serve;
 pub use server_config::{IDLE, OpenProject, ServerConfig, WireDecider, WireResearcher};
