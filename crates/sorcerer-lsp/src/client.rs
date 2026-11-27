@@ -28,7 +28,7 @@ pub struct Client {
 }
 
 /// What the editor said it can do, at initialize.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Abilities {
     /// `window.workDoneProgress`: it shows a progress line the server starts.
     pub work_done_progress: bool,
@@ -47,6 +47,9 @@ pub(crate) struct Abilities {
     /// `initializationOptions.drawsWorking`: it draws the units being worked on, from
     /// `sorcerer/working`. Only Sorcerer's own editor extensions say so.
     pub draws_working: bool,
+    /// `initializationOptions.handles`: the `sorcerer/…` notifications it handles beyond
+    /// `sorcerer/working`, such as `sorcerer/ghost`. Only Sorcerer's own editor extensions say so.
+    pub handles: Vec<String>,
 }
 
 struct Shared {
@@ -206,6 +209,31 @@ impl Client {
         }
         self.say(kind, text);
         true
+    }
+
+    /// Sends a notification of sorcerer's own (`sorcerer/ghost`, `sorcerer/note`,
+    /// `sorcerer/showDiff`) when the editor said at initialize that it handles it
+    /// (`initializationOptions.handles`), and answers whether it was sent; to any other editor it
+    /// sends nothing, so the product falls back to what every editor shows.
+    ///
+    /// Example: `notify_sorcerer("sorcerer/note", json!({ "uri": … }))` is `false` for an editor
+    /// that did not list `sorcerer/note`, and the product shows the note with `show_document`.
+    pub fn notify_sorcerer(&self, method: &str, params: Value) -> bool {
+        debug_assert!(method.starts_with("sorcerer/"), "{method}");
+        if !self.handles(method) {
+            return false;
+        }
+        self.notify(method, params);
+        true
+    }
+
+    /// Whether the editor said it handles the `sorcerer/…` notification.
+    pub fn handles(&self, method: &str) -> bool {
+        self.shared
+            .abilities
+            .handles
+            .iter()
+            .any(|handled| handled == method)
     }
 
     /// A line in the editor's log for this server, never shown unasked.

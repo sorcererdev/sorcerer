@@ -1,0 +1,125 @@
+# Commands that read whole trees of files, or content beyond the paths they name. apprentice
+# never offers "Always for this project" for one of these: each run is asked about, because a
+# search of the project reads a fenced file (`.env`) without naming it, so the fences' check
+# on named paths cannot stop it.
+#
+# This list is data, not code, because sorcerer's code names no tool (scripts/no-language-names).
+# Besides it, apprentice never offers "always" for a command with a glob in an argument
+# (`cat s*/keys.txt`), which reads whatever the glob matches the next time.
+#
+# Each [[reader]] names a program (and, for a program with subcommands, the subcommand).
+# It is a tree reader:
+#   - always, when `always = true`;
+#   - else when one of its arguments is one of `options`. An option written as `-x` (one dash,
+#     one letter) also matches a cluster of short options holding the letter (`-rn` holds `-r`),
+#     and an option written as `--name` also matches `--name=value`.
+
+# searches that recurse by default
+[[reader]]
+program = "rg"
+always = true
+
+[[reader]]
+program = "ag"
+always = true
+
+[[reader]]
+program = "ack"
+always = true
+
+[[reader]]
+program = "ugrep"
+always = true
+
+[[reader]]
+program = "ug"
+always = true
+
+# searches that recurse when asked to
+[[reader]]
+program = "grep"
+options = ["-r", "-R", "--recursive", "--dereference-recursive", "--directories", "-d"]
+
+[[reader]]
+program = "egrep"
+options = ["-r", "-R", "--recursive", "--dereference-recursive", "--directories", "-d"]
+
+[[reader]]
+program = "fgrep"
+options = ["-r", "-R", "--recursive", "--dereference-recursive", "--directories", "-d"]
+
+# commands run over lists of files
+[[reader]]
+program = "xargs"
+always = true
+
+[[reader]]
+program = "find"
+options = ["-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"]
+
+[[reader]]
+program = "fd"
+options = ["-x", "--exec", "-X", "--exec-batch"]
+
+# copies and archives of a tree, which can then be read where no fence is
+[[reader]]
+program = "cp"
+options = ["-r", "-R", "-a", "--recursive", "--archive"]
+
+[[reader]]
+program = "rsync"
+always = true
+
+[[reader]]
+program = "tar"
+always = true
+
+[[reader]]
+program = "zip"
+always = true
+
+# git commands that print file content from the history or the index
+[[reader]]
+program = "git"
+subcommand = "grep"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "show"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "diff"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "cat-file"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "archive"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "format-patch"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "whatchanged"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "stash"
+always = true
+
+[[reader]]
+program = "git"
+subcommand = "log"
+options = ["-p", "-u", "--patch", "-L", "-G", "-S", "--full-diff", "--cc", "-c", "-m", "--word-diff"]

@@ -33,7 +33,9 @@ use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_lsp::WorkDone;
 
 use super::commands::{Ask, failed, invalid};
-use super::landing::{NewFiles, OpenDocument, Snapshot, workspace_edit};
+use super::landing::{
+    NewFiles, OpenDocument, Snapshot, file_changes, moved_on, versioned_text_now, workspace_edit,
+};
 use super::marks::{mark_diagnostic, marks_of};
 use super::{NOT_TRUSTED, Server, lock, project_relative};
 use crate::adapters::editor_view::EditorView;
@@ -445,7 +447,11 @@ impl Server {
             self.show(landed, ShownState::Recorded);
             return self.ended(progress);
         }
-        if self.moved_on(&conjured) {
+        if moved_on(
+            &self.client,
+            &conjured.snapshot,
+            &file_changes(&conjured.change),
+        ) {
             self.client.say(MessageType::WARNING, REFUSED);
             let landed = landed_change(conjured, &[]);
             self.record(&landed.project, &landed.record, Choice::Dropped);
@@ -456,7 +462,11 @@ impl Server {
         } else {
             NewFiles::LeftOut
         };
-        let (edit, not_created) = workspace_edit(&conjured.change, &conjured.snapshot, new_files);
+        let (edit, not_created) = workspace_edit(
+            &file_changes(&conjured.change),
+            &conjured.snapshot,
+            new_files,
+        );
         let landed = landed_change(conjured, &not_created);
         if !not_created.is_empty() {
             self.client
@@ -533,28 +543,6 @@ impl Server {
         self.client.clear_working();
         progress.end(None);
         self.end_running();
-    }
-
-    /// Whether a file the change edits moved on since its text was read: an open file at
-    /// another version; a file that was not open and is open now, or on disk, with other text;
-    /// a new file that is there now. The editor would refuse the first (most do; Neovim checks
-    /// only the first file of an edit) and would apply the others over what is there, so none
-    /// is sent.
-    fn moved_on(&self, conjured: &Conjured) -> bool {
-        let snapshot = &conjured.snapshot;
-        conjured.change.files.iter().any(|file| {
-            let path = snapshot.editor_path(&file.path);
-            let now = self.client.text_of(&path);
-            match (snapshot.version_of(&file.path), now) {
-                (Some(read), Some((version, _))) => version != read,
-                (Some(_), None) => true,
-                (None, Some((_, text))) => Some(text) != file.before,
-                // not open: the disk is not as the change read it (the editor's view keeps the
-                // text it first read, which is what the writer was shown)
-                (None, None) if file.new => path.exists(),
-                (None, None) => std::fs::read_to_string(&path).ok() != file.before,
-            }
-        })
     }
 
     /// Makes a change the one shown: the one shown before it is recorded `kept` (unless it was
@@ -789,10 +777,7 @@ impl Server {
     /// The file's version and text as the editor has it (the version), else as the disk has it
     /// (no version); `None` when it is in neither.
     pub(super) fn versioned_text_now(&self, path: &Path) -> Option<(Option<i32>, String)> {
-        match self.client.text_of(path) {
-            Some((version, text)) => Some((Some(version), text)),
-            None => std::fs::read_to_string(path).ok().map(|text| (None, text)),
-        }
+        versioned_text_now(&self.client, path)
     }
 
     /// Appends the record at its choice; a record that cannot be written is logged.

@@ -105,6 +105,11 @@ one key to `false`, to bind none; a key you already mapped is left alone and lis
 (`~/.local/bin`); started from a launcher it often cannot, so give `cmd = { "/full/path/to/scry",
 "lsp" }`.
 
+Apprentice (a prototype) is off too (`apprentice = { enabled = true }`); build it with `cargo
+install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice`. Its keys are
+`<leader>ma` (do this), `ms` (stop), `md` (show diff), `mz` (undo the task), `mj` (journal), `mx`
+(dismiss) and `ml` (label); see [Apprentice](apprentice.md#in-neovim).
+
 ### VS Code
 
 Install **Scry** (`sorcererdev.scry`) from the Extensions view (the Marketplace; VS Code forks

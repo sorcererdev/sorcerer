@@ -50,8 +50,10 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   `rules.rs`: `rules_text` over `context`, `include` and `[[rule]] text` of `.sorcerer/scry.toml`
   (`RULES_CAP` 3000). Products never import each other: these are conjure's readers.
 - `reply.rs`: `read_reply`, `ChangeReply` (the same path twice keeps the last block; `is_nothing`).
-- `edits.rs`: `lexical_relative`, `Landing`, `DropReason`, `in_base_line_endings`, `line_edits`
-  (`LineEdit`, over the `similar` crate), `first_changed_line`, `lines_changed`.
+- `edits.rs`: `lexical_relative`, `Landing`, `DropReason`, `NameCase`, and a re-export of the
+  host's `sorcerer_lsp::line_edits` (`in_base_line_endings`, `line_edits`, `LineEdit`,
+  `first_changed_line`, `lines_changed`), which moved there for apprentice
+  ([The language-server host](lsp.md#what-the-host-owns)).
 - `record.rs`: `ChangeRecord`, `Choice`, `Attempt`, `Trigger`, `change_id`. `budget.rs`:
   `day_allows`. `log_text.rs`: `record_line`, `usd`, `count`.
 
@@ -158,7 +160,8 @@ person must hear goes through `Client::say`, and an error answers only a malform
    file at another version; a file not open then and open now with other text, or on disk with
    other text than the change read; a new file that is there now), since an editor may not
    check (Neovim checks only the first file's version) and a file with no version is not checked
-   at all; then `landing::workspace_edit` builds one
+   at all (`sorcerer_lsp::landing::moved_on`, over the change's files as `FileChange`s from
+   `landing::file_changes`); then the host's `landing::workspace_edit` builds one
    `WorkspaceEdit` (each existing file a `TextDocumentEdit` at the snapshot's version, `None` for
    a file that was not open; each new file a `CreateFile` with `ignoreIfExists` and an insert;
    new files left out under `NewFiles::LeftOut`), and `Client::apply_edit` sends it. On
@@ -188,7 +191,8 @@ now (`versioned_text_now`: the editor's, else the disk's): a file at its after-t
 `line_edits(after, before)` at its current version; a new file is deleted (`DeleteFile`, under
 `FileDeletion::Allowed`) or emptied; a new file closed unsaved (empty on disk) is deleted; a file
 already at its text before needs nothing; any other text is the person's, so the whole undo is
-refused with the file named. While the undo is in flight the state is `Undoing(choice)`;
+refused with the file named (the host's `sorcerer_lsp::undo_plan::undo_of`, each `LandedFile` as a
+`TakenBack`). While the undo is in flight the state is `Undoing(choice)`;
 `taken_back` records it when the editor applied it and runs its `Then` with the held `Cancel`. Try
 harder (`try_harder`) is the same undo recorded `replaced`, then `start_again` with an `Again`
 (the situation the first writer read, the id it replaces, and each file's text before), still

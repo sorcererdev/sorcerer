@@ -1615,6 +1615,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "sorcerer-apprentice"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossbeam-channel",
+ "getrandom 0.3.4",
+ "lsp-server",
+ "lsp-types",
+ "serde",
+ "serde_json",
+ "similar 3.2.1",
+ "sorcerer-core",
+ "sorcerer-lsp",
+ "sorcerer-models",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "tree-sitter",
+ "which",
+]
+
+[[package]]
 name = "sorcerer-conjure"
 version = "0.2.0"
 dependencies = [
@@ -1674,6 +1698,7 @@ dependencies = [
  "lsp-types",
  "serde",
  "serde_json",
+ "similar 3.2.1",
  "tempfile",
  "url",
 ]

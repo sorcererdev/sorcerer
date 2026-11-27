@@ -6,7 +6,6 @@
 //! back only when its text is still the change's after-text; any other text is the person's,
 //! and then the whole undo is refused and said.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -18,10 +17,10 @@ use super::changes::{
     edited_after_text, emptied_text,
 };
 use super::commands::Ask;
-use super::landing::{Undoing, undo_edit};
+use super::landing::undo_edit;
 use super::{Server, lock};
-use crate::domain::edits::{LineEdit, in_base_line_endings, line_edits, same_text};
 use crate::domain::record::Choice;
+use sorcerer_lsp::undo_plan::{FileDeletion, FileUndo, TakenBack, Undo, undo_of};
 
 /// What runs after an undo the editor applied, holding the running place it was given: Try
 /// harder's next change, or letting the place go.
@@ -183,7 +182,7 @@ impl Server {
         };
         for file in &change.files {
             let now = self.versioned_text_now(&file.editor_path);
-            match undo_of(file, now, deletion) {
+            match undo_of(&taken_back(file), now, deletion) {
                 FileUndo::Nothing => {}
                 FileUndo::Edited => return Err(file.name()),
                 FileUndo::Undo(undo) => {
@@ -245,108 +244,13 @@ struct UndoPlan {
     edited_name: String,
 }
 
-/// One file's undo.
-enum Undo {
-    /// Edits back to the text before, at the version the file has now.
-    Edit {
-        path: PathBuf,
-        version: Option<i32>,
-        edits: Vec<LineEdit>,
-    },
-    /// A new file emptied (the editor cannot delete files).
-    Empty {
-        path: PathBuf,
-        version: Option<i32>,
-        edits: Vec<LineEdit>,
-    },
-    Delete {
-        path: PathBuf,
-    },
-}
-
-impl Undo {
-    fn undoing(&self) -> Undoing<'_> {
-        match self {
-            Undo::Edit {
-                path,
-                version,
-                edits,
-            }
-            | Undo::Empty {
-                path,
-                version,
-                edits,
-            } => Undoing::Edit {
-                path,
-                version: *version,
-                edits: edits.clone(),
-            },
-            Undo::Delete { path } => Undoing::Delete { path },
-        }
-    }
-}
-
-/// Whether the editor may delete a file the change created.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FileDeletion {
-    Allowed,
-    NotAllowed,
-}
-
-/// What undoing one file takes, from its text now.
-enum FileUndo {
-    Undo(Undo),
-    /// The file is already as it was (the edit never reached it, or the person put it back).
-    Nothing,
-    /// The person edited it after the change landed.
-    Edited,
-}
-
-/// One file's undo, from its version and text now (the editor's, else the disk's):
-///
-/// - at the change's after-text: back to its text before (a new file deleted, or emptied when
-///   the editor cannot delete);
-/// - already at its text before: nothing;
-/// - a new file closed unsaved, so empty on disk (the editor created it empty): deleted when
-///   the editor can;
-/// - anything else is the person's, and is never overwritten.
-fn undo_of(
-    file: &LandedFile,
-    now: Option<(Option<i32>, String)>,
-    deletion: FileDeletion,
-) -> FileUndo {
-    let Some((version, text)) = now else {
-        // in neither the editor nor the disk: only a new file may be gone
-        return if file.new {
-            FileUndo::Nothing
-        } else {
-            FileUndo::Edited
-        };
-    };
-    let path = file.editor_path.clone();
-    let before = file.before.as_deref().unwrap_or("");
-    if !same_text(&text, &file.after) {
-        return match (file.new, version, deletion) {
-            (true, None, FileDeletion::Allowed) if text.is_empty() => {
-                FileUndo::Undo(Undo::Delete { path })
-            }
-            _ if text == before => FileUndo::Nothing,
-            _ => FileUndo::Edited,
-        };
-    }
-    match (&file.before, deletion) {
-        (Some(before), _) => FileUndo::Undo(Undo::Edit {
-            path,
-            version,
-            // in the file's own line endings: an undo does not rewrite them
-            edits: line_edits(&text, &in_base_line_endings(&text, before)),
-        }),
-        (None, FileDeletion::Allowed) => FileUndo::Undo(Undo::Delete { path }),
-        (None, FileDeletion::NotAllowed) => FileUndo::Undo(Undo::Empty {
-            path,
-            version,
-            edits: line_edits(&text, ""),
-        }),
+/// A landed file as the host's undo plan takes it.
+fn taken_back(file: &LandedFile) -> TakenBack<'_> {
+    TakenBack {
+        editor_path: &file.editor_path,
+        new: file.new,
+        before: file.before.as_deref(),
+        after: &file.after,
     }
 }
 

@@ -1,0 +1,15 @@
+# Paths no task writes, even through the editor: sorcerer's and git's own, and the files an agent,
+# a shell or an editor runs or obeys the next time it starts in the project. A task writing one of
+# these could run code later without anyone asking (a hook, an MCP server, a direnv script).
+#
+# This list is data, not code, because sorcerer's code names no tool (scripts/no-language-names).
+#
+# Each name matches any part of a path, ignoring case: a directory (`.claude` holds
+# `.claude/settings.json`) or a file wherever it is (`tools/.envrc`).
+names = [
+  ".sorcerer",   # sorcerer's own config and state
+  ".git",        # git's internals, hooks included
+  ".claude",     # Claude Code's settings, hooks, commands and agents
+  ".mcp.json",   # the MCP servers Claude Code starts in the project
+  ".envrc",      # direnv runs it on entering the directory
+]

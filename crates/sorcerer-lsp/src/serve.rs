@@ -178,7 +178,22 @@ fn abilities_of(params: &Value) -> Abilities {
             .pointer("/initializationOptions/drawsWorking")
             .and_then(Value::as_bool)
             == Some(true),
+        handles: sorcerer_notifications_handled(params),
     }
+}
+
+/// The `sorcerer/…` notifications the editor listed in `initializationOptions.handles`; any
+/// other name in the list is ignored.
+fn sorcerer_notifications_handled(params: &Value) -> Vec<String> {
+    params
+        .pointer("/initializationOptions/handles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|method| method.starts_with("sorcerer/"))
+        .map(String::from)
+        .collect()
 }
 
 /// The first workspace folder, else `rootUri`.
