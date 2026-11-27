@@ -184,8 +184,9 @@ person's verdict on each command asked about, the `Cancel`.
 `ClaudeAgent::args` (`claude_agent.rs`), in order: `-p`, `--output-format stream-json`,
 `--input-format stream-json`, `--verbose`, `--model`, `--max-budget-usd`, `--max-turns`,
 `--setting-sources ""` (no project settings, hooks or `CLAUDE.md` reach the child; core's trust
-gate stays in front), `--settings` (the two hooks, `PostToolUse` and `Stop`, each `"<apprentice>"
-hook <event>` with `/` in the path on every system; then `permissions`: `deny` holds the five
+gate stays in front), `--settings` (the two hooks, `PostToolUse` and `Stop`, each `'<apprentice>'
+hook <event>` (`helper_command`: POSIX single quotes, `'\''` for a quote in the path, since Claude Code runs a hook
+through a shell, Git Bash on Windows; `/` in the path on every system); then `permissions`: `deny` holds the five
 tools and every fence as `Read(./…)` (a `dir/**` fence also as `Read(./dir)`, each rule once),
 which Claude Code applies to Read, Grep, Glob, `@`-mentions and the file commands it parses
 (`cat .env`, `head`, `cp .env x`); `ask` is `ASKED_TOOLS`, `Bash`, `PowerShell` and `Monitor`,
