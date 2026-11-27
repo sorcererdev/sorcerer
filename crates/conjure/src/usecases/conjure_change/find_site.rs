@@ -35,7 +35,7 @@ pub(super) fn find_site(request: &ChangeRequest, deps: &ChangeDeps) -> Result<Si
     let language = deps
         .project
         .languages
-        .for_path(&request.file)
+        .with_units_for_path(&request.file)
         .ok_or(ChangeRefused::OutsideAUnit)?;
     let text = deps.view.text(&request.file).map_err(failed)?;
     let anchor = request.selection.map_or(request.line, |lines| lines.start);

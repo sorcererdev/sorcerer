@@ -385,3 +385,26 @@ fn same_lists_the_units_equal_to_the_base() {
     );
     assert!(scope(d.path(), why, true).files[0].same.is_empty());
 }
+
+#[test]
+fn a_file_whose_language_has_no_units_is_skipped_without_loading_its_grammar() {
+    // the grammar's directory does not exist: loading it would fail the scope
+    let d = committed();
+    support::write(
+        d.path(),
+        ".sorcerer/languages/settings/language.toml",
+        "files = [\"**/*.settings\"]\ngrammar = { path = \"missing\" }\ncomment = \"#\"\n",
+    );
+    support::write(
+        d.path(),
+        ".sorcerer/languages/settings/queries/textobjects.scm",
+        "(comment) @comment.outer\n",
+    );
+    support::write(d.path(), "app.settings", "port = 1\n");
+    let named = ScopeRequest::Files(vec!["app.settings".into()]);
+    let s = scope_with(d.path(), named, true, &ScryConfig::default());
+    assert_eq!(
+        skipped(&s),
+        [("app.settings".to_string(), "no units".to_string())]
+    );
+}

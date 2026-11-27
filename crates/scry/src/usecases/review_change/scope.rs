@@ -176,6 +176,8 @@ impl<'a> Scoping<'a> {
     fn reason_to_skip(&self, file: &Path) -> Option<&'static str> {
         if self.project.languages.for_path(file).is_none() {
             Some("no language")
+        } else if self.project.languages.with_units_for_path(file).is_none() {
+            Some("no units")
         } else if self.exclude.is_match(file) {
             Some("excluded by [scry] exclude")
         } else if !self.fences.allows(file) {

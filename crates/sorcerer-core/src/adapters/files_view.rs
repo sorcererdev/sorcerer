@@ -68,7 +68,7 @@ impl CodebaseView for FilesView {
     }
 
     fn units(&self, path: &Path) -> Result<Vec<Unit>> {
-        if self.project.languages.for_path(path).is_none() {
+        if self.project.languages.with_units_for_path(path).is_none() {
             return Ok(Vec::new());
         }
         let text = self.text(path)?;
@@ -76,7 +76,7 @@ impl CodebaseView for FilesView {
     }
 
     fn unit_or_broken_region_at(&self, path: &Path, line: u32) -> Result<Option<Unit>> {
-        let Some(language) = self.project.languages.for_path(path) else {
+        let Some(language) = self.project.languages.with_units_for_path(path) else {
             return Ok(None);
         };
         let loaded = self.project.languages.load(&language.name, &self.cache)?;
@@ -86,7 +86,7 @@ impl CodebaseView for FilesView {
     }
 
     fn units_at(&self, path: &Path, rev: &str) -> Result<Vec<Unit>> {
-        if self.project.languages.for_path(path).is_none() {
+        if self.project.languages.with_units_for_path(path).is_none() {
             return Ok(Vec::new());
         }
         match self.text_at(path, rev)? {
@@ -96,7 +96,7 @@ impl CodebaseView for FilesView {
     }
 
     fn facts(&self, path: &Path, unit: &Unit) -> Result<Facts> {
-        let Some(lang) = self.project.languages.for_path(path) else {
+        let Some(lang) = self.project.languages.with_units_for_path(path) else {
             return Ok(Facts::default());
         };
         let loaded = self.project.languages.load(&lang.name, &self.cache)?;
@@ -208,7 +208,7 @@ impl FilesView {
 
     /// The units of a file's text, using the language its path belongs to.
     fn units_in(&self, path: &Path, text: &str) -> Result<Vec<Unit>> {
-        match self.project.languages.for_path(path) {
+        match self.project.languages.with_units_for_path(path) {
             None => Ok(Vec::new()),
             Some(lang) => {
                 let loaded = self.project.languages.load(&lang.name, &self.cache)?;

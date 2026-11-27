@@ -26,9 +26,10 @@ pub(super) fn project_relative(project: &Project, path: &Path) -> Option<PathBuf
     )))
 }
 
-/// The same, only for a file the project has a language for.
+/// The same, only for a file whose language has units (a README or a config file is not
+/// conjure's).
 pub(super) fn project_file(project: &Project, path: &Path) -> Option<PathBuf> {
     let relative = project_relative(project, path)?;
-    project.languages.for_path(&relative)?;
+    project.languages.with_units_for_path(&relative)?;
     Some(relative)
 }
