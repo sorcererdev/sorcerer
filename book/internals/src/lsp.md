@@ -75,7 +75,10 @@ through the `url` crate). There is no async runtime.
   turns a change's files (`FileChange`: the path relative to the root, new or not, the text
   before and after, the `LineEdit`s) into one `WorkspaceEdit`: each open file a
   `TextDocumentEdit` at the version in the `Snapshot` taken when the change was asked for, a file
-  not open with no version, a new file a `CreateFile` (`ignoreIfExists`) and an insert, or left
+  not open with no version, a new file a `CreateFile` (`ignoreIfExists`) and its text written
+  over lines 0 up to 1 (not inserted at 0:0: a new Neovim buffer already holds one empty line,
+  which an insertion would leave as an extra last line; an edit past the end is one Neovim and
+  VS Code both fit to the buffer, and Neovim then drops the empty last line), or left
   out under `NewFiles::LeftOut`. `landing::moved_on` is the check before sending: an open file at
   another version, a file not open then but open now (or on disk) with other text, a new file
   that is there now. `undo_plan::undo_of` plans one file's undo from its text now
