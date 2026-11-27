@@ -384,7 +384,7 @@ fn a_file_no_language_covers_is_not_parsed() {
     use spellbook::domain::plan::FileStatus;
 
     let dir = bistro_project();
-    write_tiny(dir.path(), "src/{= name =}.html", "text = \"<div\"", &[]);
+    write_tiny(dir.path(), "src/{= name =}.txt", "text = \"<div\"", &[]);
     let rig = PlanRig::new(dir.path());
     let plan = rig.plan("tiny", &[("name", "x")]).unwrap();
     assert_eq!(plan.files[0].status, FileStatus::New);
@@ -398,7 +398,7 @@ fn a_placeholder_hole_in_an_uncovered_file_is_refused() {
     let dir = bistro_project();
     write_tiny(
         dir.path(),
-        "src/{= name =}.html",
+        "src/{= name =}.txt",
         "template = \"page.html.dt\"",
         &[("page.html.dt", "<p>{= ? body: block | the page =}</p>\n")],
     );
@@ -406,7 +406,7 @@ fn a_placeholder_hole_in_an_uncovered_file_is_refused() {
     let stop = rig.plan("tiny", &[("name", "x")]).unwrap_err();
     assert_eq!(
         plan_stop_text(&stop),
-        "no language covers src/x.html, so its hole body has no placeholder"
+        "no language covers src/x.txt, so its hole body has no placeholder"
     );
     assert!(matches!(stop, PlanStop::NoLanguageForHole { .. }));
 }
