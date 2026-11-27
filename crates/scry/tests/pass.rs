@@ -2078,6 +2078,23 @@ fn a_unit_put_back_resolves_its_finding_without_a_call() {
     assert_eq!(r.touched.len(), 1);
 }
 
+/// A file put back to HEAD (by `git checkout`, say) is no longer in the working tree's change,
+/// so no pass has it in scope; a pass over the working tree still resolves its findings.
+#[test]
+fn a_file_put_back_out_of_the_change_has_its_findings_resolved_by_the_next_pass() {
+    let f = Fixture::new();
+    let reviewer = convention_reviewer();
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    assert!(matches!(
+        only(&f.store()).status,
+        Status::Open | Status::Unverified
+    ));
+    f.edit("order.cancel(now=True)", "order.cancel()");
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    assert_eq!(only(&f.store()).status, Status::Resolved);
+    assert_eq!(reviewer.asks().len(), 1);
+}
+
 #[test]
 fn a_committed_change_keeps_its_finding_open() {
     let f = Fixture::new();

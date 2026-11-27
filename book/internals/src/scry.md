@@ -28,7 +28,8 @@ Scry is in five layers (see [Architecture](architecture.md)); a dependency only 
   verification rounds (`Pass::verify_findings_per_file`, `verify_findings_in_file`, `verify_round`, `PrioritizedFindings`, `FindingsToVerify`, `DisplaySlots`) and `citations`, `cites`.
 - `list_findings.rs` (`ListRequest`, `list_findings`), `explain_finding.rs` (`Explanation`,
   `CitedText`, `explain_finding`), `dismiss_finding.rs`, `report_cost.rs` (`CostReport`,
-  `DayCost`), `read_findings.rs` (`read_findings`, the store read for the use cases), `show_findings.rs` (`Shown`, `shown_in_file`: what an editor shows in a file).
+  `DayCost`), `read_findings.rs` (`read_findings`, the store read for the use cases), `resolve_put_back.rs`
+  (`PutBackLook::resolve`: the put-back sweep with no pass, for files no pass has in scope), `show_findings.rs` (`Shown`, `shown_in_file`: what an editor shows in a file).
 
 **Domain** (`src/domain/`), data and rules, no I/O:
 
@@ -340,19 +341,27 @@ by saving it and making the report (`Pass::report`). The steps, in
 2. **What to send, the gone sweep and the put-back sweep** (`ask.rs`, `remember.rs`). The scope's units whose fingerprint is not in
    `reviewed[file]` (every one with `fresh`). `Pass::sweep_gone`: an open, unverified or withheld
    finding of a scoped file whose unit is not in `units_now`, or whose file was deleted, is
-   `gone`. `Pass::sweep_put_back`: an open or unverified finding of a scoped file whose unit
+   `gone`. `Pass::sweep_put_back` (`Findings::put_back`): an open or unverified finding of a scoped file whose unit
    is in that file's `ScopedFile::same` (the units equal to the base's, filled by
    `Scoping::compared_with_base` where `compare_units` runs; empty with `--all` or no base) at a
    fingerprint other than the finding's is `resolved` with no call: the user undid the change
    it was about, so no pass would review that unit again. Every way a finding is closed for its
    code (gone, put back, no longer holds, not found again) goes through
-   `Pass::close_for_changed_code`, which also takes the finding's fingerprint out of
-   `reviewed[file]` (`forget_code_reviewed_for`): when the unit comes back to that code (you redo
+   `Pass::close_for_changed_code` (`Findings::close_for_changed_code`), which also takes the finding's fingerprint out of
+   `reviewed[file]`: when the unit comes back to that code (you redo
    the change you undid), it is sent again rather than counted as reviewed with nothing to say.
    A unit the reviewer answered for in the same pass is marked reviewed again at step 7. A
    finding whose fingerprint is the
    base's (the change was committed, bug and all) stays open; one stored with no fingerprint
    is left alone. The store is written even when nothing is sent.
+   A file put back by `git checkout` is no longer in the working tree's change and was never
+   saved, so no pass has it in scope. Two calls of `PutBackLook::resolve`
+   (`usecases/resolve_put_back.rs`) cover it: `review_change` runs it under the lock, before
+   reading the store, on every file with a finding outside the scope
+   (`resolve_put_back_outside`, logged as `- put back outside the change, resolved: …`), and
+   the editor runs it before showing a file (below). It looks only at files holding a finding
+   that `placed` calls stale, builds a `Files` scope of them (`scope_of`, base `HEAD`) and
+   resolves `Findings::put_back` in the store with `FindingStore::update`.
 3. **Review** (`ask.rs`). `batch_units` batches them; each batch is a `ReviewAsk` with its files' diffs
    (`diff_of`), `Steering::steering_text`, `reported` empty, and the open and unverified findings on its
    units (`Pass::open_on`). Before each call `Budget::allows(find_estimate)`; once one batch is
@@ -597,7 +606,9 @@ always lands after the open before it. `Publish::File(path)` is sent at an open 
 `Publish::Clear(path)` at a close (an empty list), `Publish::AllOpen` for every open document,
 and `Publish::After(f)` runs `f` once everything asked before it is published. For a file that is open and the project's,
 `Server::diagnostics_for` reads the store afresh (`JsonFindingStore::at`, so a read creates
-nothing), takes `shown_in_file` and turns each `Shown` into a diagnostic. Only open documents
+nothing), first resolves the file's findings on code put back to `HEAD`
+(`Server::resolve_put_back`, `PutBackLook::resolve`; a failure is logged and the file shown
+anyway), takes `shown_in_file` and turns each `Shown` into a diagnostic. Only open documents
 are ever published. An error (the config does not parse, the store is from a newer scry) goes
 to the editor's log (`window/logMessage`), each text once until the server next publishes
 (`log_error`, over `errors_logged`), and publishes nothing; the next save tries again.

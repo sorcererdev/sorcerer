@@ -2120,6 +2120,41 @@ fn a_unit_put_back_clears_its_finding_at_the_save() {
     s.stop();
 }
 
+/// The second editor walk of 2026-11-26: a finding reviewed on a change, the code then put back
+/// outside the editor (`git checkout -- .`, no save), showed at error severity, stale, on code
+/// that no longer had the problem. Opening the file settles it, with no review call.
+#[test]
+fn a_unit_put_back_outside_the_editor_clears_its_finding_when_the_file_is_opened() {
+    let dir = changed_project();
+    let s = served(dir.path(), bug_reviewer());
+    s.open(&orders(&dir));
+    s.save(&orders(&dir));
+    assert!(
+        s.diagnostics_until(&orders(&dir), WAIT, |d| d.len() == 1)
+            .is_some()
+    );
+    s.close(&orders(&dir));
+    assert!(
+        s.diagnostics_until(&orders(&dir), WAIT, <[Diagnostic]>::is_empty)
+            .is_some()
+    );
+    // put back as HEAD has it, by git, with no save
+    write(dir.path(), "orders.py", ORDERS);
+    s.open(&orders(&dir));
+    let shown = s.next_diagnostics(&orders(&dir), WAIT).unwrap();
+    assert!(
+        shown.is_empty(),
+        "a stale finding on the code put back: {shown:?}"
+    );
+    let project = Project::open(dir.path()).unwrap();
+    assert_eq!(
+        support::read_store(&project).findings[0].status,
+        scry::domain::finding::Status::Resolved
+    );
+    assert_eq!(s.asks(), 1);
+    s.stop();
+}
+
 // ---- a pass the per-pass budget cut short ----
 
 /// A project whose `steps.py` holds three changed functions of 400 lines each: three review

@@ -147,6 +147,59 @@ impl Findings {
         shown.truncate(MAX_SHOWN);
         shown
     }
+
+    /// The open and unverified findings on a unit put back to the base's code: the scope says
+    /// the unit is the same now as at the base, at a fingerprint other than the one the
+    /// finding was made on. A finding stored with no fingerprint is left alone.
+    ///
+    /// Example: you saved a change to `cancel`, a pass raised a finding on it at 0e41bd1, and
+    /// you undid the change. `cancel` is what `HEAD` has again (7c2a9f0), so no pass would
+    /// review it: the finding is about code that is no longer there. Had you committed the
+    /// change instead, `HEAD` would hold 0e41bd1, and the finding would not be put back.
+    pub fn put_back(&self, scope: &Scope) -> Vec<FindingId> {
+        let same_as_base = |f: &Finding| {
+            scope.files.iter().any(|sf| {
+                sf.file == f.place.file
+                    && f.place.unit.as_ref().is_some_and(|name| {
+                        sf.same.iter().any(|(same, at)| {
+                            same == name
+                                && f.place.fingerprint.is_some_and(|made_on| made_on != *at)
+                        })
+                    })
+            })
+        };
+        self.findings
+            .iter()
+            .filter(|f| matches!(f.status, Status::Open | Status::Unverified))
+            .filter(|f| same_as_base(f))
+            .map(|f| f.id.clone())
+            .collect()
+    }
+
+    /// Closes each finding in `ids` (resolved or gone, dated `at`) because its code changed,
+    /// and forgets that the code it was made on was reviewed: if the unit comes back to that
+    /// code, a pass sends it again rather than counting it as reviewed with nothing to say.
+    ///
+    /// Example: a finding on `cancel` at fingerprint 0e41bd1 is resolved because you put
+    /// `cancel` back as the base has it. You then redo the change: `cancel` is at 0e41bd1
+    /// again, and the next pass sends it, so the finding shows again.
+    pub fn close_for_changed_code(&mut self, ids: &[FindingId], status: Status, at: DateTime<Utc>) {
+        let made_on: Vec<(PathBuf, String)> = self
+            .findings
+            .iter()
+            .filter(|f| ids.contains(&f.id))
+            .filter_map(|f| Some((f.place.file.clone(), f.place.fingerprint?.to_string())))
+            .collect();
+        for (file, print) in made_on {
+            if let Some(prints) = self.reviewed.get_mut(&file) {
+                prints.remove(&print);
+            }
+        }
+        self.reviewed.retain(|_, prints| !prints.is_empty());
+        for f in self.findings.iter_mut().filter(|f| ids.contains(&f.id)) {
+            f.set_status(status, at);
+        }
+    }
 }
 
 fn is_open_of(f: &Finding, issue_types: &[String]) -> bool {

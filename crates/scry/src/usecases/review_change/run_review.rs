@@ -1,6 +1,9 @@
 //! `review_change`: setting a review up, running one pass, and the run log's
 //! opening text.
 
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::versioned::Snapshot;
@@ -12,9 +15,12 @@ use super::scope::scope_of;
 use super::spent_so_far::SpentSoFar;
 use crate::domain::budget::Caps;
 use crate::domain::config::ScryConfig;
+use crate::domain::finding::FindingId;
 use crate::domain::findings::Findings;
 use crate::domain::log_text::{count, scope_text, section, usd};
+use crate::domain::scope::Scope;
 use crate::ports::finding_store::FindingStore;
+use crate::usecases::resolve_put_back::PutBackLook;
 
 /// Reviews the change the request names and verifies what the reviewer
 /// found:
@@ -23,7 +29,8 @@ use crate::ports::finding_store::FindingStore;
 /// 2. works out what to review (the scope) and logs it;
 /// 3. works out the spending limits, and reads the project's rules
 ///    (steering) and the files scry must not read (fences);
-/// 4. locks the finding store, so two reviews never run at once;
+/// 4. locks the finding store, so two reviews never run at once, and resolves the findings on
+///    code put back to `HEAD` in files outside the scope (see `resolve_put_back_outside`);
 /// 5. reads the stored findings and what scry spent today, and logs them;
 /// 6. runs the pass (review, judge, remember, verify) and saves its result
 ///    over the store as it is then;
@@ -47,6 +54,7 @@ pub fn review_change(
     let fences = Fences::for_project(project)?;
 
     let store_lock = deps.store.hold()?;
+    resolve_put_back_outside(project, &scope, &cfg, deps)?;
     let stored_before = findings_on_disk(deps.store)?;
     let spent = SpentSoFar::read(deps.ledger, deps.clock, &cfg)?;
     deps.log
@@ -60,6 +68,38 @@ pub fn review_change(
     (deps.progress)(&Progress::Stored);
     drop(store_lock);
     Ok(ReviewOutcome::Ran(report))
+}
+
+/// Resolves the findings on code put back to `HEAD` in the files outside the scope, and logs
+/// them. The pass sweeps the files in its scope itself; a file put back by `git checkout` is
+/// no longer in the working tree's change, so without this its findings would stay open, and
+/// stale, until something named the file.
+fn resolve_put_back_outside(
+    project: &Project,
+    scope: &Scope,
+    cfg: &ScryConfig,
+    deps: &ReviewDeps,
+) -> Result<()> {
+    let outside: Vec<PathBuf> = findings_on_disk(deps.store)?
+        .findings
+        .iter()
+        .map(|f| f.place.file.clone())
+        .filter(|file| !scope.files.iter().any(|sf| &sf.file == file))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let look = PutBackLook {
+        project,
+        view: deps.view,
+        store: deps.store,
+        cfg,
+        at: deps.clock.now(),
+    };
+    let resolved = look.resolve(&outside)?;
+    if !resolved.is_empty() {
+        deps.log.put(&put_back_outside_text(&resolved));
+    }
+    Ok(())
 }
 
 /// The spending limits: the request's own when it gives them (the editor,
@@ -91,6 +131,16 @@ fn findings_on_disk(store: &dyn FindingStore) -> Result<Findings> {
 const SCRY_IS_OFF: &str = "scry is off ([scry] enabled = false)";
 
 const JEV_DID_NOT_ANSWER: &str = "Jev did not answer";
+
+/// The line for findings resolved outside the scope: `- put back outside the change, resolved:
+/// 3fa9c0, 0e41bd`.
+fn put_back_outside_text(ids: &[FindingId]) -> String {
+    let ids: Vec<&str> = ids.iter().map(|id| id.0.as_str()).collect();
+    format!(
+        "- put back outside the change, resolved: {}\n",
+        ids.join(", ")
+    )
+}
 
 /// The `Pass` section: the caps, what scry spent earlier today, the
 /// estimates and the store as the pass found it.

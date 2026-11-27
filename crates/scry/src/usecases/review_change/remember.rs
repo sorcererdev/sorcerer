@@ -286,34 +286,10 @@ impl Pass<'_, '_> {
         ids
     }
 
-    /// Before the review: an open or unverified finding whose unit is now
-    /// the same as at the base, at a fingerprint other than the finding's,
-    /// is resolved without a call (a finding stored with no fingerprint is
-    /// left alone). Returns their ids.
-    ///
-    /// Example: you saved a change to `cancel`, a pass raised a finding on
-    /// it, and you undid the change. `cancel` is what `HEAD` has again, so
-    /// no pass would review it; the finding is about code that is no longer
-    /// there, and is resolved. Had you committed the change instead, the
-    /// fingerprint would still be the finding's, and it would stay open.
+    /// Before the review: the open and unverified findings on a unit put back to the base's
+    /// code are resolved without a call (`Findings::put_back`). Returns their ids.
     pub(super) fn sweep_put_back(&mut self, scope: &Scope) -> Vec<FindingId> {
-        let put_back = |f: &Finding| {
-            scope.files.iter().any(|sf| {
-                sf.file == f.place.file
-                    && f.place.unit.as_ref().is_some_and(|name| {
-                        sf.same
-                            .iter()
-                            .any(|(same, at)| same == name && reviewed_at_other(f, *at))
-                    })
-            })
-        };
-        let ids: Vec<FindingId> = self
-            .working_copy
-            .findings
-            .iter()
-            .filter(|f| is_open_or_unverified(f) && put_back(f))
-            .map(|f| f.id.clone())
-            .collect();
+        let ids = self.working_copy.put_back(scope);
         self.close_for_changed_code(&ids, Status::Resolved);
         ids
     }
@@ -338,53 +314,13 @@ impl Pass<'_, '_> {
         )
     }
 
-    /// Closes each finding in `ids` (resolved or gone, dated now) because
-    /// its code changed, and forgets that the code it was made on was
-    /// reviewed: if the unit comes back to that code, it is sent again
-    /// rather than counted as reviewed with nothing to say.
-    ///
-    /// Example: a finding on `cancel` at fingerprint 0e41bd1 is resolved
-    /// because you put `cancel` back as the base has it. You then redo the
-    /// change: `cancel` is at 0e41bd1 again, and the next pass sends it, so
-    /// the bug shows again. A unit the reviewer answered for in this pass is
-    /// marked reviewed afterwards (`mark_reviewed`), so a finding the
-    /// reviewer itself said no longer holds is not sent again for nothing.
+    /// Closes each finding in `ids` (resolved or gone, dated now) because its code changed
+    /// (`Findings::close_for_changed_code`). A unit the reviewer answered for in this pass is
+    /// marked reviewed afterwards (`mark_reviewed`), so a finding the reviewer itself said no
+    /// longer holds is not sent again for nothing.
     fn close_for_changed_code(&mut self, ids: &[FindingId], status: Status) {
-        self.forget_code_reviewed_for(ids);
-        self.set_status_of(ids, status);
-    }
-
-    /// Takes the fingerprint each finding in `ids` was made on out of its
-    /// file's reviewed ones.
-    fn forget_code_reviewed_for(&mut self, ids: &[FindingId]) {
-        let made_on: Vec<(PathBuf, String)> = self
-            .working_copy
-            .findings
-            .iter()
-            .filter(|f| ids.contains(&f.id))
-            .filter_map(|f| Some((f.place.file.clone(), f.place.fingerprint?.to_string())))
-            .collect();
-        for (file, print) in made_on {
-            if let Some(prints) = self.working_copy.reviewed.get_mut(&file) {
-                prints.remove(&print);
-            }
-        }
         self.working_copy
-            .reviewed
-            .retain(|_, prints| !prints.is_empty());
-    }
-
-    /// Sets the status of each finding in `ids`, dated now.
-    fn set_status_of(&mut self, ids: &[FindingId], status: Status) {
-        let now = self.now;
-        for f in self
-            .working_copy
-            .findings
-            .iter_mut()
-            .filter(|f| ids.contains(&f.id))
-        {
-            f.set_status(status, now);
-        }
+            .close_for_changed_code(ids, status, self.now);
     }
 }
 
@@ -406,12 +342,6 @@ fn unit_reviewed_at_other_code(
         .ok()?
         .into_iter()
         .find(|u| u.name == sent.unit && u.fingerprint == sent.fingerprint)
-}
-
-/// Whether the finding was raised on its unit at a fingerprint other than
-/// `at`. A finding stored with no fingerprint cannot tell, and says no.
-fn reviewed_at_other(f: &Finding, at: Fingerprint) -> bool {
-    f.place.fingerprint.is_some_and(|reviewed| reviewed != at)
 }
 
 fn is_open_or_unverified(f: &Finding) -> bool {

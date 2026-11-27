@@ -15,6 +15,8 @@ use super::server_state::{Publish, Server, lock};
 use crate::adapters::json_finding_store::JsonFindingStore;
 use crate::adapters::scry_toml::ScryToml;
 use crate::adapters::wiring::Wiring;
+use crate::ports::settings::Settings;
+use crate::usecases::resolve_put_back::PutBackLook;
 use crate::usecases::show_findings::{Shown, shown_in_file};
 
 /// The thread that publishes, one request at a time, for as long as the server lives.
@@ -95,7 +97,8 @@ impl<W: Wiring + 'static> Server<W> {
         let store = JsonFindingStore::at(project.state.join("scry/findings.json"));
         let settings = ScryToml::for_project(&project);
         let root = project.root.clone();
-        let view = FilesView::new(Arc::new(project), self.cfg.cache.clone());
+        let view = FilesView::new(Arc::new(project.clone()), self.cfg.cache.clone());
+        self.resolve_put_back(&project, &view, &store, &settings, &file);
         let shown = shown_in_file(&store, &settings, &view, &file)?;
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let related = self.client.related_information();
@@ -104,6 +107,36 @@ impl<W: Wiring + 'static> Server<W> {
             .map(|s| diagnostic(s, &root, &text, related))
             .collect();
         Ok(Some((shown, diagnostics)))
+    }
+
+    /// Before a file is shown, its findings on code put back to `HEAD` are resolved (code
+    /// checked out by git, with no save, is never in a pass). A failure is logged and the file
+    /// is shown anyway.
+    fn resolve_put_back(
+        &self,
+        project: &Project,
+        view: &FilesView,
+        store: &JsonFindingStore,
+        settings: &ScryToml,
+        file: &Path,
+    ) {
+        let looked = settings
+            .scry_config()
+            .map_err(anyhow::Error::from)
+            .and_then(|cfg| {
+                PutBackLook {
+                    project,
+                    view,
+                    store,
+                    cfg: &cfg,
+                    at: self.cfg.clock.now(),
+                }
+                .resolve(&[file.to_path_buf()])
+                .map_err(anyhow::Error::from)
+            });
+        if let Err(e) = looked {
+            self.log_error(&format!("{e:#}"));
+        }
     }
 
     /// Logs an error to the editor's log for the server, unless it was logged since the
