@@ -19,6 +19,7 @@ use super::changes::{
 use super::commands::Ask;
 use super::landing::undo_edit;
 use super::{Server, lock};
+use crate::domain::edits::same_text;
 use crate::domain::record::Choice;
 use sorcerer_lsp::undo_plan::{FileDeletion, FileUndo, TakenBack, Undo, undo_of};
 
@@ -109,8 +110,8 @@ impl Server {
             again.undone.iter().all(|(path, before)| {
                 let now = self.client.text_of(path).map(|(_, text)| text);
                 match before {
-                    Some(before) => now.is_none_or(|text| text == *before),
-                    None => now.is_none_or(|text| text.is_empty()),
+                    Some(before) => now.is_none_or(|text| same_text(&text, before)),
+                    None => now.is_none_or(|text| same_text(&text, "")),
                 }
             })
         };
