@@ -251,6 +251,58 @@ fn saving_every_file_a_task_changed_keeps_it() {
 }
 
 #[test]
+fn on_a_two_file_task_the_asked_file_counts_the_files_and_the_other_says_other_file() {
+    // the agent writes the test file first: the order of writes does not decide which is asked
+    const TEST_FILE: &str = "src/cancel_booking__test.py";
+    const TEST_BEFORE: &str = "def test_nothing():\n    pass\n";
+    const TEST_AFTER: &str =
+        "def test_nothing():\n    pass\n\n\ndef test_too_late():\n    assert True\n";
+    let project = TempProject::with(&[(FILE, BEFORE), (TEST_FILE, TEST_BEFORE)]);
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool(
+            "write_file",
+            json!({ "path": TEST_FILE, "text": TEST_AFTER }),
+        ),
+        Step::Tool("write_file", json!({ "path": FILE, "text": AFTER })),
+        Step::Tool("write_file", json!({ "path": FILE, "text": AFTER })),
+        Step::Finish(0.1),
+    ]));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent,
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.open(FILE);
+    s.open(TEST_FILE);
+    s.settle(Duration::from_millis(100));
+    s.type_text(FILE, &with_claim());
+    s.marks_until(FILE, |marks| {
+        marks
+            .iter()
+            .any(|m| m.message.starts_with("apprentice: I can do this"))
+    });
+    s.run_action(FILE, 5, "apprentice: do this");
+    s.shown_message("apprentice: done");
+    let task_mark = |file: &str| {
+        s.marks_until(file, |marks| {
+            marks.iter().any(|m| m.message.starts_with("\u{2726}"))
+        })
+        .into_iter()
+        .find(|m| m.message.starts_with("\u{2726}"))
+        .unwrap()
+        .message
+    };
+    let asked = task_mark(FILE);
+    let other = task_mark(TEST_FILE);
+    assert!(asked.contains("· 2 files ·"), "{asked}");
+    assert!(other.contains("· other file ·"), "{other}");
+    s.stop();
+}
+
+#[test]
 fn a_final_newline_the_editor_adds_to_a_write_is_nobodys_edit() {
     // the agent's text ends without a newline; the editor, like Neovim, reports one
     let project = TempProject::with(&[(FILE, BEFORE)]);

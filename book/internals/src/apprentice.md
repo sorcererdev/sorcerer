@@ -293,7 +293,8 @@ writes a long answer as a note too.
 `relatedInformation`, else in the message; an instruction a Hint with the offer's price; an
 offer inside a larger offering region, a comment inside a stub, is not drawn:
 `inside_another_offer`), the
-finished tasks' (`task_marks`, code `task`, `data.task`), the agent's (`said_marks`) and the
+finished tasks' (`task_marks`, code `task`, `data.task`; the file whose relative path is the
+record's `file` gets the count, the others `other file`), the agent's (`said_marks`) and the
 questions' (`ask_marks`). Ranges end at the end of the last line (`lines_of`, UTF-16).
 
 **The actions** (`commands.rs`): `code_actions` gives, per line, the found regions' actions
