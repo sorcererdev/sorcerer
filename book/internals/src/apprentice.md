@@ -299,6 +299,42 @@ before-file). *Undo this task* plans each file with the host's `undo_of` (from
 and records `kept` once every file is. At start, `interrupt_what_was_left_running` records any
 task still `running` or `asking` as `interrupted`.
 
+## The editor clients
+
+The server sends `sorcerer/ghost`, `sorcerer/note` and `sorcerer/showDiff` only to a client
+that lists them in `initializationOptions.handles` (`Client::notify_sorcerer`); every other
+client gets the fallbacks above. Both clients also set `drawsWorking`, run the server's code
+actions from keys by title, and leave marks, the picker, edits and progress to the editor.
+
+**Neovim** (sorcerer.nvim, `lua/sorcerer/apprentice.lua`): `client_config` adds the handlers to
+`working.lua`'s config; `attach` starts the server with `debounce_text_changes = 0` on every
+file buffer under the project root; `ghost` draws `virt_lines` extmarks (cleared on
+`TextChanged` of that line), `note` `vsplit`s, `show_diff` opens a tab with a scratch buffer of
+the before-text and the live buffer, both `diffthis`. The keys are in `lua/sorcerer/keys.lua`.
+
+**VS Code** (`editors/vscode/apprentice/`). `src/extension.ts` starts one `apprentice lsp` per
+workspace folder (`startFor`, every file under the folder) with `initializationOptions: {
+drawsWorking: true, handles: [...] }`. VS Code's client holds a whole-text `didChange` back up
+to 250 ms (the server's sync is `Full`); the `didChange` middleware follows each change with the
+notification `$/apprentice/sendEditsNow`, which the server ignores but which makes the client
+send the pending change first, as Neovim's `debounce_text_changes = 0` does. The handlers:
+`Ghosts` (`src/ghosts.ts`) draws each ghost as an `after` decoration on its line in the theme's
+`editorGhostText.foreground`, the lines on hover, and moves or drops it on
+`onDidChangeTextDocument` with the pure `afterChanges` (`src/ghost.ts`); `openBeside` shows a
+note in `ViewColumn.Beside` with `preserveFocus`; `BeforeTexts` (`src/showDiff.ts`) is the
+`apprentice-before` content provider and runs `vscode.diff` of a before-URI (the file's path,
+a fresh query per diff) against the live file. `src/taskMarks.ts` (over the pure `taskLines`
+in `src/marks.ts`) draws the gutter sparkle on diagnostics of source `apprentice`, code `task`.
+`src/keys.ts` (`KEYS`, `actionsFor`: exact titles, or a prefix for the offer and the labels) and
+`src/keyActions.ts` (`vscode.executeCodeActionProvider` at the cursor; the labels in a
+QuickPick) make the `ctrl+m a/q/d/z/j/x/l` commands, `apprentice.keys.*`, named apart from the
+server's `apprentice.*` commands, which the language client registers. `binary.ts`,
+`download.ts`, `offer.ts`, `working.ts` and `inline.ts` are byte-identical copies of scry's and
+conjure's (CI `diff`s them); with no binary the offer finds no release (a 404) and says the
+`cargo install` line once per version. Permission questions are the language client's own
+`window/showMessageRequest` handler, a notification with buttons; a closed one answers `null`,
+which the server reads as `Answer::Closed`, a deny.
+
 ## Tests
 
 `tests/run_task.rs`: the use cases over a `ScriptedAgent` (`tests/support/scripted_agent.rs`)
@@ -315,3 +351,17 @@ and reported, pickers answered from a queue), `StubJev` and `StubResearcher`
 checked on save and offered, a task that writes, asks on a line, asks before a command, then
 *Show diff* and *Undo this task*), keeping on save, a stub offered by rule, a question answered
 and kept, labels and dismissal, an untrusted project, ghost and note. No test calls a model.
+
+The VS Code extension (`editors/vscode/apprentice/`): `npm run test:unit` covers the pure
+files (`keys`, `marks`, `ghost`, `diff`, the copies, and `package.test.ts`: the manifest, the
+chords, the version, the publish matrix). `npm run test:e2e` (`test/e2e/run.ts`) makes a git
+project with `cart.py`, its config naming `apprentice-fake-claude` as the `claude` runner,
+trusts it in a config directory of the run's own, and launches VS Code with the real `apprentice
+lsp`. `test/e2e/apprentice.test.ts` writes the fake's script (`FAKE_APPRENTICE_SCRIPT`) before
+each case and answers the notifications with buttons from a queue: a stub typed unsaved is
+offered by rule, `ctrl+m a` runs it, the first `write_file` is refused (unsaved and unseen) and
+the second lands in the buffer, not on disk, with `⟳ apprentice: writing…`; the ghost, the
+note beside, the agent's mark, the messages, a closed permission question denied and an
+answered one allowed (from the fake's log, `FAKE_APPRENTICE_LOG`), the task's mark, *Show
+diff* as a diff tab, *Show journal* and *Undo this task*; then a sleeping task stopped with
+`ctrl+m q`. CI's `vscode` job runs it on ubuntu (under `xvfb-run`) and windows.

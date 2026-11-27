@@ -125,6 +125,11 @@ folder. The diagnostics, the lightbulb and the progress in the status bar are VS
 the grey `⟳ scry: reviewing…` after a unit's first line is the extension's (a text decoration in the
 theme's `editorCodeLens.foreground` colour, italic, so a theme can change it).
 
+**Apprentice** (a prototype) is not on the Marketplace: install its `.vsix` and build the
+program with `cargo install --git https://github.com/sorcererdev/sorcerer sorcerer-apprentice`.
+Its keys are `ctrl+m a` (do this), `q` (stop), `d` (show diff), `z` (undo the task), `j`
+(journal), `x` (dismiss) and `l` (label); see [Apprentice](apprentice.md#in-vs-code).
+
 **Spellbook** (`sorcererdev.spellbook`) installs the same way, from the Marketplace (Open VSX for
 forks), and so does its program (`sorcerer-spellbook-installer`, or `cargo install
 sorcerer-spellbook`). `ctrl+m n` is **Spellbook: New**, `ctrl+m k`

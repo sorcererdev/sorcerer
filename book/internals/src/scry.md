@@ -793,10 +793,11 @@ accepts the offer through a stubbed `showInformationMessage`, and waits for the 
 ubuntu under `xvfb-run` and the download suite on windows (a flat `.zip`, as the release's).
 
 These three files, `src/binary.ts`, `src/download.ts` and `src/offer.ts`, are shared with the
-Conjure extension (`editors/vscode/conjure/`) by product name: the product is the first
-parameter, and the other extension holds byte-identical copies, which CI's `vscode` job
-`diff`s (change one, copy it to the other). The conjure extension is described in the conjure
-chapter.
+Conjure, Spellbook and Apprentice extensions (`editors/vscode/{conjure,spellbook,apprentice}/`) by
+product name: the product is the first parameter, and the other extensions hold byte-identical
+copies, which CI's `vscode` job `diff`s (change one, copy it to the others; conjure and
+apprentice also copy `working.ts` and `inline.ts`). The conjure extension is described in the
+conjure chapter, apprentice's in the apprentice chapter.
 
 ## Test support
 
