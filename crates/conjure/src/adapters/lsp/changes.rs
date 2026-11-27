@@ -519,17 +519,20 @@ impl Server {
 
     /// The names of the files that do not read as the change made them, once the editor has
     /// reported them (it may answer the edit before it reports the changes, as Neovim does), or
-    /// after a short wait.
+    /// after a short wait. Each is named as [`names_told_apart`] says among the change's files.
     fn files_not_as_sent(&self, landed: &LandedChange) -> Vec<String> {
+        let paths: Vec<String> = landed.files.iter().map(LandedFile::relative_text).collect();
+        let names = names_told_apart(&paths);
         let not_as_sent = || -> Vec<String> {
             landed
                 .files
                 .iter()
-                .filter(|file| {
+                .zip(&names)
+                .filter(|(file, _)| {
                     let now = self.client.text_of(&file.editor_path).map(|(_, text)| text);
                     !now.is_some_and(|text| same_text(&text, &file.after))
                 })
-                .map(LandedFile::name)
+                .map(|(_, name)| name.clone())
                 .collect()
         };
         let deadline = Instant::now() + REPORTED_WITHIN;

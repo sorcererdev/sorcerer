@@ -941,7 +941,7 @@ display back (`conjure.sign` for the star).
 | `spellbook.cmd` | `{ "spellbook", "lsp" }` | the program, when it is not on your PATH |
 | `spellbook.conjure_holes` | `false` | after `:Spellbook new`, run conjure on the first hole (needs conjure on too) |
 | `spellbook.hole_keys` | `{ next = "<Tab>", prev = "<S-Tab>" }` | after `:Spellbook new`, the keys between the opened file's holes (insert and select mode, that buffer only); `false` = no session |
-| `fixes_first` | `true` | the code-action menu lists the preferred quick fixes first, then the other quick fixes, then the rest (conjure's rewrites, other servers' refactors), each group in the servers' order, as VS Code does; `false` leaves Neovim's order (the servers' answers as they come) |
+| `fixes_first` | `true` | the code-action menu lists each server's quick fixes together, its preferred one first and the servers with a preferred fix before the others, then the rest (conjure's rewrites, other servers' refactors) in the servers' order, so another server's fix (Ruff's `Organize imports`) never sits between spellbook's two; `false` leaves Neovim's order (the servers' answers as they come) |
 
 `:Spellbook new [generator] [input=value…]` takes five steps, with Neovim's own pickers
 (`vim.ui.select`, `vim.ui.input`, so a picker plugin such as telescope or snacks shows them):
@@ -995,7 +995,7 @@ once a session when you open or save a file; every command answers the same sent
 (preferred) and `spellbook: Add a port and use it` first, above conjure's **Conjure here**: Neovim
 lists the servers' actions in whatever order the servers answer, so the plugin wraps `vim.ui.select`
 for the code-action menu (again whenever a server attaches, after a picker plugin has put its own
-in place) and puts the quick fixes first (`fixes_first = false` turns this off). `<leader>mf` runs the first one without the
+in place) and puts the quick fixes first, each server's together (`fixes_first = false` turns this off). `<leader>mf` runs the first one without the
 menu, and `:Spellbook fix [input=value…]` is the command form (the `input=value` words answer inputs
 the finding does not settle). A modified buffer is refused: `spellbook: save close_table.py first; a
 fix is planned against the file on disk`. Otherwise it asks only what the finding leaves open (with

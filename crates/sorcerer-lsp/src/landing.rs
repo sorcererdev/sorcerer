@@ -9,9 +9,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use lsp_types::{
-    CreateFile, CreateFileOptions, DeleteFile, DocumentChangeOperation, DocumentChanges, OneOf,
-    OptionalVersionedTextDocumentIdentifier, Position, Range, ResourceOp, TextDocumentEdit,
-    TextEdit, WorkspaceEdit,
+    CreateFile, CreateFileOptions, DeleteFile, DeleteFileOptions, DocumentChangeOperation,
+    DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier, Position, Range, ResourceOp,
+    TextDocumentEdit, TextEdit, WorkspaceEdit,
 };
 
 use crate::client::Client;
@@ -172,7 +172,7 @@ pub enum Undoing<'a> {
         version: Option<i32>,
         edits: Vec<LineEdit>,
     },
-    /// A file the change created, deleted.
+    /// A file the change created, deleted (whether or not it was ever saved).
     Delete { path: &'a Path },
 }
 
@@ -187,10 +187,15 @@ pub fn undo_edit(undoings: Vec<Undoing>) -> WorkspaceEdit {
                     version,
                     edits,
                 } => text_document_edit(path, version, &edits),
+                // a created file Neovim holds only as a buffer is not on disk until saved
                 Undoing::Delete { path } => {
                     DocumentChangeOperation::Op(ResourceOp::Delete(DeleteFile {
                         uri: uri_of(path),
-                        options: None,
+                        options: Some(DeleteFileOptions {
+                            recursive: None,
+                            ignore_if_not_exists: Some(true),
+                            annotation_id: None,
+                        }),
                     }))
                 }
             })

@@ -604,13 +604,26 @@ impl Served {
             match change["kind"].as_str() {
                 Some("create") => {
                     let path = path_of(&change["uri"]);
-                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                    std::fs::write(&path, "").unwrap();
+                    // Neovim makes only a buffer for a create that may be ignored, no file
+                    let only_a_buffer = self.as_neovim.get()
+                        && change["options"]["ignoreIfExists"] == true
+                        && change["options"]["overwrite"] != true;
+                    if !only_a_buffer {
+                        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                        std::fs::write(&path, "").unwrap();
+                    }
                     let empty = if self.as_neovim.get() { "\n" } else { "" };
                     notes.push(opened(&path, 1, empty));
                 }
                 Some("delete") => {
                     let path = path_of(&change["uri"]);
+                    // Neovim fails a delete of a file not on disk unless told to ignore it
+                    if self.as_neovim.get()
+                        && !path.exists()
+                        && change["options"]["ignoreIfNotExists"] != true
+                    {
+                        return None;
+                    }
                     let _ = std::fs::remove_file(&path);
                     self.buffers.borrow_mut().remove(&path);
                     notes.push((
@@ -1676,6 +1689,26 @@ fn a_created_file_lands_as_sent_in_neovim() {
     assert_eq!(s.text("src/a__test.py").unwrap(), NEW_TEST);
     let main = s.marks("src/a.py");
     mark_action(&s, "src/a.py", &main, "conjure: Undo");
+    s.stop();
+}
+
+#[test]
+fn undo_in_neovim_deletes_a_created_file_never_saved() {
+    // Neovim's create (with ignoreIfExists) makes only a buffer, and its delete of a file not on
+    // disk fails unless the delete says to ignore that: the undo must say so
+    let dir = project();
+    let s = served(dir.path(), Script::replying(&[&three_files()]));
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.apply_next_edit_as_neovim();
+    assert!(!s.path("src/a__test.py").exists());
+    assert_eq!(s.text("src/a__test.py").unwrap(), NEW_TEST);
+    let main = s.marks("src/a.py");
+    s.run(&mark_action(&s, "src/a.py", &main, "conjure: Undo"));
+    s.apply_next_edit_as_neovim();
+    assert!(s.text("src/a__test.py").is_none());
+    assert_eq!(s.text("src/a.py").unwrap(), A);
+    assert_eq!(s.records_reach(1)[0].choice, Choice::Undone);
     s.stop();
 }
 

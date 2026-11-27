@@ -12,7 +12,10 @@ use crate::domain::mediums::TOOL_PREFIX;
 /// pytest`, `writing cancel_booking.txt`, `asking you`. A subagent's call is said as
 /// `subagent: reading …`. Paths are named by their file name; `root` is cut from absolute ones.
 ///
-/// Example: `Bash` with `{"command": "uv run pytest -q"}` is `running uv`.
+/// A command the stream shows has not been allowed yet: every command goes through the
+/// permission tool first, which says `running …` once it is allowed.
+///
+/// Example: `Bash` with `{"command": "uv run pytest -q"}` is `waiting until allowed: uv`.
 pub fn activity_of(name: &str, input: &Value, parent: Option<&str>, root: &Path) -> String {
     let doing = doing_of(name, input, root);
     match parent {
@@ -32,7 +35,7 @@ fn doing_of(name: &str, input: &Value, root: &Path) -> String {
         None => match name {
             "Read" => format!("reading {}", file("file_path")),
             "Grep" | "Glob" => format!("searching {}", field("pattern")),
-            "Bash" => format!("running {}", first_word(&field("command"))),
+            "Bash" => format!("waiting until allowed: {}", programs_of(&field("command"))),
             "Agent" | "Task" => "starting a subagent".to_string(),
             "WebSearch" => "searching the web".to_string(),
             "WebFetch" => "reading the web".to_string(),
@@ -51,25 +54,54 @@ pub enum CommandVerdict {
     Denied,
 }
 
-/// What a command is doing once the person was asked about it, by its first word:
+/// What a command is doing once the person was asked about it, by its programs:
 /// `waiting for you: ls`, `running ls`, `denied: ls`.
 ///
-/// Example: `command_activity("ls -a && cat CLAUDE.md", CommandVerdict::Denied)` is `denied: ls`.
+/// Example: `command_activity("ls -a && cat CLAUDE.md", CommandVerdict::Denied)` is `denied: ls,
+/// cat`.
 pub fn command_activity(command: &str, verdict: CommandVerdict) -> String {
-    let program = first_word(command);
+    let programs = programs_of(command);
     match verdict {
-        CommandVerdict::Waiting => format!("waiting for you: {program}"),
-        CommandVerdict::Allowed => format!("running {program}"),
-        CommandVerdict::Denied => format!("denied: {program}"),
+        CommandVerdict::Waiting => format!("waiting for you: {programs}"),
+        CommandVerdict::Allowed => format!("running {programs}"),
+        CommandVerdict::Denied => format!("denied: {programs}"),
     }
 }
 
-fn first_word(command: &str) -> String {
-    command
-        .split_whitespace()
-        .next()
-        .unwrap_or("a command")
-        .to_string()
+/// at most this many programs of a chain are named; the rest is `…`
+const PROGRAMS_NAMED: usize = 3;
+
+/// The programs a command runs, in order and each once: the first word of each part of a chain
+/// (split at `;`, `&&`, `||`, `|`, `&` and new lines), past any `NAME=value`, without brackets.
+/// At most 3 are named.
+///
+/// Example: `ls; cat pyproject.toml && FOO=1 uv run pytest | tail` is `ls, cat, uv, …`, and
+/// `ls -a` is `ls`.
+fn programs_of(command: &str) -> String {
+    let mut programs: Vec<&str> = Vec::new();
+    for part in command.split([';', '&', '|', '\n']) {
+        let program = part
+            .split_whitespace()
+            .map(|word| word.trim_matches(['(', '{', ')', '}']))
+            .find(|word| !word.is_empty() && !is_assignment(word));
+        if let Some(program) = program
+            && !programs.contains(&program)
+        {
+            programs.push(program);
+        }
+    }
+    match programs.len() {
+        0 => "a command".to_string(),
+        n if n <= PROGRAMS_NAMED => programs.join(", "),
+        _ => format!("{}, \u{2026}", programs[..PROGRAMS_NAMED].join(", ")),
+    }
+}
+
+/// `NAME=value` before a program: an environment variable set for it, not the program.
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
 }
 
 /// A path as the status line names it: its last part.
@@ -107,7 +139,11 @@ mod tests {
                 "reading booking.txt",
             ),
             ("Grep", json!({ "pattern": "Slot" }), "searching Slot"),
-            ("Bash", json!({ "command": "make test" }), "running make"),
+            (
+                "Bash",
+                json!({ "command": "make test" }),
+                "waiting until allowed: make",
+            ),
             (
                 "mcp__apprentice__write_file",
                 json!({ "path": "src/a.txt" }),
@@ -141,16 +177,30 @@ mod tests {
         let command = "ls -a && cat CLAUDE.md";
         assert_eq!(
             command_activity(command, CommandVerdict::Waiting),
-            "waiting for you: ls"
+            "waiting for you: ls, cat"
         );
         assert_eq!(
             command_activity(command, CommandVerdict::Allowed),
-            "running ls"
+            "running ls, cat"
         );
         assert_eq!(
             command_activity(command, CommandVerdict::Denied),
-            "denied: ls"
+            "denied: ls, cat"
         );
+    }
+
+    #[test]
+    fn a_chain_is_said_as_its_programs_without_its_separators() {
+        let said = |command| command_activity(command, CommandVerdict::Denied);
+        assert_eq!(said("ls; cat pyproject.toml"), "denied: ls, cat");
+        assert_eq!(said("ls -a"), "denied: ls");
+        assert_eq!(said("cat a | grep b | grep c"), "denied: cat, grep");
+        assert_eq!(
+            said("FOO=1 make test || (cd src && ls)"),
+            "denied: make, cd, ls"
+        );
+        assert_eq!(said("a; b; c; d"), "denied: a, b, c, \u{2026}");
+        assert_eq!(said(" ; "), "denied: a command");
     }
 
     #[test]

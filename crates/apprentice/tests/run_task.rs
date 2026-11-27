@@ -478,8 +478,20 @@ fn the_journal_says_a_command_waits_then_the_answer_not_that_it_runs() {
         .find("## tool\n\nwaiting for you: ls")
         .expect(&journal);
     let asked = journal.find("## permission").expect(&journal);
-    let denied = journal.find("## tool\n\ndenied: ls").expect(&journal);
+    let denied = journal.find("## tool\n\ndenied: ls, cat").expect(&journal);
     assert!(waiting < asked && asked < denied, "{journal}");
+    // nor does the status line, before the ask
+    let progress = run.editor.progress.lock().unwrap().clone();
+    assert!(
+        !progress.iter().any(|line| line.contains("running")),
+        "{progress:?}"
+    );
+    assert!(
+        progress
+            .iter()
+            .any(|line| line.contains("waiting until allowed: ls, cat")),
+        "{progress:?}"
+    );
 }
 
 /// The person ruled: allowing one search never opens the door to a search of the whole tree.

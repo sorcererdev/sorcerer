@@ -82,7 +82,9 @@ through the `url` crate). There is no async runtime.
   VS Code both fit to the buffer, and Neovim then drops the empty last line), or left
   out under `NewFiles::LeftOut`. `landing::moved_on` is the check before sending: an open file at
   another version, a file not open then but open now (or on disk) with other text, a new file
-  that is there now. `undo_plan::undo_of` plans one file's undo from its text now
+  that is there now. `landing::undo_edit` deletes a created file with `ignoreIfNotExists`: Neovim
+  holds a created file only as a buffer until it is saved, and its `delete_file` fails on a file
+  not on disk otherwise. `undo_plan::undo_of` plans one file's undo from its text now
   (`versioned_text_now`: the editor's, else the disk's): back to its text before when it is still
   the after-text, nothing when it is already back, refused (`FileUndo::Edited`) when the person
   edited it; `landing::undo_edit` sends the undoings as one edit. Texts are compared with

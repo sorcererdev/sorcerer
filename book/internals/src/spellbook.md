@@ -457,8 +457,11 @@ The fix actions are `kind = "quickfix"` with `isPreferred` on the first (`fix_ac
 Neovim does not: `vim.lsp.buf.code_action` lists each client's answers in client order, so
 sorcerer.nvim's `lua/sorcerer/code_actions.lua` wraps `vim.ui.select` (`M.wrap`, re-applied on every
 `LspAttach` in `M.setup`) and, for `opts.kind == "codeaction"` only, reorders the items with
-`M.ordered`: preferred, then quick fixes, then the rest, stable within each group. No server is
-named; `fixes_first = false` skips it.
+`M.ordered`: each client's quick fixes as one block (`ctx.client_id`; its preferred ones first,
+`preferred_first`), the blocks that start with a preferred fix before the others, each in the
+order the clients came; then the rest in its order. A group by kind alone let a second server's
+preferred fix (Ruff's `Organize imports`) sit between spellbook's two. No server is named;
+`fixes_first = false` skips it.
 
 In sorcerer.nvim the fix is `lua/sorcerer/spellbook.lua` `M.fix(arg, ctx)`, registered as the
 client's `commands["spellbook.fix"]` in `M.attach` (`vim.lsp.start`'s `commands`), so a code action
