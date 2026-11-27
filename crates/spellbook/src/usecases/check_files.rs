@@ -122,8 +122,8 @@ fn findings_of_file(deps: &CheckDeps, excluded: &GlobSet, file: &Path) -> Result
     } else {
         one_per_line(deps.runner.findings_in(file, &text, &rules_here)?)
     };
-    let allows = match &loaded.language.comment {
-        Some(marker) => allow_comments(&deps.runner.comments_in(file, &text)?, marker),
+    let allows = match loaded.language.comment_marks() {
+        Some(marks) => allow_comments(&deps.runner.comments_in(file, &text)?, &marks),
         None => Vec::new(),
     };
     let mut found = unsilenced(deps.rules, &name, &text, raw, &allows);

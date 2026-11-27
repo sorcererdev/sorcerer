@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use sorcerer_core::Result;
-use sorcerer_core::domain::language::Loaded;
+use sorcerer_core::domain::language::{CommentMarks, Loaded};
 
 pub trait Grammars: Send + Sync {
     /// The language a file belongs to (by its path relative to the root), ready to parse; `None`
@@ -17,10 +17,10 @@ pub trait Grammars: Send + Sync {
         matches!(self.for_path(file), Ok(Some(_)))
     }
 
-    /// How a line comment starts in the file's language (`#`, `//`), from the language's data;
-    /// `None` when no language covers the file or its language has none.
-    fn line_comment(&self, file: &Path) -> Option<String> {
-        self.for_path(file).ok().flatten()?.language.comment.clone()
+    /// How the file's language writes a comment (`#`, `//`, `<!--` … `-->`), from the
+    /// language's data; `None` when no language covers the file or its language has none.
+    fn comment_marks(&self, file: &Path) -> Option<CommentMarks> {
+        self.for_path(file).ok().flatten()?.language.comment_marks()
     }
 }
 
@@ -34,7 +34,7 @@ impl<T: Grammars + ?Sized> Grammars for &T {
         (**self).covers(file)
     }
 
-    fn line_comment(&self, file: &Path) -> Option<String> {
-        (**self).line_comment(file)
+    fn comment_marks(&self, file: &Path) -> Option<CommentMarks> {
+        (**self).comment_marks(file)
     }
 }

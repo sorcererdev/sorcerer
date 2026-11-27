@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use sorcerer_core::domain::language::CommentMarks;
 use sorcerer_core::domain::templates::fill;
 
 use crate::domain::anchor::Anchor;
@@ -350,16 +351,17 @@ impl RegionInstance<'_> {
     ///
     /// Example: `// spellbook:region modules (from src/a/*.txt; edit
     /// .sorcerer/spellbook/regions.toml, not this block)`.
-    pub fn opening_marker(&self, comment: &str, glob: &str) -> String {
-        format!(
-            "{comment} {OPENS} {} (from {glob}; edit {REGIONS_FILE}, not this block)",
+    /// In a language whose comments close, the marker closes too: `<!-- spellbook:region … -->`.
+    pub fn opening_marker(&self, comment: &CommentMarks, glob: &str) -> String {
+        comment.around(&format!(
+            "{OPENS} {} (from {glob}; edit {REGIONS_FILE}, not this block)",
             self.region.name
-        )
+        ))
     }
 
-    /// The closing marker: `// spellbook:end modules`.
-    pub fn closing_marker(&self, comment: &str) -> String {
-        format!("{comment} {ENDS} {}", self.region.name)
+    /// The closing marker: `// spellbook:end modules`, `<!-- spellbook:end modules -->`.
+    pub fn closing_marker(&self, comment: &CommentMarks) -> String {
+        comment.around(&format!("{ENDS} {}", self.region.name))
     }
 }
 
@@ -384,14 +386,18 @@ pub struct BrokenMarkers {
     pub why: String,
 }
 
-/// The block of the region `name` in a text whose comments start with `comment`: `None` when
-/// the file has no markers for it. A line is a marker when its first text is the comment marker
-/// and then `spellbook:region NAME` (anything may follow) or `spellbook:end NAME`. An opening
+/// The block of the region `name` in a text whose comments are written with `comment`: `None`
+/// when the file has no markers for it. A line is a marker when it is one whole comment whose
+/// text is `spellbook:region NAME` (anything may follow) or `spellbook:end NAME`. An opening
 /// without its end, two openings, or an end before its start is broken.
 ///
 /// Example: in `a\n// spellbook:region m\nx\n// spellbook:end m\n` the block of `m` is rows 1
 /// to 3.
-pub fn find_block(text: &str, name: &str, comment: &str) -> Result<Option<Block>, BrokenMarkers> {
+pub fn find_block(
+    text: &str,
+    name: &str,
+    comment: &CommentMarks,
+) -> Result<Option<Block>, BrokenMarkers> {
     let mut opening: Option<(usize, String)> = None;
     let mut block: Option<Block> = None;
     for (row, line) in text.lines().enumerate() {
@@ -430,8 +436,9 @@ pub fn find_block(text: &str, name: &str, comment: &str) -> Result<Option<Block>
         Some((row, _)) => Err(broken(
             row,
             format!(
-                "region {name} opens on line {} and never ends (no `{comment} {ENDS} {name}`)",
-                row + 1
+                "region {name} opens on line {} and never ends (no `{}`)",
+                row + 1,
+                comment.around(&format!("{ENDS} {name}"))
             ),
         )),
         None => Ok(block),
@@ -443,8 +450,8 @@ enum Marker {
     Ends,
 }
 
-fn marker_of(line: &str, comment: &str, name: &str) -> Option<Marker> {
-    let after_comment = line.trim_start().strip_prefix(comment)?.trim_start();
+fn marker_of(line: &str, comment: &CommentMarks, name: &str) -> Option<Marker> {
+    let after_comment = comment.inside(line)?;
     let (marker, rest) = if let Some(rest) = after_comment.strip_prefix(OPENS) {
         (Marker::Opens, rest)
     } else {
@@ -719,6 +726,33 @@ init_at = ["after last line matching ^item ", "start of file"]
     }
 
     #[test]
+    fn in_a_language_whose_comments_close_the_markers_close_too() {
+        let marks = CommentMarks {
+            start: "<!--".into(),
+            end: Some("-->".into()),
+        };
+        let regions = declared();
+        let instance = regions[0]
+            .instance_in("src/booking/commands/list.txt")
+            .unwrap();
+        let opening = instance.opening_marker(&marks, "src/x/*.txt");
+        let closing = instance.closing_marker(&marks);
+        assert!(opening.starts_with("<!-- spellbook:region ") && opening.ends_with(" -->"));
+        assert!(closing.starts_with("<!-- spellbook:end ") && closing.ends_with(" -->"));
+        let text = format!("a\n{opening}\nitem\n{closing}\nb\n");
+        let block = find_block(&text, &instance.region.name, &marks)
+            .unwrap()
+            .unwrap();
+        assert_eq!((block.open_row, block.close_row), (1, 3));
+        let never_ends = find_block("<!-- spellbook:region m -->\n", "m", &marks).unwrap_err();
+        assert!(
+            never_ends.why.ends_with("(no `<!-- spellbook:end m -->`)"),
+            "{}",
+            never_ends.why
+        );
+    }
+
+    #[test]
     fn items_are_rendered_sorted_and_once() {
         let regions = declared();
         let instance = regions[0].instance_in("src/a/b/list.txt").unwrap();
@@ -751,23 +785,32 @@ init_at = ["after last line matching ^item ", "start of file"]
         let text =
             "a\n  # spellbook:region modules (from x)\n  old\n  # spellbook:end modules\nb\n";
         assert_eq!(
-            find_block(text, "modules", "#").unwrap(),
+            find_block(text, "modules", &CommentMarks::line("#")).unwrap(),
             Some(Block {
                 open_row: 1,
                 close_row: 3,
                 indent: "  ".into()
             })
         );
-        assert_eq!(find_block(text, "other", "#").unwrap(), None);
         assert_eq!(
-            find_block("# spellbook:region modules-two\n", "modules", "#").unwrap(),
+            find_block(text, "other", &CommentMarks::line("#")).unwrap(),
+            None
+        );
+        assert_eq!(
+            find_block(
+                "# spellbook:region modules-two\n",
+                "modules",
+                &CommentMarks::line("#")
+            )
+            .unwrap(),
             None
         );
     }
 
     #[test]
     fn broken_markers_say_the_line() {
-        let never_ends = find_block("a\n# spellbook:region m\n", "m", "#").unwrap_err();
+        let never_ends =
+            find_block("a\n# spellbook:region m\n", "m", &CommentMarks::line("#")).unwrap_err();
         assert_eq!(never_ends.row, 1);
         assert_eq!(
             never_ends.why,
@@ -776,11 +819,15 @@ init_at = ["after last line matching ^item ", "start of file"]
         let twice =
             "# spellbook:region m\n# spellbook:end m\n# spellbook:region m\n# spellbook:end m\n";
         assert_eq!(
-            find_block(twice, "m", "#").unwrap_err().why,
+            find_block(twice, "m", &CommentMarks::line("#"))
+                .unwrap_err()
+                .why,
             "region m opens twice (lines 1 and 3)"
         );
         assert_eq!(
-            find_block("# spellbook:end m\n", "m", "#").unwrap_err().why,
+            find_block("# spellbook:end m\n", "m", &CommentMarks::line("#"))
+                .unwrap_err()
+                .why,
             "region m ends on line 1 before it opens"
         );
     }
@@ -788,7 +835,9 @@ init_at = ["after last line matching ^item ", "start of file"]
     #[test]
     fn a_splice_rewrites_only_the_block() {
         let text = "head\n// spellbook:region modules\nhand edit\n// spellbook:end modules\ntail\n";
-        let block = find_block(text, "modules", "//").unwrap().unwrap();
+        let block = find_block(text, "modules", &CommentMarks::line("//"))
+            .unwrap()
+            .unwrap();
         let items = vec!["item a;".to_string(), "item b;".to_string()];
         assert_eq!(
             splice(text, &block, &markers("//"), &items),
@@ -799,7 +848,9 @@ init_at = ["after last line matching ^item ", "start of file"]
     #[test]
     fn a_splice_keeps_the_files_line_ending() {
         let text = "head\r\n# spellbook:region modules\r\n# spellbook:end modules\r\n";
-        let block = find_block(text, "modules", "#").unwrap().unwrap();
+        let block = find_block(text, "modules", &CommentMarks::line("#"))
+            .unwrap()
+            .unwrap();
         assert_eq!(
             splice(text, &block, &markers("#"), &["x".to_string()]),
             "head\r\n# spellbook:region modules (from x)\r\nx\r\n# spellbook:end modules\r\n"
@@ -814,7 +865,9 @@ init_at = ["after last line matching ^item ", "start of file"]
             marked,
             "//! doc\n\nitem a;\n// spellbook:region modules (from x)\n// spellbook:end modules\n"
         );
-        let block = find_block(&marked, "modules", "//").unwrap().unwrap();
+        let block = find_block(&marked, "modules", &CommentMarks::line("//"))
+            .unwrap()
+            .unwrap();
         let adopted = adopt(
             &marked,
             std::slice::from_ref(&block),

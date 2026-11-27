@@ -8,6 +8,7 @@ use std::path::Path;
 
 use globset::{GlobBuilder, GlobMatcher};
 use sorcerer_core::domain::facts::parse_errors_of;
+use sorcerer_core::domain::language::CommentMarks;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::ports::view::CodebaseView;
 
@@ -414,7 +415,7 @@ impl Keeper<'_> {
     fn block_of(
         &self,
         instance: &RegionInstance,
-        comment: &str,
+        comment: &CommentMarks,
     ) -> Result<(Markers, Vec<String>), PlanStop> {
         let glob = instance
             .query_glob()
@@ -513,7 +514,7 @@ impl Keeper<'_> {
         &self,
         instance: &RegionInstance,
         text: &str,
-        comment: &str,
+        comment: &CommentMarks,
     ) -> Result<Block, PlanStop> {
         match find_block(text, &instance.region.name, comment) {
             Ok(Some(block)) => Ok(block),
@@ -557,22 +558,22 @@ impl Keeper<'_> {
         ))
     }
 
-    /// The marker lines' comment syntax: the file's language's, or the region's own for a file
-    /// no language covers.
-    fn comment_for(&self, instance: &RegionInstance) -> Result<String, PlanStop> {
+    /// The marker lines' comment syntax: the file's language's, or the region's own (a line
+    /// comment) for a file no language covers.
+    fn comment_for(&self, instance: &RegionInstance) -> Result<CommentMarks, PlanStop> {
         let path = Path::new(&instance.file);
         match (self.grammars.covers(path), &instance.region.comment) {
             (true, Some(_)) => Err(region_stop(
                 instance,
                 "`comment` is for a file no language covers; this file's language has its own, so remove `comment`".into(),
             )),
-            (true, None) => self.grammars.line_comment(path).ok_or_else(|| {
+            (true, None) => self.grammars.comment_marks(path).ok_or_else(|| {
                 region_stop(
                     instance,
-                    "the file's language has no `comment` in its language.toml".into(),
+                    "the file's language has no comments (no `comment` in its language.toml), so a region cannot mark its block there".into(),
                 )
             }),
-            (false, Some(comment)) => Ok(comment.clone()),
+            (false, Some(comment)) => Ok(CommentMarks::line(comment)),
             (false, None) => Err(region_stop(
                 instance,
                 "no language covers the file; give the region a `comment` (how its comment lines start)".into(),
