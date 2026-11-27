@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::domain::retry_drops::NamedInText;
 use crate::domain::scry_notes::FindingsRead;
 use crate::domain::situation::RelatedFile;
 
@@ -25,6 +26,10 @@ pub trait ProjectContext: Send + Sync {
     /// The lines (from 1) where `text` does not parse as the file's language; `None` when no
     /// grammar covers the file, so nothing can be said.
     fn parse_errors(&self, file: &Path, text: &str) -> Option<Vec<u32>>;
+
+    /// The calls and definitions in `text`, read as the file's language; `None` when no
+    /// grammar covers the file, so nothing can be said.
+    fn names_in(&self, file: &Path, text: &str) -> Option<Vec<NamedInText>>;
 
     /// scry's findings, as far as conjure can read them.
     fn scry_findings(&self) -> FindingsRead;

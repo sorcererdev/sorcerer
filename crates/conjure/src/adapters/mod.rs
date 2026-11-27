@@ -1,9 +1,11 @@
 //! What implements the ports: the project's files, the models, the records.
 
 // spellbook:region adapters-modules (from crates/conjure/src/adapters/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
+pub mod drop_notes_file;
 pub mod editor_view;
 pub mod imports;
 pub mod jsonl_change_store;
+pub mod names_in_text;
 pub mod project_context;
 pub mod provider_writer;
 pub mod research_writer;

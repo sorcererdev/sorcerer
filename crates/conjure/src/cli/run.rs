@@ -17,6 +17,7 @@ use super::RunArgs;
 use crate::adapters::wiring::Wire;
 use crate::domain::config::ConjureConfig;
 use crate::domain::record::Attempt;
+use crate::domain::retry_drops::{CheckedDrop, quiet_drops_text, said_drops_text};
 use crate::domain::spellbook_findings::RulesOutcome;
 use crate::usecases::conjure_change::{
     ChangeDeps, ChangeRequest, ChangedFile, ConjuredChange, conjure_change,
@@ -51,6 +52,7 @@ pub(super) fn conjure_here(
         config,
         writer: &*wired.writer,
         checker: &*wired.checker,
+        decider: wired.decider.as_deref(),
         ledger: &*wired.ledger,
         clock: &*wired.clock,
         cancel: &cancel,
@@ -144,8 +146,9 @@ fn change_text(change: &ConjuredChange, model: &str) -> String {
     };
     let files: String = change.files.iter().map(file_text).collect();
     format!(
-        "{head}{}{files}{}{}",
+        "{head}{}{}{files}{}{}",
         asked_again_text(&change.rules),
+        retry_drops_text(&change.retry_drops),
         dropped_text(change),
         footer_text(change, model)
     )
@@ -190,6 +193,16 @@ fn asked_again_text(rules: &RulesOutcome) -> String {
         "asked again: the first answer broke {}\n",
         places.join(", ")
     )
+}
+
+/// `dropped: std::fs::write in seat.rs (looks unintended)` and `dropped on purpose: …`, one
+/// line each, when a rules retry dropped something of the first answer.
+fn retry_drops_text(drops: &[CheckedDrop]) -> String {
+    [said_drops_text(drops), quiet_drops_text(drops)]
+        .iter()
+        .filter(|line| !line.is_empty())
+        .map(|line| format!("{line}\n"))
+        .collect()
 }
 
 fn dropped_text(change: &ConjuredChange) -> String {

@@ -38,6 +38,7 @@ use super::landing::{
 };
 use super::marks::{mark_diagnostic, marks_of};
 use super::{NOT_TRUSTED, Server, lock, project_relative};
+use crate::adapters::drop_notes_file::{forget_drops, note_drops};
 use crate::adapters::editor_view::EditorView;
 use crate::adapters::jsonl_change_store::JsonlChangeStore;
 use crate::adapters::project_context::FilesContext;
@@ -45,8 +46,10 @@ use crate::adapters::why_text::why_text;
 use crate::domain::config::conjure_config;
 use crate::domain::edits::{NameCase, same_text};
 use crate::domain::record::{
-    Attempt, ChangeRecord, Choice, RECORD_VERSION, RecordedFacts, RecordedFile, Trigger, change_id,
+    Attempt, ChangeRecord, Choice, RECORD_VERSION, RecordedDrop, RecordedFacts, RecordedFile,
+    Trigger, change_id,
 };
+use crate::domain::retry_drops::{CheckedDrop, retry_step_text};
 use crate::ports::change_store::ChangeStore;
 use crate::usecases::conjure_change::{
     ChangeDeps, ChangeRefused, ChangeRequest, ChangedFile, ConjuredChange, conjure_change,
@@ -131,6 +134,11 @@ pub(crate) struct LandedChange {
     /// What the marks add once the change cannot be undone: ` · kept: a file was saved, so
     /// no Undo`.
     pub note: Option<String>,
+    /// The words a rules retry adds to the step message (` · asked again for …`), empty when
+    /// conjure did not ask again.
+    pub retry_step: String,
+    /// What the retry dropped of the first answer, with Jev's verdicts; the mark says them all.
+    pub retry_drops: Vec<CheckedDrop>,
     pub project: Project,
     /// The record, written at the choice that ends the change.
     pub record: ChangeRecord,
@@ -391,6 +399,7 @@ impl Server {
             situation: again.map(|again| again.situation.clone()),
         };
         let checker = (self.cfg.checker)(&project);
+        let decider = (self.cfg.decider)(&project);
         let deps = ChangeDeps {
             project: &project,
             view: &*view,
@@ -399,6 +408,7 @@ impl Server {
             config: &config,
             writer: &*writer,
             checker: &*checker,
+            decider: decider.as_deref(),
             ledger: &ledger,
             clock: &*self.cfg.clock,
             cancel,
@@ -502,6 +512,7 @@ impl Server {
         let not_as_sent = self.files_not_as_sent(&landed);
         if not_as_sent.is_empty() {
             self.client.say(MessageType::INFO, &step_text(&landed));
+            self.note_drops(&landed);
             self.show(landed, ShownState::Open);
         } else if not_as_sent.len() == landed.files.len() {
             self.client
@@ -511,6 +522,7 @@ impl Server {
             self.client
                 .say(MessageType::WARNING, &landed_in_part_text(&not_as_sent));
             landed.note = Some(in_part_note(&not_as_sent));
+            self.note_drops(&landed);
             self.record(&landed.project, &landed.record, Choice::LandedInPart);
             self.show(landed, ShownState::Recorded);
         }
@@ -787,8 +799,22 @@ impl Server {
         versioned_text_now(&self.client, path)
     }
 
-    /// Appends the record at its choice; a record that cannot be written is logged.
+    /// Leaves the change's said drops for scry's next review; a file that cannot be written is
+    /// logged.
+    fn note_drops(&self, landed: &LandedChange) {
+        let at = self.cfg.clock.now();
+        if let Err(e) = note_drops(&landed.project, &landed.id, at, &landed.retry_drops) {
+            self.client
+                .log(&format!("conjure: the drop notes were not written: {e}"));
+        }
+    }
+
+    /// Appends the record at its choice; a record that cannot be written is logged. An undone
+    /// or replaced change takes back the drops it left for scry.
     pub(super) fn record(&self, project: &Project, record: &ChangeRecord, choice: Choice) {
+        if matches!(choice, Choice::Undone | Choice::Replaced) {
+            let _ = forget_drops(project, &record.id);
+        }
         let written = JsonlChangeStore::for_project(project).and_then(|store| {
             store.append(&ChangeRecord {
                 choice,
@@ -902,6 +928,8 @@ fn landed_change(conjured: Conjured, not_created: &[PathBuf]) -> LandedChange {
         reply: change.reply,
         ask,
         note: None,
+        retry_step: retry_step_text(&change.rules, &change.retry_drops),
+        retry_drops: change.retry_drops,
         project,
         record,
     }
@@ -974,6 +1002,7 @@ fn record_of(
         seconds: change.errand.seconds,
         cost_usd: change.errand.cost_usd,
         choice: Choice::Kept,
+        retry_drops: change.retry_drops.iter().map(RecordedDrop::from).collect(),
     }
 }
 
@@ -1004,6 +1033,7 @@ fn failed_record(
         seconds: 0.0,
         cost_usd: None,
         choice: Choice::Failed,
+        retry_drops: Vec::new(),
     }
 }
 
@@ -1024,7 +1054,7 @@ fn in_part_note(names: &[String]) -> String {
 
 /// The one line the person is told after a step: what changed, or that nothing did.
 fn step_text(landed: &LandedChange) -> String {
-    let goal = landed.goal_text();
+    let goal = format!("{}{}", landed.goal_text(), landed.retry_step);
     if landed.is_no_change() {
         return no_change_text(&goal);
     }

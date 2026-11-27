@@ -10,10 +10,12 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::unit::Span;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_models::ports::decider::Decider;
 
 use crate::domain::config::ConjureConfig;
 use crate::domain::edits::{DropReason, LineEdit, NameCase};
 use crate::domain::record::Attempt;
+use crate::domain::retry_drops::CheckedDrop;
 use crate::domain::spellbook_findings::RulesOutcome;
 use crate::ports::clock::Clock;
 use crate::ports::project_context::ProjectContext;
@@ -46,6 +48,9 @@ pub struct ChangeDeps<'a> {
     pub writer: &'a dyn Writer,
     /// The project's checked rules (spellbook's), run over a change before it lands.
     pub checker: &'a dyn RuleChecker,
+    /// Jev, which says whether what a rules retry dropped was right to drop; none without a
+    /// key, and then each drop is said as not checked.
+    pub decider: Option<&'a dyn Decider>,
     pub ledger: &'a dyn Ledger,
     pub clock: &'a dyn Clock,
     pub cancel: &'a Cancel,
@@ -89,6 +94,9 @@ pub struct ConjuredChange {
     /// What conjure did about the project's checked rules: kept the first answer, asked once
     /// more, or held the change back (then `files` is empty and `goal` says why).
     pub rules: RulesOutcome,
+    /// What the retry dropped of the first answer (calls and definitions), each with Jev's
+    /// verdict; empty unless conjure asked again.
+    pub retry_drops: Vec<CheckedDrop>,
     /// The call, or both calls when conjure asked again: their costs and times added.
     pub errand: Errand,
 }

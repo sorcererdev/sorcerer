@@ -14,15 +14,17 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_models::adapters::jev::Jev;
 use sorcerer_models::adapters::providers::default_provider_for;
 use sorcerer_models::adapters::researchers::researcher_for;
+use sorcerer_models::ports::decider::Decider;
 
 use crate::adapters::project_context::FilesContext;
 use crate::adapters::provider_writer::ProviderWriter;
 use crate::adapters::research_writer::ResearchWriter;
 use crate::adapters::spellbook_checker::SpellbookChecker;
 use crate::adapters::system_clock::SystemClock;
-use crate::domain::config::ConjureConfig;
+use crate::domain::config::{ConjureConfig, PRODUCT};
 use crate::domain::edits::NameCase;
 use crate::domain::record::Attempt;
 use crate::ports::clock::Clock;
@@ -38,6 +40,8 @@ pub struct Wired {
     pub context: Box<dyn ProjectContext>,
     pub writer: Box<dyn Writer>,
     pub checker: Box<dyn RuleChecker>,
+    /// Jev, for whether a rules retry's drops were right; none without `JEV_API_KEY`.
+    pub decider: Option<Arc<dyn Decider>>,
     pub ledger: Arc<dyn Ledger>,
     pub clock: Arc<dyn Clock>,
     /// Whether the project's file system ignores case.
@@ -73,16 +77,29 @@ pub fn live(
         fences: Fences::for_project(&project)?,
     };
     let checker = SpellbookChecker::for_project(&project, env);
+    let decider = decider_for(&project, env, ledger.clone());
     Ok(Wired {
         project,
         view,
         context: Box::new(context),
         writer,
         checker: Box::new(checker),
+        decider,
         ledger,
         clock: Arc::new(SystemClock),
         name_case,
     })
+}
+
+/// Jev for the project, its calls recorded in the ledger under conjure (verb `decide`); none
+/// when `JEV_API_KEY` is not set.
+pub fn decider_for(
+    project: &Project,
+    env: &dyn Env,
+    ledger: Arc<dyn Ledger>,
+) -> Option<Arc<dyn Decider>> {
+    let jev = Jev::from_env(&project.config.decide, env, Some(ledger)).ok()?;
+    Some(Arc::new(jev.for_product(PRODUCT)))
 }
 
 /// The writer for an attempt. The first is a plain call to `[conjure] writer` on the project's

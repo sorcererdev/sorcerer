@@ -4,14 +4,17 @@ use std::path::Path;
 use std::sync::Arc;
 
 use sorcerer_core::adapters::grammar::GrammarCache;
+use sorcerer_core::adapters::jsonl_ledger::JsonlLedger;
 use sorcerer_core::adapters::trust_list::TrustList;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
+use sorcerer_core::ports::ledger::Ledger;
 use sorcerer_core::ports::view::CodebaseView;
+use sorcerer_models::ports::decider::Decider;
 
 use crate::adapters::spellbook_checker::SpellbookChecker;
 use crate::adapters::system_clock::SystemClock;
-use crate::adapters::wiring::writer_for;
+use crate::adapters::wiring::{decider_for, writer_for};
 use crate::domain::config::ConjureConfig;
 use crate::domain::record::Attempt;
 use crate::ports::clock::Clock;
@@ -33,7 +36,13 @@ pub struct ServerConfig {
     pub wire: WireWriter,
     /// Builds the checker of the project's rules (the installed `spellbook`, live).
     pub checker: CheckerFor,
+    /// Builds Jev for a project, which says whether a rules retry's drops were right; none
+    /// without its key.
+    pub decider: DeciderFor,
 }
+
+/// Builds the decider for a project; none when there is none to ask.
+pub type DeciderFor = Box<dyn Fn(&Project) -> Option<Arc<dyn Decider>> + Send + Sync>;
 
 /// Builds the rule checker for a project.
 pub type CheckerFor = Box<dyn Fn(&Project) -> Box<dyn RuleChecker> + Send + Sync>;
@@ -56,9 +65,10 @@ pub type WireWriter = Box<
 
 impl ServerConfig {
     /// The real server: `Project::open`, the user's grammar cache and trust list, the system
-    /// clock, `writer_for` and the installed `spellbook`.
+    /// clock, `writer_for`, the installed `spellbook` and Jev when its key is set.
     pub fn live(env: Arc<dyn Env>) -> ServerConfig {
         let checker_env = env.clone();
+        let decider_env = env.clone();
         ServerConfig {
             open: Box::new(|root| Ok(Project::open(root)?)),
             cache: GrammarCache::user(&*env),
@@ -69,6 +79,10 @@ impl ServerConfig {
             }),
             checker: Box::new(move |project| {
                 Box::new(SpellbookChecker::for_project(project, &*checker_env))
+            }),
+            decider: Box::new(move |project| {
+                let ledger: Arc<dyn Ledger> = Arc::new(JsonlLedger::for_project(project).ok()?);
+                decider_for(project, &*decider_env, ledger)
             }),
         }
     }

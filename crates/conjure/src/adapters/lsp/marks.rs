@@ -8,6 +8,7 @@ use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range}
 use serde_json::Value;
 
 use super::changes::{LandedChange, LandedFile};
+use crate::domain::retry_drops::{quiet_drops_text, said_drops_text};
 
 /// One mark: which change, in which file (as the editor names it), on which line (from 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +88,9 @@ pub(super) fn mark_diagnostic(mark: &Mark, change: &LandedChange, text: &str) ->
 
 // The words of the marks.
 
-/// `conjured: fill total · haiku · $0.001 · 4 s · parses · also changed: b.py · not written: .env`.
+/// `conjured: fill total · haiku · $0.001 · 4 s · parses · also changed: b.py · not written: .env`,
+/// then what a rules retry dropped: `· dropped: std::fs::write in seat.rs (looks unintended) ·
+/// dropped on purpose: helper in seat.rs (moved elsewhere)`.
 fn main_text(change: &LandedChange) -> String {
     let Some(main) = change.main_file() else {
         return no_change_text(change);
@@ -104,14 +107,28 @@ fn main_text(change: &LandedChange) -> String {
         format!(" · not written: {}", change.not_written.join(", "))
     };
     format!(
-        "{} · {} · ${:.3} · {:.0} s · {}{also}{not_written}{}",
+        "{} · {} · ${:.3} · {:.0} s · {}{also}{not_written}{}{}",
         done_text(change),
         change.model,
         change.cost.unwrap_or(0.0),
         change.seconds,
         parses_text(main),
+        drops_text(change),
         note_text(change)
     )
+}
+
+/// Every drop of a rules retry, the ones Jev called legitimate after the others; empty when
+/// there are none.
+fn drops_text(change: &LandedChange) -> String {
+    [
+        said_drops_text(&change.retry_drops),
+        quiet_drops_text(&change.retry_drops),
+    ]
+    .iter()
+    .filter(|part| !part.is_empty())
+    .map(|part| format!(" · {part}"))
+    .collect()
 }
 
 /// `conjured: fill total`: the goal, said as done. The goal's first letter is lowered when its

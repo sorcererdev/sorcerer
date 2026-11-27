@@ -13,8 +13,10 @@ use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::view::CodebaseView;
 
 use crate::adapters::imports::related_files;
+use crate::adapters::names_in_text::names_in;
 use crate::adapters::scry_files::read_findings;
 use crate::adapters::steering_files::project_rules;
+use crate::domain::retry_drops::NamedInText;
 use crate::domain::scry_notes::FindingsRead;
 use crate::ports::project_context::{ProjectContext, RelatedFiles};
 
@@ -50,6 +52,11 @@ impl ProjectContext for FilesContext {
     fn parse_errors(&self, file: &Path, text: &str) -> Option<Vec<u32>> {
         let loaded = self.loaded_for(file)?;
         parse_errors_of(&loaded, text).ok()
+    }
+
+    fn names_in(&self, file: &Path, text: &str) -> Option<Vec<NamedInText>> {
+        let loaded = self.loaded_for(file)?;
+        Some(names_in(&loaded, text))
     }
 
     fn scry_findings(&self) -> FindingsRead {

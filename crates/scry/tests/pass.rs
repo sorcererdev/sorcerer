@@ -2141,3 +2141,56 @@ fn day_spent_is_not_reported_when_only_the_pass_cap_holds_a_call_back() {
     assert!(r.capped > 0);
     assert!(!r.day_spent);
 }
+
+// ---- what conjure left: a rules retry's drops ----
+
+/// conjure's drop notes, as conjure writes them: `order.audit` dropped from orders.py.
+fn conjure_drop_notes(name: &str) -> String {
+    serde_json::json!({
+        "version": 1,
+        "data": { "notes": [{
+            "change": "3fa9c0",
+            "at": "2026-11-18T22:00:00Z",
+            "drop": {
+                "name": name, "kind": "call", "file": "orders.py", "line": 2,
+                "verdict": "looks unintended",
+                "rules": ["commands-use-ports: Commands talk to ports"]
+            }
+        }]}
+    })
+    .to_string()
+}
+
+#[test]
+fn a_drop_conjure_left_for_a_reviewed_file_reaches_the_prompt_while_the_file_lacks_it() {
+    let f = Fixture::new();
+    write(
+        f.root(),
+        ".sorcerer/state/conjure/drops.json",
+        &conjure_drop_notes("order.audit"),
+    );
+    let reviewer = StubReviewer::new().reply(&["orders.py"], "{\"findings\": []}");
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    let prompt = scry::domain::review_prompt::review_prompt(&reviewer.asks()[0]);
+    assert!(
+        prompt.contains("- the call `order.audit`, at orders.py:2 before the retry (rule commands-use-ports: Commands talk to ports; Jev: looks unintended)\n"),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn a_drop_the_file_has_again_is_not_told() {
+    let f = Fixture::new();
+    write(
+        f.root(),
+        ".sorcerer/state/conjure/drops.json",
+        &conjure_drop_notes("order.cancel"),
+    );
+    let reviewer = StubReviewer::new().reply(&["orders.py"], "{\"findings\": []}");
+    ran(f.run(&reviewer, &StubDecider::new(), false));
+    let prompt = scry::domain::review_prompt::review_prompt(&reviewer.asks()[0]);
+    assert!(
+        !prompt.contains("conjure wrote part of this change"),
+        "{prompt}"
+    );
+}
