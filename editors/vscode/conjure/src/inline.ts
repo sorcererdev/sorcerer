@@ -1,21 +1,26 @@
 import * as vscode from 'vscode';
-import { forDocument, type WorkingUnit } from './working';
+import { forDocument, statusText, type WorkingUnit } from './working';
 
 // Working draws the units a server is working on as grey text at the end of each one's first
 // line, in the editors showing them, and takes it away when the server says it is done. VS Code
 // moves a decoration with the text as the person types, so the text stays on its line; it is
-// drawn again when an editor opens or comes back into view.
+// drawn again when an editor opens or comes back into view. While anything is worked on, the
+// status bar says so with a spinning icon (`$(sync~spin) apprentice: researching…`): VS Code
+// spins it itself, at no cost here. The grey text does not spin: redrawing every editor's
+// decorations ten times a second to cycle a glyph costs more than it shows (decided 2026-11-27).
 export class Working implements vscode.Disposable {
   private units: WorkingUnit[] = [];
   private readonly everShown: WorkingUnit[] = [];
   private readonly type = vscode.window.createTextEditorDecorationType({});
   private readonly redraw = vscode.window.onDidChangeVisibleTextEditors(() => this.draw());
+  private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
 
   // show replaces what is drawn with these units; none clears it.
   show(units: WorkingUnit[]): void {
     this.units = units;
     this.everShown.push(...units);
     this.draw();
+    this.showStatus();
   }
 
   clear(): void {
@@ -36,6 +41,17 @@ export class Working implements vscode.Disposable {
   dispose(): void {
     this.redraw.dispose();
     this.type.dispose();
+    this.status.dispose();
+  }
+
+  private showStatus(): void {
+    const text = statusText(this.units);
+    if (text === undefined) {
+      this.status.hide();
+      return;
+    }
+    this.status.text = text;
+    this.status.show();
   }
 
   private draw(): void {

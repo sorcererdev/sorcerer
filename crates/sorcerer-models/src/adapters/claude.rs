@@ -187,7 +187,11 @@ fn reply_from(printed: &Printed, status: ExitStatus) -> Result<ClaudeReply> {
     })?;
     let text = reply["result"].as_str().unwrap_or_default().to_string();
     if reply["is_error"].as_bool().unwrap_or(false) {
-        return Err(reply_error(text));
+        return Err(Error::Spent {
+            provider: "claude".into(),
+            why: error_reply_text(&reply, &text),
+            cost_usd: reply["total_cost_usd"].as_f64(),
+        });
     }
     Ok(ClaudeReply {
         text,
@@ -198,6 +202,27 @@ fn reply_from(printed: &Printed, status: ExitStatus) -> Result<ClaudeReply> {
             output_tokens: reply["usage"]["output_tokens"].as_u64().unwrap_or(0),
         },
     })
+}
+
+/// What an error reply says went wrong: its result, else its `errors` joined, else its
+/// subtype, so the message is never empty.
+///
+/// Example: a call stopped at its cap has no result and the errors
+/// `["Reached maximum budget ($0.25)"]`: the text is "Reached maximum budget ($0.25)
+/// (error_max_budget_usd)".
+fn error_reply_text(reply: &Value, result: &str) -> String {
+    let errors: Vec<&str> = reply["errors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let subtype = reply["subtype"].as_str().unwrap_or("error");
+    match (result.trim(), errors.is_empty()) {
+        ("", true) => format!("the call failed and said no more ({subtype})"),
+        ("", false) => format!("{} ({subtype})", errors.join("; ")),
+        (said, _) => said.to_string(),
+    }
 }
 
 fn reply_error(why: String) -> Error {

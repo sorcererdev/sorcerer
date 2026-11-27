@@ -155,3 +155,40 @@ fn deny_rules_cover_the_root_form_and_fenced_symlinks() {
         assert!(deny.contains(&rule.to_string()), "{rule} not in {deny:?}");
     }
 }
+
+/// `claude -p` that stops at its `--max-budget-usd` prints no `result`, only `errors`
+/// (measured 2026-11-27 with claude 2.x): the error says so, and the ledger charges what it spent.
+#[test]
+fn a_research_stopped_at_its_cap_says_so_and_is_charged_what_it_spent() {
+    let d = support::git_project(None);
+    let f = support::FakeClaude::new();
+    let reply = r#"{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":0.27,"duration_ms":17000,"errors":["Reached maximum budget ($0.25)"],"usage":{"input_tokens":5,"output_tokens":900}}"#;
+    let (r, p) = researcher(d.path(), &f, &[("FAKE_CLAUDE_REPLY", reply)]);
+    let error = r
+        .research(research(Duration::from_secs(5)), &Cancel::default())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Reached maximum budget ($0.25)"), "{error}");
+    let rows = JsonlLedger::for_project(&p)
+        .unwrap()
+        .read()
+        .unwrap()
+        .errands;
+    assert_eq!((rows[0].cost_usd, rows[0].ok), (Some(0.27), false));
+    assert!(rows[0].note.as_deref().unwrap().contains("maximum budget"));
+}
+
+/// An error reply with neither a result nor errors still says something: its subtype.
+#[test]
+fn an_error_reply_with_no_text_names_its_subtype() {
+    let d = support::git_project(None);
+    let f = support::FakeClaude::new();
+    let reply =
+        r#"{"type":"result","subtype":"error_during_execution","is_error":true,"result":""}"#;
+    let (r, _) = researcher(d.path(), &f, &[("FAKE_CLAUDE_REPLY", reply)]);
+    let error = r
+        .research(research(Duration::from_secs(5)), &Cancel::default())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("error_during_execution"), "{error}");
+}

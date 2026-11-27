@@ -117,8 +117,11 @@ impl Editor for LspEditor {
         }
     }
 
+    /// What the task does now, in the status line and at the end of its line
+    /// (`⟳ apprentice: reading README.md`).
     fn progress(&self, task: &str, text: &str) {
         let Some(server) = self.server() else { return };
+        server.work_moves(task, None, &format!("\u{27f3} apprentice: {text}"));
         let mut progress = lock(&server.progress);
         match progress.get(task) {
             Some(line) => line.report(text),
@@ -243,7 +246,7 @@ impl Server {
             .insert(file.to_path_buf(), after.clone());
         self.looked_at_own_edit(&path, &after);
         let line = first_changed_line(before.as_deref().unwrap_or(""), &after).unwrap_or(1);
-        self.client.show_working(WRITING, &[(path, line)]);
+        self.work_moves(task, Some((path, line)), WRITING);
         Written::Landed { before }
     }
 

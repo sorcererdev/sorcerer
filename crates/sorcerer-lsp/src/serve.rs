@@ -179,7 +179,20 @@ fn abilities_of(params: &Value) -> Abilities {
             .and_then(Value::as_bool)
             == Some(true),
         handles: sorcerer_notifications_handled(params),
+        keys: keys_named(params),
     }
+}
+
+/// The editor's keys by action name, from `initializationOptions.keys`; a value that is not a
+/// string is left out.
+fn keys_named(params: &Value) -> std::collections::BTreeMap<String, String> {
+    params
+        .pointer("/initializationOptions/keys")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, key)| Some((name.clone(), key.as_str()?.to_string())))
+        .collect()
 }
 
 /// The `sorcerer/…` notifications the editor listed in `initializationOptions.handles`; any

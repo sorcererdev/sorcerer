@@ -45,12 +45,14 @@ impl Server {
     fn region_mark(&self, record: &RegionRecord, range: Range) -> Option<Diagnostic> {
         let kind = record.acting_kind()?;
         let (message, severity) = match (&record.reply, kind) {
-            (Some(reply), _) if reply.verdict == ReplyVerdict::Failed => return None,
+            (Some(reply), _) if reply.verdict == ReplyVerdict::Failed => {
+                (failed_text(&reply.text), DiagnosticSeverity::WARNING)
+            }
             (Some(reply), _) => (
                 reply_text(
-                    record,
                     reply.verdict,
                     &reply.text,
+                    reply.long.then(|| self.open_answer_hint()),
                     reply.cost_usd,
                     reply.seconds,
                 ),
@@ -103,6 +105,15 @@ impl Server {
                 format!("{message}\n{}", cited.join(", "))
             }
             _ => message,
+        }
+    }
+
+    /// How the person opens a long answer: the editor's key when it named one
+    /// (`<leader>mo opens the whole answer`), else the action's title.
+    fn open_answer_hint(&self) -> String {
+        match self.client.key_for("openAnswer") {
+            Some(key) => format!("{key} opens the whole answer"),
+            None => "\u{201c}apprentice: Open the answer\u{201d} opens the whole answer".into(),
         }
     }
 
@@ -176,28 +187,42 @@ impl Server {
 }
 
 /// What a replied region says: `apprentice: holds`, `apprentice: does not hold: <why>`,
-/// `apprentice: cannot tell: <why>`, or the answer, then its cost and time.
+/// `apprentice: cannot tell: <why>`, or the answer (only its first sentence and how to open the
+/// rest when it is long), then its cost and time.
+///
+/// Example: a long answer reads `apprentice: Tax is added at checkout. · <leader>mo opens the
+/// whole answer` and below it `$0.09 · 15s`.
 fn reply_text(
-    record: &RegionRecord,
     verdict: ReplyVerdict,
     text: &str,
+    long: Option<String>,
     cost: f64,
     seconds: f64,
 ) -> String {
-    let said = match verdict {
-        ReplyVerdict::Holds => "holds".to_string(),
-        ReplyVerdict::DoesNotHold => format!("does not hold: {}", text.trim()),
-        ReplyVerdict::CannotTell => format!("cannot tell: {}", text.trim()),
-        ReplyVerdict::Answered if record.reply.as_ref().is_some_and(|reply| reply.long) => {
-            format!("{} (the whole answer is in a note)", first_sentence(text))
-        }
-        ReplyVerdict::Answered | ReplyVerdict::Failed => text.trim().to_string(),
+    let said = match (verdict, long) {
+        (ReplyVerdict::Holds, _) => "holds".to_string(),
+        (ReplyVerdict::DoesNotHold, _) => format!("does not hold: {}", text.trim()),
+        (ReplyVerdict::CannotTell, _) => format!("cannot tell: {}", text.trim()),
+        (ReplyVerdict::Answered, Some(open)) => format!("{} \u{b7} {open}", first_sentence(text)),
+        (ReplyVerdict::Answered, None) | (ReplyVerdict::Failed, _) => text.trim().to_string(),
     };
     format!(
-        "apprentice: {said}\n{} · {}",
+        "apprentice: {said}\n{} \u{b7} {}",
         usd(cost),
         seconds_text(seconds)
     )
+}
+
+/// What a failed answer or check says: why, and that saving asks again.
+///
+/// Example: `apprentice: could not answer: claude: Reached maximum budget ($0.25)
+/// (error_max_budget_usd) · save to ask again`.
+fn failed_text(why: &str) -> String {
+    let why = match why.trim() {
+        "" => "the call failed and said no more",
+        why => why,
+    };
+    format!("apprentice: could not answer: {why} \u{b7} save to ask again")
 }
 
 fn first_sentence(text: &str) -> String {

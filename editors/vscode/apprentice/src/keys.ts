@@ -17,9 +17,20 @@ export interface Key {
   none: string;
   prefix?: boolean;
   choose?: boolean;
+  // the action's name the server knows the key by, so a mark can say which key to press
+  // (`ctrl+m o opens the whole answer`)
+  name?: string;
 }
 
-// The seven keys, the same as the Neovim plugin's `<leader>m` keys, by the titles the
+// keysByName is what the server is told at initialize (`initializationOptions.keys`): each named
+// key's chord by its name.
+//
+// Example: `{ openAnswer: 'ctrl+m o' }`.
+export function keysByName(keys: readonly Key[]): Record<string, string> {
+  return Object.fromEntries(keys.filter(key => key.name).map(key => [key.name, key.key]));
+}
+
+// The eight keys, the same as the Neovim plugin's `<leader>m` keys, by the titles the
 // apprentice server gives its actions (crates/apprentice/src/adapters/lsp/commands.rs).
 export const KEYS: readonly Key[] = [
   { command: 'apprentice.keys.do', key: 'ctrl+m a', title: 'apprentice: do this', prefix: true, none: 'apprentice: nothing to do on this line' },
@@ -28,6 +39,7 @@ export const KEYS: readonly Key[] = [
   { command: 'apprentice.keys.undoTask', key: 'ctrl+m z', title: 'apprentice: Undo this task', none: 'apprentice: no task to undo on this line' },
   { command: 'apprentice.keys.journal', key: 'ctrl+m j', title: 'apprentice: Show journal', none: 'apprentice: no task on this line' },
   { command: 'apprentice.keys.dismiss', key: 'ctrl+m x', title: 'apprentice: Dismiss', none: 'apprentice: nothing to dismiss on this line' },
+  { command: 'apprentice.keys.openAnswer', key: 'ctrl+m o', title: 'apprentice: Open the answer', none: 'apprentice: no long answer on this line', name: 'openAnswer' },
   { command: 'apprentice.keys.label', key: 'ctrl+m l', title: 'apprentice: this was', prefix: true, choose: true, none: 'apprentice: nothing to label on this line' },
 ];
 

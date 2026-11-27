@@ -26,6 +26,14 @@ pub enum Error {
     },
     #[error("{provider}: {why}")]
     Reply { provider: String, why: String },
+    /// The provider stopped the call and said so after spending money on it (`claude -p` at its
+    /// `--max-budget-usd`): the spend is kept so the ledger charges it.
+    #[error("{provider}: {why}")]
+    Spent {
+        provider: String,
+        why: String,
+        cost_usd: Option<f64>,
+    },
     #[error("{why}")]
     Setup { why: String },
     #[error("{runner}: {why}")]

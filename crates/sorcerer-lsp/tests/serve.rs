@@ -928,3 +928,44 @@ fn a_sorcerer_notification_reaches_only_an_editor_that_handles_it() {
     );
     editor.stop();
 }
+
+#[test]
+fn working_each_sends_every_place_with_its_own_text() {
+    let editor = Editor::with_options(json!({ "drawsWorking": true }));
+    let client = editor.client();
+    client.show_working_each(&[
+        sorcerer_lsp::WorkingPlace {
+            path: shop().join("a.py"),
+            line: 3,
+            text: "⟳ apprentice: researching…".into(),
+        },
+        sorcerer_lsp::WorkingPlace {
+            path: shop().join("b.py"),
+            line: 1,
+            text: "⟳ apprentice: working…".into(),
+        },
+    ]);
+    let a = uri(&shop().join("a.py"));
+    let b = uri(&shop().join("b.py"));
+    assert_eq!(
+        working_notes(&editor),
+        vec![json!({ "units": [
+            { "uri": a, "line": 2, "text": "⟳ apprentice: researching…" },
+            { "uri": b, "line": 0, "text": "⟳ apprentice: working…" },
+        ] })]
+    );
+    editor.stop();
+}
+
+#[test]
+fn the_editors_keys_are_read_by_action_name() {
+    let editor = Editor::with_options(json!({ "keys": { "openAnswer": "<leader>mo", "bad": 3 } }));
+    let client = editor.client();
+    assert_eq!(client.key_for("openAnswer").as_deref(), Some("<leader>mo"));
+    assert_eq!(client.key_for("bad"), None);
+    assert_eq!(client.key_for("other"), None);
+    editor.stop();
+    let plain = Editor::plain();
+    assert_eq!(plain.client().key_for("openAnswer"), None);
+    plain.stop();
+}

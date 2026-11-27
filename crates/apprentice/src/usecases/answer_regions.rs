@@ -1,6 +1,7 @@
 //! On save: each question in the file answered by one read-only research call, each claim
 //! checked by models' claim checker (haiku first, Jev's guards, sonnet on doubt). Both are kept
-//! on the region, so a region is answered once.
+//! on the region, so a region is answered once; a call that failed is asked again at the next
+//! save. The watch is told when each call begins and ends, so the editor can show it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,11 +26,14 @@ use crate::domain::region_record::{RegionRecord, Reply, ReplyVerdict};
 use crate::domain::triage::Kind;
 use crate::ports::clock::Clock;
 use crate::ports::region_store::RegionStore;
+use crate::ports::reply_watch::ReplyWatch;
 
 /// The verb a question's research call is recorded under.
 pub const ANSWER_VERB: &str = "answer";
-/// The most one answer may spend, in dollars, and how long it may take.
-const ANSWER_CAP: f64 = 0.10;
+/// The most one answer may spend, in dollars, and how long it may take. A sonnet answer that
+/// reads a few files costs about $0.10 (measured 2026-11-27: $0.096), so the cap leaves room
+/// for one that reads more; `claude -p` stops itself at the cap and the answer fails.
+const ANSWER_CAP: f64 = 0.25;
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
 /// The model a question is answered on.
 const ANSWER_MODEL: &str = "sonnet";
@@ -47,6 +51,7 @@ pub struct AnswerDeps {
     pub ledger: Arc<dyn Ledger>,
     pub clock: Arc<dyn Clock>,
     pub config: ApprenticeConfig,
+    pub watch: Arc<dyn ReplyWatch>,
 }
 
 /// Answers the questions and checks the claims of a saved file that wait for a reply, while the
@@ -75,19 +80,35 @@ pub fn answer_saved(
         if cancel.is_cancelled() || !day_affordable(deps) {
             break;
         }
-        let reply = match record.acting_kind() {
-            Some(Kind::Question) => answered(&record, researcher.as_ref(), cancel),
-            Some(Kind::Claim) => checked(&record, researcher.as_ref(), deps, cancel),
-            _ => continue,
+        if !deps.watch.begins(&record) {
+            continue;
+        }
+        let reply = still_waiting(&record, deps).and_then(|record| match record.acting_kind() {
+            Some(Kind::Question) => Some(answered(&record, researcher.as_ref(), cancel)),
+            Some(Kind::Claim) => Some(checked(&record, researcher.as_ref(), deps, cancel)),
+            _ => None,
+        });
+        let Some(reply) = reply else {
+            deps.watch.ends(&record);
+            continue;
         };
         let record = RegionRecord {
             reply: Some(reply),
             ..record
         };
         let _ = deps.regions.put(std::slice::from_ref(&record));
+        deps.watch.ends(&record);
         replied.push(record);
     }
     replied
+}
+
+/// The region as stored now, if it still waits: a save that started while another was
+/// answering found it waiting, and the other may have answered it since.
+fn still_waiting(record: &RegionRecord, deps: &AnswerDeps) -> Option<RegionRecord> {
+    deps.regions
+        .get(&record.region.id)
+        .filter(RegionRecord::waits_for_a_reply)
 }
 
 fn day_affordable(deps: &AnswerDeps) -> bool {

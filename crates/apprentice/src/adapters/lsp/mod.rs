@@ -10,6 +10,7 @@
 //! - `editor_port.rs`: `LspEditor`, the `Editor` port over the protocol (`write_file` as
 //!   `workspace/applyEdit`, `ghost`, `note`, `progress`, the person's edits since a look).
 //! - `asks.rs`: the agent's questions waiting on a line or in the picker.
+//! - `working.rs`: what is being worked on (a task, a question, a claim), drawn on its line.
 //! - `publisher.rs`: a file's marks; `commands.rs`: the capabilities, code actions, commands.
 
 // spellbook:region lsp-modules (from crates/apprentice/src/adapters/lsp/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)
@@ -23,6 +24,7 @@ mod server_config;
 mod server_state;
 mod tasks;
 mod watch;
+mod working;
 // spellbook:end lsp-modules
 
 pub use apprentice_server::serve;

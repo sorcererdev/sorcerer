@@ -8,6 +8,7 @@ import { type Ghost, parseGhost } from './ghost';
 import { Ghosts } from './ghosts';
 import { Working } from './inline';
 import { registerKeys } from './keyActions';
+import { KEYS, keysByName } from './keys';
 import { type OfferEnding, remembered } from './offer';
 import { BeforeTexts } from './showDiff';
 import { registerTaskMarks } from './taskMarks';
@@ -65,7 +66,8 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder, before: Before
   const options: LanguageClientOptions = {
     documentSelector: [{ scheme: 'file', pattern: `${folder.uri.fsPath}/**` }],
     workspaceFolder: folder,
-    initializationOptions: { drawsWorking: true, handles: HANDLED },
+    // the chords by name, so a mark can say which to press (`ctrl+m o opens the whole answer`)
+    initializationOptions: { drawsWorking: true, handles: HANDLED, keys: keysByName(KEYS) },
     middleware: {
       didChange: async (event, next) => {
         await next(event);
@@ -108,7 +110,8 @@ function spelledAsVsCode(uri: string): string {
   return vscode.Uri.parse(uri).toString();
 }
 
-// openBeside opens the agent's note in the column beside the code; the cursor stays where it was.
+// openBeside opens a note in the column beside the code; the cursor stays where it was. The
+// server sends it for a task's note, and for a long answer only when the person asks (ctrl+m o).
 async function openBeside(uri: string | undefined): Promise<void> {
   if (!uri) return;
   await vscode.window.showTextDocument(vscode.Uri.parse(uri), { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, preview: false });

@@ -19,7 +19,7 @@ pub mod tool_edits;
 pub mod undo_plan;
 pub mod uri;
 
-pub use client::{Answer, Applied, Client, WorkDone};
+pub use client::{Answer, Applied, Client, WorkDone, WorkingPlace};
 pub use jobs::Jobs;
 pub use line_edits::LineEdit;
 pub use reply::Reply;

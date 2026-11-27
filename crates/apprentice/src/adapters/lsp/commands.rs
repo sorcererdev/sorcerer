@@ -1,7 +1,7 @@
 //! The capabilities, the code actions on a line, and the commands they run.
 //!
-//! On a line: a region's actions (*Show code*, *Keep this answer*, *Dismiss*, the offer, the
-//! four labels), a waiting question's options, a finished task's (*Show diff*, *Undo this
+//! On a line: a region's actions (*Show code*, *Open the answer*, *Keep this answer*,
+//! *Dismiss*, the offer or else *do this anyway*, the four labels), a waiting question's options, a finished task's (*Show diff*, *Undo this
 //! task*, *Show journal*) and a running task's *Stop this task*.
 
 use std::path::Path;
@@ -21,8 +21,10 @@ use crate::domain::triage::Kind;
 use super::server_state::{Server, lock};
 
 /// The commands the code actions run.
-const COMMANDS: [&str; 10] = [
+const COMMANDS: [&str; 12] = [
     "apprentice.do",
+    "apprentice.doAnyway",
+    "apprentice.openAnswer",
     "apprentice.stop",
     "apprentice.showDiff",
     "apprentice.undo",
@@ -93,7 +95,10 @@ impl Server {
     /// stub and the comment in it) do not offer two rows a person cannot tell apart:
     ///
     /// - *do this* for the offering region that spans the most lines (a stub holds its comment);
-    /// - *Show code* and *Keep this answer* for the first region with such an answer;
+    ///   with none offered, *do this anyway* for the largest region not dismissed, since the
+    ///   person asking is the go-ahead (a terse "Fill this in" read as an aside);
+    /// - *Show code*, *Open the answer* (a long one) and *Keep this answer* for the first region
+    ///   with such an answer;
     /// - one *Dismiss* and one set of labels, for every region there.
     ///
     /// Each region comes with how many lines it spans beyond its first.
@@ -103,11 +108,22 @@ impl Server {
             .iter()
             .filter(|(record, _)| record.offers_a_task())
             .max_by_key(|(_, extra_lines)| *extra_lines);
-        if let Some((record, _)) = offering
-            && self.running_task().is_none()
-        {
-            let id = json!([record.region.id]);
-            actions.push(action(&self.offer_title(), "apprentice.do", id));
+        let not_offered = regions
+            .iter()
+            .filter(|(record, _)| !record.dismissed)
+            .max_by_key(|(_, extra_lines)| *extra_lines);
+        match (offering, not_offered) {
+            _ if self.running_task().is_some() => {}
+            (Some((record, _)), _) => {
+                let id = json!([record.region.id]);
+                actions.push(action(&self.offer_title(), "apprentice.do", id));
+            }
+            (None, Some((record, _))) => {
+                let title = format!("apprentice: do this anyway \u{b7} {}", self.offer_price());
+                let id = json!([record.region.id]);
+                actions.push(action(&title, "apprentice.doAnyway", id));
+            }
+            (None, None) => {}
         }
         let answered = regions.iter().find_map(|(record, _)| {
             let reply = record.reply.as_ref()?;
@@ -119,6 +135,13 @@ impl Server {
                 actions.push(action(
                     "apprentice: Show code",
                     "apprentice.showCode",
+                    id.clone(),
+                ));
+            }
+            if reply.long {
+                actions.push(action(
+                    "apprentice: Open the answer",
+                    "apprentice.openAnswer",
                     id.clone(),
                 ));
             }
@@ -193,6 +216,10 @@ impl Server {
         };
         match command {
             "apprentice.do" => on_a_thread(Box::new(move |server| server.do_region(&first))),
+            "apprentice.doAnyway" => {
+                on_a_thread(Box::new(move |server| server.do_anyway(&first)));
+            }
+            "apprentice.openAnswer" => self.open_answer(&first),
             "apprentice.stop" => self.stop_task(&first),
             "apprentice.showDiff" => self.show_diff(&first, Path::new(&second)),
             "apprentice.undo" => self.undo_task(&first),

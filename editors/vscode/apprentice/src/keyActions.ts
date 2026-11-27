@@ -3,7 +3,7 @@ import { actionsFor, type Key, KEYS } from './keys';
 
 type ServerAction = vscode.Command | vscode.CodeAction;
 
-// registerKeys makes the seven commands the `ctrl+m` chords call (see KEYS and package.json).
+// registerKeys makes the commands the `ctrl+m` chords call (see KEYS and package.json).
 export function registerKeys(context: vscode.ExtensionContext): void {
   for (const key of KEYS) {
     context.subscriptions.push(vscode.commands.registerCommand(key.command, () => runKey(key)));

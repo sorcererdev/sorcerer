@@ -46,19 +46,28 @@ The server is `apprentice lsp`, one per project. It works on two clocks:
   lines of layout only (blank, or a lone bracket). So format-on-save and a spellbook sync cost no
   triage and offer nothing. A formatter that changes words is still read as an edit.
 - **Save**: each question in the saved file is answered by one read-only research call (one to
-  three sentences, the code cited as `path:line`, Read, Grep and Glob only), and each claim is
-  checked by the claim checker scry uses (haiku, Jev's guards, sonnet when they doubt).
+  three sentences, the code cited as `path:line`, Read, Grep and Glob only; sonnet, at most $0.25
+  a call), and each claim is checked by the claim checker scry uses (haiku, Jev's guards, sonnet
+  when they doubt). While a call runs its line says `⟳ apprentice: researching…` (a claim:
+  `checking…`) and the status line `researching: <the question>`, so you know something is
+  spending; saving again meanwhile does not ask the same question twice. A call that fails says
+  why on its line, `apprentice: could not answer: <why> · save to ask again`, and the next save
+  asks again.
 
 What you see, in the margin (diagnostics of source `apprentice`):
 
 | region | the mark | its code actions |
 |---|---|---|
-| a question | `apprentice: <the answer>`, its cost and time; the cited code on hover | *Show code*, *Keep this answer* (written in below as a comment, or as a paragraph), *Dismiss* |
+| a question | `apprentice: <the answer>`, its cost and time; the cited code on hover. A long answer shows its first sentence and `<key> opens the whole answer`: it waits in a note until you open it, so no window opens while you type | *Show code*, *Open the answer* (a long one, beside your code), *Keep this answer* (written in below as a comment, or as a paragraph), *Dismiss* |
 | a claim | `apprentice: holds`, `does not hold: <why>` or `cannot tell: <why>` | *Show code*, *Dismiss*; a claim that does not hold also offers the task |
 | an instruction | a faint hint, `apprentice: I can do this · ~$0.50 · sonnet` | `apprentice: do this · ~$0.50 · sonnet`, *Dismiss* |
+| anything else you typed (an aside) | nothing | `apprentice: do this anyway · ~$0.50 · sonnet` |
 
 Nothing runs a task by itself: an instruction is only offered, with its price (the median of
-your finished tasks once there are five, else `estimate_start`). Every classified region also
+your finished tasks once there are five, else `estimate_start`). A line apprentice did not take
+for an instruction (a terse `Fill this in` under a heading can read as a note to yourself) still
+has *do this anyway*, so the do-this key works on any line you typed: asking is the go-ahead,
+and the line is labelled an instruction in the corpus. Every classified region also
 offers four labels, `apprentice: this was a question / a claim / an instruction / nothing`: a
 pick is a line of `.sorcerer/state/apprentice/labels.jsonl`, and so is a *Dismiss*. That file
 is the prototype's measure of whether apprentice understood you.
@@ -70,7 +79,8 @@ all); *Dismiss* and a label apply to both.
 A mark lives on its text: it moves when lines are added above it, and goes once you change the
 words. A checkout or a pull (`.git/HEAD` moved) starts every look over, saying nothing.
 
-**While a task runs**, the status line says what it does (`apprentice: refuse late
+**While a task runs**, its line says so from the start (`⟳ apprentice: working…`, then what it
+does, `⟳ apprentice: reading booking.py`), and the status line says what it does (`apprentice: refuse late
 cancellations · reading booking.py · $0.00`, then `writing cancel_booking.py`, `running uv`,
 `subagent: reading routes.py`; `getting ready` while the agent loads its own tools), and the place it writes shows `⟳ apprentice: writing…`. A
 command says `waiting until allowed: uv` until it is allowed (by a line you allowed always, or by
@@ -111,13 +121,15 @@ The plugin starts `apprentice lsp` on every buffer under a project root, reporti
 once (`debounce_text_changes = 0`, so a task never writes over what you typed a moment ago and
 your edits reach the agent after its next tool call). It draws what the server sends only to it:
 grey suggested lines under a line (`SorcererGhost`; gone at your next edit of that line), the
-agent's notes in a vertical split beside your code, and *Show diff* as a scratch buffer of the
+agent's notes and a long answer you open in a vertical split beside your code (your cursor stays
+put), and *Show diff* as a scratch buffer of the
 text before beside the live one, both in diff mode, in a tab of their own (`:tabclose` ends it). Marks are `vim.diagnostic`; the code actions
 are your code-action key's. The keys:
 
 | key | does |
 |---|---|
-| `<leader>ma` | `apprentice: do this` on the line, whatever its price |
+| `<leader>ma` | `apprentice: do this` on the line, whatever its price (or *do this anyway*) |
+| `<leader>mo` | `apprentice: Open the answer`: a long answer, beside your code |
 | `<leader>mq` | `apprentice: Stop this task` |
 | `<leader>md` | `apprentice: Show diff` |
 | `<leader>mz` | `apprentice: Undo this task` |
@@ -125,8 +137,11 @@ are your code-action key's. The keys:
 | `<leader>mx` | `apprentice: Dismiss` |
 | `<leader>ml` | the four labels, to pick one |
 
-`require("sorcerer").status()` says `apprentice: <task> · <what it does> · <spent>` while a task
-runs. `:checkhealth sorcerer` checks that `apprentice` is found.
+The `⟳` at the end of a line being worked on (`SorcererWorking`; scry's `reviewing…` and
+conjure's `writing…` too) spins while the work runs; `working = { animate = false }` in setup
+keeps it still. `require("sorcerer").status()` says `apprentice: <task> · <what it does> ·
+<spent>` while a task runs and `apprentice: researching: <the question>` while a question is
+answered: put it in your status line to see it there. `:checkhealth sorcerer` checks that `apprentice` is found.
 
 ## In VS Code
 
@@ -139,20 +154,22 @@ per version.
 
 It starts one `apprentice lsp` per workspace folder, for every file under it, and sends each of
 your edits at once (so a task never writes over what you typed a moment ago). Marks are VS
-Code's diagnostics and the code actions are the lightbulb's; the progress of a task is in the
-status bar; the agent's messages are notifications, and a command it wants to run is a
+Code's diagnostics and the code actions are the lightbulb's; the progress of a task, and of a
+question being answered, is in the status bar (a spinning `$(sync~spin)` while anything is
+worked on, beside grey `⟳ apprentice: researching…` at the end of its line); the agent's messages are notifications, and a command it wants to run is a
 notification with *Allow once*, *Always for this project (…)* and *Deny*: closing it, or leaving
 it for two minutes, denies the command. With *Do Not Disturb* on the question is hidden under
 the bell, so it is denied when the two minutes are up unless you open it there. What the
 extension draws itself: a suggested line as grey text after the line it belongs under (`⤷ …`,
-the whole of it on hover; your next edit of that line takes it away), the agent's notes in the
-column beside your code, *Show diff* as VS Code's diff view of the text before the task against
+the whole of it on hover; your next edit of that line takes it away), the agent's notes and a long answer you open (`ctrl+m o`) in the column beside your code, your
+cursor staying put, *Show diff* as VS Code's diff view of the text before the task against
 the live buffer (in a tab of its own), and a violet sparkle in the gutter on each file's first
 line a finished task changed. The keys, the same letters as Neovim's:
 
 | keys | does |
 |---|---|
-| `ctrl+m a` | `apprentice: do this` on the line, whatever its price |
+| `ctrl+m a` | `apprentice: do this` on the line, whatever its price (or *do this anyway*) |
+| `ctrl+m o` | `apprentice: Open the answer`: a long answer, beside your code |
 | `ctrl+m q` | `apprentice: Stop this task` |
 | `ctrl+m d` | `apprentice: Show diff` |
 | `ctrl+m z` | `apprentice: Undo this task` |

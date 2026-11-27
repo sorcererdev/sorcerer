@@ -8,6 +8,7 @@ pub mod journal;
 pub mod permission_store;
 pub mod project_context;
 pub mod region_store;
+pub mod reply_watch;
 pub mod session_changes;
 pub mod syntax;
 pub mod task_store;

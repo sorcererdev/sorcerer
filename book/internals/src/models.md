@@ -54,7 +54,11 @@ helpers named for what they take out (`text_of`, `tool_calls_of`, `stop_reason`)
 tools (`--tools ""`), no session saved, no settings files, and the child gets
 `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and no `CLAUDECODE` (so a run started from inside Claude
 Code is not refused as nested). The reply's `result` is the text, `total_cost_usd` the cost
-and `duration_ms` the time; `is_error` is an error with the result's text.
+and `duration_ms` the time; `is_error` is an `Error::Spent` carrying what the call cost
+(`total_cost_usd`) and a message that is never empty (`error_reply_text`: the result, else the
+reply's `errors`, else its `subtype`). A call stopped at its `--max-budget-usd` prints no result,
+only `"errors": ["Reached maximum budget ($0.25)"]` and `"subtype": "error_max_budget_usd"`
+(measured 2026-11-27); before this the message was the empty `claude: `.
 
 `ClaudeRun` (the runner, its arguments, folder, prompt, timeout and extra environment) is
 shared with the claude researcher. `ClaudeRun::run` reads as its steps: `start` the child
@@ -92,7 +96,8 @@ grep, glob) under fences and answer with citations. Scry's review call and the c
 both need one. `Researcher::research(Research, &Cancel) -> Researched` takes the product
 and verb (for the ledger), the prompt, a model alias, the tools allowed, a spend cap and a
 timeout. Every implementation appends its errand to the ledger, success or failure; a
-timeout is charged its cap.
+timeout is charged its cap, and a call the provider stopped after spending (`Error::Spent`) what
+it spent.
 
 There are two ways to get one:
 

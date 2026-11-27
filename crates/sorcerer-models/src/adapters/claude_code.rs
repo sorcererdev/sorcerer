@@ -171,6 +171,11 @@ fn errand(r: &Research, result: &Result<ClaudeReply>) -> Errand {
             note: Some(e.to_string()),
             ..failed
         },
+        Err(e @ Error::Spent { cost_usd, .. }) => Errand {
+            cost_usd: *cost_usd,
+            note: Some(e.to_string()),
+            ..failed
+        },
         Err(e) => Errand {
             note: Some(e.to_string()),
             ..failed
