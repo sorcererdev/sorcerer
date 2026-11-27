@@ -14,6 +14,7 @@ mod holes;
 mod list;
 mod lsp;
 mod new;
+mod rules;
 mod run_cli;
 mod show;
 mod sync;

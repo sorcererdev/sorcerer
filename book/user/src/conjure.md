@@ -173,7 +173,7 @@ conjure src/cart.py:12-20         # the change is about these lines
 conjure src/cart.py:12 --finding 3fa9c0   # for a scry finding (see `scry list`)
 conjure src/cart.py:12 --try-harder       # the stronger model, which may read the project first
 conjure doctor                    # whether conjure can run here
-conjure cost [--since DAY] [--json]   # what conjure spent, a local day a row
+conjure cost [--since DAY] [--json]   # what conjure spent, a local day a row: changes, try harder, retries, cost
 conjure log [N]                   # the last N changes the editor recorded (10 by default)
 conjure trust                     # let the editor conjure in this project (--revoke: no longer)
 conjure lsp                       # the editor's language server, over standard input and output
@@ -253,6 +253,12 @@ with `spellbook check --texts - --json`: the new texts are checked as the files 
 and nothing is written. Only an `error` the change adds counts; a finding the code already had, a
 `warn` and a `hint` do not.
 
+The writer is told the rules before it writes. Conjure asks `spellbook rules FILE --json` for the
+rules that look at the file you are in (one more, quick, call to spellbook for each change), and
+the situation ends with them: each rule's id, severity, message and why, and the instruction to
+add what the code lacks (a method on a port, an adapter) rather than break one. Most answers then
+keep the rules the first time. The check after the answer stays, as the guarantee.
+
 An answer that breaks a rule is not used. Conjure asks the writer once more, with the situation
 and, after it, each broken rule, its line of code and its message, and the instruction to add
 what the code lacks (a method on a port, an adapter) where it belongs, or to change nothing and
@@ -260,8 +266,9 @@ say what is missing. The command line then prints `asked again: the first answer
 commands-use-ports (src/booking/commands/seat_walk_in.rs:36)`. When the second answer breaks a
 rule too, nothing lands: `conjure: no change · held back: it breaks commands-use-ports at
 seat_walk_in.rs:36 (Commands and queries talk to ports, not the file system (ports & adapters)),
-asked twice`. Asking again is a second call: its cost is added to the change's, and it is not
-made when the first call spent the day's budget (the change is held back instead).
+asked twice`. Asking again is a second call: its cost is added to the change's, the ledger
+records it as a `conjure-retry` (so `conjure cost` shows it in its own `retries` column and does
+not count it as a second change), and it is not made when the first call spent the day's budget (the change is held back instead).
 
 Without spellbook, or without rules, changes are not checked, and `conjure doctor`'s
 `spellbook rules` row says so (`not checked: spellbook is not installed`). It is never a

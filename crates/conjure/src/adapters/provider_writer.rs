@@ -53,15 +53,12 @@ impl Writer for ProviderWriter {
     /// Asks the model once with the situation as the only message, and records the call in the
     /// ledger as a `conjure` errand before returning, a failed call too.
     fn write(&self, situation: &str, cancel: &Cancel) -> sorcerer_models::Result<Written> {
-        let started = Instant::now();
-        let asked = self.ask(situation, cancel);
-        let seconds = started.elapsed().as_secs_f64();
-        let errand = self.errand_of(&asked, seconds);
-        self.ledger.append(&errand)?;
-        asked.map(|reply| Written {
-            text: reply.text,
-            errand,
-        })
+        self.write_as("conjure", situation, cancel)
+    }
+
+    /// The same call, recorded as a `conjure-retry` errand.
+    fn write_retry(&self, situation: &str, cancel: &Cancel) -> sorcerer_models::Result<Written> {
+        self.write_as("conjure-retry", situation, cancel)
     }
 
     fn model(&self) -> &str {
@@ -70,6 +67,23 @@ impl Writer for ProviderWriter {
 }
 
 impl ProviderWriter {
+    fn write_as(
+        &self,
+        verb: &str,
+        situation: &str,
+        cancel: &Cancel,
+    ) -> sorcerer_models::Result<Written> {
+        let started = Instant::now();
+        let asked = self.ask(situation, cancel);
+        let seconds = started.elapsed().as_secs_f64();
+        let errand = self.errand_of(verb, &asked, seconds);
+        self.ledger.append(&errand)?;
+        asked.map(|reply| Written {
+            text: reply.text,
+            errand,
+        })
+    }
+
     fn ask(&self, situation: &str, cancel: &Cancel) -> sorcerer_models::Result<Reply> {
         let completion = Completion {
             model: self.provider.resolve(&self.model)?,
@@ -82,7 +96,12 @@ impl ProviderWriter {
         self.provider.complete(completion, cancel)
     }
 
-    fn errand_of(&self, asked: &sorcerer_models::Result<Reply>, seconds: f64) -> Errand {
+    fn errand_of(
+        &self,
+        verb: &str,
+        asked: &sorcerer_models::Result<Reply>,
+        seconds: f64,
+    ) -> Errand {
         let (cost_usd, usage) = match asked {
             Ok(reply) => (reply.cost_usd, reply.usage),
             Err(e) if was_sent(e) => (Some(FAILED_CALL_ESTIMATE_USD), Default::default()),
@@ -91,7 +110,7 @@ impl ProviderWriter {
         Errand {
             at: self.clock.now(),
             product: PRODUCT.into(),
-            verb: "conjure".into(),
+            verb: verb.into(),
             model: self.model.clone(),
             provider: self.provider.name().to_string(),
             cost_usd,

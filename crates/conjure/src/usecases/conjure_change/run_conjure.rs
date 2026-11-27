@@ -37,7 +37,7 @@ pub fn conjure_change(
         Some(kept) => kept.clone(),
         None => situation::situation_for(&site, request, deps)?,
     };
-    let first = written_and_checked(&site, situation, deps)?;
+    let first = written_and_checked(&site, situation, Call::First, deps)?;
     let last = within_the_rules(&site, first, request.attempt, deps)?;
     Ok(ConjuredChange {
         id: change_id(deps.clock.now(), &request.file, request.line),
@@ -67,18 +67,29 @@ struct Answer {
     errand: Errand,
 }
 
+/// Which call of a change this is, for the ledger.
+#[derive(Clone, Copy)]
+enum Call {
+    First,
+    /// The call after a rules check broke the first answer.
+    Retry,
+}
+
 /// Asks the writer once on the situation and checks what it wrote.
 fn written_and_checked(
     site: &Site,
     situation: String,
+    call: Call,
     deps: &ChangeDeps,
 ) -> Result<Answer, ChangeRefused> {
-    let written = write::write_once(deps.writer, &situation, deps.cancel).map_err(|why| {
-        ChangeRefused::NotAnswered {
-            why,
-            unit: site.unit.name.clone(),
-            facts: site.facts.clone(),
-        }
+    let asked = match call {
+        Call::First => write::write_once(deps.writer, &situation, deps.cancel),
+        Call::Retry => write::write_retry(deps.writer, &situation, deps.cancel),
+    };
+    let written = asked.map_err(|why| ChangeRefused::NotAnswered {
+        why,
+        unit: site.unit.name.clone(),
+        facts: site.facts.clone(),
     })?;
     let reply = read_reply(&written.text);
     let (files, dropped) = check::checked_files(&reply, deps)?;
@@ -119,7 +130,7 @@ fn within_the_rules(
             line
         ))
     );
-    let second = written_and_checked(site, situation, deps)?;
+    let second = written_and_checked(site, situation, Call::Retry, deps)?;
     let errand = both_calls(&first.errand, &second.errand);
     let second = Answer { errand, ..second };
     if second.broken.is_empty() {

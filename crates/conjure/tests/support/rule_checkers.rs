@@ -3,7 +3,9 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use conjure::domain::spellbook_findings::{RuleFinding, RulesRead};
+use std::path::Path;
+
+use conjure::domain::spellbook_findings::{RuleFinding, RuleNote, RulesRead};
 use conjure::ports::rule_checker::RuleChecker;
 use sorcerer_core::domain::paths::forward_slashes;
 
@@ -27,6 +29,8 @@ pub struct ForbiddenWord {
     pub rule: String,
     pub severity: String,
     pub asked: Mutex<Vec<Vec<(PathBuf, String)>>>,
+    /// What `rules_for` answers: the rules said to apply to every file.
+    pub notes: Vec<RuleNote>,
 }
 
 impl ForbiddenWord {
@@ -36,7 +40,19 @@ impl ForbiddenWord {
             rule: rule.into(),
             severity: "error".into(),
             asked: Mutex::new(Vec::new()),
+            notes: Vec::new(),
         }
+    }
+
+    /// The same rule, also told to the writer up front.
+    pub fn told_up_front(mut self, message: &str, why: &str) -> ForbiddenWord {
+        self.notes.push(RuleNote {
+            id: self.rule.clone(),
+            severity: self.severity.clone(),
+            message: message.into(),
+            why: Some(why.into()),
+        });
+        self
     }
 
     pub fn times_asked(&self) -> usize {
@@ -65,6 +81,10 @@ impl RuleChecker for ForbiddenWord {
             })
             .collect();
         RulesRead::Checked(findings)
+    }
+
+    fn rules_for(&self, _: &Path) -> Vec<RuleNote> {
+        self.notes.clone()
     }
 
     fn describe(&self) -> String {

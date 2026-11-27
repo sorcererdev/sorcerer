@@ -87,6 +87,14 @@ pub(super) enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// The rules that look at a file: what the project's conventions ask of it
+    Rules {
+        /// The file (a path inside the project)
+        file: PathBuf,
+        /// Print the rules as JSON (for an agent or a script)
+        #[arg(long)]
+        json: bool,
+    },
     /// Refresh the owned regions (the lists spellbook keeps between their markers) from the
     /// files on disk
     Sync {

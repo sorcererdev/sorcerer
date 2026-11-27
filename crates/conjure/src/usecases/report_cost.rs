@@ -15,6 +15,8 @@ pub struct DayCost {
     pub changes: usize,
     /// Second attempts (the `try-harder` errands).
     pub try_harders: usize,
+    /// Calls made again after a rules check broke the first answer (the `conjure-retry` errands).
+    pub retries: usize,
     /// Every conjure errand of the day, in dollars.
     pub total_cost: f64,
 }
@@ -28,7 +30,8 @@ pub struct CostReport {
 /// `since` day on when given, oldest first. A call whose cost was not recorded counts $0.
 ///
 /// Example: two first attempts at $0.001 and one Try harder at $0.02 on one day are a row:
-/// 2 changes, 1 try harder, $0.022.
+/// 2 changes, 1 try harder, $0.022; a call made again after a rules check is a retry, not a
+/// change.
 pub fn report_cost(
     ledger: &dyn Ledger,
     offset: FixedOffset,
@@ -45,11 +48,13 @@ pub fn report_cost(
             day,
             changes: 0,
             try_harders: 0,
+            retries: 0,
             total_cost: 0.0,
         });
         match errand.verb.as_str() {
             "conjure" => row.changes += 1,
             "try-harder" => row.try_harders += 1,
+            "conjure-retry" => row.retries += 1,
             _ => {}
         }
         row.total_cost += errand.cost_usd.unwrap_or(0.0);

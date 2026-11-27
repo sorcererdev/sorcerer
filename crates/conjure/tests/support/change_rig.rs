@@ -23,6 +23,8 @@ use tempfile::TempDir;
 pub struct StubWriter {
     pub reply: String,
     pub seen: Mutex<Vec<String>>,
+    /// The ledger verb of each call: `conjure`, or `conjure-retry` for the call after a check.
+    pub verbs: Mutex<Vec<&'static str>>,
 }
 
 impl StubWriter {
@@ -30,7 +32,25 @@ impl StubWriter {
         StubWriter {
             reply: reply.into(),
             seen: Mutex::new(Vec::new()),
+            verbs: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn verbs(&self) -> Vec<&'static str> {
+        self.verbs.lock().unwrap().clone()
+    }
+
+    fn answer(&self, verb: &'static str, situation: &str) -> sorcerer_models::Result<Written> {
+        let mut seen = self.seen.lock().unwrap();
+        seen.push(situation.into());
+        self.verbs.lock().unwrap().push(verb);
+        // replies separated by a line `---next---` are answered in turn, the last one again
+        let replies: Vec<&str> = self.reply.split("---next---\n").collect();
+        let text = replies[(seen.len() - 1).min(replies.len() - 1)];
+        Ok(Written {
+            text: text.to_string(),
+            errand: errand(verb, "haiku", 0.001),
+        })
     }
 
     pub fn situations(&self) -> Vec<String> {
@@ -40,15 +60,11 @@ impl StubWriter {
 
 impl Writer for StubWriter {
     fn write(&self, situation: &str, _: &Cancel) -> sorcerer_models::Result<Written> {
-        let mut seen = self.seen.lock().unwrap();
-        seen.push(situation.into());
-        // replies separated by a line `---next---` are answered in turn, the last one again
-        let replies: Vec<&str> = self.reply.split("---next---\n").collect();
-        let text = replies[(seen.len() - 1).min(replies.len() - 1)];
-        Ok(Written {
-            text: text.to_string(),
-            errand: errand("conjure", "haiku", 0.001),
-        })
+        self.answer("conjure", situation)
+    }
+
+    fn write_retry(&self, situation: &str, _: &Cancel) -> sorcerer_models::Result<Written> {
+        self.answer("conjure-retry", situation)
     }
 
     fn model(&self) -> &str {

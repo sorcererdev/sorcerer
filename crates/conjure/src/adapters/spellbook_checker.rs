@@ -11,7 +11,9 @@ use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::ports::env::Env;
 
-use crate::domain::spellbook_findings::{RuleFinding, RulesRead, findings_of_check_json};
+use crate::domain::spellbook_findings::{
+    RuleFinding, RuleNote, RulesRead, findings_of_check_json, rules_of_rules_json,
+};
 use crate::ports::rule_checker::RuleChecker;
 
 /// The file that holds a project's checked rules; without it there is nothing to check.
@@ -54,6 +56,13 @@ impl RuleChecker for SpellbookChecker {
                 Err(why) => RulesRead::NotChecked(why),
             },
         }
+    }
+
+    fn rules_for(&self, file: &Path) -> Vec<RuleNote> {
+        let Ok(program) = &self.program else {
+            return Vec::new();
+        };
+        run_rules(program, &self.root, file).unwrap_or_default()
     }
 
     fn describe(&self) -> String {
@@ -105,6 +114,21 @@ fn run_check(
     let _ = writing.join();
     match output.status.code() {
         Some(0 | 1) => findings_of_check_json(&String::from_utf8_lossy(&output.stdout)),
+        _ => Err(first_line(&String::from_utf8_lossy(&output.stderr))),
+    }
+}
+
+/// Runs `spellbook rules FILE --json`; exit 0 answers, anything else is spellbook's sentence.
+fn run_rules(program: &Path, root: &Path, file: &Path) -> Result<Vec<RuleNote>, String> {
+    let output = Command::new(program)
+        .args(["rules", "--json"])
+        .arg(forward_slashes(file))
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("spellbook did not start: {e}"))?;
+    match output.status.code() {
+        Some(0) => rules_of_rules_json(&String::from_utf8_lossy(&output.stdout)),
         _ => Err(first_line(&String::from_utf8_lossy(&output.stderr))),
     }
 }

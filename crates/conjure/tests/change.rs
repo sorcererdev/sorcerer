@@ -1243,3 +1243,41 @@ fn a_change_carries_its_units_lines() {
     let change = conjure_change(&ask("src/shop/cart.py", 3), &rig.deps()).unwrap();
     assert_eq!(change.unit_lines, Span { start: 2, end: 3 });
 }
+
+#[test]
+fn a_retry_is_recorded_under_its_own_verb() {
+    let d = tempfile::tempdir().unwrap();
+    let ledger = Arc::new(JsonlLedger::at(d.path().join("ledger.jsonl")));
+    let writer = ProviderWriter {
+        provider: Arc::new(ScriptedProvider::new(vec![
+            reply("<goal>a</goal>", Some(0.001)),
+            reply("<goal>b</goal>", Some(0.002)),
+        ])),
+        model: "haiku".into(),
+        ledger: ledger.clone(),
+        clock: clock(),
+    };
+    writer.write("s", &Cancel::default()).unwrap();
+    writer.write_retry("s", &Cancel::default()).unwrap();
+    let verbs: Vec<String> = ledger
+        .read()
+        .unwrap()
+        .errands
+        .iter()
+        .map(|row| row.verb.clone())
+        .collect();
+    assert_eq!(verbs, ["conjure", "conjure-retry"]);
+}
+
+#[test]
+fn the_research_writer_records_a_retry_as_a_retry() {
+    let spy = Arc::new(SpyResearcher {
+        asked: Mutex::new(vec![]),
+    });
+    let writer = ResearchWriter {
+        researcher: spy.clone(),
+        model: "sonnet".into(),
+    };
+    writer.write_retry("s", &Cancel::default()).unwrap();
+    assert_eq!(spy.asked.lock().unwrap()[0].verb, "conjure-retry");
+}
