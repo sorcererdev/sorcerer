@@ -8,7 +8,9 @@
 use std::path::Path;
 
 use sorcerer_core::Result;
-use sorcerer_core::domain::captures::{ARGUMENTS, COMMENT, Captures, DOCSTRING, PARAMETERS};
+use sorcerer_core::domain::captures::{
+    ARGUMENTS, COMMENT, Captures, DOCSTRING, PARAMETERS, PREAMBLE,
+};
 use sorcerer_core::domain::language::Loaded;
 use tree_sitter::{Node, Tree};
 
@@ -191,14 +193,16 @@ impl<'a> Parsed<'a> {
         self.captures.is("function.outer", node) || self.captures.is("class.outer", node)
     }
 
-    /// The row after the file's leading comments and its docstring (`@comment.outer`,
-    /// `@docstring`), or 0.
+    /// The row after the file's leading comments, its docstring and its package or namespace
+    /// line (`@comment.outer`, `@docstring`, `@preamble`), or 0.
     fn row_after_the_preamble(&self) -> usize {
         let root = self.tree.root_node();
         let mut cursor = root.walk();
         root.named_children(&mut cursor)
             .take_while(|node| {
-                self.captures.is(COMMENT, *node) || self.captures.is(DOCSTRING, *node)
+                [COMMENT, DOCSTRING, PREAMBLE]
+                    .iter()
+                    .any(|capture| self.captures.is(capture, *node))
             })
             .last()
             .map_or(0, row_after)

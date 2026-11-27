@@ -347,3 +347,33 @@ fn rust_calls_include_a_path_call_and_a_struct_literal() {
         in_line(12, 27, ", ")
     );
 }
+
+#[test]
+fn a_preamble_line_comes_before_the_first_import_too() {
+    // `@preamble` marks a file's heading line (a package or namespace line); here a Rust inner
+    // attribute stands in for one, through a project query file
+    let text = "//! The module.\n#![allow(dead_code)]\n\npub struct A;\n";
+    let resolve_with = |preamble: Option<&str>| {
+        let dir = bistro_project();
+        if let Some(query) = preamble {
+            write_file(
+                dir.path(),
+                ".sorcerer/languages/rust/queries/preamble.scm",
+                query,
+            );
+        }
+        let wired = wired_at(dir.path());
+        QueryAnchors::new(&wired.grammars)
+            .resolve(
+                Path::new("src/booking/a.rs"),
+                text,
+                &Anchor::parse("end of imports").unwrap(),
+            )
+            .unwrap()
+    };
+    assert_eq!(resolve_with(None), lines(1, "", ""));
+    assert_eq!(
+        resolve_with(Some("(inner_attribute_item) @preamble\n")),
+        lines(2, "", "")
+    );
+}
