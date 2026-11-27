@@ -195,14 +195,17 @@ fn run_hook(hooks: &Value, event: &str, input: Value) -> String {
         .unwrap_or_default()
 }
 
-/// A command line's words: a double-quoted word may hold spaces.
+/// A command line's words, split as a POSIX shell does for what `helper_command` writes:
+/// single quotes hold anything, and a backslash outside them keeps the next character.
 fn words_of(command: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut word = String::new();
     let mut quoted = false;
-    for c in command.chars() {
+    let mut chars = command.chars();
+    while let Some(c) = chars.next() {
         match c {
-            '"' => quoted = !quoted,
+            '\'' => quoted = !quoted,
+            '\\' if !quoted => word.extend(chars.next()),
             ' ' if !quoted => {
                 if !word.is_empty() {
                     words.push(std::mem::take(&mut word));
