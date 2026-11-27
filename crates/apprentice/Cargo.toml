@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 # Not on crates.io and not in a release until the subscription question is asked (ruling Q1,
 # 2026-11-26).
 publish = false

@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-readme = "../../README.md"
+readme = "README.md"
 keywords = ["code-generation", "conventions", "lsp", "tree-sitter", "editor"]
 categories = ["development-tools", "command-line-utilities"]
 
