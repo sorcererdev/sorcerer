@@ -486,10 +486,14 @@ fn the_journal_says_a_command_waits_then_the_answer_not_that_it_runs() {
         !progress.iter().any(|line| line.contains("running")),
         "{progress:?}"
     );
+    // The stream's call and the permission question travel on two threads, so either may reach
+    // the status line first: the call first says `waiting until allowed`, the question first
+    // says `waiting for you`. Both say the command waits, which is what is owed.
     assert!(
-        progress
-            .iter()
-            .any(|line| line.contains("waiting until allowed: ls, cat")),
+        progress.iter().any(|line| {
+            line.contains("waiting until allowed: ls, cat")
+                || line.contains("waiting for you: ls, cat")
+        }),
         "{progress:?}"
     );
 }
