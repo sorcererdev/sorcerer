@@ -39,6 +39,8 @@ pub enum TaskRefused {
     },
     /// The agent could not be started (no `claude`, a ledger that cannot be read).
     NotStarted(String),
+    /// The instruction is in a file the fences keep from every model (`.env`).
+    Fenced(String),
 }
 
 impl TaskRefused {
@@ -50,16 +52,18 @@ impl TaskRefused {
                 usd(*cap)
             ),
             TaskRefused::NotStarted(why) => format!("apprentice: the task did not start: {why}"),
+            TaskRefused::Fenced(file) => format!("apprentice: {file} is fenced; no task starts in it"),
         }
     }
 }
 
 /// Starts a task.
 ///
-/// 1. Refuses when the day's budget is spent.
+/// 1. Refuses when the day's budget is spent, or the instruction is in a fenced file.
 /// 2. Records it `running` and journals the instruction.
 /// 3. Builds its first message: the instruction, where it was written, the unit around it,
-///    scry's open findings near it, the project's rules, the editor's unsaved edits.
+///    scry's open findings near it, the project's rules, the editor's unsaved edits (a fenced
+///    file's are left out).
 /// 4. Starts the agent, whose helper processes come back through `way_back`; a failure to start
 ///    is recorded `failed`.
 pub fn start_task(
@@ -68,6 +72,9 @@ pub fn start_task(
     deps: &TaskDeps,
 ) -> Result<StartedTask, TaskRefused> {
     refuse_a_spent_day(deps)?;
+    if !deps.fences.allows(&deps.root.join(&order.file)) {
+        return Err(TaskRefused::Fenced(order.file.clone()));
+    }
     let now = deps.clock.now();
     let record = TaskRecord::started(
         &task_id(now, &order.instruction),
@@ -131,6 +138,15 @@ fn place_of(order: &TaskOrder, deps: &TaskDeps) -> TaskPlace {
         unit: deps.context.unit_at(file, &order.text, order.line),
         notes: deps.context.notes_near(file, &order.text, order.line),
         rules: deps.context.rules(),
-        unsaved: unsaved_edits_text(&order.unsaved),
+        unsaved: unsaved_edits_text(&sendable(&order.unsaved, deps)),
     }
+}
+
+/// The unsaved edits a model may be sent: none in a fenced file.
+fn sendable(unsaved: &[FileEdit], deps: &TaskDeps) -> Vec<FileEdit> {
+    unsaved
+        .iter()
+        .filter(|edit| deps.fences.allows(&deps.root.join(&edit.path)))
+        .cloned()
+        .collect()
 }

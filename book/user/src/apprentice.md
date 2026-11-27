@@ -110,6 +110,9 @@ reading and searching your files, running commands. What it may not do:
   them, and so do the commands Claude Code reads paths from, such as `cat .env`. Any command
   that names a fenced path (`git show HEAD:.env`, `ls .git`) is refused before you are asked,
   even one you allowed always. Nothing outside the project can be read with the file tools.
+  apprentice itself never hands it a fenced file either: what you type in an open `.env`, a
+  `not_evidence` file or a task's journal is left out of the edits it is fed and of its first
+  message, a fenced file is never triaged, and an instruction written in one does not start.
 - **Run a command without asking you.** Every command is asked about, even the ones Claude Code
   counts as read-only and runs unasked elsewhere (`cat`, `grep`, `git log`): the first time it
   wants to run `uv run pytest -q`, you are asked: *Allow once*, *Always for this project (uv run

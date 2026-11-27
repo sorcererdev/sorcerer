@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use lsp_types::MessageType;
 use serde_json::json;
+use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_lsp::landing::{
     FileChange, NewFiles, OpenDocument, Snapshot, moved_on, workspace_edit,
@@ -269,16 +270,8 @@ impl Server {
     /// The person's edits in open files since the task last looked; the look moves to now. A
     /// file the task has no look at yet (opened since it started) starts its look now.
     pub(super) fn edits_since_task_looked(&self, task: &str) -> Vec<FileEdit> {
-        let open: Vec<(PathBuf, String)> = self
-            .client
-            .open_paths()
-            .into_iter()
-            .filter_map(|path| {
-                let relative = path.strip_prefix(&self.root).ok()?.to_path_buf();
-                let (_, text) = self.client.text_of(&path)?;
-                Some((relative, text))
-            })
-            .collect();
+        let mut open: Vec<(PathBuf, String)> = self.open_texts().into_iter().collect();
+        open.sort();
         let mut looks = lock(&self.task_looks);
         let looked = looks.entry(task.to_string()).or_default();
         open.into_iter()
@@ -295,11 +288,20 @@ impl Server {
             .collect()
     }
 
-    /// Every open file of the project and its text: a task's first look.
+    /// Every open file of the project a model may be sent, and its text: a task's first look,
+    /// and what its edits are found in. A fenced file, sorcerer's state (the journal) and git's
+    /// are left out (see [`Server::may_send`]); when the fences cannot be opened, every file is.
     pub(super) fn open_texts(&self) -> HashMap<PathBuf, String> {
+        let Some(fences) = self
+            .project()
+            .and_then(|project| Fences::for_project(&project).ok())
+        else {
+            return HashMap::new();
+        };
         self.client
             .open_paths()
             .into_iter()
+            .filter(|path| self.may_send_under(path, &fences))
             .filter_map(|path| {
                 let relative = path.strip_prefix(&self.root).ok()?.to_path_buf();
                 let (_, text) = self.client.text_of(&path)?;

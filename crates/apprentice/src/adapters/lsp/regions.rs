@@ -48,11 +48,15 @@ impl Server {
         apprentice_config(project).unwrap_or_default()
     }
 
-    /// Triage of one change, through the use case.
+    /// Triage of one change, through the use case; a fenced file is never triaged (its text
+    /// would reach Jev).
     pub(super) fn triage(&self, path: &Path, before: &str, after: &str, cancel: &Cancel) {
         let (Some(project), Some(file)) = (self.trusted_project(), self.relative(path)) else {
             return;
         };
+        if !self.may_send(path) {
+            return;
+        }
         let (Some(regions), Ok(ledger)) = (
             self.region_store(&project),
             JsonlLedger::for_project(&project),
@@ -75,11 +79,15 @@ impl Server {
         triage_change(&look, &deps, cancel);
     }
 
-    /// The saved file's questions answered and claims checked, then its marks published.
+    /// The saved file's questions answered and claims checked, then its marks published; a
+    /// fenced file has none.
     pub(super) fn answer_on_save(&self, path: &Path) {
         let (Some(project), Some(file)) = (self.trusted_project(), self.relative(path)) else {
             return;
         };
+        if !self.may_send(path) {
+            return;
+        }
         let (Some(regions), Ok(ledger), Ok(fences)) = (
             self.region_store(&project),
             JsonlLedger::for_project(&project),

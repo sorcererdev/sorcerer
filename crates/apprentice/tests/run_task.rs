@@ -624,3 +624,34 @@ fn the_first_message_says_the_task_and_where() {
     );
     assert!(request.system.contains("write_file"));
 }
+
+#[test]
+fn a_task_in_a_fenced_file_is_refused_and_fenced_unsaved_edits_are_left_out() {
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING), (".env", "KEY=\n")]);
+    let editor = Arc::new(RecordingEditor::at(&project.root));
+    let agent = Arc::new(ScriptedAgent::playing(vec![Step::Finish(0.0)]));
+    let runner = TaskRunner::open(project.deps(editor, agent.clone())).unwrap();
+    let in_env = TaskOrder {
+        file: ".env".into(),
+        text: "KEY=sk_live_1\n".into(),
+        ..order()
+    };
+    let Err(refused) = runner.run(&in_env) else {
+        panic!("ran")
+    };
+    assert_eq!(
+        refused.text(),
+        "apprentice: .env is fenced; no task starts in it"
+    );
+    let with_unsaved = TaskOrder {
+        unsaved: vec![apprentice::domain::edits_text::FileEdit {
+            path: ".env".into(),
+            before: "KEY=\n".into(),
+            after: "KEY=sk_live_2\n".into(),
+        }],
+        ..order()
+    };
+    runner.run(&with_unsaved).unwrap();
+    let prompt = agent.requests.lock().unwrap()[0].prompt.clone();
+    assert!(!prompt.contains("sk_live"), "{prompt}");
+}

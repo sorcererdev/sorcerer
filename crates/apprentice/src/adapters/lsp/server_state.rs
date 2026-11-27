@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 use sorcerer_core::domain::trust::needs_trust;
@@ -107,6 +108,24 @@ impl Server {
         let relative = path.strip_prefix(&self.root).ok()?;
         let text = forward_slashes(relative);
         (!text.starts_with(".sorcerer/") && !text.starts_with(".git/")).then_some(text)
+    }
+
+    /// Whether a file's text may be read for a model (the agent, Jev, the researcher): inside
+    /// the project, not sorcerer's or git's own, and not fenced. The fences are opened afresh,
+    /// so a `not_evidence` entry added since holds at once; when the project does not open,
+    /// nothing may be.
+    ///
+    /// Example: `.env`, `docs/plans/launch.md` under `not_evidence = ["docs/plans"]` and a
+    /// task's journal open in a buffer are never fed to the agent, typed into or not.
+    pub fn may_send(&self, path: &Path) -> bool {
+        self.project()
+            .and_then(|project| Fences::for_project(&project).ok())
+            .is_some_and(|fences| self.may_send_under(path, &fences))
+    }
+
+    /// [`Server::may_send`] under fences already opened.
+    pub fn may_send_under(&self, path: &Path, fences: &Fences) -> bool {
+        self.relative(path).is_some() && fences.allows(path)
     }
 
     /// The editor's path of a file relative to the root.

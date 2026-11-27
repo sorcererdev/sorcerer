@@ -423,3 +423,65 @@ fn the_agents_final_text_and_a_ghost_reach_the_editor() {
     s.shown_message("apprentice: done");
     s.stop();
 }
+
+#[test]
+fn a_fenced_file_open_in_the_editor_never_reaches_the_agent() {
+    const JOURNAL: &str = ".sorcerer/state/apprentice/tasks/t0/journal.md";
+    let project = TempProject::with(&[
+        (FILE, BEFORE),
+        (".env", "STRIPE_KEY=\n"),
+        ("docs/plans/launch.md", "# Launch\n"),
+        (JOURNAL, "# an old task\n"),
+        (
+            ".sorcerer/config.toml",
+            "[model]\nnot_evidence = [\"docs/plans\"]\n",
+        ),
+    ]);
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool(
+            "ask",
+            json!({ "question": "Which?", "options": ["this one", "that one"], "file": FILE, "line": 2 }),
+        ),
+        Step::Hook,
+        Step::Finish(0.1),
+    ]));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: agent.clone(),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    for file in [FILE, ".env", "docs/plans/launch.md", JOURNAL] {
+        s.open(file);
+    }
+    s.settle(Duration::from_millis(100));
+    // unsaved before the task: these would be in the first message
+    s.type_text(".env", "STRIPE_KEY=sk_live_before\n");
+    s.type_text("docs/plans/launch.md", "# Launch\nsecret plan before\n");
+    s.type_text(JOURNAL, "# an old task\njournal line before\n");
+    s.type_text(FILE, &with_claim());
+    s.marks_until(FILE, |marks| !marks.is_empty());
+    s.run_action(FILE, 5, "apprentice: do this");
+
+    // during the task, after its first look: these would be in the hook's diff
+    s.shown_message("apprentice asks:");
+    s.type_text(".env", "STRIPE_KEY=sk_live_during\n");
+    s.type_text("docs/plans/launch.md", "# Launch\nsecret plan during\n");
+    s.type_text(JOURNAL, "# an old task\njournal line during\n");
+    s.type_text(FILE, &format!("{}# the person's edit\n", with_claim()));
+    s.settle(Duration::from_millis(100));
+    s.run_action(FILE, 2, "apprentice: this one");
+    s.shown_message("apprentice: done");
+
+    let prompt = agent.requests.lock().unwrap()[0].prompt.clone();
+    let hook = agent.replies()[1].text.clone();
+    assert!(hook.contains("the person's edit"), "{hook}");
+    for said in [&prompt, &hook] {
+        for secret in ["sk_live", "secret plan", "journal line"] {
+            assert!(!said.contains(secret), "{secret} in {said}");
+        }
+    }
+    s.stop();
+}

@@ -109,8 +109,9 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    against `budget_per_day`); the record, `running`, appended to `tasks.jsonl`; the
    instruction journaled; the first message (`task_prompt`: the instruction, where it was
    written, the unit around it from `ProjectContext::unit_at`, scry's open findings near it, the
-   rules, the editor's unsaved edits); `Agent::start` with the way back. A start that fails is
-   recorded `failed` and said (`TaskRefused::NotStarted`).
+   rules, the editor's unsaved edits, less a fenced file's: `sendable`); `Agent::start` with the
+   way back. An instruction in a fenced file is refused (`TaskRefused::Fenced`). A start that
+   fails is recorded `failed` and said (`TaskRefused::NotStarted`).
 2. **Follow** (`follow.rs`, `follow_task`), on the calling thread: every 200 ms it checks the
    task's `Cancel` (a stop) and takes the next event. A session id is recorded; a tool call
    becomes the status line (`activity_of`, `status_text`, `Editor::progress`) and a journal
@@ -248,7 +249,11 @@ four labels), the pending questions' options (`ask_actions`), a marked task's *S
 place now, the open files' unsaved edits) and `start_task` refuses a second task, builds a
 `TaskRunner` over `task_deps` with an `LspEditor` (`editor_port.rs`, holding the server weakly),
 starts it, gives it its first look (every open file's text now, `open_texts`) and follows it on a
-thread. `LspEditor`:
+thread. `open_texts` keeps only the files `Server::may_send_under` passes (inside the project,
+not `.sorcerer/` or `.git/`, allowed by the project's `Fences`, opened afresh; none when they do
+not open), so neither the first look, the unsaved edits nor the hook's diffs carry a fenced
+buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fenced file
+(`Server::may_send`). `LspEditor`:
 
 - `write_file` → `write_for_task`: refused when the editor cannot apply edits (or create a
   file); `MovedOn` when the file is not what the task last looked at
