@@ -41,6 +41,27 @@ fn doing_of(name: &str, input: &Value, root: &Path) -> String {
     }
 }
 
+/// Where a command stands with the person: asked and not answered yet, allowed, or denied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandVerdict {
+    Waiting,
+    Allowed,
+    Denied,
+}
+
+/// What a command is doing once the person was asked about it, by its first word:
+/// `waiting for you: ls`, `running ls`, `denied: ls`.
+///
+/// Example: `command_activity("ls -a && cat CLAUDE.md", CommandVerdict::Denied)` is `denied: ls`.
+pub fn command_activity(command: &str, verdict: CommandVerdict) -> String {
+    let program = first_word(command);
+    match verdict {
+        CommandVerdict::Waiting => format!("waiting for you: {program}"),
+        CommandVerdict::Allowed => format!("running {program}"),
+        CommandVerdict::Denied => format!("denied: {program}"),
+    }
+}
+
 fn first_word(command: &str) -> String {
     command
         .split_whitespace()
@@ -105,6 +126,23 @@ mod tests {
                 root
             ),
             "subagent: reading routes.md"
+        );
+    }
+
+    #[test]
+    fn a_command_asked_about_says_where_it_stands() {
+        let command = "ls -a && cat CLAUDE.md";
+        assert_eq!(
+            command_activity(command, CommandVerdict::Waiting),
+            "waiting for you: ls"
+        );
+        assert_eq!(
+            command_activity(command, CommandVerdict::Allowed),
+            "running ls"
+        );
+        assert_eq!(
+            command_activity(command, CommandVerdict::Denied),
+            "denied: ls"
         );
     }
 

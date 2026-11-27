@@ -157,8 +157,9 @@ impl Server {
         let edit = undo_edit(plan.undoings.iter().map(Undo::undoing).collect());
         let server = Arc::clone(self);
         let id = id.to_string();
+        let state_dir = self.state_dir();
         self.client
-            .apply_edit("conjure: undo", edit, move |answer| {
+            .apply_tool_edit(state_dir.as_deref(), "conjure: undo", edit, move |answer| {
                 if answer.applied {
                     server.taken_back(&id, choice, &plan.emptied, cancel, then);
                 } else {

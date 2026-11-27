@@ -19,6 +19,7 @@ use lsp_types::{
 use serde_json::Value;
 
 use crate::serve::TracksText;
+use crate::tool_edits::note_tool_edit;
 use crate::uri::uri_of;
 
 /// The way to the editor. Cloning is cheap; every clone speaks over the same connection.
@@ -306,6 +307,23 @@ impl Client {
             },
             Box::new(move |reply| on_reply(applied_from(reply))),
         );
+    }
+
+    /// [`Client::apply_edit`], with the lines the edit puts in each file first noted in the
+    /// project's state directory as a tool's ([`crate::tool_edits`]), so a server watching the
+    /// person's typing does not take them for the person's. Every product edit goes this way;
+    /// with no state directory (the project does not open) the edit goes unnoted.
+    pub fn apply_tool_edit(
+        &self,
+        state_dir: Option<&Path>,
+        label: &str,
+        edit: WorkspaceEdit,
+        on_reply: impl FnOnce(Applied) + Send + 'static,
+    ) {
+        if let Some(state_dir) = state_dir {
+            note_tool_edit(state_dir, &edit, std::time::SystemTime::now());
+        }
+        self.apply_edit(label, edit, on_reply);
     }
 
     /// Whether the editor applies edits the server sends, tied to documents' versions

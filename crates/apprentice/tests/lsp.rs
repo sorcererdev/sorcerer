@@ -251,6 +251,123 @@ fn saving_every_file_a_task_changed_keeps_it() {
 }
 
 #[test]
+fn a_final_newline_the_editor_adds_to_a_write_is_nobodys_edit() {
+    // the agent's text ends without a newline; the editor, like Neovim, reports one
+    let project = TempProject::with(&[(FILE, BEFORE)]);
+    let unterminated = AFTER.trim_end_matches('\n');
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Tool("write_file", json!({ "path": FILE, "text": unterminated })),
+        Step::Tool("write_file", json!({ "path": FILE, "text": unterminated })),
+        Step::Hook,
+        Step::Finish(0.3),
+    ]));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: agent.clone(),
+            decider: Some(Arc::new(StubJev::saying("instruction", 0.9, 0.9))),
+            researcher: None,
+        },
+    );
+    s.adds_final_newline.set(true);
+    s.open(FILE);
+    s.settle(Duration::from_millis(100));
+    s.type_text(FILE, &with_claim());
+    s.marks_until(FILE, |marks| {
+        marks
+            .iter()
+            .any(|m| m.message.starts_with("apprentice: I can do this"))
+    });
+    s.run_action(FILE, 5, "apprentice: do this");
+    s.shown_message("apprentice: done");
+    assert_eq!(s.text(FILE).as_deref(), Some(AFTER));
+    let replies: Vec<String> = agent.replies().into_iter().map(|r| r.text).collect();
+    assert_eq!(replies[2], "", "no edits are fed to the agent: {replies:?}");
+    s.marks_until(FILE, |marks| {
+        marks.iter().any(|m| m.message.starts_with("\u{2726}"))
+    });
+
+    s.run_action(FILE, 7, "apprentice: Undo this task");
+    assert!(
+        s.shown_message("apprentice: undid")
+            .starts_with("apprentice: undid"),
+    );
+    assert_eq!(s.text(FILE).as_deref(), Some(with_claim().as_str()));
+    let task_dir = std::fs::read_dir(project.root.join(".sorcerer/state/apprentice/tasks"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let journal = std::fs::read_to_string(task_dir.join("journal.md")).unwrap();
+    assert!(!journal.contains("## edits"), "{journal}");
+    s.stop();
+}
+
+#[test]
+fn a_line_a_sorcerer_server_landed_is_not_triaged_and_the_persons_is() {
+    use lsp_types::{
+        DocumentChangeOperation, DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier,
+        TextDocumentEdit, TextEdit, WorkspaceEdit,
+    };
+    let project = TempProject::with(&[(FILE, BEFORE)]);
+    let jev = Arc::new(StubJev::saying("aside", 0.9, 0.2));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::playing(Vec::new())),
+            decider: Some(jev.clone()),
+            researcher: None,
+        },
+    );
+    s.open(FILE);
+    s.settle(Duration::from_millis(100));
+
+    // a sibling server (conjure, say) notes its edit, then the editor reports it as a change
+    let landed = "        self.clock.tick(booking_id)\n";
+    let edit = WorkspaceEdit {
+        document_changes: Some(DocumentChanges::Operations(vec![
+            DocumentChangeOperation::Edit(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: sorcerer_lsp::uri_of(&s.path(FILE)),
+                    version: None,
+                },
+                edits: vec![OneOf::Left(TextEdit {
+                    range: lsp_types::Range::default(),
+                    new_text: landed.into(),
+                })],
+            }),
+        ])),
+        ..WorkspaceEdit::default()
+    };
+    sorcerer_lsp::tool_edits::note_tool_edit(
+        &project.root.join(".sorcerer/state"),
+        &edit,
+        std::time::SystemTime::now(),
+    );
+    let by_the_tool = BEFORE.replace(
+        "        self.bookings.delete",
+        &format!("{landed}        self.bookings.delete"),
+    );
+    s.type_text(FILE, &by_the_tool);
+    s.settle(Duration::from_millis(400));
+    assert!(
+        jev.asked.lock().unwrap().is_empty(),
+        "Jev was asked about the tool's line"
+    );
+
+    // the person types a line of their own: that one is triaged
+    let by_the_person = by_the_tool.replace(
+        "        self.bookings.delete",
+        "        self.audit.log(booking_id)\n        self.bookings.delete",
+    );
+    s.type_text(FILE, &by_the_person);
+    state_holds(&project, &s, "regions.json", "self.audit.log");
+    assert!(!project.state("regions.json").contains("self.clock.tick"));
+    s.stop();
+}
+
+#[test]
 fn a_stub_is_offered_by_rule_with_no_jev() {
     let project = TempProject::with(&[("src/cart.py", "def total(cart):\n    return 1\n")]);
     let s = served(
@@ -275,6 +392,43 @@ fn a_stub_is_offered_by_rule_with_no_jev() {
         "{marks:?}"
     );
     assert_eq!(marks[0].range.start.line, 4);
+    s.stop();
+}
+
+#[test]
+fn a_stub_and_its_comment_on_one_line_offer_one_row_of_each() {
+    let project = TempProject::with(&[("src/cart.py", "def total(cart):\n    return 1\n")]);
+    let jev = Arc::new(StubJev::saying("instruction", 0.9, 0.9));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::default()),
+            decider: Some(jev),
+            researcher: None,
+        },
+    );
+    s.open("src/cart.py");
+    s.settle(Duration::from_millis(100));
+    s.type_text(
+        "src/cart.py",
+        "def total(cart):\n    return 1\n\n\ndef tax(cart):\n    # The cart's tax: 20% of its total, rounded to the cent.\n    pass\n",
+    );
+    state_holds(&project, &s, "regions.json", "\"comment\"");
+    let marks = s.marks_until("src/cart.py", |marks| !marks.is_empty());
+    let offers = marks
+        .iter()
+        .filter(|m| m.message.starts_with("apprentice: I can do this"))
+        .count();
+    assert_eq!(offers, 1, "{marks:?}");
+    let titles = s.titles("src/cart.py", 6);
+    for title in [
+        "apprentice: do this · ~$0.50 · sonnet",
+        "apprentice: Dismiss",
+        "apprentice: this was an instruction",
+    ] {
+        let rows = titles.iter().filter(|t| *t == title).count();
+        assert_eq!(rows, 1, "{title} in {titles:?}");
+    }
     s.stop();
 }
 

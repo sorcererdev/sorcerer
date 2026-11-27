@@ -34,11 +34,18 @@ connections answered at once; past that a connection is closed unanswered.
 - `task.rs`: `TaskState`, `TaskFile`, `TaskRecord` (one line of `tasks.jsonl`; the last line of
   an id is the task), `TaskRows`, `latest_of_each`, `task_id`.
 - `agent_event.rs`: `AgentEvent` (`Started`, `ToolUse { name, input, parent }`, `Text`,
-  `Finished`) and `events_of_line`, the stream-json reader: an `assistant` message's `tool_use`
-  and `text` blocks (`parent_tool_use_id` names a subagent's), the `system`/`init` line's
-  session id, the `result` line's `total_cost_usd`, `num_turns`, `is_error`.
-- `status.rs`: `activity_of` (`reading booking.py`, `running make`, `subagent: …`) and
-  `status_text`; the status line is derived, never written by the agent.
+  `Used { message_id, model, usage }`, `Finished`) and `events_of_line`, the stream-json reader:
+  an `assistant` message's `tool_use` and `text` blocks (`parent_tool_use_id` names a
+  subagent's) and its `usage` (the stream repeats a message once per block, under one id), the
+  `system`/`init` line's session id, the `result` line's `total_cost_usd`, `num_turns`,
+  `is_error`.
+- `token_cost.rs`: `TokenUsage`, `usage_of` (a message's `usage`, cache writes split 5m / 1h),
+  `UsageSeen` (the calls by message id, the last usage of each; `cost` at a model's
+  `[input, output]` price, cache reads at 0.1, writes at 1.25 or 2 times the input price;
+  `None` when nothing was seen or a model has no price).
+- `status.rs`: `activity_of` (`reading booking.py`, `running make`, `subagent: …`),
+  `CommandVerdict` and `command_activity` (`waiting for you: ls`, `running ls`, `denied: ls`),
+  and `status_text`; the status line is derived, never written by the agent.
 - `mediums.rs`: the six tools and the permission tool (`tool_definitions`: names, descriptions,
   JSON schemas), `ToolCall` and `tool_call_of`, `Ask`, `AskWay`, `MarkSeverity`, `is_a_medium`.
 - `loopback_message.rs`: `LoopbackRequest { token, task, body }` with `RequestBody::Edits |
@@ -65,7 +72,11 @@ connections answered at once; past that a connection is closed unanswered.
 - `region.rs`: `Region` (id from the file and the squashed text, `RegionPlace`: comment,
   prose, stub, hunk), `found_in` (where its lines are now, nearest its old place; `None` once
   they changed), `region_id`.
-- `cutting.rs`: `Shape`, `ShapeUnit`, `changed_lines` (over `similar`), `regions_of` (comment
+- `cutting.rs`: `Shape`, `ShapeUnit`, `persons_changed_lines` (over `similar`: the changed
+  lines less a line a tool landed, a line already in the file, a change that is the same text
+  once `layout_free` takes out whitespace, brackets, commas, semicolons and quote marks, a line
+  of layout only; a deletion is the line after it unless every deleted line is still in the
+  file), `regions_of` (comment
   blocks touching a change; prose paragraphs where no language covers the file; stubs; the rest
   as hunks of at most 40 lines with a letter in them).
 - `triage.rs`: `Kind`, `Triaged`, `KIND_CUT` and `ADDRESSED_CUT` (0.70), `free_kind` (a stub
@@ -121,8 +132,11 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
    fails is recorded `failed` and said (`TaskRefused::NotStarted`).
 2. **Follow** (`follow.rs`, `follow_task`), on the calling thread: every 200 ms it checks the
    task's `Cancel` (a stop) and takes the next event. A session id is recorded; a tool call
-   becomes the status line (`activity_of`, `status_text`, `Editor::progress`) and a journal
-   line, and a medium's call marks the turn as spoken. `Finished` closes the agent's input;
+   becomes the status line (`activity_of`, `status_text`, `Editor::progress`, through
+   `show_activity`) and a journal line, and a medium's call marks the turn as spoken. A command
+   the person was asked about is shown by its verdict (`LiveTask::take_command_verdict`):
+   claude's stream may show the call after the answer. A message's `Used` is kept on the
+   `LiveTask`; the status line's amount is `LiveTask::cost_seen`. `Finished` closes the agent's input;
    when the turn used no medium its final text is posted (`notify` when it is one line of at
    most 200 characters, else `note`).
 3. **Helpers' requests**, meanwhile, each on a loopback thread (`answer_request.rs`):
@@ -137,17 +151,22 @@ request names and calls `run_task::answer_request`. Then `TaskRunner::run(order)
      (`fenced_path_named`); a command line allowed always (`AllowedCommands::allows`) passes;
      else the picker, with *Always* only when `always_for` gives a line, and the instruction's
      file and line as `Ask::at`, so an editor with no picker is asked there. The answer is the permission tool's JSON, `{"behavior":"allow","updatedInput":…}`
-     or `{"behavior":"deny","message":…}`.
+     or `{"behavior":"deny","message":…}`, with its `CommandVerdict`; the status line says
+     `waiting for you: …` while the picker is up, then `running …` or `denied: …`
+     (`say_where_the_command_stands`), and the verdict is kept for the stream.
    - `Edits` → `edits_for_agent` (`feed.rs`): `Editor::edits_since_look` (which moves the look
      to now) as `edits_context_text`, journaled; at `stop` only journaled.
 4. **Finish** (`finish.rs`, `finish_task`): the state (`done`, `failed`, `stopped`), the cost
-   (the reported one; a stop, an early end or a result with no `total_cost_usd` is charged
-   the whole `budget_per_task`), the
+   (the reported one; a stop is charged `LiveTask::cost_seen` at `TaskDeps::price_of`, which
+   the wiring sets to `sorcerer_models::adapters::anthropic::shipped_price`; a stop that saw no
+   call, an early end or a result with no `total_cost_usd` is charged the whole
+   `budget_per_task`), the
    record, one ledger errand (product `apprentice`, verb `task`), the done message
    (`done_text`) and `Editor::finished`.
 
 `LiveTask` (`task_deps.rs`) is what the follow loop and the loopback threads share: the record
-behind a mutex, whether the turn spoke, the `Cancel`.
+behind a mutex, whether the turn spoke, the calls' usage seen (`used`, `cost_seen`), the
+person's verdict on each command asked about, the `Cancel`.
 
 ## The harness: `claude -p` headless
 
@@ -261,19 +280,27 @@ it, then runs `look_at` and `answer_on_save` under `save:<path>`. `look_at` take
 swaps it for the last look, and (unless `head_moved`, which resets every look) runs `triage`
 (`regions.rs`, building `TriageDeps` over `GrammarSyntax`, `JsonRegionStore`, the ledger and the
 decider) on the change, then `publish`. A task's own `write_file` moves the look
-(`looked_at_own_edit`), so its edits are never triaged as the person's. `answer_on_save` builds
+(`looked_at_own_edit`), so its edits are never triaged as the person's. Edits the other
+servers land are told apart through the host's `tool_edits` note: `triage` reads
+`lines_tools_landed` for the file into `Look::landed_by_tools`, and `persons_changed_lines`
+leaves those lines out (with moved lines, reflows and blank lines, which is what
+format-on-save makes). `answer_on_save` builds
 `AnswerDeps` (the researcher over core's `FilesView` of the disk, which the save just wrote) and
 writes a long answer as a note too.
 
 **The marks** (`publisher.rs`): one publish per file joins the regions' marks
 (`region_mark`: an answer or a verdict Information with its cost and time and the citations as
-`relatedInformation`, else in the message; an instruction a Hint with the offer's price), the
+`relatedInformation`, else in the message; an instruction a Hint with the offer's price; an
+offer inside a larger offering region, a comment inside a stub, is not drawn:
+`inside_another_offer`), the
 finished tasks' (`task_marks`, code `task`, `data.task`), the agent's (`said_marks`) and the
 questions' (`ask_marks`). Ranges end at the end of the last line (`lines_of`, UTF-16).
 
-**The actions** (`commands.rs`): `code_actions` gives, per line, each found region's actions
-(`region_actions`: the offer while no task runs, *Show code*, *Keep this answer*, *Dismiss*, the
-four labels), the pending questions' options (`ask_actions`), a marked task's *Show diff*,
+**The actions** (`commands.rs`): `code_actions` gives, per line, the found regions' actions
+once (`regions_actions`: the offer of the offering region spanning the most lines while no task
+runs, *Show code* and *Keep this answer* of the first answered region, one *Dismiss* and the
+four labels carrying every region's id: `apprentice.dismiss [ids…]`, `apprentice.label [word,
+ids…]`), the pending questions' options (`ask_actions`), a marked task's *Show diff*,
 *Undo this task*, *Show journal*, and *Stop this task* while one runs. `execute` routes the ten
 `apprentice.*` commands; the slow ones (*do this*, *Dismiss*, a label) go to a thread.
 
@@ -296,7 +323,10 @@ buffer or a journal open in the editor; `triage` and `answer_on_save` skip a fen
   lands); then one `workspace/applyEdit` built by the host's
   `landing::workspace_edit` at the buffer's version (checked with `moved_on`), waiting up to
   10 s for the answer and 3 s for the editor to report the text (`wait_until_reported`; Neovim
-  answers first). The task's look and the server's look move to the new text, the text is kept
+  answers first). Texts are compared with the host's `same_text`, so a final newline the
+  editor adds (Neovim's `eol`) or its line endings are not the person's edit, here, in
+  `edits_since_task_looked` and in `undo_of`. The edit goes out through
+  `Client::apply_tool_edit`, noted as a tool's. The task's look and the server's look move to the new text, the text is kept
   for undo (`written`), and `show_working` draws `⟳ apprentice: writing…` at the first changed
   line.
 - `edits_since_look` → `edits_since_task_looked`: each open file against the task's look, the

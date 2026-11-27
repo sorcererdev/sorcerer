@@ -2,7 +2,9 @@
 //! shape (its comments, its units, whether a language covers it), become the regions Jev is
 //! asked about. No language is named: comments are what the language's queries capture.
 
-use similar::{DiffTag, TextDiff};
+use std::collections::HashSet;
+
+use similar::{DiffOp, DiffTag, TextDiff};
 use sorcerer_core::domain::unit::Span;
 
 use crate::domain::region::{Region, RegionPlace};
@@ -27,26 +29,126 @@ pub struct ShapeUnit {
     pub is_stub: bool,
 }
 
-/// The lines of `after` (from 1) that differ from `before`, as runs; a deletion counts as the
-/// line after it.
+/// The lines of `after` (from 1) the person changed since `before`, as runs. A deletion counts
+/// as the line after it, unless every deleted line is still in the file (it moved). A change is
+/// left out when it is not the person's typing:
 ///
-/// Example: from `a\nb\nc\n` to `a\nB\nc\nd\n`, lines 2 and 4 changed.
-pub fn changed_lines(before: &str, after: &str) -> Vec<Span> {
-    let after_count = after.lines().count().max(1) as u32;
-    TextDiff::from_lines(before, after)
+/// - a line a tool landed in the file a moment ago (it is in `landed_by_tools`: spellbook's
+///   sync, a conjure step, an apprentice task), or a change that is neighbouring tool lines
+///   laid out again;
+/// - a line that was already in the file (moved, as a formatter sorting imports does, or
+///   re-indented);
+/// - a change that is the old lines laid out again: the same text once the layout is taken
+///   out (a formatter rewrapping a call, adding or dropping brackets, a trailing comma or blank
+///   lines, or changing quote marks);
+/// - a line of layout only (blank, or a closing bracket).
+///
+/// Lines are compared by their [`layout_free`] text, so `x = ('a',)` and `x = "a"` are the same.
+///
+/// Example: from `a\nb\nc\n` to `a\nB\nc\nd\n`, lines 2 and 4 changed; with `d` landed by a
+/// tool, only line 2.
+pub fn persons_changed_lines(before: &str, after: &str, landed_by_tools: &[String]) -> Vec<Span> {
+    let change = Change::new(before, after, landed_by_tools);
+    let lines: Vec<u32> = TextDiff::from_lines(before, after)
         .ops()
         .iter()
-        .filter(|op| op.tag() != DiffTag::Equal)
-        .map(|op| {
-            let range = op.new_range();
-            let start = range.start as u32 + 1;
-            let end = (range.end as u32).max(start);
-            Span {
-                start: start.min(after_count),
-                end: end.min(after_count),
-            }
-        })
+        .filter(|op| op.tag() != DiffTag::Equal && !change.laid_out_again(op))
+        .flat_map(|op| change.persons_lines(op))
+        .collect();
+    runs_of(&lines)
+}
+
+/// The two texts of a change, their lines, and what is known about them, by layout-free text:
+/// which lines were in the file before, which are in it after, which tools landed.
+struct Change<'a> {
+    before_lines: Vec<&'a str>,
+    after_lines: Vec<&'a str>,
+    already_there: HashSet<String>,
+    still_there: HashSet<String>,
+    tool_lines: Vec<String>,
+}
+
+impl<'a> Change<'a> {
+    fn new(before: &'a str, after: &'a str, landed_by_tools: &[String]) -> Change<'a> {
+        let before_lines: Vec<&str> = before.lines().collect();
+        let after_lines: Vec<&str> = after.lines().collect();
+        Change {
+            already_there: before_lines.iter().map(|l| layout_free(l)).collect(),
+            still_there: after_lines.iter().map(|l| layout_free(l)).collect(),
+            tool_lines: landed_by_tools.iter().map(|l| layout_free(l)).collect(),
+            before_lines,
+            after_lines,
+        }
+    }
+
+    /// Whether one change of the diff is the old lines, or neighbouring tool lines, laid out
+    /// again.
+    fn laid_out_again(&self, op: &DiffOp) -> bool {
+        let old = layout_free(&self.before_lines[op.old_range()].concat());
+        let new = layout_free(&self.after_lines[op.new_range()].concat());
+        old == new || self.run_of_tool_lines(&new)
+    }
+
+    /// Whether a layout-free text is some neighbouring tool lines, as noted: a tool's one long
+    /// line that a formatter then wrapped over three, say.
+    fn run_of_tool_lines(&self, text: &str) -> bool {
+        !text.is_empty()
+            && (0..self.tool_lines.len()).any(|start| {
+                let mut joined = String::new();
+                self.tool_lines[start..].iter().any(|line| {
+                    joined.push_str(line);
+                    joined == text
+                })
+            })
+    }
+
+    /// The person's lines (from 1) of one change of the diff: a deletion is the line after it,
+    /// unless every deleted line is still in the file; otherwise each new line that is not
+    /// layout only, not already in the file and not a tool's.
+    fn persons_lines(&self, op: &DiffOp) -> Vec<u32> {
+        let range = op.new_range();
+        if range.is_empty() {
+            let moved = self.before_lines[op.old_range()]
+                .iter()
+                .all(|line| self.still_there.contains(&layout_free(line)));
+            let line_after = (range.start as u32 + 1).min(self.after_lines.len().max(1) as u32);
+            return if moved { Vec::new() } else { vec![line_after] };
+        }
+        range
+            .filter(|&index| self.persons_line(self.after_lines[index]))
+            .map(|index| index as u32 + 1)
+            .collect()
+    }
+
+    fn persons_line(&self, line: &str) -> bool {
+        let line = layout_free(line);
+        !line.is_empty() && !self.already_there.contains(&line) && !self.tool_lines.contains(&line)
+    }
+}
+
+/// Text with its layout taken out: whitespace, brackets, commas, semicolons and quote marks,
+/// which formatters add, drop and change without changing what the text says. No language is
+/// named: these are the marks code in most languages is laid out with.
+///
+/// Example: `f(\n    "a",\n)` and `f('a')` are both `fa`.
+pub fn layout_free(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_whitespace() && !"()[]{},;'\"`".contains(*c))
         .collect()
+}
+
+/// Line numbers, in order, joined into runs of neighbouring lines.
+fn runs_of(lines: &[u32]) -> Vec<Span> {
+    lines.iter().fold(Vec::new(), |mut runs: Vec<Span>, &line| {
+        match runs.last_mut() {
+            Some(last) if line <= last.end + 1 => last.end = last.end.max(line),
+            _ => runs.push(Span {
+                start: line,
+                end: line,
+            }),
+        }
+        runs
+    })
 }
 
 /// The regions the changed lines of a file make, in file order, each once:
@@ -206,12 +308,55 @@ mod tests {
 
     #[test]
     fn changed_lines_are_runs_in_the_new_text() {
+        let none: Vec<String> = Vec::new();
         assert_eq!(
-            changed_lines("a\nb\nc\n", "a\nB\nc\nd\n"),
+            persons_changed_lines("a\nb\nc\n", "a\nB\nc\nd\n", &none),
             [span(2, 2), span(4, 4)]
         );
-        assert_eq!(changed_lines("a\nb\nc\n", "a\nc\n"), [span(2, 2)]);
-        assert!(changed_lines("a\n", "a\n").is_empty());
+        assert_eq!(
+            persons_changed_lines("a\nb\nc\n", "a\nc\n", &none),
+            [span(2, 2)]
+        );
+        assert!(persons_changed_lines("a\n", "a\n", &none).is_empty());
+    }
+
+    #[test]
+    fn what_tools_landed_moved_or_reflowed_is_not_the_persons() {
+        let landed = vec!["pub mod clock;".to_string()];
+        // a tool's line beside the person's
+        assert_eq!(
+            persons_changed_lines(
+                "pub mod a;\n",
+                "pub mod a;\npub mod clock;\n# why?\n",
+                &landed
+            ),
+            [span(3, 3)]
+        );
+        // imports sorted: the lines were there
+        assert!(
+            persons_changed_lines(
+                "import b\nimport a\nx = 1\n",
+                "import a\nimport b\nx = 1\n",
+                &landed
+            )
+            .is_empty()
+        );
+        // a call rewrapped with a trailing comma, and a blank line added
+        let one = "f(alpha, beta)\n";
+        let wrapped = "f(\n    alpha,\n    beta,\n)\n\n";
+        assert!(persons_changed_lines(one, wrapped, &landed).is_empty());
+        // a tool's one line, wrapped by the formatter before anyone looked
+        let tool_line = vec!["from shop.ports.clock import SystemClock".to_string()];
+        assert!(
+            persons_changed_lines(
+                "x = 1\n",
+                "from shop.ports.clock import (\n    SystemClock,\n)\nx = 1\n",
+                &tool_line
+            )
+            .is_empty()
+        );
+        // brackets dropped and quotes changed
+        assert!(persons_changed_lines("x = (\n    'a'\n)\n", "x = \"a\"\n", &landed).is_empty());
     }
 
     #[test]

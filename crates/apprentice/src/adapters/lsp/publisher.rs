@@ -27,10 +27,14 @@ impl Server {
     pub(super) fn publish(&self, path: &Path) {
         let text = self.text_now(path);
         let line_range = |start: u32, end: u32| lines_of(&text, start, end);
-        let mut diagnostics: Vec<Diagnostic> = self
-            .records_found(path)
-            .into_iter()
-            .filter_map(|(record, start, end)| self.region_mark(&record, line_range(start, end)))
+        let found = self.records_found(path);
+        let mut diagnostics: Vec<Diagnostic> = found
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !inside_another_offer(&found, *index))
+            .filter_map(|(_, (record, start, end))| {
+                self.region_mark(record, line_range(*start, *end))
+            })
             .collect();
         diagnostics.extend(self.task_marks(path, &line_range));
         diagnostics.extend(self.said_marks(path, &line_range));
@@ -216,4 +220,18 @@ pub(super) fn lines_of(text: &str, start: u32, end: u32) -> Range {
         start: Position::new(start - 1, 0),
         end: Position::new(end - 1, length),
     }
+}
+/// Whether a region's offer sits inside another region's offer (a comment inside a stub): its
+/// mark would say "I can do this" twice for one thing, so only the larger one is drawn.
+fn inside_another_offer(found: &[(RegionRecord, u32, u32)], index: usize) -> bool {
+    let (record, start, end) = &found[index];
+    record.offers_a_task()
+        && found
+            .iter()
+            .enumerate()
+            .any(|(other, (outer, outer_start, outer_end))| {
+                let holds = outer_start <= start && end <= outer_end;
+                let larger = outer_end - outer_start > end - start || other < index;
+                other != index && outer.offers_a_task() && holds && larger
+            })
 }

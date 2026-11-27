@@ -76,6 +76,7 @@ pub fn task_deps(
         fences,
         root: project.root.clone(),
         config: apprentice_config(project)?,
+        price_of: sorcerer_models::adapters::anthropic::shipped_price,
     })
 }
 

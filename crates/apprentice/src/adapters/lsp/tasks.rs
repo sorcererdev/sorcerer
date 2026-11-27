@@ -319,7 +319,8 @@ impl Server {
         let edit = undo_edit(undos.iter().map(Undo::undoing).collect());
         let server = Arc::clone(self);
         let id = id.to_string();
-        self.client.apply_edit(
+        self.client.apply_tool_edit(
+            self.state_dir().as_deref(),
             &format!("apprentice: undo {}", title_of(&shown.record.instruction)),
             edit,
             move |answer| {

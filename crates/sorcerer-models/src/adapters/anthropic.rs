@@ -75,6 +75,22 @@ impl Anthropic {
     }
 }
 
+/// The shipped price of a model, by its id or an alias, `[input, output]` dollars per million
+/// tokens; `None` for a model the table does not know. For a cost seen outside this provider
+/// (Claude Code's stream names the model of every call).
+///
+/// Example: `shipped_price("sonnet")` and `shipped_price("claude-sonnet-5-5")` are `[2.0, 10.0]`.
+pub fn shipped_price(model: &str) -> Option<[f64; 2]> {
+    let id = ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == model)
+        .map_or(model, |(_, id)| *id);
+    PRICES
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, price)| *price)
+}
+
 fn api_key(env: &dyn Env) -> Result<String> {
     env.var(KEY_VAR).ok_or(Error::NoKey {
         provider: "anthropic".into(),

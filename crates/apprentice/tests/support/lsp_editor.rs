@@ -45,6 +45,8 @@ pub struct Served {
     pub picked_questions: RefCell<Vec<String>>,
     /// An editor with no picker: every `window/showMessageRequest` is answered with an error.
     pub no_picker: std::cell::Cell<bool>,
+    /// An editor that ends every buffer it edits with a newline (Neovim's `eol`).
+    pub adds_final_newline: std::cell::Cell<bool>,
     pub trust: TrustList,
     _trust_home: TempDir,
 }
@@ -80,6 +82,7 @@ pub fn served(dir: &Path, doubles: Doubles) -> Served {
         picks: RefCell::new(VecDeque::new()),
         picked_questions: RefCell::new(Vec::new()),
         no_picker: std::cell::Cell::new(false),
+        adds_final_newline: std::cell::Cell::new(false),
         trust,
         _trust_home: trust_home,
     };
@@ -422,7 +425,10 @@ impl Served {
                         notes.push(opened_note(&path, 1, &text));
                     }
                     let (version, text) = self.buffers.borrow()[&path].clone();
-                    let new_text = applied_edits(&text, change["edits"].as_array().unwrap());
+                    let new_text = self.with_final_newline(applied_edits(
+                        &text,
+                        change["edits"].as_array().unwrap(),
+                    ));
                     self.buffers
                         .borrow_mut()
                         .insert(path.clone(), (version + 1, new_text.clone()));
@@ -435,6 +441,14 @@ impl Served {
             }
         }
         Some(notes)
+    }
+
+    fn with_final_newline(&self, text: String) -> String {
+        if self.adds_final_newline.get() && !text.is_empty() && !text.ends_with('\n') {
+            text + "\n"
+        } else {
+            text
+        }
     }
 
     pub fn stop(mut self) {

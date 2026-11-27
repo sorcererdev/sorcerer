@@ -30,6 +30,12 @@ pub(super) struct Server {
 }
 
 impl Server {
+    /// The project's state directory, where an edit sent to the editor is noted as a tool's;
+    /// `None` when the project does not open.
+    pub(super) fn state_dir(&self) -> Option<std::path::PathBuf> {
+        (self.cfg.open)(&self.root).ok()?.state_dir().ok()
+    }
+
     /// Says once a session that this editor cannot take conjure's edits, so nothing is
     /// offered.
     pub(super) fn say_once_if_it_cannot_edit(&self) {

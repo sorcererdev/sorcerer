@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::domain::agent_event::{AgentEvent, Finished};
 use crate::domain::mediums::is_a_medium;
-use crate::domain::status::{activity_of, status_text};
+use crate::domain::status::{activity_of, command_activity, status_text};
 use crate::domain::task::{TaskRecord, TaskState};
 use crate::ports::agent::NextEvent;
 
@@ -65,14 +65,28 @@ fn saw(live: &LiveTask, event: &AgentEvent, deps: &TaskDeps) {
             if is_a_medium(name) {
                 live.spoke();
             }
-            let activity = activity_of(name, input, parent.as_deref(), &deps.root);
-            let spent = live.record().cost_usd;
-            deps.editor
-                .progress(&live.id, &status_text(&live.title, &activity, spent));
+            let command = input["command"].as_str().unwrap_or_default();
+            let activity = match live.take_command_verdict(command) {
+                Some(verdict) if !command.is_empty() => command_activity(command, verdict),
+                _ => activity_of(name, input, parent.as_deref(), &deps.root),
+            };
+            show_activity(live, &activity, deps);
             let _ = deps.journal.write(&live.id, "tool", &activity);
         }
+        AgentEvent::Used {
+            message_id,
+            model,
+            usage,
+        } => live.used(message_id, model, *usage),
         AgentEvent::Text { .. } | AgentEvent::Finished(_) => {}
     }
+}
+
+/// The status line: the task's title, what it does now, and what the stream has shown it cost.
+pub(super) fn show_activity(live: &LiveTask, activity: &str, deps: &TaskDeps) {
+    let spent = live.cost_seen(deps.price_of).unwrap_or(0.0);
+    deps.editor
+        .progress(&live.id, &status_text(&live.title, activity, spent));
 }
 
 /// When the agent ended its turn without a medium, its final text is posted: a notification

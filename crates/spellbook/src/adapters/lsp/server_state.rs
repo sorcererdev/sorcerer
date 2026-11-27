@@ -67,6 +67,12 @@ impl Server {
         lock(&self.published).get(path).cloned().unwrap_or_default()
     }
 
+    /// The project's state directory, where an edit sent to the editor is noted as a tool's;
+    /// `None` when the project does not open.
+    pub(super) fn state_dir(&self) -> Option<std::path::PathBuf> {
+        (self.cfg.open)(&self.root).ok()?.state_dir().ok()
+    }
+
     /// Publishes the marks of a file the editor opened or saved, from the file on disk. Nothing
     /// for a file outside the project, or in a project that is not trusted.
     pub(super) fn republish(&self, path: &Path) {

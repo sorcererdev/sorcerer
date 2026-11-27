@@ -10,7 +10,7 @@ use sorcerer_models::ports::decider::Decider;
 
 use crate::domain::budget::{spent_today, triage_allows, triage_spent_today};
 use crate::domain::config::ApprenticeConfig;
-use crate::domain::cutting::{changed_lines, regions_of};
+use crate::domain::cutting::{persons_changed_lines, regions_of};
 use crate::domain::region::Region;
 use crate::domain::region_record::RegionRecord;
 use crate::domain::triage::{free_kind, questions_for, verdict_of};
@@ -29,18 +29,21 @@ pub struct TriageDeps {
     pub config: ApprenticeConfig,
 }
 
-/// A file's text at the last look and now.
+/// A file's text at the last look and now, and the lines tools landed in it a moment ago.
 pub struct Look<'a> {
     /// Relative to the root, with `/`.
     pub file: &'a str,
     pub before: &'a str,
     pub after: &'a str,
+    /// Trimmed lines Sorcerer's servers landed in the file lately, in order: not the person's.
+    pub landed_by_tools: &'a [String],
 }
 
 /// Classifies the regions the change makes and keeps them; gives back the records of the
 /// regions now in the file that apprentice acts on, old and new.
 ///
-/// 1. Cut: the changed lines over the file's shape (`regions_of`).
+/// 1. Cut: the lines the person changed (not a tool's, not reflowed or moved:
+///    `persons_changed_lines`) over the file's shape (`regions_of`).
 /// 2. A region already kept (same file, same text) is not asked again.
 /// 3. A free rule classifies what it can (a stub is an instruction).
 /// 4. The rest goes to Jev as one batch, when the triage cap and the day's cap allow; when they
@@ -50,7 +53,7 @@ pub struct Look<'a> {
 /// and it is kept as a claim to check on save.
 pub fn triage_change(look: &Look, deps: &TriageDeps, cancel: &Cancel) -> Vec<RegionRecord> {
     let shape = deps.syntax.shape(Path::new(look.file), look.after);
-    let changed = changed_lines(look.before, look.after);
+    let changed = persons_changed_lines(look.before, look.after, look.landed_by_tools);
     let regions = regions_of(look.file, look.after, &changed, &shape);
     let unseen: Vec<Region> = regions
         .into_iter()

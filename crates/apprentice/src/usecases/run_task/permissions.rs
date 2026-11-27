@@ -12,9 +12,11 @@ use serde_json::{Value, json};
 use crate::domain::loopback_message::LoopbackReply;
 use crate::domain::mediums::{Ask, AskWay};
 use crate::domain::permissions::{always_for, words_naming_paths};
+use crate::domain::status::{CommandVerdict, command_activity};
 use crate::domain::tree_readers::TreeReaders;
 use crate::ports::editor::Asked;
 
+use super::follow::show_activity;
 use super::task_deps::{LiveTask, TaskDeps};
 use sorcerer_core::domain::fences::Fences;
 
@@ -45,6 +47,31 @@ pub fn answer_permission(
     input: &Value,
     deps: &TaskDeps,
 ) -> LoopbackReply {
+    let command = input["command"].as_str().unwrap_or_default();
+    let (verdict, reply) = permission_reply(live, tool, input, deps);
+    say_where_the_command_stands(live, command, verdict, deps);
+    reply
+}
+
+/// The verdict on a tool call, and the permission tool's reply that says it.
+type Verdict = (CommandVerdict, LoopbackReply);
+
+/// The status line says where a command stands with the person, and the verdict is kept for
+/// when the stream shows the command (it may come after the answer).
+fn say_where_the_command_stands(
+    live: &LiveTask,
+    command: &str,
+    verdict: CommandVerdict,
+    deps: &TaskDeps,
+) {
+    if command.is_empty() {
+        return;
+    }
+    live.command_verdict(command, verdict);
+    show_activity(live, &command_activity(command, verdict), deps);
+}
+
+fn permission_reply(live: &LiveTask, tool: &str, input: &Value, deps: &TaskDeps) -> Verdict {
     if WRITERS.contains(&tool) {
         return deny("use write_file: it is the only way to change a file here");
     }
@@ -88,13 +115,7 @@ fn is_fenced(relative: &Path, fences: &Fences) -> bool {
         && !(fences.allows_relative(relative) && fences.allows_relative(&something_inside))
 }
 
-fn ask_for(
-    live: &LiveTask,
-    tool: &str,
-    command: &str,
-    input: &Value,
-    deps: &TaskDeps,
-) -> LoopbackReply {
+fn ask_for(live: &LiveTask, tool: &str, command: &str, input: &Value, deps: &TaskDeps) -> Verdict {
     let line = (tool == "Bash")
         .then(|| always_for(command, TreeReaders::shipped()))
         .flatten();
@@ -117,6 +138,7 @@ fn ask_for(
         default: Some(DENY.into()),
     };
     let wait = Duration::from_secs(deps.config.ask_timeout_seconds);
+    say_where_the_command_stands(live, command, CommandVerdict::Waiting, deps);
     let answer = deps.editor.ask(&live.id, &ask, wait);
     let entry = format!("{}\n→ {answer:?}", ask.question);
     let _ = deps.journal.write(&live.id, "permission", &entry);
@@ -146,10 +168,18 @@ fn always_text(line: &str) -> String {
     format!("Always for this project ({line})")
 }
 
-fn allow(input: &Value) -> LoopbackReply {
-    LoopbackReply::text(json!({ "behavior": "allow", "updatedInput": input }).to_string())
+fn allow(input: &Value) -> Verdict {
+    let reply = json!({ "behavior": "allow", "updatedInput": input });
+    (
+        CommandVerdict::Allowed,
+        LoopbackReply::text(reply.to_string()),
+    )
 }
 
-fn deny(message: &str) -> LoopbackReply {
-    LoopbackReply::text(json!({ "behavior": "deny", "message": message }).to_string())
+fn deny(message: &str) -> Verdict {
+    let reply = json!({ "behavior": "deny", "message": message });
+    (
+        CommandVerdict::Denied,
+        LoopbackReply::text(reply.to_string()),
+    )
 }

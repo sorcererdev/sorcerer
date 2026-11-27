@@ -8,6 +8,7 @@ use std::sync::Arc;
 use apprentice::adapters::task_runner::TaskRunner;
 use apprentice::domain::agent_event::{AgentEvent, Finished};
 use apprentice::domain::task::TaskState;
+use apprentice::domain::token_cost::TokenUsage;
 use apprentice::usecases::run_task::{TaskOrder, TaskRefused};
 use serde_json::{Value, json};
 use sorcerer_core::domain::errand::Errand;
@@ -421,6 +422,35 @@ fn a_command_is_asked_once_and_remembered_for_the_project() {
 
 /// The person ruled: allowing one search never opens the door to a search of the whole tree.
 #[test]
+fn the_status_line_says_a_command_waits_and_was_denied_not_that_it_runs() {
+    let command = "ls -a && cat CLAUDE.md";
+    // claude asks first; its stream shows the call after the answer
+    let run = run(
+        vec![
+            Step::Bash("ls -a && cat CLAUDE.md"),
+            tool_use("Bash", json!({ "command": command })),
+            Step::Finish(0.1),
+        ],
+        &["Deny"],
+    );
+    let progress = run.editor.progress.lock().unwrap().clone();
+    assert!(
+        progress
+            .iter()
+            .any(|line| line.contains("waiting for you: ls")),
+        "{progress:?}"
+    );
+    assert!(
+        progress.iter().any(|line| line.contains("denied: ls")),
+        "{progress:?}"
+    );
+    assert!(
+        !progress.iter().any(|line| line.contains("running ls")),
+        "{progress:?}"
+    );
+}
+
+#[test]
 fn allowing_a_search_always_does_not_allow_a_recursive_one() {
     let run = run(
         vec![
@@ -597,7 +627,7 @@ fn a_final_text_with_no_medium_is_posted() {
 }
 
 #[test]
-fn a_stopped_task_is_charged_its_cap() {
+fn a_stopped_task_that_showed_nothing_is_charged_its_cap() {
     let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
     let editor = Arc::new(RecordingEditor::at(&project.root));
     let agent = Arc::new(ScriptedAgent::playing(vec![Step::Hang]));
@@ -607,6 +637,42 @@ fn a_stopped_task_is_charged_its_cap() {
     let record = runner.follow(started);
     assert_eq!(record.state, TaskState::Stopped);
     assert_eq!(record.cost_usd, 2.0);
+}
+
+#[test]
+fn a_stopped_task_that_showed_its_tokens_is_charged_them() {
+    let project = TempProject::with(&[("src/cancel.txt", BOOKING)]);
+    let editor = Arc::new(RecordingEditor::at(&project.root));
+    let call = AgentEvent::Used {
+        message_id: "msg_1".into(),
+        model: "claude-sonnet-5-5".into(),
+        usage: TokenUsage {
+            input: 1_000,
+            output: 10_000,
+            ..TokenUsage::default()
+        },
+    };
+    // the stream repeats a message once per block: it counts once
+    let agent = Arc::new(ScriptedAgent::playing(vec![
+        Step::Event(call.clone()),
+        Step::Event(call),
+        Step::Hang,
+    ]));
+    let runner = TaskRunner::open(project.deps(editor.clone(), agent)).unwrap();
+    let started = runner.start(&order()).unwrap();
+    let cancel = started.live.cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        cancel.cancel();
+    });
+    let record = runner.follow(started);
+    assert_eq!(record.state, TaskState::Stopped);
+    // sonnet at $2 in and $10 out per million: 1,000 in and 10,000 out
+    assert!(
+        (record.cost_usd - 0.102).abs() < 1e-9,
+        "{}",
+        record.cost_usd
+    );
 }
 
 #[test]

@@ -216,7 +216,8 @@ impl Server {
         }
         let (edit, _) = workspace_edit(&[change], &snapshot, NewFiles::Created);
         let (sender, applied) = crossbeam_channel::bounded(1);
-        self.client.apply_edit(
+        self.client.apply_tool_edit(
+            self.state_dir().as_deref(),
             &format!("apprentice: {}", forward_slashes(file)),
             edit,
             move |answer| {

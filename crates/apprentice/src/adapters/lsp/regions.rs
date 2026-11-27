@@ -3,6 +3,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use lsp_types::{MessageType, Position, Range};
 use serde_json::json;
@@ -12,6 +13,7 @@ use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::project::Project;
 use sorcerer_lsp::landing::{FileChange, NewFiles, OpenDocument, Snapshot, workspace_edit};
 use sorcerer_lsp::line_edits::line_edits;
+use sorcerer_lsp::tool_edits::lines_tools_landed;
 
 use crate::adapters::grammar_syntax::GrammarSyntax;
 use crate::adapters::json_region_store::JsonRegionStore;
@@ -71,10 +73,15 @@ impl Server {
             clock: self.cfg.clock.clone(),
             config: Self::config(&project),
         };
+        let landed_by_tools = project
+            .state_dir()
+            .map(|state| lines_tools_landed(&state, path, SystemTime::now()))
+            .unwrap_or_default();
         let look = Look {
             file: &file,
             before,
             after,
+            landed_by_tools: &landed_by_tools,
         };
         triage_change(&look, &deps, cancel);
     }
@@ -209,8 +216,12 @@ impl Server {
             edits: &edits,
         };
         let (edit, _) = workspace_edit(&[change], &snapshot, NewFiles::LeftOut);
-        self.client
-            .apply_edit("apprentice: keep this answer", edit, |_| {});
+        self.client.apply_tool_edit(
+            project.state_dir().ok().as_deref(),
+            "apprentice: keep this answer",
+            edit,
+            |_| {},
+        );
     }
 
     /// *Dismiss*: never shown again at this text.
@@ -224,13 +235,15 @@ impl Server {
         self.publish(&self.root.join(&record.region.file));
     }
 
-    /// A label: what the person says the region was.
-    pub(super) fn label(&self, id: &str, kind: Option<Kind>) {
-        let Some((project, record)) = self.record(id) else {
-            return;
-        };
-        if let Some(regions) = self.region_store(&project) {
-            let _ = label_region(&record, kind, regions.as_ref(), self.cfg.clock.as_ref());
+    /// A label: what the person says the regions on a line were; said once.
+    pub(super) fn label(&self, ids: &[String], kind: Option<Kind>) {
+        for id in ids {
+            let Some((project, record)) = self.record(id) else {
+                continue;
+            };
+            if let Some(regions) = self.region_store(&project) {
+                let _ = label_region(&record, kind, regions.as_ref(), self.cfg.clock.as_ref());
+            }
         }
         let said = kind.map_or("nothing", Kind::word);
         self.client.say(

@@ -20,6 +20,7 @@ pub mod rules;
 pub mod scry_notes;
 pub mod status;
 pub mod task;
+pub mod token_cost;
 pub mod tree_readers;
 pub mod triage;
 // spellbook:end domain-modules
