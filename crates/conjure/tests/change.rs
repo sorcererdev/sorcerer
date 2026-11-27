@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use conjure::adapters::scry_files::read_findings;
 use conjure::domain::change_prompt::CHANGE_SYSTEM;
+use conjure::domain::context_choice::Closeness;
 use conjure::domain::rules::{RULES_CAP, rules_text};
 use conjure::domain::scry_notes::{FindingsRead, ScryNote, StoredFinding, notes_near};
 use conjure::domain::situation::{RelatedFile, Situation, situation_text};
@@ -46,8 +47,10 @@ fn fixed_situation() -> Situation {
         related: vec![RelatedFile {
             path: "src/models.py".into(),
             text: "class Booking:\n    pass\n".into(),
-            lines_in_all: 2,
+            closeness: Closeness::Imported,
+            names: vec!["Booking".into()],
         }],
+        left_for_room: vec![],
         session: "diff --git a/x b/x\n+changed\n".into(),
         finding_asked: Some(note("handle returns before refunding", false)),
         notes: vec![note("a note", false), note("an old note", true)],
@@ -69,25 +72,21 @@ fn the_prompt_is_as_recorded() {
     assert_eq!(recorded, golden, "UPDATE_GOLDEN=1 rewrites the golden file");
 }
 
-/// conjure-walk2-fixes: a related file cut at 120 lines gave no sign of it, and a writer
-/// rewrote such a file "in full" from the part it saw. The heading says when only a part is
-/// shown.
+/// conjure-context-choice: related files are whole or not shown at all. One left out for room
+/// is named, so the writer knows it exists and does not rewrite it unseen.
 #[test]
-fn a_related_file_cut_short_says_how_much_of_it_is_shown() {
+fn a_related_file_left_out_for_room_is_named_not_shown() {
     let s = Situation {
-        related: vec![RelatedFile {
-            path: "src/slot.rs".into(),
-            text: "x\n".repeat(120),
-            lines_in_all: 340,
-        }],
+        left_for_room: vec!["src/slot.rs".into(), "src/table.py".into()],
         ..fixed_situation()
     };
     let text = situation_text(&s);
     assert!(
-        text.contains("Related file src/slot.rs (only its first 120 of 340 lines are shown):"),
+        text.contains("Also related, but left out for room (not shown, so do not rewrite them): src/slot.rs, src/table.py."),
         "{text}"
     );
-    assert!(situation_text(&fixed_situation()).contains("Related file src/models.py:\n"));
+    assert!(text.contains("Related file src/models.py:\n"));
+    assert!(!situation_text(&fixed_situation()).contains("left out for room"));
 }
 
 #[test]
@@ -860,6 +859,39 @@ fn the_session_and_related_files_reach_the_situation() {
     assert!(shown.contains("+        pass  # wip"), "{shown}");
     assert!(
         shown.contains("New files, not yet in git: src/shop/new_thing.py"),
+        "{shown}"
+    );
+}
+
+/// conjure-context-choice (the user's ruling on walk 2): a related file is never cut at 120
+/// lines. It is shown whole; one that does not fit the step's budget is left out whole and
+/// named, the import the unit uses kept first.
+#[test]
+fn related_files_come_whole_and_one_without_room_is_named() {
+    let d = git_project();
+    let long_but_fitting = format!("class Item:\n{}", "    price = 1\n".repeat(300));
+    let too_big = format!("class Huge:\n{}", "    x = 1\n".repeat(3_000));
+    write(d.path(), "src/shop/item.py", &long_but_fitting);
+    write(d.path(), "src/shop/huge.py", &too_big);
+    write(
+        d.path(),
+        "src/shop/cart.py",
+        "from shop.huge import Huge\nfrom shop.item import Item\n\n\nclass Cart:\n    def total(self):\n        return Item.price\n",
+    );
+    commit(d.path(), "base");
+    let rig = Rig::new(d.path(), "<goal>nothing</goal>");
+    conjure_change(&ask("src/shop/cart.py", 6), &rig.deps()).unwrap();
+    let shown = &rig.writer.situations()[0];
+    assert!(
+        shown.contains(&long_but_fitting),
+        "a 301-line file is shown whole"
+    );
+    assert!(
+        !shown.contains("class Huge"),
+        "too big for the budget: not shown"
+    );
+    assert!(
+        shown.contains("left out for room (not shown, so do not rewrite them): src/shop/huge.py."),
         "{shown}"
     );
 }

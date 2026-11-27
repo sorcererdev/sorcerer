@@ -35,7 +35,8 @@ Conjure is in five layers (see [Architecture](architecture.md)).
   `ChangeDeps::checker`; only when they have an error, the old texts too; `rules_broken` between
   them. Texts that cannot be checked break nothing.
 - `conjure_change/situation.rs`: `situation_for` gathers the test file (`tests_path`), the
-  related files, the session (`session_of`: `changed_since("HEAD")`, each diff, new files), scry's
+  related files (`related_with_room`: `closest_first` over the unit's text, then `chosen_within`
+  the budget), the session (`session_of`: `changed_since("HEAD")`, each diff, new files), scry's
   notes and the finding asked for, and the rules, then `situation_text`.
 - `conjure_change/write.rs`: `write_once`, the one call to the writer.
 - `conjure_change/check.rs`: `checked_files`: each written path through `landing_of`
@@ -49,10 +50,18 @@ Conjure is in five layers (see [Architecture](architecture.md)).
 - `language_tables.rs` (its path templates filled with core's `templates::fill`, `{= name =}`): `TestTable`, `ImportsTable`,
   `test_table`, `imports_table`, `tests_path`: the language file's `[test]` and `[imports]`,
   read strictly from `Language.rest`.
-- `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `RelatedFile` (path, first
-  lines, `lines_in_all`; `related_heading` says when a file is cut short), `situation_text`,
-  `session_text`, and the caps (`RELATED_FILES` 8, `RELATED_FILES_BESIDE` 4 and `RELATED_FILES_BESIDE_IN_ALL` 6, `RELATED_LINES` 120, `SESSION_LINES` 300,
+- `change_prompt.rs`: `CHANGE_SYSTEM`. `situation.rs`: `Situation`, `RelatedFile` (path, whole
+  text, `closeness`, the `names` it defines), `situation_text` (`left_for_room_lines` names the
+  related files left out for room), `session_text`, and the caps (`RELATED_FILES` 8,
+  `RELATED_FILES_BESIDE` 4 and `RELATED_FILES_BESIDE_IN_ALL` 6, `SESSION_LINES` 300,
   `NEW_FILE_NAMES` 20).
+- `context_choice.rs`: choosing related files whole under a step's budget:
+  `CONTEXT_BUDGET_TOKENS` (6,000), `tokens_of` (a token for every 4 bytes), `Closeness`
+  (`UsedByTheUnit`, `Imported`, `BesideAnImport`, `DeclaringAnImport`), `closest_first` (an import
+  whose names the unit uses moves up), `chosen_within` (each file kept whole while it fits, else
+  left out whole: `Chosen { kept, left_for_room }`), `mentions_word`. Why a fixed order and not
+  a model's pick: measured in `notes/durandal/conjure-context-choice-report-2026-11-27.md` (Jev
+  picking the files dropped `ports/mod.rs` on the add-port step and said "no change" 6 of 8 times).
 - `scry_notes.rs`: conjure's own reading of scry's findings file: `StoredFinding`,
   `StoredFindings` (`Versioned`, version 2), `FindingsRead`, `notes_near`, `ScryNote`.
   `rules.rs`: `rules_text` over `context`, `include` and `[[rule]] text` of `.sorcerer/scry.toml`
@@ -78,7 +87,7 @@ asks a port and never touches an adapter).
 
 **Adapters** (`src/adapters/`): `provider_writer.rs` (`ProviderWriter`: one `Provider::complete`
 and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `Researcher`),
-`imports.rs` (`related_files`: `imported_project_files` from `imports.scm` and `[imports]`, then `with_nearby_files`: after each import, through `NearbyFiles`, the files in its folder of the same language whose text names one of its units (`beside`: `names_defined_in`, `mentions_word`; how a port brings its adapters), then the first file one folder up whose text names the import's folder (`declaring`: where ports are declared), all language-neutral; fenced ones are not read), `scry_files.rs`
+`imports.rs` (`related_files`: `imported_project_files` from `imports.scm` and `[imports]`, then `with_nearby_files`: after each import, through `NearbyFiles`, the files in its folder of the same language whose text names one of its units (`beside`: `names_defined_in`, `mentions_word`; how a port brings its adapters), then the first file one folder up whose text names the import's folder (`declaring`: where ports are declared), all language-neutral; fenced ones are not read; each file whole, tagged with its `Closeness` and its `names_defined_in`), `scry_files.rs`
 (`read_findings`), `steering_files.rs` (`project_rules`), `spellbook_checker.rs`
 (`SpellbookChecker::for_project`: the `spellbook` beside the running program, else on PATH, none
 without `.sorcerer/spellbook/rules.toml`; `findings_in` runs `spellbook check --texts - --json` in

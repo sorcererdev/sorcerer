@@ -13,16 +13,18 @@ use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Error, Result};
 use tree_sitter::{QueryCursor, StreamingIterator};
 
+use crate::domain::context_choice::{Closeness, mentions_word};
 use crate::domain::language_tables::{ImportsTable, imports_table};
 use crate::domain::situation::{
-    RELATED_FILES, RELATED_FILES_BESIDE, RELATED_FILES_BESIDE_IN_ALL, RELATED_LINES, RelatedFile,
+    RELATED_FILES, RELATED_FILES_BESIDE, RELATED_FILES_BESIDE_IN_ALL, RelatedFile,
 };
 use sorcerer_core::domain::templates::fill;
 
 /// The project files `file` imports, at most 8, in the order the imports are written, each
 /// followed by the files beside it that use its names (at most 4 for one import, 6 in all);
-/// then the file one folder up that declares it; each with its first 120 lines. A language
-/// with no `imports.scm` has none.
+/// then the file one folder up that declares it; each whole, with how close it is and the
+/// names it defines (the step's budget chooses among them later). A language with no
+/// `imports.scm` has none.
 ///
 /// A file beside an import is one in the same folder, of the same language, whose text names
 /// something the import defines (a whole word: the name of one of its units, up to the unit
@@ -48,11 +50,11 @@ pub fn related_files(
     let with_nearby = with_nearby_files(view, lang, file, &imported, allowed)?;
     let files = with_nearby
         .into_iter()
-        .map(|path| {
-            let text = view.text(&path)?;
+        .map(|(path, closeness)| {
             Ok(RelatedFile {
-                lines_in_all: text.lines().count(),
-                text: first_lines(&text),
+                text: view.text(&path)?,
+                names: names_defined_in(view, &path, &lang.language.unit_separator)?,
+                closeness,
                 path,
             })
         })
@@ -95,14 +97,14 @@ fn imported_project_files(
 /// Each imported file followed by the files near it: those beside it that use its names, then
 /// the file one folder up that names its folder (the one that declares it: `ports/mod.rs`
 /// with `pub mod clock;` for `ports/clock/mod.rs`); none twice and never `file` itself, at
-/// most 4 after one import and 6 in all.
+/// most 4 after one import and 6 in all; each with how close it is.
 fn with_nearby_files(
     view: &dyn CodebaseView,
     lang: &Loaded,
     file: &Path,
     imported: &[PathBuf],
     allowed: &dyn Fn(&Path) -> bool,
-) -> Result<Vec<PathBuf>> {
+) -> Result<Vec<(PathBuf, Closeness)>> {
     let search = NearbyFiles {
         view,
         of_language: globs_of(&lang.language.files),
@@ -110,19 +112,26 @@ fn with_nearby_files(
         imported,
         allowed,
     };
-    let mut listed: Vec<PathBuf> = Vec::new();
+    let mut listed: Vec<(PathBuf, Closeness)> = Vec::new();
     let mut nearby_count = 0;
     for import in imported {
-        listed.push(import.clone());
+        listed.push((import.clone(), Closeness::Imported));
         let room = RELATED_FILES_BESIDE.min(RELATED_FILES_BESIDE_IN_ALL - nearby_count);
         let names = names_defined_in(view, import, &lang.language.unit_separator)?;
-        let mut nearby = search.beside(import, &names, &listed, room)?;
-        if nearby.len() < room {
-            let seen = [listed.as_slice(), nearby.as_slice()].concat();
-            nearby.extend(search.declaring(import, &seen)?);
-        }
-        nearby_count += nearby.len();
-        listed.extend(nearby);
+        let paths: Vec<PathBuf> = listed.iter().map(|(path, _)| path.clone()).collect();
+        let beside = search.beside(import, &names, &paths, room)?;
+        let declaring = if beside.len() < room {
+            search.declaring(import, &[paths.as_slice(), beside.as_slice()].concat())?
+        } else {
+            Vec::new()
+        };
+        nearby_count += beside.len() + declaring.len();
+        listed.extend(beside.into_iter().map(|p| (p, Closeness::BesideAnImport)));
+        listed.extend(
+            declaring
+                .into_iter()
+                .map(|p| (p, Closeness::DeclaringAnImport)),
+        );
     }
     Ok(listed)
 }
@@ -221,18 +230,6 @@ fn globs_of(patterns: &[String]) -> GlobSet {
     builder.build().unwrap_or_else(|_| GlobSet::empty())
 }
 
-/// Whether `word` appears in `text` as a whole word: not inside a longer name.
-///
-/// Example: `Clock` is in `impl Clock for InMemoryClock`, but not in `ClockFace` or `clock`.
-fn mentions_word(text: &str, word: &str) -> bool {
-    let is_name_char = |c: char| c.is_alphanumeric() || c == '_';
-    text.match_indices(word).any(|(at, _)| {
-        let before = text[..at].chars().next_back();
-        let after = text[at + word.len()..].chars().next();
-        !before.is_some_and(is_name_char) && !after.is_some_and(is_name_char)
-    })
-}
-
 /// What the file's `imports.scm` captured as `@import.path`, in file order.
 fn imported_paths(lang: &Loaded, text: &str) -> Result<Vec<String>> {
     let Some((_, query)) = lang.queries.iter().find(|(name, _)| name == "imports.scm") else {
@@ -311,10 +308,4 @@ fn stays_inside(candidate: &Path) -> bool {
     candidate
         .components()
         .all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
-}
-
-fn first_lines(text: &str) -> String {
-    text.split_inclusive('\n')
-        .take(RELATED_LINES)
-        .collect::<String>()
 }
