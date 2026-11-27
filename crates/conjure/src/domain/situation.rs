@@ -10,6 +10,10 @@ use crate::domain::scry_notes::{MAX_NOTES, ScryNote};
 
 /// At most 8 related files go into a situation.
 pub const RELATED_FILES: usize = 8;
+/// At most 4 files beside one related file (in its folder, using its names) come with it.
+pub const RELATED_FILES_BESIDE: usize = 4;
+/// At most 6 files beside related files go into a situation in all.
+pub const RELATED_FILES_BESIDE_IN_ALL: usize = 6;
 /// Each related file is cut to its first 120 lines.
 pub const RELATED_LINES: usize = 120;
 /// The session block is cut at 300 lines.

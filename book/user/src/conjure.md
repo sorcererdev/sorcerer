@@ -205,6 +205,11 @@ For the function at the line, in this order, each part cut as shown:
 
 - the whole file, and its test file, or where its tests would go (`[test]` in the language file);
 - the files it imports, at most 8, their first 120 lines each (`[imports]` and `imports.scm`);
+- near each imported file, the files in its folder that use a name it defines, then the file one
+  folder up that names its folder (at most 4 for one import, 6 in all, 120 lines each): a port's
+  adapters and contract test come with the port, and so does the file that declares the ports
+  (`ports/mod.rs` with `pub mod clock;`), so a step can extend a port and its adapters, or add a
+  port beside it. A fenced file is skipped, not named;
 - what you have been doing: the uncommitted changes in files of the same language, cut at 300
   lines, and the names of up to 20 new files;
 - scry's open findings near the function, at most 5, as context the writer may act on or not

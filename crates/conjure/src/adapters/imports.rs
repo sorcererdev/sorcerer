@@ -1,25 +1,42 @@
 //! Related files: the files a file imports, found from the language's `imports.scm` query (it
-//! captures `@import.path`, nothing else) and its `[imports]` table. Both are data; no language
-//! is named here.
+//! captures `@import.path`, nothing else) and its `[imports]` table, and the files near each
+//! import (beside it and using its names; one folder up and declaring it), found by paths and
+//! whole words. All of it is data; no language is named here.
 
 use std::path::{Component, Path, PathBuf};
 
 use crate::ports::project_context::RelatedFiles;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use sorcerer_core::domain::language::Loaded;
+use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::ports::view::CodebaseView;
 use sorcerer_core::{Error, Result};
 use tree_sitter::{QueryCursor, StreamingIterator};
 
 use crate::domain::language_tables::{ImportsTable, imports_table};
-use crate::domain::situation::{RELATED_FILES, RELATED_LINES};
+use crate::domain::situation::{
+    RELATED_FILES, RELATED_FILES_BESIDE, RELATED_FILES_BESIDE_IN_ALL, RELATED_LINES,
+};
 use sorcerer_core::domain::templates::fill;
 
-/// The project files `file` imports, with the first 120 lines of each, at most 8, in the order
-/// the imports are written. A language with no `imports.scm` has none.
+/// The project files `file` imports, at most 8, in the order the imports are written, each
+/// followed by the files beside it that use its names (at most 4 for one import, 6 in all);
+/// then the file one folder up that declares it; each with its first 120 lines. A language
+/// with no `imports.scm` has none.
+///
+/// A file beside an import is one in the same folder, of the same language, whose text names
+/// something the import defines (a whole word: the name of one of its units, up to the unit
+/// separator). That is how a port's adapters and its contract test come with the port: the
+/// file defining the `Clock` trait brings `clock/in_memory.rs`, which implements `Clock`; a
+/// Python `table_repository.py` brings `in_memory_table_repository.py`, which names
+/// `TableRepository`. The file one folder up is the first there whose text names the import's
+/// folder as a whole word: `ports/mod.rs`, with `pub mod clock;`, for `ports/clock/mod.rs`, so
+/// a step that adds a port beside it sees where ports are declared. A file a fence refuses is
+/// never read for this, and not named.
 ///
 /// Example: `from bistro.booking.models.booking import Booking` in a Python `src/` layout
-/// relates to `src/bistro/booking/models/booking.py`; `import os` relates to nothing, since
-/// no template finds a file for it.
+/// relates to `src/bistro/booking/models/booking.py` (and any file beside it that names
+/// `Booking`); `import os` relates to nothing, since no template finds a file for it.
 pub fn related_files(
     view: &dyn CodebaseView,
     lang: &Loaded,
@@ -27,6 +44,24 @@ pub fn related_files(
     text: &str,
     allowed: &dyn Fn(&Path) -> bool,
 ) -> Result<RelatedFiles> {
+    let (imported, left_out) = imported_project_files(view, lang, file, text, allowed)?;
+    let with_nearby = with_nearby_files(view, lang, file, &imported, allowed)?;
+    let files = with_nearby
+        .into_iter()
+        .map(|path| Ok((path.clone(), first_lines(&view.text(&path)?))))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(RelatedFiles { files, left_out })
+}
+
+/// The project files `file`'s imports name, in file order, at most 8; and those a fence
+/// refuses, found before the eighth.
+fn imported_project_files(
+    view: &dyn CodebaseView,
+    lang: &Loaded,
+    file: &Path,
+    text: &str,
+    allowed: &dyn Fn(&Path) -> bool,
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
     let table = imports_table(&lang.language)?;
     let mut related: Vec<PathBuf> = Vec::new();
     let mut left_out: Vec<PathBuf> = Vec::new();
@@ -47,12 +82,148 @@ pub fn related_files(
             break;
         }
     }
-    let files = related
-        .into_iter()
-        .map(|path| Ok((first_lines(&view.text(&path)?), path)))
-        .map(|read: Result<(String, PathBuf)>| read.map(|(text, path)| (path, text)))
-        .collect::<Result<Vec<_>>>()?;
-    Ok(RelatedFiles { files, left_out })
+    Ok((related, left_out))
+}
+
+/// Each imported file followed by the files near it: those beside it that use its names, then
+/// the file one folder up that names its folder (the one that declares it: `ports/mod.rs`
+/// with `pub mod clock;` for `ports/clock/mod.rs`); none twice and never `file` itself, at
+/// most 4 after one import and 6 in all.
+fn with_nearby_files(
+    view: &dyn CodebaseView,
+    lang: &Loaded,
+    file: &Path,
+    imported: &[PathBuf],
+    allowed: &dyn Fn(&Path) -> bool,
+) -> Result<Vec<PathBuf>> {
+    let search = NearbyFiles {
+        view,
+        of_language: globs_of(&lang.language.files),
+        file,
+        imported,
+        allowed,
+    };
+    let mut listed: Vec<PathBuf> = Vec::new();
+    let mut nearby_count = 0;
+    for import in imported {
+        listed.push(import.clone());
+        let room = RELATED_FILES_BESIDE.min(RELATED_FILES_BESIDE_IN_ALL - nearby_count);
+        let names = names_defined_in(view, import, &lang.language.unit_separator)?;
+        let mut nearby = search.beside(import, &names, &listed, room)?;
+        if nearby.len() < room {
+            let seen = [listed.as_slice(), nearby.as_slice()].concat();
+            nearby.extend(search.declaring(import, &seen)?);
+        }
+        nearby_count += nearby.len();
+        listed.extend(nearby);
+    }
+    Ok(listed)
+}
+
+/// Where files near an import are looked for: the project's files of the import's language,
+/// never the file asked in, an import, or a file a fence refuses (which is not read).
+struct NearbyFiles<'a> {
+    view: &'a dyn CodebaseView,
+    of_language: GlobSet,
+    file: &'a Path,
+    imported: &'a [PathBuf],
+    allowed: &'a dyn Fn(&Path) -> bool,
+}
+
+impl NearbyFiles<'_> {
+    /// The files in the import's folder whose text names one of `names`, at most `room`.
+    fn beside(
+        &self,
+        import: &Path,
+        names: &[String],
+        listed: &[PathBuf],
+        room: usize,
+    ) -> Result<Vec<PathBuf>> {
+        let Some(folder) = import.parent() else {
+            return Ok(Vec::new());
+        };
+        self.in_folder(folder, listed, room, &|text| {
+            names.iter().any(|name| mentions_word(text, name))
+        })
+    }
+
+    /// The first file in the folder above the import's whose text names the import's folder.
+    fn declaring(&self, import: &Path, listed: &[PathBuf]) -> Result<Vec<PathBuf>> {
+        let folder = import.parent();
+        let (Some(name), Some(above)) = (
+            folder
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy()),
+            folder.and_then(Path::parent),
+        ) else {
+            return Ok(Vec::new());
+        };
+        self.in_folder(above, listed, 1, &|text| mentions_word(text, &name))
+    }
+
+    /// The files directly in `folder` that may be shown, are not listed yet and whose text
+    /// `wanted` accepts, in path order, at most `room`.
+    fn in_folder(
+        &self,
+        folder: &Path,
+        listed: &[PathBuf],
+        room: usize,
+        wanted: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<PathBuf>> {
+        Ok(self
+            .view
+            .glob(&folder_glob(folder))?
+            .into_iter()
+            .filter(|path| path.parent() == Some(folder) && self.of_language.is_match(path))
+            .filter(|path| path != self.file && !listed.contains(path))
+            .filter(|path| !self.imported.contains(path) && (self.allowed)(path))
+            .filter(|path| self.view.text(path).is_ok_and(|text| wanted(&text)))
+            .take(room)
+            .collect())
+    }
+}
+
+/// The names a file defines: each unit's name up to the unit separator (`Clock` for both
+/// `Clock` and `Clock::now`), once each, in file order.
+fn names_defined_in(view: &dyn CodebaseView, path: &Path, separator: &str) -> Result<Vec<String>> {
+    let mut names: Vec<String> = Vec::new();
+    for unit in view.units(path)? {
+        let name = unit.name.split(separator).next().unwrap_or_default().trim();
+        if !name.is_empty() && !names.iter().any(|seen| seen == name) {
+            names.push(name.to_string());
+        }
+    }
+    Ok(names)
+}
+
+/// A glob for the files in a folder (and below: the caller keeps only the folder's own).
+fn folder_glob(folder: &Path) -> String {
+    match forward_slashes(folder) {
+        folder if folder.is_empty() => "*".to_string(),
+        folder => format!("{}/*", globset::escape(&folder)),
+    }
+}
+
+fn globs_of(patterns: &[String]) -> GlobSet {
+    let mut builder = GlobSetBuilder::new();
+    for pattern in patterns {
+        if let Ok(glob) = Glob::new(pattern) {
+            builder.add(glob);
+        }
+    }
+    builder.build().unwrap_or_else(|_| GlobSet::empty())
+}
+
+/// Whether `word` appears in `text` as a whole word: not inside a longer name.
+///
+/// Example: `Clock` is in `impl Clock for InMemoryClock`, but not in `ClockFace` or `clock`.
+fn mentions_word(text: &str, word: &str) -> bool {
+    let is_name_char = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices(word).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + word.len()..].chars().next();
+        !before.is_some_and(is_name_char) && !after.is_some_and(is_name_char)
+    })
 }
 
 /// What the file's `imports.scm` captured as `@import.path`, in file order.

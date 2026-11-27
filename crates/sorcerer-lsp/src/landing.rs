@@ -78,7 +78,7 @@ pub enum NewFiles {
 ///
 /// Example: a change of the open `a.py` (version 2), the unopened `b.py` and a new
 /// `a__test.py` is an edit of `a.py` at version 2, an edit of `b.py` with no version, then a
-/// `CreateFile` of `a__test.py` and an edit inserting its text.
+/// `CreateFile` of `a__test.py` and an edit writing its text over the new, empty buffer.
 pub fn workspace_edit(
     files: &[FileChange],
     snapshot: &Snapshot,
@@ -135,12 +135,19 @@ fn edited(file: &FileChange, snapshot: &Snapshot) -> DocumentChangeOperation {
     )
 }
 
-/// A new file: created (left alone if it is there by then), then its text inserted.
+/// A new file: created (left alone if it is there by then), then its text written over the
+/// whole of the new buffer.
+///
+/// The text replaces lines 0 up to 1, not an insertion at the start: a new Neovim buffer
+/// already holds one empty line, so inserting `a\nb\n` at 0:0 leaves `a\nb\n` and that empty
+/// line (`a\nb\n\n` with `eol`), which is not the text sent. An edit that reaches past the last
+/// line is one Neovim fits to the buffer and then drops the empty last line of; VS Code fits it
+/// to its empty document the same way. Both then hold exactly `a\nb\n`.
 fn created(file: &FileChange, snapshot: &Snapshot) -> [DocumentChangeOperation; 2] {
     let path = snapshot.editor_path(file.path);
-    let insert = LineEdit {
+    let whole_buffer = LineEdit {
         start_line: 0,
-        end_line: 0,
+        end_line: 1,
         text: file.after.to_string(),
         to_end_of_file: None,
     };
@@ -153,7 +160,7 @@ fn created(file: &FileChange, snapshot: &Snapshot) -> [DocumentChangeOperation; 
             }),
             annotation_id: None,
         })),
-        text_document_edit(&path, None, &[insert]),
+        text_document_edit(&path, None, &[whole_buffer]),
     ]
 }
 

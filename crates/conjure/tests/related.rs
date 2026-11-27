@@ -135,3 +135,111 @@ fn tests_path_fills_dir_and_stem() {
     );
     assert!(fill("{= nope =}", &[]).unwrap_err().contains("nope"));
 }
+
+#[test]
+fn a_port_brings_the_files_beside_it_that_use_its_names_and_the_file_declaring_it() {
+    // the command uses the Clock port; clock/in_memory.rs implements it, and the writer
+    // must see it to extend the port without breaking it
+    let d = git_project();
+    write(
+        d.path(),
+        "src/ports/clock/mod.rs",
+        "pub mod in_memory;\n\npub trait Clock {\n    fn now(&self) -> u32;\n}\n",
+    );
+    write(
+        d.path(),
+        "src/ports/clock/in_memory.rs",
+        "use super::Clock;\n\npub struct FixedClock;\n\nimpl Clock for FixedClock {\n    fn now(&self) -> u32 { 1 }\n}\n",
+    );
+    write(d.path(), "src/ports/clock/notes.rs", "pub fn clocks() {}\n");
+    // ports/mod.rs declares the clock folder: a step that adds a port sees where it goes
+    write(d.path(), "src/ports/mod.rs", "pub mod clock;\n");
+    write(d.path(), "src/ports/other.rs", "pub fn clockwork() {}\n");
+    write(
+        d.path(),
+        "src/commands/seat.rs",
+        "use crate::ports::clock::Clock;\n\nfn f() {}\n",
+    );
+    let found = related(d.path(), "rust", "src/commands/seat.rs");
+    let names: Vec<&str> = found.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "src/ports/clock/mod.rs",
+            "src/ports/clock/in_memory.rs",
+            "src/ports/mod.rs"
+        ]
+    );
+}
+
+#[test]
+fn a_python_protocol_brings_its_adapters_and_contract_test_but_not_unrelated_neighbours() {
+    let d = git_project();
+    let port = "src/bistro/ports/table_repository";
+    write(
+        d.path(),
+        &format!("{port}/table_repository.py"),
+        "class TableRepository:\n    def get(self, id): ...\n",
+    );
+    write(
+        d.path(),
+        &format!("{port}/in_memory_table_repository.py"),
+        "class InMemoryTableRepository:\n    \"\"\"Keeps the TableRepository contract.\"\"\"\n",
+    );
+    write(
+        d.path(),
+        &format!("{port}/table_repository__test.py"),
+        "from bistro.ports.table_repository.table_repository import TableRepository\n",
+    );
+    write(d.path(), &format!("{port}/readme.txt"), "TableRepository\n");
+    write(d.path(), &format!("{port}/tables.py"), "TABLES = 3\n");
+    write(
+        d.path(),
+        "src/bistro/commands/close.py",
+        "from bistro.ports.table_repository.table_repository import TableRepository\n",
+    );
+    let found = related(d.path(), "python", "src/bistro/commands/close.py");
+    let names: Vec<&str> = found.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "src/bistro/ports/table_repository/table_repository.py",
+            "src/bistro/ports/table_repository/in_memory_table_repository.py",
+            "src/bistro/ports/table_repository/table_repository__test.py",
+        ]
+    );
+}
+
+#[test]
+fn files_beside_stop_at_four_for_one_import_and_skip_fenced_ones() {
+    let d = git_project();
+    write(d.path(), "src/a/port.py", "class Port:\n    pass\n");
+    for i in 0..6 {
+        write(d.path(), &format!("src/a/user{i}.py"), "x = Port\n");
+    }
+    write(d.path(), "src/main.py", "from a.port import Port\n");
+    let (project, view) = project_with_vendored_grammars(d.path());
+    let loaded = project.languages.load("python", &test_cache()).unwrap();
+    let text = view.text(Path::new("src/main.py")).unwrap();
+    let fenced = Path::new("src/a/user0.py");
+    let found = related_files(&view, &loaded, Path::new("src/main.py"), &text, &|p| {
+        p != fenced
+    })
+    .unwrap();
+    let names: Vec<String> = found
+        .files
+        .iter()
+        .map(|(p, _)| p.to_string_lossy().replace('\\', "/"))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "src/a/port.py",
+            "src/a/user1.py",
+            "src/a/user2.py",
+            "src/a/user3.py",
+            "src/a/user4.py"
+        ]
+    );
+    assert!(found.left_out.is_empty(), "{:?}", found.left_out);
+}

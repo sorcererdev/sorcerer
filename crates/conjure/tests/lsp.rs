@@ -190,6 +190,8 @@ struct Served {
     requests_sent: std::cell::Cell<i32>,
     /// The documents the editor has open: version and text.
     buffers: RefCell<HashMap<PathBuf, (i32, String)>>,
+    /// Whether the editor keeps buffers as Neovim does (see `neovim_applied_edits`).
+    as_neovim: std::cell::Cell<bool>,
     trust: TrustList,
     _trust_home: TempDir,
 }
@@ -228,6 +230,7 @@ fn served_with(dir: &Path, script: Arc<Script>, setup: Setup) -> Served {
         inbox: RefCell::new(VecDeque::new()),
         requests_sent: std::cell::Cell::new(0),
         buffers: RefCell::new(HashMap::new()),
+        as_neovim: std::cell::Cell::new(false),
         trust,
         _trust_home: trust_home,
     };
@@ -487,6 +490,15 @@ impl Served {
         params
     }
 
+    /// The editor applies the next edit as Neovim does: a new buffer holds one empty line, an
+    /// edit past the last line is fitted to the buffer, and every buffer ends with a newline.
+    fn apply_next_edit_as_neovim(&self) -> Value {
+        self.as_neovim.set(true);
+        let params = self.apply_next_edit();
+        self.as_neovim.set(false);
+        params
+    }
+
     /// The editor applies the next edit and keeps every file with CRLF lines, as VS Code on
     /// Windows does for a new file.
     fn apply_next_edit_with_crlf_lines(&self) -> Value {
@@ -594,7 +606,8 @@ impl Served {
                     let path = path_of(&change["uri"]);
                     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
                     std::fs::write(&path, "").unwrap();
-                    notes.push(opened(&path, 1, ""));
+                    let empty = if self.as_neovim.get() { "\n" } else { "" };
+                    notes.push(opened(&path, 1, empty));
                 }
                 Some("delete") => {
                     let path = path_of(&change["uri"]);
@@ -613,7 +626,11 @@ impl Served {
                     }
                     let (version, text) = self.buffers.borrow()[&path].clone();
                     let edits = change["edits"].as_array().unwrap();
-                    let new_text = applied_edits(&text, edits);
+                    let new_text = if self.as_neovim.get() {
+                        neovim_applied_edits(&text, edits)
+                    } else {
+                        applied_edits(&text, edits)
+                    };
                     self.buffers
                         .borrow_mut()
                         .insert(path.clone(), (version + 1, new_text.clone()));
@@ -705,6 +722,40 @@ fn applied_edits(text: &str, edits: &[Value]) -> String {
         text.replace_range(start..end, &new);
     }
     text
+}
+
+/// A text with LSP text edits applied as Neovim 0.12's `apply_text_edits` does: the buffer is
+/// its lines (a text of `a\nb\n` is `a`, `b`; an empty one is one empty line); an edit whose
+/// end is past the last line ends at the end of the last line, and then an empty last line is
+/// dropped; the text reported is the lines joined, ending with a newline (`eol`).
+fn neovim_applied_edits(text: &str, edits: &[Value]) -> String {
+    let mut lines: Vec<String> = text
+        .strip_suffix('\n')
+        .unwrap_or(text)
+        .split('\n')
+        .map(String::from)
+        .collect();
+    let mut past_the_end = false;
+    let mut sorted: Vec<&Value> = edits.iter().collect();
+    sorted.sort_by_key(|e| std::cmp::Reverse(e["range"]["start"]["line"].as_u64().unwrap()));
+    for edit in sorted {
+        let joined = lines.join("\n");
+        let mut end = edit["range"]["end"].clone();
+        if end["line"].as_u64().unwrap() as usize >= lines.len() {
+            let last = lines.len() - 1;
+            end = json!({ "line": last, "character": lines[last].encode_utf16().count() });
+            past_the_end = true;
+        }
+        let start = offset_of(&joined, &edit["range"]["start"]);
+        let end = offset_of(&joined, &end);
+        let mut joined = joined;
+        joined.replace_range(start..end, edit["newText"].as_str().unwrap());
+        lines = joined.split('\n').map(String::from).collect();
+    }
+    if past_the_end && lines.len() > 1 && lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines.join("\n") + "\n"
 }
 
 fn offset_of(text: &str, position: &Value) -> usize {
@@ -1583,6 +1634,26 @@ fn a_change_the_editor_keeps_with_crlf_lines_landed_and_undoes_without_changing_
     assert!(s.text("src/a__test.py").is_none());
     let records = s.records_reach(1);
     assert_eq!(records[0].choice, Choice::Undone);
+    s.stop();
+}
+
+#[test]
+fn a_created_file_lands_as_sent_in_neovim() {
+    // a new Neovim buffer already holds one empty line; the new file's text must replace it,
+    // not sit above it, or the file reads as not landed and offers no Undo
+    let dir = project();
+    let s = served(dir.path(), Script::replying(&[&three_files()]));
+    s.open("src/a.py");
+    s.conjure_here("src/a.py", 5);
+    s.apply_next_edit_as_neovim();
+    assert!(
+        s.shown_message().starts_with("conjure: changed "),
+        "{}",
+        s.shown_message()
+    );
+    assert_eq!(s.text("src/a__test.py").unwrap(), NEW_TEST);
+    let main = s.marks("src/a.py");
+    mark_action(&s, "src/a.py", &main, "conjure: Undo");
     s.stop();
 }
 
