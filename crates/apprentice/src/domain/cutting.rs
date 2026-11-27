@@ -2,6 +2,8 @@
 //! shape (its comments, its units, whether a language covers it), become the regions Jev is
 //! asked about. No language is named: comments are what the language's queries capture.
 
+use std::collections::HashSet;
+
 use similar::{DiffTag, TextDiff};
 use sorcerer_core::domain::unit::Span;
 
@@ -27,26 +29,84 @@ pub struct ShapeUnit {
     pub is_stub: bool,
 }
 
-/// The lines of `after` (from 1) that differ from `before`, as runs; a deletion counts as the
-/// line after it.
+/// The lines of `after` (from 1) the person changed since `before`, as runs. A deletion counts
+/// as the line after it, unless every deleted line is still in the file (it moved). A change is
+/// left out when it is not the person's typing:
 ///
-/// Example: from `a\nb\nc\n` to `a\nB\nc\nd\n`, lines 2 and 4 changed.
-pub fn changed_lines(before: &str, after: &str) -> Vec<Span> {
-    let after_count = after.lines().count().max(1) as u32;
-    TextDiff::from_lines(before, after)
+/// - a line a tool landed in the file a moment ago (its trimmed text is in `landed_by_tools`:
+///   spellbook's sync, a conjure step, an apprentice task);
+/// - a line whose trimmed text was already in the file (moved, as a formatter sorting imports
+///   does, or re-indented);
+/// - a change that is the old lines reflowed: the same text once whitespace is taken out (a
+///   formatter rewrapping a call, or adding and removing blank lines);
+/// - a blank line.
+///
+/// Example: from `a\nb\nc\n` to `a\nB\nc\nd\n`, lines 2 and 4 changed; with `d` landed by a
+/// tool, only line 2.
+pub fn persons_changed_lines(
+    before: &str,
+    after: &str,
+    landed_by_tools: &HashSet<String>,
+) -> Vec<Span> {
+    let after_lines: Vec<&str> = after.lines().collect();
+    let before_lines: Vec<&str> = before.lines().collect();
+    let already_there: HashSet<&str> = before_lines.iter().map(|line| line.trim()).collect();
+    let still_there: HashSet<&str> = after_lines.iter().map(|line| line.trim()).collect();
+    let persons = |line: &str| {
+        let line = line.trim();
+        !line.is_empty() && !already_there.contains(line) && !landed_by_tools.contains(line)
+    };
+    let after_count = after_lines.len().max(1) as u32;
+    let lines: Vec<u32> = TextDiff::from_lines(before, after)
         .ops()
         .iter()
         .filter(|op| op.tag() != DiffTag::Equal)
-        .map(|op| {
-            let range = op.new_range();
-            let start = range.start as u32 + 1;
-            let end = (range.end as u32).max(start);
-            Span {
-                start: start.min(after_count),
-                end: end.min(after_count),
-            }
+        .filter(|op| {
+            let old =
+                &before_lines[op.old_range().start..op.old_range().end.min(before_lines.len())];
+            let new = &after_lines[op.new_range().start..op.new_range().end.min(after_lines.len())];
+            without_whitespace(old) != without_whitespace(new)
         })
+        .flat_map(|op| {
+            let range = op.new_range();
+            if range.is_empty() {
+                let deleted = &before_lines[op.old_range()];
+                let moved = deleted.iter().all(|line| still_there.contains(line.trim()));
+                return if moved {
+                    Vec::new()
+                } else {
+                    vec![(range.start as u32 + 1).min(after_count)]
+                };
+            }
+            range
+                .filter(|&index| after_lines.get(index).is_some_and(|line| persons(line)))
+                .map(|index| index as u32 + 1)
+                .collect()
+        })
+        .collect();
+    runs_of(&lines)
+}
+
+fn without_whitespace(lines: &[&str]) -> String {
+    lines
+        .iter()
+        .flat_map(|line| line.chars())
+        .filter(|c| !c.is_whitespace())
         .collect()
+}
+
+/// Line numbers, in order, joined into runs of neighbouring lines.
+fn runs_of(lines: &[u32]) -> Vec<Span> {
+    lines.iter().fold(Vec::new(), |mut runs: Vec<Span>, &line| {
+        match runs.last_mut() {
+            Some(last) if line <= last.end + 1 => last.end = last.end.max(line),
+            _ => runs.push(Span {
+                start: line,
+                end: line,
+            }),
+        }
+        runs
+    })
 }
 
 /// The regions the changed lines of a file make, in file order, each once:
@@ -206,12 +266,43 @@ mod tests {
 
     #[test]
     fn changed_lines_are_runs_in_the_new_text() {
+        let none = HashSet::new();
         assert_eq!(
-            changed_lines("a\nb\nc\n", "a\nB\nc\nd\n"),
+            persons_changed_lines("a\nb\nc\n", "a\nB\nc\nd\n", &none),
             [span(2, 2), span(4, 4)]
         );
-        assert_eq!(changed_lines("a\nb\nc\n", "a\nc\n"), [span(2, 2)]);
-        assert!(changed_lines("a\n", "a\n").is_empty());
+        assert_eq!(
+            persons_changed_lines("a\nb\nc\n", "a\nc\n", &none),
+            [span(2, 2)]
+        );
+        assert!(persons_changed_lines("a\n", "a\n", &none).is_empty());
+    }
+
+    #[test]
+    fn what_tools_landed_moved_or_reflowed_is_not_the_persons() {
+        let landed = HashSet::from(["pub mod clock;".to_string()]);
+        // a tool's line beside the person's
+        assert_eq!(
+            persons_changed_lines(
+                "pub mod a;\n",
+                "pub mod a;\npub mod clock;\n# why?\n",
+                &landed
+            ),
+            [span(3, 3)]
+        );
+        // imports sorted: the lines were there
+        assert!(
+            persons_changed_lines(
+                "import b\nimport a\nx = 1\n",
+                "import a\nimport b\nx = 1\n",
+                &landed
+            )
+            .is_empty()
+        );
+        // a call rewrapped, and a blank line added
+        let one = "f(alpha, beta)\n";
+        let wrapped = "f(\n    alpha,\n    beta\n)\n\n";
+        assert!(persons_changed_lines(one, wrapped, &landed).is_empty());
     }
 
     #[test]

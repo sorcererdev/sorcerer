@@ -478,16 +478,18 @@ impl Server {
         }
         let label = format!("conjure: {}", landed.goal_text());
         let server = Arc::clone(self);
-        self.client.apply_edit(&label, edit, move |answer| {
-            if answer.applied {
-                // the editor's text is checked off the main loop, which delivers it
-                std::thread::spawn(move || server.confirm_landed(landed, progress));
-            } else {
-                server.client.say(MessageType::WARNING, REFUSED);
-                server.record(&landed.project, &landed.record, Choice::Dropped);
-                server.ended(progress);
-            }
-        });
+        let state_dir = landed.project.state_dir().ok();
+        self.client
+            .apply_tool_edit(state_dir.as_deref(), &label, edit, move |answer| {
+                if answer.applied {
+                    // the editor's text is checked off the main loop, which delivers it
+                    std::thread::spawn(move || server.confirm_landed(landed, progress));
+                } else {
+                    server.client.say(MessageType::WARNING, REFUSED);
+                    server.record(&landed.project, &landed.record, Choice::Dropped);
+                    server.ended(progress);
+                }
+            });
     }
 
     /// The editor said it applied the edit: each file must read as the change made it (an

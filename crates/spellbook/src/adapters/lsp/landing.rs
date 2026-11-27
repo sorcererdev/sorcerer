@@ -58,12 +58,14 @@ impl Server {
         let label = edit_label(&plan);
         self.remember_landing(&plan);
         let server = Arc::clone(self);
-        self.client.apply_edit(&label, edit, move |answer| {
-            if !answer.applied {
-                server.forget_refused_landing(&plan);
-            }
-            answered(&server, plan, answer.applied);
-        });
+        let state_dir = self.state_dir();
+        self.client
+            .apply_tool_edit(state_dir.as_deref(), &label, edit, move |answer| {
+                if !answer.applied {
+                    server.forget_refused_landing(&plan);
+                }
+                answered(&server, plan, answer.applied);
+            });
     }
 }
 

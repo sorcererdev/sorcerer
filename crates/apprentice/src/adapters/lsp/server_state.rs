@@ -83,6 +83,12 @@ impl Server {
     }
 
     /// The project, opened afresh; `None` (and logged) when it does not open.
+    /// The project's state directory, where an edit sent to the editor is noted as a tool's;
+    /// `None` when the project does not open.
+    pub(super) fn state_dir(&self) -> Option<PathBuf> {
+        self.project()?.state_dir().ok()
+    }
+
     pub fn project(&self) -> Option<Project> {
         match (self.cfg.open)(&self.root) {
             Ok(project) => Some(project),

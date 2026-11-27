@@ -1,0 +1,181 @@
+//! The lines Sorcerer's own servers asked the editor to land, noted in the project's state so a
+//! server that watches the person's typing can tell them apart. The editor reports every change
+//! the same way (`textDocument/didChange` with the whole text), whoever made it; a line that
+//! spellbook's sync, a conjure step or an apprentice task landed a moment ago is theirs, not
+//! the person's.
+//!
+//! The note is `.sorcerer/state/tool-edits.jsonl`: one line per edit sent, with the time, the
+//! file and the lines it puts there. Every server writes it before it sends the edit, so the
+//! note is there by the time the editor reports the change. A note is read for ten minutes.
+
+use std::collections::HashSet;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use lsp_types::{DocumentChangeOperation, DocumentChanges, OneOf, WorkspaceEdit};
+use serde::{Deserialize, Serialize};
+
+use crate::uri::path_of;
+
+/// The note's file name under the state directory.
+pub const NOTE_FILE: &str = "tool-edits.jsonl";
+
+/// How long a noted line counts as a tool's: long enough for the person to stop typing and
+/// for the idle look, or the save, that follows.
+pub const NOTED_FOR: Duration = Duration::from_secs(600);
+
+/// When the note holds more lines than this, writing one more drops the ones too old to count.
+const PRUNE_ABOVE: usize = 200;
+
+/// One edit sent: when, which file (as the editor names it), and the lines it puts there,
+/// trimmed, blank ones left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Noted {
+    at: u64,
+    file: PathBuf,
+    lines: Vec<String>,
+}
+
+/// Notes the lines an edit puts in each file, before the edit is sent. A note that cannot be
+/// written is skipped: the edit still goes, and its lines are then triaged as anyone's.
+///
+/// Example: spellbook's sync inserting `pub mod clock;` into `src/ports/mod.rs` notes the file
+/// with the one line `pub mod clock;`.
+pub fn note_tool_edit(state_dir: &Path, edit: &WorkspaceEdit, at: SystemTime) {
+    let seconds = seconds_of(at);
+    let noted: Vec<Noted> = lines_by_file(edit)
+        .into_iter()
+        .filter(|(_, lines)| !lines.is_empty())
+        .map(|(file, lines)| Noted {
+            at: seconds,
+            file,
+            lines,
+        })
+        .collect();
+    if noted.is_empty() {
+        return;
+    }
+    let _ = append(state_dir, &noted, seconds);
+}
+
+/// The lines a tool landed in a file in the last ten minutes, trimmed.
+///
+/// Example: after the note above, `lines_tools_landed(state, ".../src/ports/mod.rs", now)`
+/// holds `pub mod clock;`; for any other file it is empty.
+pub fn lines_tools_landed(state_dir: &Path, file: &Path, now: SystemTime) -> HashSet<String> {
+    let oldest = seconds_of(now).saturating_sub(NOTED_FOR.as_secs());
+    read(state_dir)
+        .into_iter()
+        .filter(|noted| noted.at >= oldest && noted.file == file)
+        .flat_map(|noted| noted.lines)
+        .collect()
+}
+
+/// Each edited file of the edit with the lines its text edits put there.
+fn lines_by_file(edit: &WorkspaceEdit) -> Vec<(PathBuf, Vec<String>)> {
+    let Some(DocumentChanges::Operations(operations)) = &edit.document_changes else {
+        return Vec::new();
+    };
+    operations
+        .iter()
+        .filter_map(|operation| match operation {
+            DocumentChangeOperation::Edit(edit) => {
+                let file = path_of(&edit.text_document.uri)?;
+                let lines = edit
+                    .edits
+                    .iter()
+                    .flat_map(|text_edit| match text_edit {
+                        OneOf::Left(text_edit) => non_blank_lines(&text_edit.new_text),
+                        OneOf::Right(annotated) => non_blank_lines(&annotated.text_edit.new_text),
+                    })
+                    .collect();
+                Some((file, lines))
+            }
+            DocumentChangeOperation::Op(_) => None,
+        })
+        .collect()
+}
+
+fn non_blank_lines(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn append(state_dir: &Path, noted: &[Noted], now: u64) -> std::io::Result<()> {
+    std::fs::create_dir_all(state_dir)?;
+    let path = state_dir.join(NOTE_FILE);
+    let kept = read(state_dir);
+    if kept.len() > PRUNE_ABOVE {
+        let oldest = now.saturating_sub(NOTED_FOR.as_secs());
+        let young: Vec<Noted> = kept.into_iter().filter(|n| n.at >= oldest).collect();
+        std::fs::write(&path, jsonl(&young))?;
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?
+        .write_all(jsonl(noted).as_bytes())
+}
+
+fn read(state_dir: &Path) -> Vec<Noted> {
+    std::fs::read_to_string(state_dir.join(NOTE_FILE))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
+fn jsonl(noted: &[Noted]) -> String {
+    noted
+        .iter()
+        .filter_map(|n| serde_json::to_string(n).ok())
+        .map(|line| line + "\n")
+        .collect()
+}
+
+fn seconds_of(at: SystemTime) -> u64 {
+    at.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::landing::{FileChange, NewFiles, Snapshot, workspace_edit};
+    use crate::line_edits::line_edits;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn a_landed_line_is_a_tools_for_ten_minutes_in_its_file_only() {
+        let state = tempfile::TempDir::new().unwrap();
+        let root = state.path().join("project");
+        let before = "pub mod booking;\n";
+        let after = "pub mod booking;\npub mod clock;\n";
+        let edits = line_edits(before, after);
+        let change = FileChange {
+            path: Path::new("src/ports/mod.rs"),
+            new: false,
+            before: Some(before),
+            after,
+            edits: &edits,
+        };
+        let snapshot = Snapshot {
+            root: root.clone(),
+            open: BTreeMap::new(),
+        };
+        let (edit, _) = workspace_edit(&[change], &snapshot, NewFiles::Created);
+        let then = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        note_tool_edit(state.path(), &edit, then);
+
+        let file = std::path::absolute(root.join("src/ports/mod.rs")).unwrap();
+        let landed = lines_tools_landed(state.path(), &file, then + Duration::from_secs(5));
+        assert_eq!(landed, HashSet::from(["pub mod clock;".to_string()]));
+        let other = std::path::absolute(root.join("src/lib.rs")).unwrap();
+        assert!(lines_tools_landed(state.path(), &other, then).is_empty());
+        let later = then + NOTED_FOR + Duration::from_secs(1);
+        assert!(lines_tools_landed(state.path(), &file, later).is_empty());
+    }
+}

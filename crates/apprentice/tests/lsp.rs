@@ -305,6 +305,69 @@ fn a_final_newline_the_editor_adds_to_a_write_is_nobodys_edit() {
 }
 
 #[test]
+fn a_line_a_sorcerer_server_landed_is_not_triaged_and_the_persons_is() {
+    use lsp_types::{
+        DocumentChangeOperation, DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier,
+        TextDocumentEdit, TextEdit, WorkspaceEdit,
+    };
+    let project = TempProject::with(&[(FILE, BEFORE)]);
+    let jev = Arc::new(StubJev::saying("aside", 0.9, 0.2));
+    let s = served(
+        &project.root,
+        Doubles {
+            agent: Arc::new(ScriptedAgent::playing(Vec::new())),
+            decider: Some(jev.clone()),
+            researcher: None,
+        },
+    );
+    s.open(FILE);
+    s.settle(Duration::from_millis(100));
+
+    // a sibling server (conjure, say) notes its edit, then the editor reports it as a change
+    let landed = "        self.clock.tick(booking_id)\n";
+    let edit = WorkspaceEdit {
+        document_changes: Some(DocumentChanges::Operations(vec![
+            DocumentChangeOperation::Edit(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: sorcerer_lsp::uri_of(&s.path(FILE)),
+                    version: None,
+                },
+                edits: vec![OneOf::Left(TextEdit {
+                    range: lsp_types::Range::default(),
+                    new_text: landed.into(),
+                })],
+            }),
+        ])),
+        ..WorkspaceEdit::default()
+    };
+    sorcerer_lsp::tool_edits::note_tool_edit(
+        &project.root.join(".sorcerer/state"),
+        &edit,
+        std::time::SystemTime::now(),
+    );
+    let by_the_tool = BEFORE.replace(
+        "        self.bookings.delete",
+        &format!("{landed}        self.bookings.delete"),
+    );
+    s.type_text(FILE, &by_the_tool);
+    s.settle(Duration::from_millis(400));
+    assert!(
+        jev.asked.lock().unwrap().is_empty(),
+        "Jev was asked about the tool's line"
+    );
+
+    // the person types a line of their own: that one is triaged
+    let by_the_person = by_the_tool.replace(
+        "        self.bookings.delete",
+        "        self.audit.log(booking_id)\n        self.bookings.delete",
+    );
+    s.type_text(FILE, &by_the_person);
+    state_holds(&project, &s, "regions.json", "self.audit.log");
+    assert!(!project.state("regions.json").contains("self.clock.tick"));
+    s.stop();
+}
+
+#[test]
 fn a_stub_is_offered_by_rule_with_no_jev() {
     let project = TempProject::with(&[("src/cart.py", "def total(cart):\n    return 1\n")]);
     let s = served(
