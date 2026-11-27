@@ -129,8 +129,8 @@ mod tests {
             assert!(!hand_edited.allows(command, readers()), "{command}");
         }
         assert_eq!(
-            always_for("uv.exe run pytest -q", readers()).as_deref(),
-            Some("uv.exe run pytest -q")
+            always_for("make.exe test", readers()).as_deref(),
+            Some("make.exe test")
         );
     }
 
