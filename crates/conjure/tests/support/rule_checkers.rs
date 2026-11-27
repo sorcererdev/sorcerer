@@ -91,3 +91,17 @@ impl RuleChecker for ForbiddenWord {
         format!("forbids {}", self.word)
     }
 }
+
+/// A checker whose check never finishes in time, as a spellbook that hangs: the adapter's
+/// answer for a check that ran past its timeout.
+pub struct Hanging;
+
+impl RuleChecker for Hanging {
+    fn findings_in(&self, _: &[(PathBuf, String)]) -> RulesRead {
+        RulesRead::TimedOut
+    }
+
+    fn describe(&self) -> String {
+        "hangs".into()
+    }
+}

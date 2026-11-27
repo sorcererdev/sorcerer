@@ -270,6 +270,10 @@ asked twice`. Asking again is a second call: its cost is added to the change's, 
 records it as a `conjure-retry` (so `conjure cost` shows it in its own `retries` column and does
 not count it as a second change), and it is not made when the first call spent the day's budget (the change is held back instead).
 
+Each call to spellbook waits at most 10 seconds. When the check times out (spellbook hung or the
+machine is busy), the change goes ahead unchecked and says so: its goal ends `(rules not checked:
+the check timed out)`, and the command line prints `rules not checked: the check timed out`.
+
 Without spellbook, or without rules, changes are not checked, and `conjure doctor`'s
 `spellbook rules` row says so (`not checked: spellbook is not installed`). It is never a
 failure: conjure works without spellbook.

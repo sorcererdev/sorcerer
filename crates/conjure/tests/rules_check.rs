@@ -194,3 +194,21 @@ fn a_file_with_no_rules_adds_nothing_to_the_situation() {
     assert!(!rig.writer.situations()[0].contains("checked rules for this file"));
     assert_eq!(rig.writer.verbs(), ["conjure"]);
 }
+
+#[test]
+fn a_check_that_times_out_lets_the_change_go_unchecked_and_says_so() {
+    let d = cart_project();
+    let rig = Rig::new(d.path(), SQLITE_REPLY);
+    let deps = ChangeDeps {
+        checker: &Hanging,
+        ..rig.deps()
+    };
+    let change = conjure_change(&ask_at_total(), &deps).unwrap();
+    assert_eq!(change.files.len(), 1, "the answer is used");
+    assert_eq!(
+        change.goal.as_deref(),
+        Some("total from the database (rules not checked: the check timed out)")
+    );
+    assert!(matches!(change.rules, RulesOutcome::NotChecked(_)));
+    assert_eq!(rig.writer.situations().len(), 1, "no second call");
+}

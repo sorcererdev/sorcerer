@@ -39,7 +39,16 @@ pub enum RulesRead {
     /// Nothing could be said, and why: no spellbook installed, no rules in the project, or
     /// spellbook stopped (its sentence).
     NotChecked(String),
+    /// spellbook did not answer in time ([`CHECK_TIMEOUT`]); the change goes unchecked.
+    TimedOut,
 }
+
+/// How long conjure waits for spellbook to check a change's texts before it lets the change go
+/// unchecked.
+pub const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What the step says when the check timed out, after the goal.
+pub const TIMED_OUT_NOTE: &str = "rules not checked: the check timed out";
 
 /// What conjure did about the project's rules.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -51,6 +60,8 @@ pub enum RulesOutcome {
     AskedAgain(Vec<RuleFinding>),
     /// Both answers broke rules (these are the second's), so nothing lands.
     HeldBack(Vec<RuleFinding>),
+    /// The check timed out, so the answer was used without it (the sentence says why).
+    NotChecked(String),
 }
 
 /// One rule that looks at a file, as `spellbook rules FILE --json` prints it.

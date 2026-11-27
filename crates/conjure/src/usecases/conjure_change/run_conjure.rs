@@ -16,7 +16,7 @@ use crate::domain::edits::DropReason;
 use crate::domain::record::{Attempt, change_id};
 use crate::domain::reply::read_reply;
 use crate::domain::spellbook_findings::{
-    RuleFinding, RulesOutcome, broken_rules_text, held_back_text,
+    RuleFinding, RulesOutcome, TIMED_OUT_NOTE, broken_rules_text, held_back_text,
 };
 
 /// Conjures one change: where the cursor is, whether the day can pay, what the writer reads,
@@ -93,15 +93,26 @@ fn written_and_checked(
     })?;
     let reply = read_reply(&written.text);
     let (files, dropped) = check::checked_files(&reply, deps)?;
-    let broken = rules_broken_by(&files, deps);
+    let checked = rules_broken_by(&files, deps);
+    let (goal, rules) = if checked.timed_out {
+        (
+            Some(match reply.goal {
+                Some(goal) => format!("{goal} ({TIMED_OUT_NOTE})"),
+                None => format!("({TIMED_OUT_NOTE})"),
+            }),
+            RulesOutcome::NotChecked(TIMED_OUT_NOTE.to_string()),
+        )
+    } else {
+        (reply.goal, RulesOutcome::Kept)
+    };
     Ok(Answer {
         situation,
         reply: written.text,
-        goal: reply.goal,
+        goal,
         files,
         dropped,
-        broken,
-        rules: RulesOutcome::Kept,
+        broken: checked.broken,
+        rules,
         errand: written.errand,
     })
 }
@@ -134,10 +145,11 @@ fn within_the_rules(
     let errand = both_calls(&first.errand, &second.errand);
     let second = Answer { errand, ..second };
     if second.broken.is_empty() {
-        return Ok(Answer {
-            rules: RulesOutcome::AskedAgain(first.broken),
-            ..second
-        });
+        let rules = match second.rules {
+            RulesOutcome::NotChecked(why) => RulesOutcome::NotChecked(why),
+            _ => RulesOutcome::AskedAgain(first.broken),
+        };
+        return Ok(Answer { rules, ..second });
     }
     Ok(held_back(second))
 }

@@ -83,7 +83,11 @@ and its errand), `research_writer.rs` (`ResearchWriter`: Try harder through a `R
 (`SpellbookChecker::for_project`: the `spellbook` beside the running program, else on PATH, none
 without `.sorcerer/spellbook/rules.toml`; `findings_in` runs `spellbook check --texts - --json` in
 the root with the texts as JSON on its input, exit 0 or 1 read, anything else `NotChecked` with
-its first error line; `rules_for` runs `spellbook rules --json FILE` and reads `RuleNote`s,
+its first error line; both calls go through `run_within`, which waits `CHECK_TIMEOUT` (10 s,
+`domain/spellbook_findings.rs`) and kills a program still running: `RulesRead::TimedOut`. `rules_broken_by`
+then returns `Checked { timed_out }`, `written_and_checked` ends the goal with `TIMED_OUT_NOTE` and
+sets `RulesOutcome::NotChecked`, and the answer is used unchecked (fail open; `tests/spellbook_timeout.rs`,
+the `Hanging` double in `tests/rules_check.rs`); `rules_for` runs `spellbook rules --json FILE` and reads `RuleNote`s,
 none on any failure), `project_context.rs` (`FilesContext`,
 the live `ProjectContext`), `jsonl_change_store.rs`, `system_clock.rs`, `wiring.rs` (`Wired`,
 `live`, `writer_for`), `editor_view.rs` (`EditorView`: the editor's open text over `FilesView`, a picture of one
