@@ -25,6 +25,15 @@ The server is `apprentice lsp`, one per project. It works on two clocks:
   Only a clear answer (0.70 for both) counts; anything else is nothing and shows nothing. A body
   that does nothing yet is an instruction without asking. Jev is cheap, not free: it has its own
   cap (`triage_per_day`). Without `JEV_API_KEY` only the empty bodies are offered.
+
+  Only your typing is triaged. Left out are the lines a Sorcerer tool landed in the file in the
+  last ten minutes (spellbook's fixes and syncs, a conjure step, an apprentice task: each notes
+  what it lands in `.sorcerer/state/tool-edits.jsonl` before it sends the edit), lines that were
+  already in the file (moved, as sorting imports does, or re-indented), a change that is the old
+  text reflowed (the same once spaces and line breaks are taken out, as a formatter rewrapping a
+  call does) and blank lines. So format-on-save and a spellbook sync cost no triage and offer
+  nothing. A formatter that changes more than spacing (quotes, a trailing comma) is still read
+  as an edit.
 - **Save**: each question in the saved file is answered by one read-only research call (one to
   three sentences, the code cited as `path:line`, Read, Grep and Glob only), and each claim is
   checked by the claim checker scry uses (haiku, Jev's guards, sonnet when they doubt).
@@ -43,12 +52,18 @@ offers four labels, `apprentice: this was a question / a claim / an instruction 
 pick is a line of `.sorcerer/state/apprentice/labels.jsonl`, and so is a *Dismiss*. That file
 is the prototype's measure of whether apprentice understood you.
 
+Two regions on one line (a function whose body does nothing yet and the comment in it) show one
+hint and one row of each action: *do this* runs the larger region (the function, comment and
+all); *Dismiss* and a label apply to both.
+
 A mark lives on its text: it moves when lines are added above it, and goes once you change the
 words. A checkout or a pull (`.git/HEAD` moved) starts every look over, saying nothing.
 
 **While a task runs**, the status line says what it does (`apprentice: refuse late
 cancellations · reading booking.py · $0.00`, then `writing cancel_booking.py`, `running uv`,
-`subagent: reading routes.py`), and the place it writes shows `⟳ apprentice: writing…`. Its
+`subagent: reading routes.py`), and the place it writes shows `⟳ apprentice: writing…`. A
+command waiting for your permission says `waiting for you: ls`, then `running ls`, or `denied:
+ls` when you said no. The amount is what the calls seen so far would cost at the model's price. Its
 changes land in your buffers, unsaved, each one undoable with your editor's undo. A question it
 asks on a line is a mark there (`apprentice asks: …`) with one code action per option; a
 command it wants to run is asked in a list. *Stop this task* is offered on any line while it
@@ -58,7 +73,8 @@ runs.
 1m35s`, and on the first changed line of each file it changed a mark, `✦ apprentice: refuse late
 cancellations · 1 file · $0.71`, with *Show diff* (the file before the task against now, in your
 editor's diff view), *Undo this task* (every file back to its text before, in one undoable edit;
-a file you edited since is left alone and named) and *Show journal*. Review the hunks with your
+a file you edited since is left alone and named; a final newline your editor added, or its line
+endings, are not an edit) and *Show journal*. Review the hunks with your
 usual tools (gitsigns, the SCM view); saving every file it changed keeps the task, and its marks
 go. A task the server was running when it stopped is recorded `interrupted`. If the server ends
 while a task runs (the editor closes or crashes, or its server is killed), the agent stops after
@@ -188,8 +204,12 @@ told to carry on with its default.
 
 On a subscription you pay no dollars per call: the numbers are *usage*. The cost Claude Code
 reports (`total_cost_usd`) is what the same calls would have cost on the API; it is the only
-number Claude reports, so it is the one apprentice records, caps and shows. A task you stop, or one
-whose end reports no cost, is charged its whole cap, since its end cannot be seen.
+number Claude reports, so it is the one apprentice records, caps and shows. A task you stop is
+charged what its stream showed: every call's tokens, at the model's shipped price (cache reads
+at a tenth of the input price, cache writes at 1.25 times, or twice for an hour), so a stop
+after 12 seconds costs cents, not $2.00. It undercounts by the call that was running when you
+stopped it. A stop before any call was seen, a task that ended without reporting its end, and
+an end that reports no cost are charged the whole cap, since their cost cannot be seen.
 
 Every call is a row of the project's ledger (`.sorcerer/state/ledger.jsonl`) under product
 `apprentice`: `decide` (Jev's triage), `answer`, `check`, `task`. `apprentice cost` prints them a

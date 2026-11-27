@@ -30,6 +30,7 @@ through the `url` crate). There is no async runtime.
 | `src/line_edits.rs` | `LineEdit` and `line_edits` (a new text as the fewest whole-line edits, over the `similar` crate), `same_text`, `in_base_line_endings`, `keep_unterminated_last_line`, `first_changed_line`, `lines_changed` |
 | `src/landing.rs` | landing a change: `Snapshot` and `OpenDocument` (the open documents when it was asked for), `FileChange`, `NewFiles`, `workspace_edit`, `moved_on`, `versioned_text_now`, `Undoing` and `undo_edit` |
 | `src/undo_plan.rs` | taking one landed file back: `TakenBack`, `FileDeletion`, `Undo`, `FileUndo`, `undo_of` |
+| `src/tool_edits.rs` | the lines Sorcerer's servers land, noted for a server that watches the person's typing: `note_tool_edit`, `lines_tools_landed`, `NOTE_FILE` (`tool-edits.jsonl` in the state directory), `NOTED_FOR` (ten minutes) |
 
 ## What the host owns
 
@@ -80,8 +81,21 @@ through the `url` crate). There is no async runtime.
   that is there now. `undo_plan::undo_of` plans one file's undo from its text now
   (`versioned_text_now`: the editor's, else the disk's): back to its text before when it is still
   the after-text, nothing when it is already back, refused (`FileUndo::Edited`) when the person
-  edited it; `landing::undo_edit` sends the undoings as one edit. The products keep what is
+  edited it; `landing::undo_edit` sends the undoings as one edit. Texts are compared with
+  `line_edits::same_text`, which ignores line endings and one final newline: an editor may keep
+  CRLF lines, and may end every buffer with a newline (Neovim's `eol`) where the change ended
+  without one, and neither is the person's edit. The products keep what is
   theirs: which files a change touches, its record, its marks.
+
+- **Telling tools' edits from the person's.** The editor reports every change alike
+  (`didChange` with the whole text). So every product edit goes out through
+  `Client::apply_tool_edit(state_dir, …)`, which first appends, per edited file, the trimmed
+  lines its text edits put there to `.sorcerer/state/tool-edits.jsonl`
+  (`tool_edits::note_tool_edit`; written before the request, so the note is there when the
+  change is reported). apprentice reads `lines_tools_landed(state_dir, file, now)` (the notes
+  of the last ten minutes) at each look and leaves those lines out of triage. The note is
+  pruned to its last ten minutes once it holds more than 200 lines; a note that cannot be
+  written is skipped and the edit still goes.
 
 ## The client's senders
 
@@ -117,6 +131,10 @@ thread.
 - `apply_edit(label, edit, on_reply)`: `workspace/applyEdit` with the label and the
   `WorkspaceEdit`. `on_reply` gets `Applied { applied, failure_reason }` on the main loop when
   the reply arrives; an error reply is `applied: false` with the error's message as the reason.
+- `apply_tool_edit(state_dir, label, edit, on_reply)`: the same, with the edit's lines noted
+  first in the project's state directory (none when the project did not open). Products use
+  this one; spellbook's `send_edit`, conjure's `land` and undo, apprentice's `write_for_task`,
+  undo and *Keep this answer* each pass their project's `state_dir`.
 
 What the editor can do, read at the handshake: `related_information()`; `can_apply_edits()`
 (it announced both `workspace.applyEdit` and `workspaceEdit.documentChanges`, without which a

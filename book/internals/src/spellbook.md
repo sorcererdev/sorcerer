@@ -391,7 +391,7 @@ The server offers a fix; the editor runs it through the same `plan` and `apply` 
    generator plans; `generator` only names it) and keeps the plan with `fix.version`.
 3. **The landing.** `spellbook.apply` on a plan with changed files, for an editor that can apply
    edits (`Client::can_apply_edits`), sends one `workspace/applyEdit` labelled `spellbook:
-   <label>`: a `TextDocumentEdit` per changed file, whose edits are the file's `changes` (whole
+   <label>` (through `Client::apply_tool_edit`, so apprentice does not triage its lines): a `TextDocumentEdit` per changed file, whose edits are the file's `changes` (whole
    lines, so column 0, except past an open last line, `text_edit`), the fix's file carrying
    the kept version and the others none. The apply is answered only in the edit's reply
    callback: applied, `Server::applied` runs `apply_plan(…, ChangesLanded::ByTheEditor)` (new

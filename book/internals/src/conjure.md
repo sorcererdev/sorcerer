@@ -164,7 +164,7 @@ person must hear goes through `Client::say`, and an error answers only a malform
    `landing::file_changes`); then the host's `landing::workspace_edit` builds one
    `WorkspaceEdit` (each existing file a `TextDocumentEdit` at the snapshot's version, `None` for
    a file that was not open; each new file a `CreateFile` with `ignoreIfExists` and an insert;
-   new files left out under `NewFiles::LeftOut`), and `Client::apply_edit` sends it. On
+   new files left out under `NewFiles::LeftOut`), and `Client::apply_tool_edit` sends it (noting its lines as a tool's for apprentice; see the host chapter). On
    `applied`, `confirm_landed` (on a thread) waits up to 3 s for each file to read as its
    after-text (`files_not_as_sent`; an editor may answer before it reports, and may skip a file
    and still say applied): all as sent, `show` makes it the shown change (`Open`; the one before
