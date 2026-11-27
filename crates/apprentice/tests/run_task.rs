@@ -486,10 +486,13 @@ fn the_journal_says_a_command_waits_then_the_answer_not_that_it_runs() {
         !progress.iter().any(|line| line.contains("running")),
         "{progress:?}"
     );
+    // the tool call and the permission tool race: whichever the follower sees first, the line
+    // says the command waits ("until allowed" from the call, "for you" once it is asked)
     assert!(
-        progress
-            .iter()
-            .any(|line| line.contains("waiting until allowed: ls, cat")),
+        progress.iter().any(|line| {
+            line.contains("waiting until allowed: ls, cat")
+                || line.contains("waiting for you: ls, cat")
+        }),
         "{progress:?}"
     );
 }
