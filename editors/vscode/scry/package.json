@@ -40,7 +40,66 @@
           "markdownDescription": "The `scry` binary: an absolute path, read from your user settings only (a workspace's settings cannot choose the program the extension runs). Empty: `scry` (`scry.exe` on Windows) is looked up on `PATH`, then in `~/.cargo/bin`, `~/.local/bin` and the binary this extension downloaded."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "scry.keys.why",
+        "title": "Why is this flagged?",
+        "category": "scry"
+      },
+      {
+        "command": "scry.keys.review",
+        "title": "Review this file now",
+        "category": "scry"
+      },
+      {
+        "command": "scry.keys.dismiss",
+        "title": "Dismiss the finding",
+        "category": "scry"
+      },
+      {
+        "command": "scry.keys.list",
+        "title": "List findings",
+        "category": "scry"
+      },
+      {
+        "command": "scry.keys.showCode",
+        "title": "Show the code it cites",
+        "category": "scry"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "scry.keys.why",
+        "key": "ctrl+m w",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "scry.keys.why",
+        "key": "ctrl+m s w",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "scry.keys.review",
+        "key": "ctrl+m s r",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "scry.keys.dismiss",
+        "key": "ctrl+m s x",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "scry.keys.list",
+        "key": "ctrl+m s l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "scry.keys.showCode",
+        "key": "ctrl+m s c",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

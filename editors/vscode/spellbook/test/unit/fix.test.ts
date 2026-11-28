@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dirtyText, fixArgument, fixedText, fixRequest, notShown, preferredFix } from '../../src/fix';
+import { dirtyText, fixArgument, fixedText, fixRequest, fixThis, notShown, preferredFix } from '../../src/fix';
 import { holesOnEndLine } from '../../src/holes';
 
 const argument = {
@@ -57,4 +57,15 @@ test('the_changed_files_not_shown_are_those_no_tab_holds', () => {
 test('a_started_hole_session_says_the_holes_itself_so_the_end_line_counts_none', () => {
   assert.equal(holesOnEndLine(true, 3), 0);
   assert.equal(holesOnEndLine(false, 3), 3);
+});
+
+test('fix_this_runs_the_spellbook_fix_else_the_preferred_quick_fix_else_the_menu', () => {
+  const spellbook = { title: 'spellbook: A', command: { command: 'spellbook.fix', arguments: [argument] } };
+  const ruff = { title: 'Remove unused import', isPreferred: true };
+  const other = { title: 'Organize imports' };
+  const why = { title: 'scry: Show why', isPreferred: true };
+  assert.deepEqual(fixThis([why, ruff, spellbook]), { run: spellbook });
+  assert.deepEqual(fixThis([why, other, ruff]), { run: ruff });
+  assert.deepEqual(fixThis([why, other, { title: 'Sort imports' }]), { menu: true });
+  assert.deepEqual(fixThis([why, { title: 'Conjure here' }]), { nothing: true });
 });

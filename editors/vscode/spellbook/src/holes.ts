@@ -26,12 +26,12 @@ export interface HoleSnippet {
 // endText is the line said once the files are written: how many, how many holes are left to
 // fill, and how to go on: conjure the first when the Conjure extension is here, else the marks
 // in Problems.
-// Example: `spellbook: wrote 2 files · 3 holes · ctrl+m c to conjure the first`.
+// Example: `spellbook: wrote 2 files · 3 holes · ctrl+m n to conjure the first`.
 export function endText(written: number, holes: number, conjureActive: boolean): string {
   const wrote = `spellbook: wrote ${counted(written, 'file')}`;
   if (holes === 0) return wrote;
   return conjureActive
-    ? `${wrote} · ${counted(holes, 'hole')} · ctrl+m c to conjure the first`
+    ? `${wrote} · ${counted(holes, 'hole')} · ctrl+m n to conjure the first`
     : `${wrote} · ${counted(holes, 'hole')}, marked (Problems)`;
 }
 
@@ -109,10 +109,10 @@ function lineSnippet(line: string, spans: readonly (Span & { n: number })[], cou
 
 // messageText is the status line of hole i of n (from 1): what it wants and how to go on. The
 // last hole says `Tab done`; the conjure part shows when the Conjure extension is here.
-// Example: `hole 1 of 3 · field: its first input · type to replace · Tab next · ctrl+m c conjure`.
+// Example: `hole 1 of 3 · field: its first input · type to replace · Tab next · ctrl+m n conjure`.
 export function messageText(i: number, n: number, stop: Stop, conjureActive: boolean): string {
   const parts = [`hole ${i} of ${n}`, `${stop.name}: ${stop.instruction}`, 'type to replace', i === n ? 'Tab done' : 'Tab next'];
-  if (conjureActive) parts.push('ctrl+m c conjure');
+  if (conjureActive) parts.push('ctrl+m n conjure');
   return parts.join(' · ');
 }
 

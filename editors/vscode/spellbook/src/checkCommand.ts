@@ -11,7 +11,7 @@ interface CheckRun {
   stderr: string;
 }
 
-// registerCheck makes Spellbook: Check (`spellbook.check`, `ctrl+m k`): the project's rules run
+// registerCheck makes spellbook: Check the project's rules (`spellbook.check`, `ctrl+m b k`): the project's rules run
 // over the whole folder into Problems, under the collection `spellbook check`. A file opened
 // later leaves the collection, since the server shows its findings from then on.
 // `notFoundText` is what to say when no spellbook binary was found (the install line).

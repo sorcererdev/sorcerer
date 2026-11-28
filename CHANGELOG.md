@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking: the editor keys are grouped by product.** In both editors the keys you use most sit
+  right under the prefix (`<leader>m` in Neovim, `ctrl+m` in VS Code): `a` do this (lackey), `f`
+  fix this, `g` generate… (spellbook), `n` next step (conjure), `u` undo the last change, `w`
+  why is this flagged? (scry), `q` stop the running task (lackey). Each product has its own group:
+  `s` scry, `c` conjure, `b` spellbook, `l` lackey. The descriptions are plain words with no
+  `sorcerer:` before them; which-key shows each group under its product's name, and VS Code's
+  Command Palette lists each command under its product (**conjure: Next step**). A Neovim
+  `keys = { … }` that names an old key is listed by `:checkhealth sorcerer`. Before → now:
+
+  | does | Neovim before → now (setup name before → now) | VS Code before → now |
+  |---|---|---|
+  | generate… (spellbook new) | `<leader>mn` → `<leader>mg`, `<leader>mbg` (`new` → `generate`, `spellbook_generate`) | `ctrl+m n` → `ctrl+m g`, `ctrl+m b g` |
+  | fix this | `<leader>mf` → `<leader>mf`, now the spellbook fix else the line's preferred quick fix; spellbook's only: `<leader>mbf` (`fix` → `fix`, `spellbook_fix`) | `ctrl+m f` → `ctrl+m f` (same fallback); spellbook's only: `ctrl+m b f` |
+  | next step (conjure here) | `<leader>mc` → `<leader>mn`, `<leader>mcn` (`conjure` → `next_step`, `conjure_next`) | `ctrl+m c` → `ctrl+m n`, `ctrl+m c n` |
+  | undo the conjured change | `<leader>mu` → `<leader>mcu` (`undo` → `conjure_undo`) | `ctrl+m u` → `ctrl+m c u` |
+  | undo the last change, any tool (new) | `<leader>mu` (`undo`) | `ctrl+m u` |
+  | try the change again with more effort | `<leader>mt` → `<leader>mct` (`try_harder` → `conjure_try_again`) | `ctrl+m t` → `ctrl+m c t` |
+  | why this step (conjure) | `<leader>mw` → `<leader>mcw` (`why` → `conjure_why`) | `ctrl+m w` → `ctrl+m c w` |
+  | why is this flagged? (scry, new) | `<leader>mw`, `<leader>msw` (`why`, `scry_why`) | `ctrl+m w`, `ctrl+m s w` |
+  | review this file now (scry, new) | `<leader>msr` (`scry_review`) | `ctrl+m s r` |
+  | dismiss the finding (scry, new) | `<leader>msx` (`scry_dismiss`) | `ctrl+m s x` |
+  | list findings (scry, new) | `<leader>msl` (`scry_list`) | `ctrl+m s l` |
+  | show the code it cites (scry, new) | `<leader>msc` (`scry_code`) | `ctrl+m s c` |
+  | check | `<leader>mk` (the project) → `<leader>mbk` (this file; `:Spellbook check` is still the project) (`check` → `spellbook_check`) | `ctrl+m k` → `ctrl+m b k` (the project) |
+  | sync regions | `<leader>ms` → `<leader>mbs` (`sync` → `spellbook_sync`) | `ctrl+m s` → `ctrl+m b s` |
+  | list holes (new) | `<leader>mbh` (`spellbook_holes`, `:Spellbook holes`) | `ctrl+m b h` |
+  | do this (lackey) | `<leader>ma` → `<leader>ma`, `<leader>mla` (`do` → `do`, `lackey_do`) | `ctrl+m a` → `ctrl+m a`, `ctrl+m l a` |
+  | stop the running task | `<leader>mq` → `<leader>mq`, `<leader>mlq` (`stop` → `stop`, `lackey_stop`) | `ctrl+m q` → `ctrl+m q`, `ctrl+m l q` |
+  | show the diff | `<leader>md` → `<leader>mld` (`diff` → `lackey_diff`) | `ctrl+m d` → `ctrl+m l d` |
+  | undo the task | `<leader>mz` → `<leader>mlz` (`undo_task` → `lackey_undo`) | `ctrl+m z` → `ctrl+m l z` |
+  | journal | `<leader>mj` → `<leader>mlj` (`journal` → `lackey_journal`) | `ctrl+m j` → `ctrl+m l j` |
+  | open the answer | `<leader>mo` → `<leader>mlo` (`open_answer` → `lackey_open_answer`) | `ctrl+m o` → `ctrl+m l o` |
+  | dismiss (lackey) | `<leader>mx` → `<leader>mlx` (`dismiss` → `lackey_dismiss`) | `ctrl+m x` → `ctrl+m l x` |
+  | label what you wrote | `<leader>ml` → `<leader>mll` (`label` → `lackey_label`) | `ctrl+m l` → `ctrl+m l l` |
+
+- **Undo the last change** (`<leader>mu`, `ctrl+m u`) takes back the latest change conjure,
+  lackey or spellbook made, whichever it was, and says whose (`undo: conjure's last change
+  (a.py:12)`).
+- **scry has keys**: why, review this file now (the server's new `scry.review` command reviews
+  a file at once), dismiss, list findings and show code.
+- **spellbook lists holes** in the editor: `:Spellbook holes` and `<leader>mbh` in Neovim,
+  **spellbook: List holes** (`ctrl+m b h`) in VS Code.
+- **lackey's mark says what it is**: `✦ lackey changed this line in task "refuse late
+  cancellations" · 1 file · $0.71` (was `✦ lackey: refuse late cancellations · …`; a file other
+  than the one the task was asked in says `· asked in another file ·`, was `· other file ·`).
+
 ## 0.4.0 — 2026-11-27
 
 - **Fourteen more languages.** Sorcerer ships TypeScript, TSX, JavaScript, Go, Java, C#, Bash,

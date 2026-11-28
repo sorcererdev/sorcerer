@@ -694,7 +694,8 @@ overtaking check).
   end, so a `claude` run it started is killed before the editor's `exit` ends the process.
 
 **The four actions** (`commands.rs`). The product announces `codeActionProvider` and the
-commands `scry.why`, `scry.showCode`, `scry.dismiss`. `Server::published` keeps what the server
+commands `scry.why`, `scry.showCode`, `scry.dismiss` and `scry.review` (no code action: the
+editors' *review this file now* key). `Server::published` keeps what the server
 last published for each open file, keyed by the path as the editor named it. `code_actions`
 answers `textDocument/codeAction` from it (`on_the_line`): first by the ids in the `data` of the
 diagnostics the editor sends with the request, so the actions still match after unsaved edits
@@ -710,7 +711,12 @@ evidence), `scry: Dismiss here`, `scry: Dismiss everywhere`, each a `quickfix` c
 - `scry.showCode [id]`: the first evidence's file, its lines selected;
 - `scry.dismiss [id, "here" | "everywhere"]`: `dismiss_finding` at `cfg.clock`'s now,
   `publish_open`, then `Server::queue` of the finding's file (a pass with no settle wait), so a
-  finding waiting behind the limit of three can take the place.
+  finding waiting behind the limit of three can take the place;
+- `scry.review [uri]`: `review_now`, the file of the URI checked against the root
+  (`Server::under_root`) and handed to `Server::queue`, so what changed in it since its last
+  review is reviewed at once, as a save would be with no settle wait (the pass asks the trust
+  question as on a save). A URI that is no file of the project is an `InvalidParams` error
+  naming it.
 
 An unknown id, a missing argument or another word is an `InvalidParams` error naming it, and
 nothing is written (the id is looked up before the dismissal).

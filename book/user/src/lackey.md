@@ -83,8 +83,9 @@ Everything a newcomer needs, in order. The rest of this chapter is reference.
    `lackey: I can do this · ~$0.50 · sonnet`. Press `<leader>ma` (VS Code: `ctrl+m a`) to run
    it. The status line says what the task does; if it wants to run a command it asks you first
    (*Allow once* or *Deny*; denying is fine). Its change lands in your buffer, unsaved. When it
-   ends, a `✦ lackey: …` mark sits on the changed line: `<leader>md` (`ctrl+m d`) shows the
-   diff, `<leader>mz` (`ctrl+m z`) undoes the task, and saving the file keeps it.
+   ends, a `✦ lackey changed this line in task "…"` mark sits on the changed line:
+   `<leader>mld` (`ctrl+m l d`) shows the diff, `<leader>mu` (`ctrl+m u`) undoes the task, and
+   saving the file keeps it.
 
 7. **Ask a question.** Write `# Where is total called with a non-zero discount?` and save:
    the answer appears on the line, with the code it cites, for about a cent.
@@ -97,7 +98,7 @@ describes the change, such as `# Make average return 0.0 for an empty list inste
 raising.`, which Jev can read as an aside about the code beside it; then nothing appears, and
 `<leader>ma` says `lackey: no offer on this line`. What helps: put the request above the
 function, start it with what to do, or make the function a stub. If it really was an
-instruction, label it (`<leader>ml`, then *this was an instruction*): the label is recorded in
+instruction, label it (`<leader>mll`, then *this was an instruction*): the label is recorded in
 `.sorcerer/state/lackey/labels.jsonl`, the measure lackey's cuts are tuned on, but it runs
 nothing.
 
@@ -183,9 +184,9 @@ command it wants to run is asked in a list. *Stop this task* is offered on any l
 runs.
 
 **When it ends**: one message, `lackey: done · refuse late cancellations · 1 file · $0.71 ·
-1m35s`, and on the first changed line of each file it changed a mark, `✦ lackey: refuse late
-cancellations · 1 file · $0.71` (on a file other than the one you asked in, `· other file ·`
-in place of the count), with *Show diff* (the file before the task against now, in your
+1m35s`, and on the first changed line of each file it changed a mark that says what it is, `✦
+lackey changed this line in task "refuse late cancellations" · 1 file · $0.71` (on a file other
+than the one you asked in, `· asked in another file ·` in place of the count), with *Show diff* (the file before the task against now, in your
 editor's diff view), *Undo this task* (every file back to its text before, in one undoable edit;
 a file you edited since is left alone and named; a final newline your editor added, or its line
 endings, are not an edit; the task's marks go with it) and *Show journal*. Review the hunks with your
@@ -226,14 +227,17 @@ are your code-action key's. The keys:
 
 | key | does |
 |---|---|
-| `<leader>ma` | `lackey: do this` on the line, whatever its price; on a line with no offer it says `lackey: no offer on this line` and why |
-| `<leader>mo` | `lackey: Open the answer`: a long answer, beside your code |
-| `<leader>mq` | `lackey: Stop this task` |
-| `<leader>md` | `lackey: Show diff` |
-| `<leader>mz` | `lackey: Undo this task` |
-| `<leader>mj` | `lackey: Show journal` |
-| `<leader>mx` | `lackey: Dismiss` |
-| `<leader>ml` | the four labels, to pick one |
+| `<leader>ma`, `<leader>mla` | do this: `lackey: do this` on the line, whatever its price; on a line with no offer it says `lackey: no offer on this line` and why |
+| `<leader>mq`, `<leader>mlq` | stop the running task (`lackey: Stop this task`) |
+| `<leader>mld` | show the diff of the task in this file (`lackey: Show diff`) |
+| `<leader>mlz` | undo the task (`lackey: Undo this task`) |
+| `<leader>mlj` | the task's journal (`lackey: Show journal`) |
+| `<leader>mlo` | open the answer: a long answer, beside your code (`lackey: Open the answer`) |
+| `<leader>mlx` | dismiss lackey's answer or verdict on the line (`lackey: Dismiss`) |
+| `<leader>mll` | label what you wrote: the four labels, to pick one |
+
+`<leader>mu` undoes the last change whichever tool made it, so after a task it is *Undo this
+task* on the task's mark; the whole table is in [Editors](editor.md#keys).
 
 The `⟳` at the end of a line being worked on (`SorcererWorking`; scry's `reviewing…` and
 conjure's `writing…` too) spins while the work runs; `working = { animate = false }` in setup
@@ -260,23 +264,24 @@ notification with *Allow once*, *Always for this project (…)* and *Deny*: clos
 it for two minutes, denies the command. With *Do Not Disturb* on the question is hidden under
 the bell, so it is denied when the two minutes are up unless you open it there. What the
 extension draws itself: a suggested line as grey text after the line it belongs under (`⤷ …`,
-the whole of it on hover; your next edit of that line takes it away), the agent's notes and a long answer you open (`ctrl+m o`) in the column beside your code, your
+the whole of it on hover; your next edit of that line takes it away), the agent's notes and a long answer you open (`ctrl+m l o`) in the column beside your code, your
 cursor staying put, *Show diff* as VS Code's diff view of the text before the task against
 the live buffer (in a tab of its own), and a violet sparkle in the gutter on each file's first
 line a finished task changed. The keys, the same letters as Neovim's:
 
 | keys | does |
 |---|---|
-| `ctrl+m a` | `lackey: do this` on the line, whatever its price |
-| `ctrl+m o` | `lackey: Open the answer`: a long answer, beside your code |
-| `ctrl+m q` | `lackey: Stop this task` |
-| `ctrl+m d` | `lackey: Show diff` |
-| `ctrl+m z` | `lackey: Undo this task` |
-| `ctrl+m j` | `lackey: Show journal` |
-| `ctrl+m x` | `lackey: Dismiss` |
-| `ctrl+m l` | the four labels, to pick one |
+| `ctrl+m a`, `ctrl+m l a` | do this, whatever its price |
+| `ctrl+m q`, `ctrl+m l q` | stop the running task |
+| `ctrl+m l d` | show the diff of the task in this file |
+| `ctrl+m l z` | undo the task |
+| `ctrl+m l j` | the task's journal |
+| `ctrl+m l o` | open the answer: a long answer, beside your code |
+| `ctrl+m l x` | dismiss lackey's answer or verdict on the line |
+| `ctrl+m l l` | label what you wrote: the four labels, to pick one |
+| `ctrl+m u` | undo the last change, when a lackey task made it |
 
-On macOS `ctrl` is the Control key. Change a binding in Keyboard Shortcuts (search
+In the Command Palette they are under **lackey** (**lackey: Do this**). On macOS `ctrl` is the Control key. Change a binding in Keyboard Shortcuts (search
 `lackey.keys`).
 
 ## What a task is

@@ -102,20 +102,19 @@ your PATH and its version.
 
 Conjure is off until you turn it on (`conjure = { enabled = true }` in `setup()`); install it with
 `sorcerer-conjure-installer` (the same line with `conjure` for `scry`) or `cargo install
-sorcerer-conjure`. sorcerer.nvim binds the keys itself: `<leader>mc` conjures here, `<leader>mu` undoes,
-`<leader>mt` tries harder, `<leader>mw` says why (and `<leader>mn` / `<leader>mf` / `<leader>mk` / `<leader>ms` are spellbook's
-`:Spellbook new`, `:Spellbook fix`, `:Spellbook check` and `:Spellbook sync`; see [Spellbook](spellbook.md#in-neovim)). Set `keys = false`, or
-one key to `false`, to bind none; a key you already mapped is left alone and listed by
-`:checkhealth sorcerer`. Neovim must find `scry` and `conjure` on the PATH it starts with
+sorcerer-conjure`. sorcerer.nvim binds the keys itself, under `<leader>m`, grouped by product
+(see [Keys](#keys) below): `<leader>mn` asks conjure for the next step, `<leader>mu` undoes the
+last change, `<leader>mct` tries the change again with more effort and `<leader>mcw` says why.
+Set `keys = false`, or one key to `false`, to bind none; a key you already mapped is left alone
+and listed by `:checkhealth sorcerer`. Neovim must find `scry` and `conjure` on the PATH it starts with
 (`~/.local/bin`); started from a launcher it often cannot, so give `cmd = { "/full/path/to/scry",
 "lsp" }`.
 
 Lackey is off too (`lackey = { enabled = true }`); install it with
 `sorcerer-lackey-installer` (the same line with `lackey` for `scry`) or `cargo install
 sorcerer-lackey`. It runs Claude Code (`claude -p`) on your own subscription, so `claude` must
-be installed and signed in. Its keys are
-`<leader>ma` (do this), `mq` (stop; q for quit, since `ms` is spellbook sync), `md` (show diff), `mz` (undo the task), `mj` (journal), `mx`
-(dismiss) and `ml` (label); see [Lackey](lackey.md#in-neovim).
+be installed and signed in. Its keys are `<leader>ma` (do this), `<leader>mq` (stop the running
+task) and the `<leader>ml` group (see [Keys](#keys) and [Lackey](lackey.md#in-neovim)).
 
 ### VS Code
 
@@ -137,14 +136,15 @@ theme's `editorCodeLens.foreground` colour, italic, so a theme can change it), w
 for forks), and so does its program (`sorcerer-lackey-installer`, or `cargo install
 sorcerer-lackey`); it runs Claude Code (`claude -p`) on your own subscription, so `claude`
 must be installed and signed in.
-Its keys are `ctrl+m a` (do this), `q` (stop), `d` (show diff), `z` (undo the task), `j`
-(journal), `x` (dismiss) and `l` (label); see [Lackey](lackey.md#in-vs-code).
+Its keys are `ctrl+m a` (do this), `ctrl+m q` (stop the running task) and the `ctrl+m l` group;
+see [Keys](#keys) and [Lackey](lackey.md#in-vs-code).
 
 **Spellbook** (`sorcererdev.spellbook`) installs the same way, from the Marketplace (Open VSX for
 forks), and so does its program (`sorcerer-spellbook-installer`, or `cargo install
-sorcerer-spellbook`). `ctrl+m n` is **Spellbook: New**, `ctrl+m k`
-**Spellbook: Check**, `ctrl+m f` **Spellbook: Fix** (the finding's fix on the cursor's line) and `ctrl+m s`
-**Spellbook: Sync** (the owned regions refreshed; a save refreshes them too); see [Spellbook](spellbook.md#in-vs-code).
+sorcerer-spellbook`). `ctrl+m g` is **spellbook: Generate…**, `ctrl+m f` **spellbook: Fix
+this** (the finding's fix on the cursor's line, else the line's preferred quick fix) and the
+`ctrl+m b` group has the rest (check, sync, list holes); see [Keys](#keys) and
+[Spellbook](spellbook.md#in-vs-code).
 
 With no `scry` in any of those places, it offers:
 
@@ -164,10 +164,65 @@ back on the next start. Closing the offer without an answer also brings it back.
 with no release at all (a build of your own from main, say) is told the install line once. On a machine the release has no binary for
 (Linux on 32-bit ARM, Windows on ARM), it says once to use `cargo install sorcerer-scry`.
 
+## Keys
+
+Both editors have the same keys: under `<leader>m` in Neovim and after `ctrl+m` in VS Code
+(`ctrl` is Control on macOS too). The ones you use most sit right under the prefix; the rest are
+grouped by product, one letter each: `s` scry, `c` conjure, `b` spellbook, `l` lackey. With
+which-key installed in Neovim, each group shows under its product's name; in VS Code's Command
+Palette each command's category is its product (**scry: Why is this flagged?**).
+
+| Neovim | VS Code | does | tool |
+|---|---|---|---|
+| `<leader>ma` | `ctrl+m a` | do this: lackey's offer on the line | lackey |
+| `<leader>mf` | `ctrl+m f` | fix this: the line's spellbook fix, else the line's preferred quick fix | spellbook (Neovim: any) |
+| `<leader>mg` | `ctrl+m g` | generate…: pick a generator and write its files | spellbook |
+| `<leader>mn` | `ctrl+m n` | next step: conjure writes one change here | conjure |
+| `<leader>mu` | `ctrl+m u` | undo the last change, whichever tool made it, and say which | conjure, lackey, spellbook |
+| `<leader>mw` | `ctrl+m w` | why is this flagged? scry's explanation of the finding | scry |
+| `<leader>mq` | `ctrl+m q` | stop the running task | lackey |
+| `<leader>msw` | `ctrl+m s w` | why is this flagged? | scry |
+| `<leader>msr` | `ctrl+m s r` | review this file now (unsaved changes are saved, which reviews them) | scry |
+| `<leader>msx` | `ctrl+m s x` | dismiss the finding, here or everywhere | scry |
+| `<leader>msl` | `ctrl+m s l` | list findings (Neovim: the quickfix list; VS Code: Problems) | scry |
+| `<leader>msc` | `ctrl+m s c` | show the code the finding cites | scry |
+| `<leader>mcn` | `ctrl+m c n` | next step | conjure |
+| `<leader>mct` | `ctrl+m c t` | try the change again with more effort | conjure |
+| `<leader>mcu` | `ctrl+m c u` | undo the change on this line | conjure |
+| `<leader>mcw` | `ctrl+m c w` | why this step | conjure |
+| `<leader>mbg` | `ctrl+m b g` | generate… | spellbook |
+| `<leader>mbf` | `ctrl+m b f` | fix: the line's spellbook fix only | spellbook |
+| `<leader>mbk` | `ctrl+m b k` | check (Neovim: this file, into the quickfix list; VS Code: the project, into Problems, since an open file is checked as you type) | spellbook |
+| `<leader>mbs` | `ctrl+m b s` | sync regions | spellbook |
+| `<leader>mbh` | `ctrl+m b h` | list holes (Neovim: the quickfix list; VS Code: a picker) | spellbook |
+| `<leader>mla` | `ctrl+m l a` | do this | lackey |
+| `<leader>mlq` | `ctrl+m l q` | stop the task | lackey |
+| `<leader>mld` | `ctrl+m l d` | show the diff of the task in this file | lackey |
+| `<leader>mlz` | `ctrl+m l z` | undo the task | lackey |
+| `<leader>mlj` | `ctrl+m l j` | the task's journal | lackey |
+| `<leader>mlo` | `ctrl+m l o` | open the answer: a long answer, beside your code | lackey |
+| `<leader>mlx` | `ctrl+m l x` | dismiss lackey's answer or verdict on the line | lackey |
+| `<leader>mll` | `ctrl+m l l` | label what you wrote: a question, a claim, an instruction, or nothing | lackey |
+
+**Undo the last change** takes back the latest change conjure, lackey or spellbook made in the
+editor (each lands its change as an edit of your buffers): conjure's through its own **Undo** on
+the change's mark, a lackey task through **Undo this task** on the task's mark, spellbook's with
+the editor's own undo in each file it changed (while it is still that file's last edit). It
+says whose change it undid, `undo: conjure's last change (a.py:12)`, and with nothing to undo it
+says that. In VS Code each extension remembers its own tool's last change, and the
+`sorcerer.lastChange` context names the tool that changed the code last, so `ctrl+m u` goes to
+that tool's extension.
+
+Change a Neovim key by its name in `setup()` (`keys = { spellbook_check = "bc" }`; the names are
+in sorcerer.nvim's README); in VS Code, in Keyboard Shortcuts (search `ctrl+m`). On Windows and
+Linux `ctrl+m` alone is VS Code's "Toggle Tab Key Moves Focus"; the chords replace it.
+
 ## The four actions
 
-Your editor's code-action menu on a finding's line (Neovim: your code-action key, or `<leader>mc/u/t/w` for conjure's; VS Code:
-the lightbulb, or `ctrl+m c/u/t/w` for conjure's) offers:
+Your editor's code-action menu on a finding's line (Neovim: your code-action key; VS Code: the
+lightbulb) offers these; the scry keys run them too (`<leader>mw` / `ctrl+m w` why,
+`<leader>msc` / `ctrl+m s c` show code, `<leader>msx` / `ctrl+m s x` dismiss, picking here or
+everywhere):
 
 - **scry: Show why**: the finding in full, as `scry why` prints it, opened beside your code
   (it is written to `.sorcerer/state/scry/why-<id>.md`).

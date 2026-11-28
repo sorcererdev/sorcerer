@@ -1562,6 +1562,31 @@ fn a_dismissal_queues_a_pass_for_the_file() {
 }
 
 #[test]
+fn review_reviews_the_file_at_once() {
+    let dir = changed_project();
+    let s = served(dir.path(), bug_reviewer());
+    let uri = uri_of(&orders(&dir));
+    let response = execute(&s, "scry.review", json!([uri.as_str()]));
+    assert_eq!(response.response_result.unwrap(), Value::Null);
+    s.wait_for_asks(1);
+    s.stop();
+}
+
+#[test]
+fn review_of_a_file_outside_the_project_is_refused_by_name() {
+    let dir = changed_project();
+    let s = served(dir.path(), bug_reviewer());
+    let elsewhere = tempfile::tempdir().unwrap();
+    let uri = uri_of(&elsewhere.path().join("x.py"));
+    let error = execute(&s, "scry.review", json!([uri.as_str()]))
+        .response_result
+        .unwrap_err();
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("x.py"), "{}", error.message);
+    s.stop();
+}
+
+#[test]
 fn an_unknown_id_is_refused_by_name() {
     let (dir, s) = showing(|dir| vec![in_cancel(dir, "b00001", "bug")]);
     let store = dir.path().join(".sorcerer/state/scry/findings.json");

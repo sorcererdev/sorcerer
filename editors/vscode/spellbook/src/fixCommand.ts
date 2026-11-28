@@ -1,17 +1,19 @@
 import * as vscode from 'vscode';
 import type { LanguageClient } from 'vscode-languageclient/node';
 import { folderHere } from './asker';
-import { dirtyText, type FixAction, fixArgument, fixedText, notShown, preferredFix } from './fix';
+import { dirtyText, type FixAction, fixArgument, fixedText, fixThis, notShown, preferredFix } from './fix';
 import { finish, flowIn, type AskerFor } from './newCommand';
 
-// registerFix makes the two commands of a finding's fix: `spellbook.fix` (the command of the
-// server's code action: the lightbulb and `ctrl+.` run it) and `spellbook.fixHere` (`ctrl+m f`,
-// which runs the line's preferred fix without the menu).
+// registerFix makes the three commands of a finding's fix: `spellbook.fix` (the command of the
+// server's code action: the lightbulb and `ctrl+.` run it), `spellbook.fixHere` (`ctrl+m b f`,
+// which runs the line's spellbook fix without the menu) and `spellbook.fixThis` (`ctrl+m f`, fix
+// this: the spellbook fix, else the line's preferred quick fix of any server).
 export function registerFix(context: vscode.ExtensionContext, clientFor: (folder: vscode.WorkspaceFolder) => LanguageClient | undefined,
   askerFor: AskerFor): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('spellbook.fix', (argument?: unknown) => fixHere(clientFor, askerFor, argument)),
     vscode.commands.registerCommand('spellbook.fixHere', fixOnLine),
+    vscode.commands.registerCommand('spellbook.fixThis', fixThisLine),
   );
 }
 
@@ -54,6 +56,28 @@ async function fixOnLine(): Promise<void> {
     return;
   }
   await vscode.commands.executeCommand(action.command.command, ...(action.command.arguments ?? []));
+}
+
+// fixThisLine is fix this (`ctrl+m f`): the line's quick fixes, as the lightbulb finds them, and
+// what fixThis picks among them run, the menu opened, or "nothing to fix" said.
+async function fixThisLine(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const line = editor.document.lineAt(editor.selection.active.line).range;
+  const actions = await vscode.commands.executeCommand<(vscode.Command | vscode.CodeAction)[]>(
+    'vscode.executeCodeActionProvider', editor.document.uri, line, vscode.CodeActionKind.QuickFix.value);
+  const picked = fixThis((actions ?? []).map(item => ({ ...asFixAction(item), item })));
+  if ('nothing' in picked) {
+    vscode.window.setStatusBarMessage('nothing to fix on this line', 4000);
+    return;
+  }
+  if ('menu' in picked) {
+    await vscode.commands.executeCommand('editor.action.quickFix');
+    return;
+  }
+  const action = picked.run.item as vscode.CodeAction;
+  if ('kind' in action && action.edit) await vscode.workspace.applyEdit(action.edit);
+  if (picked.run.command) await vscode.commands.executeCommand(picked.run.command.command, ...(picked.run.command.arguments ?? []));
 }
 
 // a bare command is its own action

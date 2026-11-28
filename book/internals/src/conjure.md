@@ -324,11 +324,12 @@ so a file a change opens is seen by the server. Finding the binary and downloadi
 `src/binary.ts`, `src/download.ts` and `src/offer.ts`, byte-identical copies of scry's
 extension's, which take the product name as their first parameter (`candidates('conjure', …)`,
 `assetFor('conjure', target)`, `install(base, 'conjure', …)`); CI's `vscode` job `diff`s the
-copies, so a change goes into both. Conjure-only files: the `ctrl+m c/u/t/w` chords (`KEYS` and
-the pure `actionTitled` in `src/keys.ts`; `registerKeys` in `src/keyActions.ts` asks
+copies, so a change goes into both. Conjure-only files: the chords `ctrl+m n` and the
+`ctrl+m c` group (`KEYS`, each with its chords, and the pure `actionTitled` in `src/keys.ts`; `registerKeys` in `src/keyActions.ts` asks
 `vscode.executeCodeActionProvider` and runs the action whose title the server gave, the way the
 lightbulb does; the chords are in `package.json` `contributes.keybindings`, and a unit test pins
-them to `KEYS`), and the gutter icon (`conjuredLines` in `src/marks.ts` picks the diagnostics of
+them to `KEYS`), the last change for `ctrl+m u` (`src/lastChange.ts` and `src/undoLast.ts`, shared
+with lackey and spellbook; see [the host](lsp.md#editor-keys)), and the gutter icon (`conjuredLines` in `src/marks.ts` picks the diagnostics of
 source `conjure` and code `change`; `registerConjuredMarks` in `src/conjuredMarks.ts` draws
 `media/conjured.svg`). The action titles are the server's (`actions_for` in
 `adapters/lsp/commands.rs`): rename one there and in `KEYS`. `conjure.path` is `"scope": "machine"` and restricted in an

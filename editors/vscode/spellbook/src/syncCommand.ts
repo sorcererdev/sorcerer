@@ -4,7 +4,7 @@ import { folderHere } from './asker';
 import { finish, flowIn, type AskerFor } from './newCommand';
 import { SYNC, syncedText } from './plan';
 
-// registerSync makes Spellbook: Sync (`spellbook.sync`, `ctrl+m s`): every owned region
+// registerSync makes Spellbook: Sync (`spellbook.sync`, `ctrl+m b s`): every owned region
 // refreshed, the plan shown as a fix's is (the diff of each region file), Apply lands it through
 // the editor. It is Spellbook: New entered at the plan with the generator `sync`.
 export function registerSync(context: vscode.ExtensionContext, clientFor: (folder: vscode.WorkspaceFolder) => LanguageClient | undefined,

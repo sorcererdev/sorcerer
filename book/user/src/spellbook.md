@@ -907,7 +907,7 @@ generator is `"sync"`, and its `changed` entries carry `region`. `spellbook doct
    Either shows the plan as a fix's is shown, `~ src/booking/commands/mod.rs (region modules: +1
    −0)` with its diff (VS Code's diff view; Neovim's float with `DiffAdd`/`DiffDelete`), and Apply
    lands it through the editor.
-4. **Spellbook: Sync** (`ctrl+m s`; Neovim `:Spellbook sync`, `<leader>ms`) runs the whole refresh
+4. **spellbook: Sync regions** (`ctrl+m b s`; Neovim `:Spellbook sync`, `<leader>mbs`) runs the whole refresh
    the same way: the plan with every stale region, then Apply; nothing to do says `spellbook:
    regions up to date`, and a project that declares no regions says `no regions here: declare
    them in .sorcerer/spellbook/regions.toml`, as the command line does. Apply (here and from the quick fix) follows the same split as a save: a
@@ -929,12 +929,18 @@ and turn it on, which the plugin keeps off until you ask:
 require("sorcerer").setup({ spellbook = { enabled = true } })
 ```
 
-The plugin binds `<leader>mn` to `:Spellbook new`, `<leader>mf` to `:Spellbook fix`, `<leader>mk` to `:Spellbook check` and `<leader>ms` to `:Spellbook sync` (and
-conjure's `<leader>mc/u/t/w` when conjure is on; see [Conjure](conjure.md)). `keys = false`
-binds none; a key you already mapped is skipped and listed by `:checkhealth sorcerer`.
-`:Spellbook check` runs `spellbook check --json` in the project root and fills the quickfix list with the findings
-(opened when there are any, else `spellbook: conventions hold`); findings on the file you save
-already show as marks.
+The plugin binds `<leader>mg` (generate…) to `:Spellbook new` and `<leader>mf` (fix this) to
+the line's spellbook fix (else the line's preferred quick fix of any server), and spellbook's own
+group, `<leader>mb`: `<leader>mbg` generate…, `<leader>mbf` fix (`:Spellbook fix`, the spellbook
+fix only), `<leader>mbk` check this file (`:Spellbook check <file>`), `<leader>mbs` sync regions
+(`:Spellbook sync`) and `<leader>mbh` list holes (`:Spellbook holes`, the open holes of the
+project in the quickfix list). `<leader>mu` undoes the last change whichever tool made it, so
+after a plan is applied it is Neovim's undo in each file the plan changed. The whole table,
+with conjure's keys, is in [Editors](editor.md#keys). `keys = false` binds none; a key you
+already mapped is skipped and listed by `:checkhealth sorcerer`. `:Spellbook check [file…]` runs
+`spellbook check --json` (on the named files, or the whole project) in the project root and
+fills the quickfix list with the findings (opened when there are any, else `spellbook:
+conventions hold`); findings on the file you save already show as marks.
 
 The marks have their own looks, apart from scry's: a hole is `◇` (`SorcererHole`, linking
 `Special`) with its placeholder underlined (`SorcererHolePlaceholder`, `DiagnosticUnderlineHint`); a
@@ -975,7 +981,7 @@ display back (`conjure.sign` for the star).
 5. **Fill the holes, like snippet placeholders.** You land on the first placeholder selected
    (select mode): type and it is replaced. `<Tab>` moves to the next hole of that file, `<S-Tab>`
    back, and the message line says where you are: `hole 1 of 3 · field: its first input · type
-   to replace · <Tab> next · <leader>mc conjure` (the conjure part when conjure is on; the last
+   to replace · <Tab> next · <leader>mn conjure` (the conjure part when conjure is on; the last
    hole says `<Tab> done`). A hole grows with what you type, so `<S-Tab>` selects your whole
    answer again, and a placeholder you have not reached stays code that parses. `<Tab>` on the
    last hole ends the session, and so does closing the buffer: `spellbook: holes done`, or
@@ -987,7 +993,7 @@ display back (`conjure.sign` for the star).
    `N holes, marked; ]d walks them`. The marks go when you save the file with the placeholder
    replaced (the server looks at the file on disk when you open or save it, not at each
    keystroke). With conjure installed and on, a hole's line offers *Conjure here* like any line
-   in a function (`<leader>mc`), and conjure's change, mark, Undo and Try harder apply as they do
+   in a function (`<leader>mn`), and conjure's change, mark, Undo and Try harder apply as they do
    anywhere. With `conjure_holes = true` the plugin runs conjure on the first hole for you and
    starts no session.
    Spellbook never calls a model itself.
@@ -1035,7 +1041,7 @@ setting, then `PATH`, `~/.cargo/bin`, `~/.local/bin`); with none it tells you th
 It starts one `spellbook lsp` per workspace folder; the server's log is the Output channel
 **Spellbook**.
 
-`ctrl+m n` (or **Spellbook: New** in the Command Palette) runs the same steps as `:Spellbook new`
+`ctrl+m g` (or `ctrl+m b g`, or **spellbook: Generate…** in the Command Palette) runs the same steps as `:Spellbook new`
 in the folder of the file you are in (with no file open and several folders, it asks which):
 
 1. **Pick the generator** in a quick pick, its summary beside it.
@@ -1053,14 +1059,14 @@ in the folder of the file you are in (with no file open and several folders, it 
    marks in Problems (Information, source `spellbook`, code `hole`). The status bar says
    `spellbook: wrote 2 files`; when a hole session follows (step 5) the session's line says the
    holes, otherwise the end line goes on `· 3 holes, marked (Problems)`, or
-   `· ctrl+m c to conjure the first` when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
+   `· ctrl+m n to conjure the first` when the Conjure extension is installed: a hole's line offers **Conjure here** like any line in
    a function. With `spellbook.conjureHoles` on, the extension runs conjure on the first hole for
    you, and no hole session starts.
 5. **Fill the holes, like snippet placeholders.** The opened file's holes become VS Code's own
    snippet placeholders: the first is selected, typing replaces it, `Tab` moves to the next hole
    and `Shift+Tab` back, `Esc` leaves. These are VS Code's snippet keys, so a binding you gave
    them is kept. A hole grows with what you type. The status bar says where you are: `hole 1 of
-   3 · field: its first input · type to replace · Tab next · ctrl+m c conjure` (the conjure part
+   3 · field: its first input · type to replace · Tab next · ctrl+m n conjure` (the conjure part
    when the Conjure extension is here; the last hole says `Tab done`). Moving out of every hole
    (`Tab` on the last, a click elsewhere) ends the session: `spellbook: holes done`, or
    `spellbook: holes done · 1 more in cancel_table__test.py (Problems)` when another file has
@@ -1070,10 +1076,10 @@ in the folder of the file you are in (with no file open and several folders, it 
    (`3 holes, marked (Problems)`).
 
 The command also takes arguments, so a keybinding can skip questions:
-`{ "key": "ctrl+m b", "command": "spellbook.new", "args": { "generator": "command", "inputs":
+`{ "key": "ctrl+alt+g", "command": "spellbook.new", "args": { "generator": "command", "inputs":
 { "service": "booking" } } }`.
 
-`ctrl+m k` (or **Spellbook: Check**) runs `spellbook check --json` in the folder's root and puts
+`ctrl+m b k` (or **spellbook: Check the project's rules**) runs `spellbook check --json` in the folder's root and puts
 the findings in Problems, each on its line with VS Code's error, warning or hint squiggle (source
 `spellbook`, the rule's id as its code); Problems opens when there are any, else the status bar
 says `spellbook: conventions hold`. Each run replaces the last. The files you have open show their
@@ -1086,7 +1092,13 @@ placeholder tinted as VS Code tints a snippet's tab stop (the theme's
 rule finding is VS Code's own squiggle in its severity's colour. A conjured change is the green
 `✦` the Conjure extension draws.
 
-Both chords work while the cursor is in an editor (`when: editorTextFocus`): in the integrated
+`ctrl+m b h` (**spellbook: List holes**) runs `spellbook holes --json` in the folder's root and
+lists the holes still open in a picker (`field · src/a.py:3 · its first input`); the one you
+pick opens at its line. `ctrl+m b s` is **spellbook: Sync regions**, and `ctrl+m u` undoes the
+last change when spellbook made it (VS Code's own undo in each file the plan changed, while it is
+still that file's last edit; see [Editors](editor.md#keys)).
+
+The chords work while the cursor is in an editor (`when: editorTextFocus`): in the integrated
 terminal `ctrl+m` is Enter. On macOS `ctrl` is the Control key. On Windows and Linux `ctrl+m` is
 VS Code's own "Toggle Tab Key Moves Focus", which it no longer does as the first key of a chord;
 to keep it, or for other keys, rebind in Keyboard Shortcuts or `keybindings.json`, for example
@@ -1106,8 +1118,9 @@ way. `spellbook doctor` is the command line's; the extension has no doctor of it
 
 On a finding's line the lightbulb (or `ctrl+.`) offers `spellbook: Use a port the service has`
 (preferred) and `spellbook: Add a port and use it`, in the menu's Quick Fix group, above conjure's
-rewrites (VS Code orders by the actions' kind and puts a preferred fix first); `ctrl+m f` (**Spellbook: Fix**) runs the
-preferred one without the menu. A buffer with unsaved changes is refused:
+rewrites (VS Code orders by the actions' kind and puts a preferred fix first); `ctrl+m f` (**spellbook: Fix this**) runs the
+preferred one without the menu (on a line with no spellbook fix, the line's preferred quick fix of
+another server; `ctrl+m b f`, **spellbook: Fix**, runs only spellbook's). A buffer with unsaved changes is refused:
 `spellbook: save close_table.py first; a fix is planned against the file on disk`. Otherwise it
 asks only what the finding does not settle (a quick pick, `Esc` cancels), then shows the plan under
 a title such as `spellbook: fix commands-use-ports · Use a port the service has · 2 files changed

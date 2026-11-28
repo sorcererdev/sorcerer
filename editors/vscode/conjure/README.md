@@ -15,17 +15,19 @@ next change. Conjure needs `claude` on your PATH (signed in) and a project you h
 
 ## Keys
 
-Four chords, with the cursor in a function (or lines selected), each running the action the
-lightbulb would offer:
+With the cursor in a function (or lines selected), each chord runs the action the lightbulb
+would offer:
 
 | keys | does |
 |---|---|
-| `ctrl+m c` | **Conjure here** |
-| `ctrl+m u` | **conjure: Undo** the change on this line |
-| `ctrl+m t` | **conjure: Try harder** |
-| `ctrl+m w` | **conjure: Show why** |
+| `ctrl+m n`, `ctrl+m c n` | next step (**Conjure here**) |
+| `ctrl+m c t` | try the change again with more effort (**conjure: Try harder**) |
+| `ctrl+m c u` | undo the change on this line (**conjure: Undo**) |
+| `ctrl+m c w` | why this step (**conjure: Show why**) |
+| `ctrl+m u` | undo the last change, when conjure made it (Lackey and Spellbook take it when theirs is later) |
 
-They are the same chords as the Neovim plugin's `<leader>m` keys. On macOS `ctrl` is the Control
+They are the same letters as the Neovim plugin's `<leader>m` keys; in the Command Palette they
+are under **conjure** (**conjure: Next step**). On macOS `ctrl` is the Control
 key, not Command. A line that offers no such action says so in the status bar.
 
 A conjured change's mark also draws a green sparkle in the gutter and a green tick in the

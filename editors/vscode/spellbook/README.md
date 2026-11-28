@@ -7,16 +7,16 @@ to fill, and its rules in Problems.
 its inputs, shows the plan (each new file as a read-only preview, coloured as its language) and,
 on **Apply**, writes the files. The opened file's holes become VS Code's own snippet
 placeholders: the first is selected, typing replaces it, `Tab` and `Shift+Tab` move between them,
-and the status bar says which hole you are in and what it wants. **Spellbook: Check** runs the
+and the status bar says which hole you are in and what it wants. **spellbook: Check the project's rules** runs the
 project's rules (`.sorcerer/spellbook/rules.toml`) over the whole folder into Problems.
-On a finding's line the lightbulb offers its **fix** (`ctrl+m f` runs the first): the plan shows with a diff for each changed file, and Apply changes the open files in the editor (`ctrl+z` takes it back).
+On a finding's line the lightbulb offers its **fix** (`ctrl+m f`, fix this, runs the first): the plan shows with a diff for each changed file, and Apply changes the open files in the editor (`ctrl+z` takes it back).
 
 **Owned regions** (`.sorcerer/spellbook/regions.toml`) are kept as you save: write or delete a
 file a region lists and save, and the region's block is refreshed, in the editor when its file is
 open (unsaved, one `ctrl+z` takes it back), on disk when it is not; the status bar says
 `spellbook: synced region modules in src/booking/commands/mod.rs (+1 −0)`. With
 `[spellbook] sync_on_save = false` in `.sorcerer/config.toml` a stale block is a `region-stale`
-problem instead, whose quick fix is **Sync region NAME**. **Spellbook: Sync** refreshes every
+problem instead, whose quick fix is **Sync region NAME**. **spellbook: Sync regions** refreshes every
 region the same way: the plan, then Apply.
 
 The extension is thin: it starts `spellbook lsp` for each workspace folder and asks it. Spellbook
@@ -27,13 +27,16 @@ extension (`sorcererdev.conjure`) is installed.
 
 | keys | does |
 |---|---|
-| `ctrl+m n` | **Spellbook: New** |
-| `ctrl+m k` | **Spellbook: Check** |
-| `ctrl+m f` | **Spellbook: Fix**: the finding's fix on the cursor's line |
-| `ctrl+m s` | **Spellbook: Sync**: refresh the owned regions |
-| `ctrl+m c` | **Conjure here**, on a hole too (from the Conjure extension) |
+| `ctrl+m g`, `ctrl+m b g` | **Generate…**: pick a generator and write its files |
+| `ctrl+m f` | **Fix this**: the finding's spellbook fix on the cursor's line, else the line's preferred quick fix |
+| `ctrl+m b f` | **Fix**: the spellbook fix only |
+| `ctrl+m b k` | **Check the project's rules** into Problems (an open file is checked as you type) |
+| `ctrl+m b s` | **Sync regions**: refresh the owned regions |
+| `ctrl+m b h` | **List holes**: the holes still open, in a picker |
+| `ctrl+m u` | undo the last change, when spellbook made it (VS Code's undo in each file it changed) |
+| `ctrl+m n` | next step (**Conjure here**), on a hole too (from the Conjure extension) |
 
-They are the Neovim plugin's `<leader>m` keys, and work while the cursor is in an editor (in the
+They are the Neovim plugin's `<leader>m` keys, under **spellbook** in the Command Palette, and work while the cursor is in an editor (in the
 integrated terminal `ctrl+m` is Enter). On macOS `ctrl` is the Control key, not Command.
 
 **`ctrl+m` and Tab.** On Windows and Linux, `ctrl+m` is VS Code's own "Toggle Tab Key Moves
@@ -48,7 +51,7 @@ put your own in `keybindings.json`:
 `spellbook.new` takes arguments that skip questions:
 
 ```json
-{ "key": "ctrl+m b", "command": "spellbook.new", "when": "editorTextFocus",
+{ "key": "ctrl+alt+g", "command": "spellbook.new", "when": "editorTextFocus",
   "args": { "generator": "command", "inputs": { "service": "booking" } } }
 ```
 

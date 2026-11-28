@@ -12,7 +12,7 @@ import type { LanguageClient } from 'vscode-languageclient/node';
 // The end-to-end tests answer the questions themselves: what they replace of the real Asker.
 export type AskerOverrides = Partial<Asker>;
 
-// registerNew makes Spellbook: New (`spellbook.new`, `ctrl+m n`), the commands that run its flow
+// registerNew makes Spellbook: New (`spellbook.new`, `ctrl+m g`), the commands that run its flow
 // from a later step (a finding's fix, Spellbook: Sync) and the provider of the plan's preview
 // documents. The command takes an optional `{ generator, inputs }` (a keybinding's
 // args) that skips those questions. It returns the hook that swaps parts of the Asker.

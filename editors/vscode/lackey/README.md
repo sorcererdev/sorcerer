@@ -20,7 +20,7 @@ function bodies are offered.
 on a line of its own at the end (not inside a function), write `# Add a median(prices) function
 that returns the middle price.` and stop typing. About two seconds later a faint `lackey: I can do this · ~$0.50 · sonnet` hint appears;
 `ctrl+m a` runs it. A comment inside a function that describes a change may be read as an aside
-and get no offer: put the request above the function, or label it with `ctrl+m l`. The whole
+and get no offer: put the request above the function, or label it with `ctrl+m l l`. The whole
 path is in [Getting started](https://github.com/sorcererdev/sorcerer/blob/main/book/user/src/lackey.md#getting-started).
 
 The extension is thin: it starts `lackey lsp` for each workspace folder and VS Code does most
@@ -50,14 +50,17 @@ would offer on the cursor's line:
 
 | keys | does |
 |---|---|
-| `ctrl+m a` | `lackey: do this`, whatever its price |
-| `ctrl+m o` | `lackey: Open the answer`: a long answer, beside your code |
-| `ctrl+m q` | `lackey: Stop this task` |
-| `ctrl+m d` | `lackey: Show diff` |
-| `ctrl+m z` | `lackey: Undo this task` |
-| `ctrl+m j` | `lackey: Show journal` |
-| `ctrl+m x` | `lackey: Dismiss` |
-| `ctrl+m l` | the four labels, to pick one |
+| `ctrl+m a`, `ctrl+m l a` | do this, whatever its price |
+| `ctrl+m q`, `ctrl+m l q` | stop the running task |
+| `ctrl+m l d` | show the diff of the task in this file |
+| `ctrl+m l z` | undo the task |
+| `ctrl+m l j` | the task's journal |
+| `ctrl+m l o` | open the answer: a long answer, beside your code |
+| `ctrl+m l x` | dismiss lackey's answer or verdict on the line |
+| `ctrl+m l l` | label what you wrote: the four labels, to pick one |
+| `ctrl+m u` | undo the last change, when a lackey task made it |
+
+In the Command Palette they are under **lackey** (**lackey: Do this**).
 
 On macOS `ctrl` is the Control key, not Command. A line that offers no such action says so in the
 status bar. On Windows and Linux `ctrl+m` alone is VS Code's "Toggle Tab Key Moves Focus"; as

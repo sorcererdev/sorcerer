@@ -9,7 +9,7 @@ export interface MarkDiagnostic {
 }
 
 // taskLines is the lines (from 0) of the diagnostics that are a finished task's mark, `✦
-// lackey: …` on the first changed line of each file: source `lackey`, code `task`. A
+// lackey changed this line in task "…"` on the first changed line of each file: source `lackey`, code `task`. A
 // region's mark (code `region`), the agent's own (`said`), a question's (`ask`) and another
 // tool's diagnostic are not. Each line is once, in ascending order.
 export function taskLines(diagnostics: readonly MarkDiagnostic[]): number[] {

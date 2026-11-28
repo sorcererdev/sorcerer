@@ -175,11 +175,11 @@ fn a_claim_checked_on_save_is_offered_done_as_a_task_shown_diffed_and_undone() {
     let marks = s.marks_until(FILE, |marks| {
         marks
             .iter()
-            .any(|m| m.message.starts_with("\u{2726} lackey:"))
+            .any(|m| m.message.starts_with("\u{2726} lackey changed"))
     });
     let task_mark = marks
         .iter()
-        .find(|m| m.message.starts_with("\u{2726} lackey:"))
+        .find(|m| m.message.starts_with("\u{2726} lackey changed"))
         .unwrap();
     assert_eq!(task_mark.range.start.line, 6);
     let titles = s.titles(FILE, 7);
@@ -302,7 +302,7 @@ fn on_a_two_file_task_the_asked_file_counts_the_files_and_the_other_says_other_f
     let asked = task_mark(FILE);
     let other = task_mark(TEST_FILE);
     assert!(asked.contains("· 2 files ·"), "{asked}");
-    assert!(other.contains("· other file ·"), "{other}");
+    assert!(other.contains("· asked in another file ·"), "{other}");
     s.stop();
 }
 

@@ -451,7 +451,8 @@ actions from keys by title, and leave marks, the picker, edits and progress to t
 `working.lua`'s config and tells the server the open-answer key (`init_options.keys`); `attach` starts the server with `debounce_text_changes = 0` on every
 file buffer under the project root; `ghost` draws `virt_lines` extmarks (cleared on
 `TextChanged` of that line), `note` `vsplit`s, `show_diff` opens a tab with a scratch buffer of
-the before-text and the live buffer, both `diffthis`. The keys are in `lua/sorcerer/keys.lua`.
+the before-text and the live buffer, both `diffthis`. The keys are in `lua/sorcerer/keys.lua`
+(the `<leader>ml` group, with do this and stop also right under `<leader>m`).
 `working.lua` (shared with scry and conjure) spins a leading `⟳` through braille frames: one
 `vim.uv` timer (`keep_timer`, 90 ms) runs while any client has a mark drawn, and each `tick`
 rewrites, by extmark id, only the marks in buffers a window shows; `working.animate = false`
@@ -459,7 +460,7 @@ stops it.
 
 **VS Code** (`editors/vscode/lackey/`). `src/extension.ts` starts one `lackey lsp` per
 workspace folder (`startFor`, every file under the folder) with `initializationOptions: {
-drawsWorking: true, handles: [...], keys: keysByName(KEYS) }` (the `ctrl+m o` chord as
+drawsWorking: true, handles: [...], keys: keysByName(KEYS) }` (the `ctrl+m l o` chord as
 `openAnswer`, so a long answer's mark names it). VS Code's client holds a whole-text `didChange` back up
 to 250 ms (the server's sync is `Full`); the `didChange` middleware follows each change with the
 notification `$/lackey/sendEditsNow`, which the server ignores but which makes the client
@@ -471,10 +472,13 @@ note in `ViewColumn.Beside` with `preserveFocus`; `BeforeTexts` (`src/showDiff.t
 `lackey-before` content provider and runs `vscode.diff` of a before-URI (the file's path,
 a fresh query per diff) against the live file. `src/taskMarks.ts` (over the pure `taskLines`
 in `src/marks.ts`) draws the gutter sparkle on diagnostics of source `lackey`, code `task`.
-`src/keys.ts` (`KEYS`, `actionsFor`: exact titles, or a prefix for the offer and the labels) and
-`src/keyActions.ts` (`vscode.executeCodeActionProvider` at the cursor; the labels in a
-QuickPick) make the `ctrl+m a/q/d/z/j/x/o/l` commands, `lackey.keys.*`, named apart from the
-server's `lackey.*` commands, which the language client registers. `binary.ts`,
+`src/keys.ts` (`KEYS`, each with its chords, `actionsFor`: exact titles, or a prefix for the
+offer and the labels) and `src/keyActions.ts` (`vscode.executeCodeActionProvider` at the
+cursor; the labels in a QuickPick) make the commands of `ctrl+m a`, `ctrl+m q` and the
+`ctrl+m l` group, `lackey.keys.*`, named apart from the server's `lackey.*` commands, which the
+language client registers. `ctrl+m u` after a task is `src/undoLast.ts` (see [the
+host](lsp.md#editor-keys)): the `workspace` middleware's `handleApplyEdit` remembers the task's
+edits, and the undo runs *Undo this task* on the mark of code `task` nearest the last one. `binary.ts`,
 `download.ts`, `offer.ts`, `working.ts` and `inline.ts` are byte-identical copies of scry's and
 conjure's (CI `diff`s them; `Working` also shows a `$(sync~spin)` status bar item from the pure
 `statusText` while anything is drawn, and leaves the grey text still, since cycling every

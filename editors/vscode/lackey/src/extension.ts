@@ -8,10 +8,11 @@ import { type Ghost, parseGhost } from './ghost';
 import { Ghosts } from './ghosts';
 import { Working } from './inline';
 import { registerKeys } from './keyActions';
-import { KEYS, keysByName } from './keys';
+import { KEYS, keysByName, UNDO_LAST } from './keys';
 import { type OfferEnding, remembered } from './offer';
 import { BeforeTexts } from './showDiff';
 import { registerTaskMarks } from './taskMarks';
+import { LastChange, registerUndoLast } from './undoLast';
 import { parseWorking, spelledAs, type WorkingUnit } from './working';
 
 const INSTALL_LINE =
@@ -41,6 +42,8 @@ interface Drawing {
 
 // one `lackey lsp` per workspace folder, keyed by the folder's uri
 const clients = new Map<string, LanguageClient>();
+// the last change a task landed, for `ctrl+m u` (lackey's Undo this task on the task's mark)
+const last = new LastChange({ tool: 'lackey', title: 'lackey: Undo this task', markCode: 'task', gone: "lackey's last task can no longer be undone here (its mark is gone, or the task still runs: stop it first, ctrl+m q)" });
 const drawings = new Map<string, Drawing>();
 
 // What the end-to-end tests read: what is drawn now and since the start.
@@ -67,13 +70,14 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder, before: Before
   const options: LanguageClientOptions = {
     documentSelector: [{ scheme: 'file', pattern: `${folder.uri.fsPath}/**` }],
     workspaceFolder: folder,
-    // the chords by name, so a mark can say which to press (`ctrl+m o opens the whole answer`)
+    // the chords by name, so a mark can say which to press (`ctrl+m l o opens the whole answer`)
     initializationOptions: { drawsWorking: true, handles: HANDLED, keys: keysByName(KEYS) },
     middleware: {
       didChange: async (event, next) => {
         await next(event);
         if (lc.isRunning()) await lc.sendNotification(SEND_EDITS_NOW).catch(() => undefined);
       },
+      workspace: { handleApplyEdit: last.handleApplyEdit },
     },
   };
   const lc: LanguageClient = new LanguageClient('lackey', 'Lackey', server, options);
@@ -112,7 +116,7 @@ function spelledAsVsCode(uri: string): string {
 }
 
 // openBeside opens a note in the column beside the code; the cursor stays where it was. The
-// server sends it for a task's note, and for a long answer only when the person asks (ctrl+m o).
+// server sends it for a task's note, and for a long answer only when the person asks (ctrl+m l o).
 async function openBeside(uri: string | undefined): Promise<void> {
   if (!uri) return;
   await vscode.window.showTextDocument(vscode.Uri.parse(uri), { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, preview: false });
@@ -139,6 +143,7 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 // offer is not awaited: VS Code need not wait for the user.
 export function activate(context: vscode.ExtensionContext): LackeyApi {
   registerKeys(context);
+  registerUndoLast(context, UNDO_LAST, last);
   registerTaskMarks(context);
   const before = new BeforeTexts();
   context.subscriptions.push(before);

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { actionTitled, KEYS } from './keys';
 
-// registerKeys makes the four commands the `ctrl+m` chords call (see KEYS and package.json).
+// registerKeys makes the commands the `ctrl+m` chords call (see KEYS and package.json).
 export function registerKeys(context: vscode.ExtensionContext): void {
   for (const { command, title, none } of KEYS) {
     context.subscriptions.push(vscode.commands.registerCommand(command, () => runActionTitled(title, none)));

@@ -7,16 +7,20 @@
 //! - `scry.dismiss [id, "here" | "everywhere"]` dismisses it, republishes, and reviews its
 //!   file again at once, so a finding waiting behind the limit of three can take the place.
 //!
+//! One more command is no code action: `scry.review [uri]` reviews a file at once, as a save
+//! does but with no settle wait (an editor's *review this file now* key).
+//!
 //! The actions on a line are found from what the server last published for that line, so
 //! they always match the diagnostics the editor shows.
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use lsp_server::{ErrorCode, ResponseError};
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, Command, ExecuteCommandOptions, ExecuteCommandParams, Position,
-    Range, ServerCapabilities,
+    Range, ServerCapabilities, Uri,
 };
 use serde_json::Value;
 use sorcerer_core::adapters::files_view::FilesView;
@@ -37,13 +41,14 @@ use crate::usecases::show_findings::Shown;
 const WHY: &str = "scry.why";
 const SHOW_CODE: &str = "scry.showCode";
 const DISMISS: &str = "scry.dismiss";
+const REVIEW: &str = "scry.review";
 
-/// Code actions and the three commands.
+/// Code actions and the four commands.
 pub(super) fn capabilities() -> ServerCapabilities {
     ServerCapabilities {
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         execute_command_provider: Some(ExecuteCommandOptions {
-            commands: vec![WHY.into(), SHOW_CODE.into(), DISMISS.into()],
+            commands: vec![WHY.into(), SHOW_CODE.into(), DISMISS.into(), REVIEW.into()],
             ..ExecuteCommandOptions::default()
         }),
         ..ServerCapabilities::default()
@@ -75,11 +80,12 @@ impl<W: Wiring + 'static> Server<W> {
         serde_json::to_value(actions).map_err(invalid)
     }
 
-    /// Runs one of the three commands.
+    /// Runs one of the four commands.
     pub(super) fn execute(self: &Arc<Self>, params: Value) -> Result<Value, ResponseError> {
         let params: ExecuteCommandParams = serde_json::from_value(params).map_err(invalid)?;
         let id = argument(&params, 0)?;
         match params.command.as_str() {
+            REVIEW => self.review_now(&id),
             WHY => self.show_why(&id),
             SHOW_CODE => self.show_code(&id),
             DISMISS => {
@@ -147,6 +153,21 @@ impl<W: Wiring + 'static> Server<W> {
             .map_err(invalid)?;
         self.publish_open();
         self.queue(project.root.join(file));
+        Ok(())
+    }
+
+    /// Reviews the file of URI at once, as a save does but with no settle wait: what changed in
+    /// it since its last review is reviewed, and an untrusted project is asked about as on a
+    /// save. A URI that is no file of this project is refused by name.
+    ///
+    /// Example: `scry.review ["file:///work/shop/orders.py"]` starts a pass over orders.py.
+    fn review_now(self: &Arc<Self>, uri: &str) -> Result<(), ResponseError> {
+        let file = Uri::from_str(uri)
+            .ok()
+            .and_then(|uri| path_of(&uri))
+            .filter(|file| self.under_root(file))
+            .ok_or_else(|| invalid(format!("{REVIEW}: {uri} is not a file of this project")))?;
+        self.queue(file);
         Ok(())
     }
 

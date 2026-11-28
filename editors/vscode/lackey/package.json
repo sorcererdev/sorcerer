@@ -44,35 +44,48 @@
     "commands": [
       {
         "command": "lackey.keys.do",
-        "title": "Lackey: Do this"
+        "title": "Do this",
+        "category": "lackey"
       },
       {
         "command": "lackey.keys.stop",
-        "title": "Lackey: Stop this task"
+        "title": "Stop the running task",
+        "category": "lackey"
       },
       {
         "command": "lackey.keys.showDiff",
-        "title": "Lackey: Show diff"
+        "title": "Show the diff",
+        "category": "lackey"
       },
       {
         "command": "lackey.keys.undoTask",
-        "title": "Lackey: Undo this task"
+        "title": "Undo the task",
+        "category": "lackey"
       },
       {
         "command": "lackey.keys.journal",
-        "title": "Lackey: Show journal"
-      },
-      {
-        "command": "lackey.keys.dismiss",
-        "title": "Lackey: Dismiss"
+        "title": "Journal",
+        "category": "lackey"
       },
       {
         "command": "lackey.keys.openAnswer",
-        "title": "Lackey: Open the answer"
+        "title": "Open the answer",
+        "category": "lackey"
+      },
+      {
+        "command": "lackey.keys.dismiss",
+        "title": "Dismiss",
+        "category": "lackey"
       },
       {
         "command": "lackey.keys.label",
-        "title": "Lackey: This was\u2026"
+        "title": "Label what you wrote",
+        "category": "lackey"
+      },
+      {
+        "command": "lackey.keys.undoLast",
+        "title": "Undo the last change",
+        "category": "lackey"
       }
     ],
     "keybindings": [
@@ -82,39 +95,59 @@
         "when": "editorTextFocus"
       },
       {
+        "command": "lackey.keys.do",
+        "key": "ctrl+m l a",
+        "when": "editorTextFocus"
+      },
+      {
         "command": "lackey.keys.stop",
         "key": "ctrl+m q",
         "when": "editorTextFocus"
       },
       {
+        "command": "lackey.keys.stop",
+        "key": "ctrl+m l q",
+        "when": "editorTextFocus"
+      },
+      {
         "command": "lackey.keys.showDiff",
-        "key": "ctrl+m d",
+        "key": "ctrl+m l d",
         "when": "editorTextFocus"
       },
       {
         "command": "lackey.keys.undoTask",
-        "key": "ctrl+m z",
+        "key": "ctrl+m l z",
         "when": "editorTextFocus"
       },
       {
         "command": "lackey.keys.journal",
-        "key": "ctrl+m j",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "lackey.keys.dismiss",
-        "key": "ctrl+m x",
+        "key": "ctrl+m l j",
         "when": "editorTextFocus"
       },
       {
         "command": "lackey.keys.openAnswer",
-        "key": "ctrl+m o",
+        "key": "ctrl+m l o",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "lackey.keys.dismiss",
+        "key": "ctrl+m l x",
         "when": "editorTextFocus"
       },
       {
         "command": "lackey.keys.label",
-        "key": "ctrl+m l",
+        "key": "ctrl+m l l",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "lackey.keys.undoLast",
+        "key": "ctrl+m u",
+        "when": "editorTextFocus && sorcerer.lastChange == lackey"
+      },
+      {
+        "command": "lackey.keys.undoLast",
+        "key": "ctrl+m u",
+        "when": "editorTextFocus && !sorcerer.lastChange"
       }
     ]
   },

@@ -2,7 +2,7 @@ import * as assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { KEYS } from '../../src/keys';
+import { KEYS, UNDO_LAST } from '../../src/keys';
 
 // the tests run from out/test/unit: the extension's folder is three up, the workspace five up
 const EXTENSION = join(__dirname, '..', '..', '..');
@@ -31,9 +31,23 @@ test('the_binary_setting_is_read_from_user_settings_only_and_not_in_restricted_m
 
 test('each_chord_calls_its_command_in_an_editor_only', () => {
   const { commands, keybindings } = manifest.contributes;
-  for (const { command, key } of KEYS) {
+  for (const { command, keys } of KEYS) {
     assert.ok(commands.some((c: { command: string }) => c.command === command), command);
-    assert.deepEqual(keybindings.find((b: { command: string }) => b.command === command), { command, key, when: 'editorTextFocus' });
+    assert.deepEqual(keybindings.filter((b: { command: string }) => b.command === command), keys.map(key => ({ command, key, when: 'editorTextFocus' })));
   }
-  assert.equal(keybindings.length, KEYS.length);
+  assert.equal(keybindings.length, KEYS.flatMap(k => k.keys).length + 2);
+});
+
+test('ctrl_m_u_undoes_lackeys_task_when_it_is_the_last_change_or_none_is', () => {
+  assert.deepEqual(manifest.contributes.keybindings.filter((b: { command: string }) => b.command === UNDO_LAST), [
+    { command: UNDO_LAST, key: 'ctrl+m u', when: 'editorTextFocus && sorcerer.lastChange == lackey' },
+    { command: UNDO_LAST, key: 'ctrl+m u', when: 'editorTextFocus && !sorcerer.lastChange' },
+  ]);
+});
+
+test('the_commands_are_in_the_lackey_category_with_plain_titles', () => {
+  for (const c of manifest.contributes.commands) {
+    assert.equal(c.category, 'lackey');
+    assert.doesNotMatch(c.title, /sorcerer|lackey:/i);
+  }
 });

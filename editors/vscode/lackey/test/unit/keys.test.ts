@@ -33,9 +33,9 @@ test('the_label_key_offers_the_four_labels_to_choose_from', () => {
 });
 
 test('the_keys_are_neovims_letters_under_ctrl_m', () => {
-  assert.deepEqual(KEYS.map(k => k.key), ['ctrl+m a', 'ctrl+m q', 'ctrl+m d', 'ctrl+m z', 'ctrl+m j', 'ctrl+m x', 'ctrl+m o', 'ctrl+m l']);
+  assert.deepEqual(KEYS.flatMap(k => k.keys), ['ctrl+m a', 'ctrl+m l a', 'ctrl+m q', 'ctrl+m l q', 'ctrl+m l d', 'ctrl+m l z', 'ctrl+m l j', 'ctrl+m l o', 'ctrl+m l x', 'ctrl+m l l']);
 });
 
 test('the_server_is_told_the_open_answer_chord_by_name', () => {
-  assert.deepEqual(keysByName(KEYS), { openAnswer: 'ctrl+m o' });
+  assert.deepEqual(keysByName(KEYS), { openAnswer: 'ctrl+m l o' });
 });

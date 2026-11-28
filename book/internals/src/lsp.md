@@ -122,7 +122,7 @@ thread.
   clients clear it themselves when the server exits. `show_working_each(places)` is the same
   with a text per place (`WorkingPlace`), for a server doing two things at once (lackey).
 - `key_for(action)`: the editor's key for an action by name, from
-  `initializationOptions.keys` (`Abilities::keys`), so a mark can name it (`<leader>mo opens the
+  `initializationOptions.keys` (`Abilities::keys`), so a mark can name it (`<leader>mlo opens the
   whole answer`); `None` when the editor named none.
 - `notify_sorcerer(method, params) -> bool`: a `sorcerer/…` notification of the product's own
   (lackey's `sorcerer/ghost`, `sorcerer/note`, `sorcerer/showDiff`), sent only to an editor
@@ -200,3 +200,39 @@ document in an edit.
 
 The tests (`tests/serve.rs`, `tests/jobs.rs`) drive the host over `Connection::memory()` with
 a product that records what reaches it.
+
+## Editor keys
+
+The editors' keys are the editors' own: no server knows them, except that lackey is told the
+open-answer key so a mark can name it (`key_for` above). Both editors lay them out the same way,
+under `<leader>m` in Neovim and after `ctrl+m` in VS Code: the common keys right under the
+prefix, then one group a product (`s` scry, `c` conjure, `b` spellbook, `l` lackey). A key that
+names an action runs the code action of that title on the cursor's line, so the server decides
+what a line offers.
+
+- **sorcerer.nvim**: `lua/sorcerer/keys.lua`, `M.table_of_keys` (the name, the key after the
+  prefix, the tool that must be on, and the action's title, a command or a named `run`);
+  `M.defaults()` is the `keys` table of setup, `M.setup` binds the keys of the tools that are on
+  and names the groups for which-key (`name_groups`), and `M.unknown()` is what `:checkhealth
+  sorcerer` lists as no key's name.
+- **VS Code**: each extension's `package.json` `contributes.keybindings` (one entry a chord, so
+  a command can have two: `ctrl+m n` and `ctrl+m c n`) and `contributes.commands` (category =
+  the product), pinned by a unit test to `KEYS` in its `src/keys.ts`. scry's two keys that are
+  no code action are `src/reviewKeys.ts`: review this file now sends `scry.review` to the
+  folder's client, list findings opens Problems.
+
+**Undo the last change** crosses the tools. Neovim: `lua/sorcerer/last_change.lua` wraps
+Neovim's `workspace/applyEdit` handler once (`M.setup`) and remembers each edit conjure, lackey
+or spellbook lands (`M.record`: the tool, each buffer's first changed row and its `changedtick`
+after; back-to-back lackey edits are one task), the latest last; `M.undo` asks the tool to take
+the latest back: conjure's `conjure: Undo` and lackey's `lackey: Undo this task` on the mark
+(code `change`, code `task`) nearest the change, through `keys.lua`'s `M.actions_on_row` and
+`M.run_command`, or Neovim's undo in each buffer spellbook changed while its `changedtick` is
+unchanged. The edits a tool lands while it undoes are not remembered. VS Code: the extensions
+cannot see each other, so each remembers its own tool's last change (`src/undoLast.ts`,
+`LastChange`, fed by the language client's `workspace.handleApplyEdit` middleware, over the pure
+`src/lastChange.ts`) and sets the shared context `sorcerer.lastChange` to its tool; `ctrl+m u` is
+bound in each extension under `sorcerer.lastChange == <tool>` (and `!sorcerer.lastChange`, which
+says there is nothing to undo), so the chord reaches the tool that changed the code last.
+`lastChange.ts` and `undoLast.ts` are byte-identical copies in conjure, lackey and spellbook, and
+CI's `vscode` job `diff`s them.
