@@ -356,6 +356,8 @@ next: spellbook list
   fails rather than waiting.
 - Every file of the pack's `.sorcerer/` is copied but its `state/`; a file the project has already
   (its own `config.toml`, say) is kept and named. A pack holding a link is refused.
+- Files arrive byte for byte as the pack committed them: git's `core.autocrlf` is off for the
+  clone, so a Windows checkout does not turn them CRLF.
 - A project that has `.sorcerer/spellbook/` already is refused (exit 2) before anything is fetched:
   a pack is laid into a project without conventions of its own, not over them.
 - `.sorcerer/pack.toml` records `name` (the pack's own `pack.toml` `name` at its root, else the
