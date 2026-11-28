@@ -61,14 +61,20 @@ impl NotesDir {
         self.write(&format!("{region}.md"), title, text)
     }
 
-    /// Writes `# <title>`, a blank line and the text to the note `name`, made new: a link that
-    /// stands where the note goes is replaced, never written through. The directory must be the
+    /// Writes `# <title>`, a blank line and the text to the note `name` when it is missing; a
+    /// note already there is left exactly as it is (the person may have written in it, and a
+    /// newer answer never replaces it). A link that stands where the note goes is replaced,
+    /// never written through. The directory must be the
     /// project's own (`.sorcerer/` and `.sorcerer/notes/` not links out of it or into
     /// sorcerer's state), else nothing is written.
     fn write(&self, name: &str, title: &str, text: &str) -> Result<PathBuf> {
         std::fs::create_dir_all(&self.dir).map_err(|e| Error::io(&self.dir, e))?;
         self.refuse_a_borrowed_directory()?;
         let path = self.dir.join(name);
+        // A note already there is the person's now (they may have typed into it): leave it.
+        if std::fs::symlink_metadata(&path).is_ok_and(|kind| kind.is_file()) {
+            return Ok(path);
+        }
         let _ = std::fs::remove_file(&path);
         std::fs::OpenOptions::new()
             .write(true)
@@ -178,6 +184,23 @@ mod tests {
             std::fs::read_to_string(path).unwrap(),
             "# Why is it slow?\n\nIt reads twice.\n"
         );
+    }
+
+    #[test]
+    fn writing_a_note_again_keeps_what_the_person_added() {
+        let d = tempfile::TempDir::new().unwrap();
+        let notes = notes_in(d.path());
+        let path = notes.write_answer("r1", "Why?", "Because.").unwrap();
+        let mut typed = std::fs::read_to_string(&path).unwrap();
+        typed.push_str("\nFollow-up: and then?\n");
+        std::fs::write(&path, &typed).unwrap();
+        let again = notes.write_answer("r1", "Why?", "A newer answer.").unwrap();
+        assert_eq!(again, path);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), typed);
+        let task = notes.write_task_note("t1", "Why", "x").unwrap();
+        std::fs::write(&task, "mine\n").unwrap();
+        notes.write_task_note("t1", "Why", "y").unwrap();
+        assert_eq!(std::fs::read_to_string(&task).unwrap(), "mine\n");
     }
 
     #[test]
