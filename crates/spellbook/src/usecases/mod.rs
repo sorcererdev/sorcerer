@@ -8,6 +8,7 @@ pub mod check_since;
 pub mod check_texts;
 pub mod choices_for;
 pub mod fixes_for;
+pub mod install_pack;
 pub mod list_generators;
 pub mod open_holes;
 pub mod plan_fix;

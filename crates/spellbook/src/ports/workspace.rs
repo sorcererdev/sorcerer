@@ -32,9 +32,9 @@ pub fn write_refused_text(refused: &WriteRefused) -> String {
 }
 
 pub trait Workspace: Send + Sync {
-    /// Writes a new file at a path relative to the root, its folders created; never over a file
-    /// that is there.
-    fn write_new(&self, path: &Path, text: &str) -> Result<(), WriteRefused>;
+    /// Writes a new file's bytes (its text, or a copied binary file) at a path relative to the
+    /// root, its folders created; never over a file that is there.
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> Result<(), WriteRefused>;
 
     /// Replaces a file's text with `after`, only when the file still holds `before` (the text a
     /// plan was made from).

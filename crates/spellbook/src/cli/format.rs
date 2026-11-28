@@ -42,13 +42,18 @@ pub(super) fn count(n: usize, one: &str, many: &str) -> String {
 /// up, `["~ src/a/mod.x", "(region modules: set up, 3 items)"]`.
 pub(super) fn file_row(file: &PlannedFile) -> Vec<String> {
     match file.status {
-        FileStatus::New => vec![
-            format!("+ {}", file.path),
-            format!("({} lines)", file.lines),
-        ],
+        FileStatus::New => vec![format!("+ {}", file.path), new_file_size_text(file)],
         FileStatus::Changed => vec![format!("~ {}", file.path), changed_text(file)],
         FileStatus::Skipped => vec![format!("= {}", file.path), "(exists, skipped)".into()],
         FileStatus::Unchanged => vec![format!("= {}", file.path), "(unchanged)".into()],
+    }
+}
+
+/// `(30 lines)`, or for a binary file copied unchanged `(binary, 15360 bytes)`.
+fn new_file_size_text(file: &PlannedFile) -> String {
+    match &file.binary {
+        Some(binary) => format!("(binary, {} bytes)", binary.0.len()),
+        None => format!("({} lines)", file.lines),
     }
 }
 

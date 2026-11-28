@@ -347,7 +347,7 @@ fn template_and_text_together_are_refused() {
         "template = \"command.py.dt\"\ntext = \"x\"",
     );
     assert!(
-        why.contains("[[edits]] 2: give template or text, not both"),
+        why.contains("[[edits]] 2: give one of template, text or copy"),
         "{why}"
     );
 }
@@ -401,4 +401,101 @@ fn a_broken_generator_does_not_hide_the_others() {
         "{problem}"
     );
     assert_eq!(loaded[1].as_ref().unwrap().id, "command");
+}
+
+#[test]
+fn a_copy_edit_says_where_its_file_belongs_and_what_it_mixes() {
+    let outside = with_insert("create = \"x.js\"\ncopy = \"templates/x.js\"");
+    assert!(
+        outside.contains("copy = \"templates/x.js\": write a path under files/"),
+        "{outside}"
+    );
+    let missing = with_insert("create = \"x.js\"\ncopy = \"files/x.js\"");
+    assert!(
+        missing.contains("copy \"files/x.js\" is not a file in files/"),
+        "{missing}"
+    );
+    let mixed = with_insert("create = \"x.js\"\ncopy = \"files/x.js\"\ntext = \"y\"");
+    assert!(
+        mixed.contains("give one of template, text or copy"),
+        "{mixed}"
+    );
+    let in_insert = with_insert("insert = \"x\"\nat = \"end of imports\"\ncopy = \"files/x.js\"");
+    assert!(
+        in_insert.contains("`copy` does not go with insert"),
+        "{in_insert}"
+    );
+}
+
+#[test]
+fn a_copy_edits_file_is_read_as_bytes() {
+    let dir = bistro_project();
+    let toml = COMMAND_TOML.replacen(
+        "on_exists = \"skip\"",
+        "on_exists = \"skip\"\n\n[[edits]]\ncreate = \"static/mark.woff2\"\ncopy = \"files/fonts/mark.woff2\"",
+        1,
+    );
+    write_generator(
+        dir.path(),
+        "command",
+        &toml,
+        &[
+            ("command.py.dt", COMMAND_PY),
+            ("command__test.py.dt", COMMAND_TEST_PY),
+        ],
+    );
+    let font = [0x77, 0x4f, 0x46, 0x32, 0x00, 0xff, 0xfe];
+    write_bytes(
+        dir.path(),
+        ".sorcerer/spellbook/generators/command/files/fonts/mark.woff2",
+        &font,
+    );
+    let project = vendored_project(dir.path());
+    let generator = generator_named(&project, "command").unwrap().unwrap();
+    assert_eq!(generator.files["fonts/mark.woff2"], font.to_vec());
+    assert_eq!(
+        generator.edits[1].body(),
+        &EditBody::Copy("fonts/mark.woff2".into())
+    );
+}
+
+#[test]
+fn notes_are_templates_over_the_generators_names() {
+    let unknown = toml_problem(
+        "[[edits]]",
+        "[notes]\nafter = [\"run {= nope =}\"]\n\n[[edits]]",
+    );
+    assert!(
+        unknown.contains("[notes] after: `nope` is not an input or a derived name"),
+        "{unknown}"
+    );
+    let not_a_list = toml_problem("[[edits]]", "[notes]\nafter = \"x\"\n\n[[edits]]");
+    assert!(
+        not_a_list.contains("[notes]: after must be a list of text"),
+        "{not_a_list}"
+    );
+}
+
+#[test]
+fn double_braces_are_text_unless_they_hold_a_generators_name() {
+    let braced = template_problem("class ", "# {{ command }}\nclass ");
+    assert!(
+        braced.contains("`{{ command }}` is written as it is; to put the value of command here write {= command =}"),
+        "{braced}"
+    );
+    let dir = bistro_project();
+    write_generator(
+        dir.path(),
+        "command",
+        COMMAND_TOML,
+        &[
+            (
+                "command.py.dt",
+                &COMMAND_PY.replacen("class ", "# {{ title }} {% if x %}\nclass ", 1),
+            ),
+            ("command__test.py.dt", COMMAND_TEST_PY),
+        ],
+    );
+    let project = vendored_project(dir.path());
+    assert!(generator_named(&project, "command").unwrap().is_ok());
 }

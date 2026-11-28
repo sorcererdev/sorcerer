@@ -1,0 +1,11 @@
+# An askama page: `{% … %}` and `{{ … }}` are text to the HTML grammar, and the hole a comment.
+generator = "page"
+
+[inputs]
+page = "workouts"
+
+[[holes]]
+name = "body"
+kind = "block"
+file = "templates/workouts.html"
+line = 9

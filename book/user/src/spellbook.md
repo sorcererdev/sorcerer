@@ -18,7 +18,7 @@ What is here and what is coming (the five parts of spellbook):
 | fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line and, in VS Code and Neovim, the quick fix and the fix key (`ctrl+m f`, `<leader>mf`) |
 | owned regions (a list such as a folder's `pub mod` lines, kept between two markers) | here: `.sorcerer/spellbook/regions.toml`, `spellbook sync`, `region-stale` findings in `check`, and in the editor sync on save, the quick fix and **Spellbook: Sync** |
 | list inputs, `if`/`for` in templates | milestone 2 |
-| packs of generators shared between projects | milestone 2 |
+| packs (another repository's `.sorcerer/` copied into a project) | here: `spellbook init --pack` (see [Starting from nothing, or from a pack](#starting-from-nothing-or-from-a-pack)); keeping a project in step with its pack later |
 | suggestions (a convention noticed in your code) | milestone 3 |
 
 ## A generator, step by step
@@ -95,18 +95,63 @@ class {= Command =}:
 | key | what it is |
 |---|---|
 | `name`, `summary`, `description`, `examples` | shown by `spellbook list` and `spellbook show` |
-| `language` | the language the generator is for; it must be one of the project's languages |
+| `language` | the language the generator is for; it must be one of the project's languages (every language sorcerer ships counts, so a generator runs in an empty project, see [Starting from nothing](#starting-from-nothing-or-from-a-pack)) |
 | `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (its values are `one_of` a query over the project's files, or a fixed list, `choices = ["command", "query"]`, whose `default` must be one of them; not both) or `text`; `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
 | `[query.X]` | `glob`, a template over the inputs before the one that uses it, and `value`: `"parent folder"`, `"stem"` or `"path"` of each match. In the glob `*` stays inside one folder and `**` crosses folders; a glob may name folders as well as files |
 | `[derive]` | names computed from the inputs, in order; each may use the ones before it |
-| `[[edits]]` | `create` (the path, a template), then `template` (a file under `templates/`) or `text` (written as it is), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"`. Or `insert`: lines put in a file that is there (below) |
+| `[[edits]]` | `create` (the path, a template), then one of `template` (a file under `templates/`), `text` (written as it is) or `copy` (a file under the generator's `files/`, copied byte for byte, below), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"`. Or `insert`: lines put in a file that is there (below) |
 | `[holes.X]` | `source = "derived"` and `value`: a hole filled from the inputs |
 | `[[uses]]` | another generator planned into the same plan after this one's edits: `generator` (its id) and `with` (its inputs, templates over this generator's values). Its files, changes and holes join the plan, and it sees the files planned before it (`add-port` uses `port`, then `use-port`, which finds the port `port` just planned). A used generator that is missing, a `with` input it does not take, a chain deeper than four or a cycle is refused when the generator loads |
+| `[notes]` | `after = ["…", …]`: lines printed once the plan lands (and in `--json` as the plan's `notes`), each a template like a path: what to run next, a file to fill in. A `[[uses]]` chain prints every generator's notes in order, each line once |
 | `context` | olifant's key (files a filler reads); kept for a later milestone |
 
 Keys that arrive later in milestone 2 (`type = "list"`, `ast` queries,
 `{= if =}`/`{= for =}`) are refused with a sentence that says so. A slip gets the
-word to write instead: `content` → `text`, `pascalCase(x)` → `{= x|pascal =}`, `{{ }}` → `{= =}`.
+word to write instead: `content` → `text`, `pascalCase(x)` → `{= x|pascal =}`, and
+`{{ command }}` around a name the generator gives → `{= command =}` (other `{{ … }}` is text, below).
+
+### Copied files
+
+A `copy` edit writes a file from the generator's `files/` folder exactly as it is: a vendored script,
+a stylesheet, a font. It is never rendered (a `{= =}` in it stays as it is), and it may be binary:
+
+```toml
+[[edits]]
+create = "static/vendor/htmx.min.js"
+copy   = "files/htmx.min.js"
+
+[[edits]]
+create    = "static/fonts/inter.woff2"
+copy      = "files/fonts/inter.woff2"
+on_exists = "skip"
+```
+
+`copy` is always a path under `files/`, fixed (the `create` path is the template); a file missing
+from `files/` is refused when the generator loads, and `copy` goes with `create` only. A copied
+file that is UTF-8 text is shown and parse-checked like any new file of its language; a binary
+one is never parsed, and the plan shows it as `+ static/fonts/inter.woff2  (binary, 48256 bytes)`
+(`--json`: `"binary": 48256`, its `text` empty).
+
+### Notes after the plan
+
+```toml
+[notes]
+after = ["cd {= app|kebab =} && cp .env.example .env", "cargo run"]
+```
+
+The lines come after the plan's holes (and before any region note):
+
+```
+$ spellbook new app --set app=tracker
+app (5 files, 1 hole)
+  + Cargo.toml                          (6 lines)
+  …
+  + migrations/20261122120000_init.sql  (2 lines)
+holes:
+  schema  migrations/20261122120000_init.sql:2  stmt  the tables and indexes this migration creates
+cd tracker && cp .env.example .env
+cargo run
+```
 
 ### Insert edits
 
@@ -162,11 +207,21 @@ code already` and exits 3.
 - `{= ? name: kind | instruction =}` is a hole. The same hole may appear in several places (and
   several files); it is one hole, with one kind and one instruction. The instruction is plain
   text: no quotes, backslashes, braces or new lines, since the placeholder puts it inside a string.
+- `{= timestamp =}` is built in: the time the plan was made, in UTC, as `YYYYMMDDHHMMSS`
+  (`20261122120000`), the way migration tools name their files. It works in paths, `[derive]`,
+  templates and notes without being declared, and `--set timestamp=20260101093000` fixes it (a test,
+  or a re-run that must name the same file). A `[[uses]]` chain shares one timestamp. A generator
+  that declares its own `timestamp` input has that instead. It is not recorded among the inputs.
+- Another template language's marks are text: an askama or Jinja page keeps its `{{ title }}`,
+  `{% for item in items %}` and `{% block content %}` as written, and the HTML grammar reads them
+  as text, so the page still parses. Only `{{ name }}` around one of the generator's own names is
+  refused (it is almost surely `{= name =}` written the other way).
 
 ## The generators of the corpus
 
 The repository ships two small projects with generators you can read and copy, in
-`corpus/spellbook/`. `bistro` is Python (`command`, `query`, `port`, and the two its fix uses:
+`corpus/spellbook/` (and `starter`, an empty project, below in [Starting from
+nothing](#starting-from-nothing-or-from-a-pack)). `bistro` is Python (`command`, `query`, `port`, and the two its fix uses:
 `use-port`, which inserts a port into a command and its test, and `add-port`, which uses `port`
 then `use-port`); `bistro-rs` is Rust (`command`, `port`, `use-port`, `add-port`). Take bistro's
 `command` end to end (on a project whose `commands-exports` region is not set up; once it is, the
@@ -219,9 +274,15 @@ language of the file it lands in (the language's `[holes]` table, see
 | `expr` | `None  # hole value: what it returns` (only where the hole ends its line) |
 | `block` | `raise NotImplementedError("hole handle: its first case, …")` |
 
-Rust's `type` is `()`, and its `expr` and `block` are `todo!("hole handle: …")`. Every
-placeholder parses, so the generated file parses, and the test the generator wrote runs and
-fails red until the holes are filled.
+Rust's `type` is `()`, and its `expr` and `block` are `todo!("hole handle: …")`. SQL's `stmt` is
+`SELECT 'hole schema: …';` and its `expr` `NULL /* hole … */`; HTML's `block` is the comment
+`<!-- hole body: … -->` (an askama page is HTML to spellbook). Every placeholder parses, so the
+generated file parses, and the test the generator wrote runs and fails red until the holes are
+filled. `spellbook doctor` lists every language's kinds.
+
+A hole's kind is checked against the generator's `language` when the generator loads, and its
+placeholder comes from the language of the file it lands in: a Rust generator that writes a `.sql`
+migration uses `stmt` (Rust has the kind) and gets SQL's placeholder.
 
 Who fills them: you, by hand; an agent such as Claude Code, which reads `spellbook new --json`
 or `spellbook holes --json` and finds every hole with its file, line and instruction; or conjure
@@ -267,7 +328,43 @@ appeared since the plan, and any path a link leads out of the project.
 A generator writes the files it creates and the lines its inserts name, and then every owned region
 is refreshed in the same plan: a new Rust module's `pub mod` line is the region's, not the
 generator's (`~ src/booking/commands/mod.rs (region modules: +1 −0)`). A region not set up is a note
-after the holes.
+after the holes, after the generator's own `[notes] after` lines.
+
+## Starting from nothing, or from a pack
+
+A generator runs in an empty folder: every language sorcerer ships is one of the project's
+languages, so a Rust generator that creates `Cargo.toml` and `src/main.rs` needs no `.rs` file to be
+there first. `corpus/spellbook/starter/` is such a project: an `app` generator (a manifest, a main,
+a copied script and font, and through `[[uses]]` the first migration), `migration` (named by
+`{= timestamp =}`, its SQL a `stmt` hole) and `page` (an askama page with an HTML `block` hole).
+
+A **pack** is a repository whose `.sorcerer/` holds generators, rules, regions and config made for
+a stack. `spellbook init --pack` copies it into the project once:
+
+```
+$ spellbook init --pack https://github.com/sorcererdev/pack-rust-web@v0.1.0
+pack rust-web at 1a2b3c4d5e6f: 31 files copied into .sorcerer/
+  = .sorcerer/config.toml  (the project's own, kept)
+  + .sorcerer/pack.toml  (where the pack came from)
+next: spellbook list
+```
+
+- The address is a git URL or a path to a local repository, then `@` and a tag, branch or commit;
+  no `@` takes the default branch (fetched shallow). The `@` of `git@github.com:org/pack.git` is
+  part of the address.
+- It runs `git` (nothing else), so `git` must be on the PATH; a repository that asks for a password
+  fails rather than waiting.
+- Every file of the pack's `.sorcerer/` is copied but its `state/`; a file the project has already
+  (its own `config.toml`, say) is kept and named. A pack holding a link is refused.
+- A project that has `.sorcerer/spellbook/` already is refused (exit 2) before anything is fetched:
+  a pack is laid into a project without conventions of its own, not over them.
+- `.sorcerer/pack.toml` records `name` (the pack's own `pack.toml` `name` at its root, else the
+  repository's folder name), `repo` (as you gave it) and `rev` (the commit taken), so a later
+  command can show what the pack has changed since.
+- It works in a folder with no `.sorcerer/` and no git: the folder is the project.
+
+After it, the pack's generators are the project's: `spellbook list`, then the pack's first generator
+(`spellbook new app …`).
 
 ## `spellbook holes`
 
@@ -288,6 +385,7 @@ lines of it. Fill it and it is gone. `spellbook holes FILE…` looks only at tho
 ## The other commands
 
 ```
+spellbook init --pack REPO[@REV]   copy a pack's .sorcerer/ into the project and record it in .sorcerer/pack.toml
 spellbook list                     the generators, a row each (a broken one is a row with its problem)
 spellbook show <generator>         its inputs and their choices now, the files it creates, its holes, its examples
 spellbook check [FILE…] [--json]   run the rules over the project (or the named files), and check its regions
@@ -1136,8 +1234,9 @@ names).
 
 ## The files it writes
 
-Besides the files you ask for by name, and `.sorcerer/spellbook/baseline.toml` when you run `spellbook
-check --baseline`, spellbook writes only its own state under `.sorcerer/state/spellbook/`:
+Besides the files you ask for by name, `.sorcerer/spellbook/baseline.toml` when you run `spellbook
+check --baseline`, and a pack's `.sorcerer/` files and `.sorcerer/pack.toml` when you run `spellbook
+init --pack`, spellbook writes only its own state under `.sorcerer/state/spellbook/`:
 
 | file | what it holds |
 |---|---|
@@ -1156,7 +1255,7 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 ## What is coming
 
 The rest of milestone 2 brings `missing` rules, list inputs and
-`if`/`for` in templates, and packs of generators and rules shared between projects.
+`if`/`for` in templates, and keeping a project in step with the pack it was copied from.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything
 until then, and the model parts stay optional.

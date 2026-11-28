@@ -21,8 +21,9 @@ use tempfile::TempDir;
 pub struct CorpusFile {
     name: String,
     language: String,
-    /// The base project, relative to the corpus folder.
-    base: String,
+    /// The base project, relative to the corpus folder; none is an empty project (a first
+    /// generation).
+    base: Option<String>,
     /// A folder of files laid over the base for every case that does not say `base =
     /// "shared"`: the files that carry region markers.
     overlay: Option<String>,
@@ -137,7 +138,9 @@ pub fn unix_newlines(text: &str) -> String {
 /// `spellbook/` folder in place as `.sorcerer/spellbook/`.
 pub fn project_of(dir: &Path, corpus: &CorpusFile, base: Base) -> TempDir {
     let project = tempfile::tempdir().unwrap();
-    copy_tree(&dir.join(&corpus.base), project.path());
+    if let Some(base) = &corpus.base {
+        copy_tree(&dir.join(base), project.path());
+    }
     if let (Some(overlay), Base::Overlaid) = (&corpus.overlay, base) {
         copy_tree(&dir.join(overlay), project.path());
     }
@@ -213,20 +216,16 @@ pub fn run_new_case(dir: &Path, corpus: &CorpusFile, kind: &str, id: &str) {
     }
     let expected_dir = dir.join("expected").join(kind).join(id);
     for path in &written {
-        let got = std::fs::read_to_string(project.path().join(path)).unwrap();
+        let got = std::fs::read(project.path().join(path)).unwrap();
         let expected_path = expected_dir.join(path);
         if blessing() {
             std::fs::create_dir_all(expected_path.parent().unwrap()).unwrap();
             std::fs::write(&expected_path, &got).unwrap();
             continue;
         }
-        let expected = std::fs::read_to_string(&expected_path)
+        let expected = std::fs::read(&expected_path)
             .unwrap_or_else(|e| panic!("{}: {e}", expected_path.display()));
-        assert_eq!(
-            unix_newlines(&got),
-            unix_newlines(&expected),
-            "{kind}/{id}: {path}"
-        );
+        assert_same_file(&got, &expected, &format!("{kind}/{id}: {path}"));
     }
     let holes = open_places(&rig);
     if blessing() {
@@ -242,6 +241,17 @@ pub fn run_new_case(dir: &Path, corpus: &CorpusFile, kind: &str, id: &str) {
     let mut want = case.holes;
     want.sort();
     assert_eq!(holes, want, "{kind}/{id}: the open holes");
+}
+
+/// A written file against its expectation: text with any newlines, a binary file (a copied font)
+/// byte for byte.
+fn assert_same_file(got: &[u8], expected: &[u8], what: &str) {
+    match (std::str::from_utf8(got), std::str::from_utf8(expected)) {
+        (Ok(got), Ok(expected)) => {
+            assert_eq!(unix_newlines(got), unix_newlines(expected), "{what}")
+        }
+        _ => assert!(got == expected, "{what}: the bytes differ"),
+    }
 }
 
 pub fn run_new_cases(dir: &Path) {

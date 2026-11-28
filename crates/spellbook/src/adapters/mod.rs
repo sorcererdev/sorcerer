@@ -4,8 +4,10 @@
 pub mod baseline_toml;
 pub mod cached_grammars;
 pub mod checking;
+pub mod disk_sorcerer_dir;
 pub mod disk_workspace;
 pub mod generator_dir;
+pub mod git_pack_source;
 pub mod json_holes;
 pub mod json_report;
 pub mod jsonl_generation_store;

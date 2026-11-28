@@ -17,6 +17,14 @@ pub(super) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(super) enum Cmd {
+    /// Copy a pack's .sorcerer/ (generators, rules, regions, config) into this project and
+    /// record where it came from in .sorcerer/pack.toml
+    Init {
+        /// The pack: a git URL or a path to a local repository, with @REV for a tag, branch or
+        /// commit
+        #[arg(long, value_name = "REPO[@REV]")]
+        pack: String,
+    },
     /// The project's generators and the inputs each asks for
     List,
     /// One generator: its inputs and their choices now, its files, its holes, its examples

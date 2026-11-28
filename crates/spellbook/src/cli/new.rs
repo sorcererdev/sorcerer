@@ -99,6 +99,15 @@ fn print_planned(plan: &Plan, as_json: bool, out: &mut dyn Write) -> Result<()> 
     }
     write!(out, "{}", summary_text(plan, &plan_paths(plan)))?;
     for file in plan.new_files() {
+        if let Some(binary) = &file.binary {
+            write!(
+                out,
+                "\n--- {}\n(binary, {} bytes)\n",
+                file.path,
+                binary.0.len()
+            )?;
+            continue;
+        }
         write!(out, "\n--- {}\n{}", file.path, file.text)?;
         if !file.text.ends_with('\n') && !file.text.is_empty() {
             writeln!(out)?;

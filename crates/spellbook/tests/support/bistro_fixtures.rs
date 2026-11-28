@@ -55,6 +55,13 @@ pub fn write_file(root: &Path, rel: &str, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
+/// Writes bytes into a project (a binary file), its folders created.
+pub fn write_bytes(root: &Path, rel: &str, bytes: &[u8]) {
+    let path = root.join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, bytes).unwrap();
+}
+
 /// Copies a tree into an existing directory, leaving out virtual environments and caches.
 pub fn copy_tree(from: &Path, to: &Path) {
     for entry in std::fs::read_dir(from).unwrap() {

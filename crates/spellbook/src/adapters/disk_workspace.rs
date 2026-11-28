@@ -17,7 +17,7 @@ impl Workspace for DiskWorkspace {
     /// Refuses a path the fences do not allow once its links are followed, creates the folders,
     /// and opens the file only if it is not there yet, so a file that appeared after the plan
     /// is never overwritten.
-    fn write_new(&self, path: &Path, text: &str) -> Result<(), WriteRefused> {
+    fn write_new(&self, path: &Path, bytes: &[u8]) -> Result<(), WriteRefused> {
         let full = self.root.join(path);
         if !self.fences.allows(&full) {
             return Err(WriteRefused::Fenced);
@@ -33,7 +33,7 @@ impl Workspace for DiskWorkspace {
                 ErrorKind::AlreadyExists => WriteRefused::Exists,
                 _ => WriteRefused::Disk(e.to_string()),
             })?;
-        file.write_all(text.as_bytes())
+        file.write_all(bytes)
             .map_err(|e| WriteRefused::Disk(e.to_string()))
     }
 

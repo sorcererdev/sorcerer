@@ -562,3 +562,216 @@ fn the_fix_session_of_the_design_runs_end_to_end() {
     assert_eq!(code, 3, "{out}{err}");
     assert_eq!(out, "nothing to do: the fix is already applied\n");
 }
+
+/// The starter corpus's project: empty but for `.sorcerer/spellbook/` (generators `app`,
+/// `migration`, `page`).
+fn starter_project() -> tempfile::TempDir {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/spellbook/starter");
+    let corpus: CorpusFile = read_toml(&dir.join("corpus.toml"));
+    project_of(&dir, &corpus, Base::Overlaid)
+}
+
+const FONT: &str = "static/fonts/mark.woff2";
+
+#[test]
+fn new_in_an_empty_project_copies_the_font_and_prints_the_chains_notes_once() {
+    let dir = starter_project();
+    let (code, out, err) = run(dir.path(), &["new", "app", "--set", "app=tracker"]);
+    assert_eq!(code, 0, "{err}");
+    let font = std::fs::read(dir.path().join(FONT)).unwrap();
+    let source = std::fs::read(
+        dir.path()
+            .join(".sorcerer/spellbook/generators/app/files/fonts/mark.woff2"),
+    )
+    .unwrap();
+    assert_eq!(font, source);
+    let font_row = out.lines().find(|line| line.contains(FONT)).unwrap();
+    assert!(
+        font_row.ends_with(&format!("(binary, {} bytes)", font.len())),
+        "{out}"
+    );
+    // the plan's clock names the migration the app's [[uses]] plans
+    assert!(
+        dir.path()
+            .join("migrations/20261122120000_init.sql")
+            .is_file()
+    );
+    // app's notes, then migration's, each line once
+    assert!(
+        out.ends_with("cd tracker && cp .env.example .env\ncargo run\n"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_timestamp_given_names_the_whole_chains_files_and_json_carries_the_notes() {
+    let dir = starter_project();
+    let (code, out, err) = run(
+        dir.path(),
+        &[
+            "new",
+            "app",
+            "--set",
+            "app=tracker",
+            "--set",
+            "timestamp=20260101093000",
+            "--plan",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let paths: Vec<&str> = report["plan"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["path"].as_str().unwrap())
+        .collect();
+    assert!(
+        paths.contains(&"migrations/20260101093000_init.sql"),
+        "{paths:?}"
+    );
+    let font = &report["plan"]["files"][3];
+    assert_eq!(font["path"], FONT);
+    assert!(font["binary"].as_u64().unwrap() > 0, "{font}");
+    assert_eq!(
+        report["plan"]["notes"],
+        serde_json::json!(["cd tracker && cp .env.example .env", "cargo run"])
+    );
+}
+
+#[test]
+fn a_plan_shows_a_binary_file_by_its_size() {
+    let dir = starter_project();
+    let (code, out, err) = run(dir.path(), &["new", "app", "--set", "app=x", "--plan"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(&format!("--- {FONT}\n(binary, ")), "{out}");
+    assert!(!dir.path().join(FONT).exists());
+}
+
+/// Runs git in a folder, with no signing and a fixed author; what it printed.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.email=pack@example.com",
+            "-c",
+            "user.name=pack",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "tag.gpgsign=false",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+/// A local pack repository: `pack.toml` (when named), a config, a rules file and a state folder,
+/// tagged `v1`, then a second commit on top. Returns the folder and v1's commit.
+fn pack_repository(name: Option<&str>) -> (tempfile::TempDir, String) {
+    let pack = tempfile::tempdir().unwrap();
+    let root = pack.path();
+    git(root, &["init", "-q"]);
+    if let Some(name) = name {
+        write_file(root, "pack.toml", &format!("name = \"{name}\"\n"));
+    }
+    write_file(
+        root,
+        ".sorcerer/config.toml",
+        "[spellbook]\nenabled = true\n",
+    );
+    write_file(root, ".sorcerer/spellbook/rules.toml", "# v1\n");
+    write_file(root, ".sorcerer/state/remembered.json", "{}\n");
+    git(root, &["add", "-A", "-f"]);
+    git(root, &["commit", "-q", "-m", "v1"]);
+    git(root, &["tag", "v1"]);
+    let v1 = git(root, &["rev-parse", "HEAD"]);
+    write_file(root, ".sorcerer/spellbook/rules.toml", "# v2\n");
+    git(root, &["commit", "-q", "-a", "-m", "v2"]);
+    (pack, v1)
+}
+
+#[test]
+fn init_pack_copies_the_packs_sorcerer_keeps_the_projects_own_and_records_the_commit() {
+    let (pack, v1) = pack_repository(Some("rust-web"));
+    let project = tempfile::tempdir().unwrap();
+    write_file(project.path(), ".sorcerer/config.toml", "# mine\n");
+    let address = format!("{}@v1", pack.path().display());
+    let (code, out, err) = run(project.path(), &["init", "--pack", &address]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.starts_with(&format!("pack rust-web at {}: 1 file copied", &v1[..12])),
+        "{out}"
+    );
+    assert!(
+        out.contains("= .sorcerer/config.toml  (the project's own, kept)"),
+        "{out}"
+    );
+    let sorcerer = project.path().join(".sorcerer");
+    assert_eq!(
+        std::fs::read_to_string(sorcerer.join("config.toml")).unwrap(),
+        "# mine\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(sorcerer.join("spellbook/rules.toml")).unwrap(),
+        "# v1\n"
+    );
+    assert!(!sorcerer.join("state/remembered.json").exists());
+    let record: toml::Table = std::fs::read_to_string(sorcerer.join("pack.toml"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(record["name"].as_str(), Some("rust-web"));
+    assert_eq!(record["repo"].as_str(), Some(pack.path().to_str().unwrap()));
+    assert_eq!(record["rev"].as_str(), Some(v1.as_str()));
+}
+
+#[test]
+fn init_pack_without_a_revision_takes_the_default_branch_and_names_the_pack_by_its_folder() {
+    let (pack, v1) = pack_repository(None);
+    let project = tempfile::tempdir().unwrap();
+    let address = pack.path().display().to_string();
+    let (code, _, err) = run(project.path(), &["init", "--pack", &address]);
+    assert_eq!(code, 0, "{err}");
+    let sorcerer = project.path().join(".sorcerer");
+    assert_eq!(
+        std::fs::read_to_string(sorcerer.join("spellbook/rules.toml")).unwrap(),
+        "# v2\n"
+    );
+    let record: toml::Table = std::fs::read_to_string(sorcerer.join("pack.toml"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let folder = pack.path().file_name().unwrap().to_str().unwrap();
+    assert_eq!(record["name"].as_str(), Some(folder));
+    assert_ne!(record["rev"].as_str(), Some(v1.as_str()));
+}
+
+#[test]
+fn init_pack_refuses_a_project_with_a_spellbook_and_a_revision_git_lacks() {
+    let (pack, _) = pack_repository(Some("rust-web"));
+    let project = tempfile::tempdir().unwrap();
+    write_file(project.path(), ".sorcerer/spellbook/rules.toml", "# mine\n");
+    let address = pack.path().display().to_string();
+    let (code, _, err) = run(project.path(), &["init", "--pack", &address]);
+    assert_eq!(code, 2);
+    assert_eq!(
+        err,
+        "spellbook: the project has .sorcerer/spellbook/ already; a pack is copied only into a project without one (nothing was written)\n"
+    );
+    assert!(!project.path().join(".sorcerer/pack.toml").exists());
+
+    let empty = tempfile::tempdir().unwrap();
+    let address = format!("{}@no-such-tag", pack.path().display());
+    let (code, _, err) = run(empty.path(), &["init", "--pack", &address]);
+    assert_eq!(code, 2);
+    assert!(
+        err.starts_with("spellbook: the pack could not be fetched: git checkout: "),
+        "{err}"
+    );
+    assert!(!empty.path().join(".sorcerer").exists());
+}

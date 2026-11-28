@@ -1,0 +1,5 @@
+# starter: spellbook's corpus for a project with no files yet. No base: every case starts from an
+# empty folder holding only .sorcerer/spellbook/. The corpus test (crates/spellbook/tests/corpus.rs)
+# reads this file.
+name     = "starter"
+language = "rust"

@@ -11,6 +11,7 @@ mod file_arguments;
 mod fix;
 mod format;
 mod holes;
+mod init;
 mod list;
 mod lsp;
 mod new;

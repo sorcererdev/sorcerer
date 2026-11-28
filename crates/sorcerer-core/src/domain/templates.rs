@@ -25,13 +25,13 @@ pub enum Piece<'t> {
 }
 
 /// Splits a template into its pieces. Errors name the trouble and quote the template: a `{=`
-/// never closed, `{{ }}` (another template language), `{= if =}`/`{= for =}` (not yet), an
-/// empty name, or a hole without its `: kind`.
+/// never closed, `{= if =}`/`{= for =}` (not yet), an empty name, or a hole without its
+/// `: kind`. Another template language's marks (`{{ title }}`, `{% for %}`) are text: a generator
+/// may write an askama or Jinja page.
 ///
 /// Example: `pieces("a {= x|snake =}")` is `[Text("a "), Value { name: "x", filters: ["snake"] }]`.
 pub fn pieces(template: &str) -> Result<Vec<Piece<'_>>, String> {
     let shown = excerpt(template);
-    refuse_double_braces(template, &shown)?;
     let mut found = Vec::new();
     let mut rest = template;
     while let Some(open) = rest.find("{=") {
@@ -106,16 +106,6 @@ fn excerpt(template: &str) -> String {
     }
     let cut: String = first.chars().take(LONGEST).collect();
     format!("{cut}…")
-}
-
-fn refuse_double_braces(template: &str, shown: &str) -> Result<(), String> {
-    if template.contains("{{") && template.contains("}}") {
-        Err(format!(
-            "\"{{{{ }}}}\" is not this template language; write {{= name =}} (in `{shown}`)"
-        ))
-    } else {
-        Ok(())
-    }
 }
 
 /// What sits between `{=` and `=}`: a hole when it starts with `?`, else a value.
@@ -271,11 +261,10 @@ mod tests {
     }
 
     #[test]
-    fn double_braces_and_if_are_refused_with_their_sentences() {
-        let braces = pieces("{{ name }}").unwrap_err();
-        assert!(
-            braces.contains("\"{{ }}\" is not this template language; write {= name =}"),
-            "{braces}"
+    fn another_template_languages_marks_are_text_and_if_is_refused() {
+        assert_eq!(
+            pieces("{{ name }}{% if x %}"),
+            Ok(vec![Piece::Text("{{ name }}{% if x %}")])
         );
         let condition = pieces("{= if x =}y{= end =}").unwrap_err();
         assert!(condition.contains("arrives in milestone 2"), "{condition}");
