@@ -3,9 +3,10 @@
 files = ["**/*.css"]
 comment = "/*"
 comment_end = "*/"
-# The grammar: tree-sitter-css v0.25.0, fetched, compiled once into the user's cache and loaded
-# at run time.
-grammar = { git = "https://github.com/tree-sitter/tree-sitter-css", rev = "dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f" }
+# The grammar: our fork, sorcererdev/tree-sitter-css (branch modern-css): tree-sitter-css v0.25.0 plus
+# upstream PR #105, so modern CSS (@container, @layer, range queries) parses. Switch back to upstream
+# once that lands (sorcerer issue #6). Fetched, compiled once into the user's cache and loaded at run time.
+grammar = { git = "https://github.com/sorcererdev/tree-sitter-css", rev = "ecfa1a086b32c13f6830547cbb4f6fcab82468ae" }
 
 # The code spellbook writes where a generator leaves a hole; each must parse where its kind goes.
 [holes]
