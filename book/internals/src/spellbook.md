@@ -15,12 +15,14 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `config.rs`: `SpellbookConfig { enabled, exclude, sync_on_save }` (`sync_on_save` is read by the server's sync on save, `adapters/lsp/sync_on_save.rs`), `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
   the server (`republish`, `wired_for_commands`).
 - `generator.rs`: the types (`Generator`, `Input`/`InputKind`, `Query`/`QueryValue`,
-  `Edit::{Create, Insert}`/`EditBody::{Template, Text, Copy}`/`OnExists`/`OnMissing`, `HoleSource`, `Use`) and `read_generator(id, text, templates)`, which
+  `Edit::{Create, Insert}`/`EditBody::{Template, Text, Copy}`/`OnExists`/`OnMissing`, `HoleSource`, `Use`;
+  `InputKind::List { pattern, keys_of }`, read by `list_kind`) and `read_generator(id, text, templates)`, which
   reads `generator.toml` key by key with errors naming the place (`[inputs.app] type: …`).
   `edit_body` takes exactly one of `template`, `text` or `copy` (`copied_file`: a path under
   `FILES_DIR`, kept as its path there; `copy` is create-only). `Generator.files` (the bytes of
   `files/`, which `read_generator` leaves empty and `generator_dir.rs` fills) and
-  `Generator.notes_after` (`[notes] after`, read by `notes_after`) carry pack-shaped data. The
+  `Generator.notes_after` (`[notes] after`, read by `notes_after`) carry pack-shaped data, as does
+  `Generator.tables` (the project's `tables.toml`, also left empty here and filled by the adapter). The
   workspace's `toml` sorts a table's keys, so the order of `[inputs.X]` headers and `[derive]`
   lines (which is the order inputs are asked and names derived) is read from the text with a
   regular expression (`section_order`, `derive_order`).
@@ -32,7 +34,7 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   the language is the project's; an enum's `one_of` names a query whose glob uses only earlier
   inputs (an enum with `choices` is `InputKind::Fixed`: its list is its choices, `choices_for` returns it
   without resolving earlier inputs, and `one_of` and `choices` together are refused by `read_generator`); every edit's template exists in `templates/` and every `copy` in `files/` (`edit_templates_exist`); paths, derives, derived holes and notes use known names (the inputs, `TIMESTAMP`, the derived names: `known_names`) and no
-  holes; every template parses as a template (core's `pieces`) and uses known names, and its text
+  holes; every template body parses (core's `parse_body`) and passes `check_body` (above), and its text
   holds no `{{ name }}` around one of them (`refuse_braced_name`: other `{{ … }}` is an askama or
   Jinja page's own text); a hole
   has one kind and one plain instruction; a placeholder hole's kind is in the generator
@@ -58,13 +60,33 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   as `YYYYMMDDHHMMSS` unless given), `Values` (inputs, then the built-in timestamp
   (`with_built_ins`, not counted among the recorded inputs, left out when the generator declares
   its own `timestamp` input), then derived names, in order, as `fill` takes them; `with_derived`),
-  `InputStop` and `input_stop_text`, `is_a_name`, and
+  `InputStop` and `input_stop_text` (`InputStop::BadItem { input, item, why }` for a list item that
+  does not follow its pattern), `is_a_name`, and
   `query_choices(files, glob, exclude, value)`: the glob compiled with `literal_separator` (so `*` is one
   folder), matched against every file **and every folder above it**, read as the parent
   folder's name, the stem or the path; a match that any `exclude` glob (a `[query.X]` `exclude`, filled like the glob in `choices_for`) also matches is dropped.
-- `template.rs`: `render(template, values, derived, placeholder_of)` → `Rendered { text, holes }`;
-  each hole's line is counted where its text lands, so a block placeholder keeps the
-  indentation the template gave the hole.
+- `template.rs`: `render(template, values, derived, placeholder_of)` → `Rendered { text, holes }`:
+  the body read by core's `parse_body`, expanded by core's `expand` against `Values::bindings()`
+  (every name as text, each list input as its items, each lookup table as a record), then each
+  `Expanded::Hole` filled (`Writing::place_hole`); each hole's line is counted where its text
+  lands, so a block placeholder keeps the indentation the template gave the hole.
+  `Values` keeps a list input's text among the flat pairs (`with_input`) and its items beside them
+  (`with_list`), so one-line templates and `[[uses]] with` pass the list on as typed.
+- `list_items.rs`: `ItemPattern::parse` (`{name}:{kind}:{target?}`: `ItemPart { name, required }`,
+  optional parts last, no part named `optional`), `ItemPattern::items(text, keys_of, tables)` →
+  `Vec<ListItem>` or `ItemProblem { item, why }` (items split on `,`, a trailing `?` sets
+  `optional`, parts split on `:`, each a name with no spaces, a `keys_of` part a row key of its
+  table), `ListItem::datum`. `choices_for.rs::list_items` calls it as each input resolves.
+- `tables.rs`: `Tables` (table → row key → column → text), `read_tables` (every cell text, errors
+  naming `tables.toml [table.row] column`), `Tables::datum` for the bindings. `TABLES_FILE`.
+- `template_checks.rs`: `check_body(nodes, BodyNames)`, the load-time checks of a body's tree,
+  called by `generator_checks.rs::body_is_well_formed` for each template file and insert `text`:
+  each loop (core's `loops_in`) walks a list input under a name that is not an input
+  (`loops_walk_list_inputs`); no hole inside a loop (`holes_in_loops`); every path (core's
+  `walk_paths`, with the loops in force) is an item's part or `optional` (`item_path`),
+  `loop.first/last/index` (`loop_path`), a plain name (`plain_name_path`), or
+  `table[item.part].column` where `keys_of` maps that part to the table and every row has the
+  column (`table_path`, `key_is_checked_against`).
 - `holes.rs`: `Hole { name, kind, instruction, source: HoleOrigin, places }`,
   `HolePlace { file, line, text }`, and `HoleBook`, which gathers one generation's holes file by
   file (one hole per name, every place).
@@ -156,7 +178,8 @@ question on), `fixes_for.rs`
 project with `.sorcerer/spellbook/` before fetching, fetch, copy what the project lacks, keep what
 it has, write the record).
 
-`adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`, `files_in` (a
+`adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
+`tables_beside` (`tables.toml` in the folder above `generators/`, none when absent), `files_in` (a
 folder's files as bytes: `files/` as is, `templates/` through `templates_in`, which refuses one that
 is not UTF-8),
 `load_generator`, which follows `[[uses]]` with `uses_agree`: each used generator there and
@@ -186,16 +209,20 @@ row `(region NAME: +a −r)` or `(region NAME: set up, N items)`, `hunks_text`, 
 
 ## One generation, end to end
 
-1. `generator_named` loads the directory: `read_generator`, the `files/` bytes, then
-   `check_generator`.
+1. `generator_named` loads the directory: `read_generator`, the `files/` bytes, `tables.toml`, then
+   `check_generator` (with `keys_of_name_tables`, `tables_are_not_named_like_inputs` and each
+   body's `check_body`).
 2. `plan_edits` adds the built-in timestamp from `PlanDeps.clock` (`Given::with_timestamp`;
    `--set timestamp=…` wins). `resolve_inputs` takes the inputs in the generator's order: a given value (an enum's
    checked against `choices_for`, an ident's against `is_a_name`), else an enum's only choice,
-   else the default, else empty when optional, else `InputStop::Missing` with the choices. Then
-   `Values::with_built_ins` adds the timestamp and `Values::with_derived` adds `[derive]` in order.
+   else the default, else empty when optional, else `InputStop::Missing` with the choices. A list
+   input's value is read into items (`list_items`, `InputStop::BadItem` on a typo). Then
+   `Values::with_built_ins` adds the timestamp, `with_tables` the lookup tables, and
+   `Values::with_derived` adds `[derive]` in order.
 3. `plan_edits` (`own_edits`), for each edit: fill the path and keep it (`relative_path`, then
    `Fences::allows_relative`); an existing file is skipped or stops the plan; the body is a
-   text, a `copy` (`PlannedFile::copied`: the bytes as they are), or a template rendered with `render` and the placeholders of **the language of the
+   text, a `copy` (`PlannedFile::copied`: the bytes as they are), or a template rendered with `render`
+   (bindings → `parse_body` → `expand` → holes placed) and the placeholders of **the language of the
    file's own path** (`Grammars::for_path`): a generator's `.html` or empty `__init__.py` is not
    the generator's language. A placeholder hole in a file no language covers stops the plan.
    Every new file a language covers is parsed (`parse_errors_of`), but a binary copy never is; an error line is

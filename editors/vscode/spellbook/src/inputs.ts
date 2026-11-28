@@ -4,7 +4,7 @@
 // One input of a generator, as `spellbook.generators` sends it.
 export interface Input {
   name: string;
-  type: 'enum' | 'ident' | 'text' | string;
+  type: 'enum' | 'ident' | 'text' | 'list' | string;
   prompt: string;
   optional?: boolean;
 }

@@ -17,7 +17,7 @@ What is here and what is coming (the five parts of spellbook):
 | rules that check the code | here: `.sorcerer/spellbook/rules.toml`, `spellbook check`, and findings on save in the editor |
 | fixes (a rule names the generator that repairs a finding), insert edits and `[[uses]]` | here: `spellbook fix` on the command line and, in VS Code and Neovim, the quick fix and the fix key (`ctrl+m f`, `<leader>mf`) |
 | owned regions (a list such as a folder's `pub mod` lines, kept between two markers) | here: `.sorcerer/spellbook/regions.toml`, `spellbook sync`, `region-stale` findings in `check`, and in the editor sync on save, the quick fix and **Spellbook: Sync** |
-| list inputs, `if`/`for` in templates | milestone 2 |
+| list inputs, `if`/`for` in templates | here: `type = "list"` inputs, lookup tables in `tables.toml`, and loops and branches in template bodies (see [Loops, branches and lists](#loops-branches-and-lists)) |
 | packs (another repository's `.sorcerer/` copied into a project) | here: `spellbook init --pack` (see [Starting from nothing, or from a pack](#starting-from-nothing-or-from-a-pack)); keeping a project in step with its pack later |
 | suggestions (a convention noticed in your code) | milestone 3 |
 
@@ -96,7 +96,7 @@ class {= Command =}:
 |---|---|
 | `name`, `summary`, `description`, `examples` | shown by `spellbook list` and `spellbook show` |
 | `language` | the language the generator is for; it must be one of the project's languages (every language sorcerer ships counts, so a generator runs in an empty project, see [Starting from nothing](#starting-from-nothing-or-from-a-pack)) |
-| `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (its values are `one_of` a query over the project's files, or a fixed list, `choices = ["command", "query"]`, whose `default` must be one of them; not both) or `text`; `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
+| `[inputs.X]` | `type`: `ident` (a name in any case style: `cancel_table`, `CancelTable` and `cancel-table` are the same name), `enum` (its values are `one_of` a query over the project's files, or a fixed list, `choices = ["command", "query"]`, whose `default` must be one of them; not both), `text`, or `list` (items in one line of text, read by its `item` pattern, a part checked against a table by `keys_of`, see [Loops, branches and lists](#loops-branches-and-lists)); `prompt`; `optional`; `default`. Inputs are asked in the order the file writes them |
 | `[query.X]` | `glob`, a template over the inputs before the one that uses it; `exclude`, an optional list of such templates, paths the query leaves out (`["src/{= app =}/ports/mod.rs"]`); and `value`: `"parent folder"`, `"stem"` or `"path"` of each match. In the glob `*` stays inside one folder and `**` crosses folders; a glob may name folders as well as files |
 | `[derive]` | names computed from the inputs, in order; each may use the ones before it |
 | `[[edits]]` | `create` (the path, a template), then one of `template` (a file under `templates/`), `text` (written as it is) or `copy` (a file under the generator's `files/`, copied byte for byte, below), and `on_exists`: `"error"` (the default: the plan stops, nothing is written) or `"skip"`. Or `insert`: lines put in a file that is there (below) |
@@ -105,8 +105,7 @@ class {= Command =}:
 | `[notes]` | `after = ["…", …]`: lines printed once the plan lands (and in `--json` as the plan's `notes`), each a template like a path: what to run next, a file to fill in. A `[[uses]]` chain prints every generator's notes in order, each line once |
 | `context` | olifant's key (files a filler reads); kept for a later milestone |
 
-Keys that arrive later in milestone 2 (`type = "list"`, `ast` queries,
-`{= if =}`/`{= for =}`) are refused with a sentence that says so. A slip gets the
+Keys that arrive later (`ast` queries) are refused with a sentence that says so. A slip gets the
 word to write instead: `content` → `text`, `pascalCase(x)` → `{= x|pascal =}`, and
 `{{ command }}` around a name the generator gives → `{= command =}` (other `{{ … }}` is text, below).
 
@@ -216,6 +215,122 @@ code already` and exits 3.
   `{% for item in items %}` and `{% block content %}` as written, and the HTML grammar reads them
   as text, so the page still parses. Only `{{ name }}` around one of the generator's own names is
   refused (it is almost surely `{= name =}` written the other way).
+- A template file (and an insert's `text`) may loop and branch: `{= for =}`, `{= if =}`, below.
+  Paths, `at`, `unless`, `when`, `with`, `[derive]`, `[holes.X]` values, notes, regions and fixes
+  are one line of values: a `{= for =}` or `{= if =}` there is refused ("`{= if =}` works only in a
+  template body").
+
+### Loops, branches and lists
+
+A `list` input takes several items in one line of text. Its `item` is the pattern of one item:
+parts separated by `:`, each `{part}`, or `{part?}` when it may be left out (those come last).
+A `?` after an item marks it optional. `keys_of` names a part whose value must be a row of a
+lookup table:
+
+```toml
+[inputs.fields]
+type    = "list"
+item    = "{name}:{kind}"
+keys_of = { kind = "kinds" }
+prompt  = "The fields, name:kind with ? when it may be empty (name:text,price_cents:int,notes:text?)"
+```
+
+```
+$ spellbook new repository --set model=dish --set fields="name:text,price_cents:int,available:bool,notes:text?"
+```
+
+Each part is a name with no spaces. A typo stops the plan before anything is written, naming the
+input, the item and what it may be:
+
+```
+spellbook: `fields`: `weight_kg:flaot`: `flaot` is not a kind (one of: bool, int, text)
+  give it with --set fields=VALUE
+```
+
+An empty item (`a:text,,b:int`), an item with too few or too many parts, and a part that is not a
+name say so the same way. An `optional = true` list may be left out: it has no items. Passed
+through `[[uses]]` (`with = { fields = "{= fields =}" }`) the list arrives as you typed it, and the
+used generator reads it again with its own pattern.
+
+**Lookup tables** live in `.sorcerer/spellbook/tables.toml`, beside `generators/`: a table of
+rows, each row a table of text cells. Spellbook knows nothing of the columns; they are yours (or
+the pack's):
+
+```toml
+[kinds.text]
+rust = "String"
+
+[kinds.int]
+rust = "i64"
+
+[kinds.bool]
+rust = "bool"
+```
+
+A table may not have the name of a generator's input, and a cell is always text.
+
+In a template body:
+
+```
+{= for f in fields =} … {= end =}               f is one item; loop.first, loop.last, loop.index inside
+{= if COND =} … {= elif COND =} … {= else =} … {= end =}
+{= f.name =}   {= f.name | pascal =}   {= kinds[f.kind].rust =}   {= loop.index =}
+```
+
+- An item has its pattern's parts (a part left out is empty) and `optional`, a flag. `loop.index`
+  counts from 1.
+- A condition is a value alone (a flag is itself; text and lists hold when not empty, so
+  `{= if notes =}` tests an optional input) or `==` / `!=` between values and `"quoted text"`,
+  joined by `not`, `and`, `or` (in that order of binding: `not a and b or c` is
+  `((not a) and b) or c`). There are no parentheses; split the condition with `elif`. A flag is not
+  compared with `==`; test it with `if` or `not`.
+- `kinds[f.kind].rust` looks a row up by an item's part and reads a column. The part must be one
+  `keys_of` names for that table, and every row must have the column, so every lookup a plan meets
+  has a cell.
+- **A line holding only a control tag** (`for`, `if`, `elif`, `else`, `end`) and spaces is removed
+  whole, its newline too: a loop over four fields writes four lines, no blank ones. Tags on a line
+  with other text stay inline: `{= if not loop.last =}, {= end =}`.
+- A hole may sit inside an `if` (it is in the plan only when its branch is taken), never inside a
+  `for` (it would repeat).
+
+bistro-rs's `repository` generator writes a struct with one field per item:
+
+```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct {= model|pascal =} {
+    {= for f in fields =}
+    {= if f.kind == "bool" =}
+    /// Defaults to false.
+    {= end =}
+    pub {= f.name =}: {= if f.optional =}Option<{= kinds[f.kind].rust =}>{= else =}{= kinds[f.kind].rust =}{= end =},
+    {= end =}
+}
+
+/// The table's columns, in the struct's order.
+pub const COLUMNS: &str = "{= for f in fields =}{= f.name =}{= if not loop.last =}, {= end =}{= end =}";
+```
+
+With the `fields` above it writes:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dish {
+    pub name: String,
+    pub price_cents: i64,
+    /// Defaults to false.
+    pub available: bool,
+    pub notes: Option<String>,
+}
+
+/// The table's columns, in the struct's order.
+pub const COLUMNS: &str = "name, price_cents, available, notes";
+```
+
+Mistakes in a template are found when the generator loads, with the template line: a `for` or `if`
+with no `end`, an `end` that closes nothing, an `else` outside an `if`, a loop over an input that is
+not a list, a loop item named like an input, a part the pattern lacks
+(`` `f.colour` (line 2): an item of `fields` has the parts name, kind, optional ``), a column a row
+lacks, a lookup by a part `keys_of` does not check, and a hole inside a loop.
 
 ## The generators of the corpus
 
@@ -223,7 +338,8 @@ The repository ships two small projects with generators you can read and copy, i
 `corpus/spellbook/` (and `starter`, an empty project, below in [Starting from
 nothing](#starting-from-nothing-or-from-a-pack)). `bistro` is Python (`command`, `query`, `port`, and the two its fix uses:
 `use-port`, which inserts a port into a command and its test, and `add-port`, which uses `port`
-then `use-port`); `bistro-rs` is Rust (`command`, `port`, `use-port`, `add-port`). Take bistro's
+then `use-port`); `bistro-rs` is Rust (`command`, `port`, `use-port`, `add-port`, and
+`repository`, a struct over a list of fields, above). Take bistro's
 `command` end to end (on a project whose `commands-exports` region is not set up; once it is, the
 `__init__.py` row reads `~ … (region commands-exports: +1 −0)`, see
 [Owned regions](#owned-regions-and-spellbook-sync)):
@@ -389,7 +505,7 @@ lines of it. Fill it and it is gone. `spellbook holes FILE…` looks only at tho
 ```
 spellbook init --pack REPO[@REV]   copy a pack's .sorcerer/ into the project and record it in .sorcerer/pack.toml
 spellbook list                     the generators, a row each (a broken one is a row with its problem)
-spellbook show <generator>         its inputs and their choices now, the files it creates, its holes, its examples
+spellbook show <generator>         its inputs and their choices now (a list: its item pattern), the files it creates, its holes, its examples
 spellbook check [FILE…] [--json]   run the rules over the project (or the named files), and check its regions
 spellbook rules FILE [--json]       the rules that look at a file: id, severity, message, why (what conjure tells its writer)
 spellbook sync [--init NAME] [--check] [--plan] [--json]
@@ -1064,8 +1180,8 @@ display back (`conjure.sign` for the star).
    its test`.
 2. **Answer its inputs**, in order. An input you gave as `name=value` is not asked. An enum
    (`app`, `service`) offers what the project holds now (a `choices` list offers its values), and an enum with one choice takes it
-   without asking; an `ident` or `text` input is typed. An optional input offers `(skip)`, or an
-   empty answer.
+   without asking; an `ident`, `text` or `list` input is typed (a list as one line, its prompt
+   giving the item syntax). An optional input offers `(skip)`, or an empty answer.
 3. **Read the plan** in a float: each file as `+ path (N lines)`, `= path (exists, skipped)` or,
    for a region the plan refreshes, `~ path (region modules: +1 −0)`,
    how many holes there are to fill, then each new file's text coloured as its
@@ -1146,7 +1262,8 @@ in the folder of the file you are in (with no file open and several folders, it 
 
 1. **Pick the generator** in a quick pick, its summary beside it.
 2. **Answer its inputs**, in order: an enum in a quick pick (one choice taken without asking, an
-   optional one offers `(skip)`), an `ident` or `text` input in an input box. `Esc` anywhere
+   optional one offers `(skip)`), an `ident`, `text` or `list` input in an input box (a list as one
+   line, `name:text,price:int`, its prompt giving the item syntax; a bad item is asked once more). `Esc` anywhere
    cancels, and nothing is said. An input taken without asking is named in the plan's title, so
    you see what was picked for you: `· app bistro, service booking (the only choices)`.
 3. **Read the plan.** Each new file opens as a read-only preview, coloured as its language by
@@ -1256,8 +1373,8 @@ exits 2, and the editor server shows no marks and answers commands with that sen
 
 ## What is coming
 
-The rest of milestone 2 brings `missing` rules, list inputs and
-`if`/`for` in templates, and keeping a project in step with the pack it was copied from.
+The rest of milestone 2 brings `missing` rules, `ast` queries, and keeping a project in step with
+the pack it was copied from.
 Milestone 3 brings suggestions: a convention noticed in your code, written as a draft generator or
 rule, first by counting and then, if you want it, with Jev. Nothing in spellbook costs anything
 until then, and the model parts stay optional.
