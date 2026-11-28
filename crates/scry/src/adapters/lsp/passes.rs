@@ -136,7 +136,7 @@ impl<W: Wiring + 'static> Server<W> {
 
     /// Whether the file is under the project the server serves: the project root above it
     /// is the one above the editor's root. Reads no config.
-    fn under_root(&self, file: &Path) -> bool {
+    pub(super) fn under_root(&self, file: &Path) -> bool {
         let above_file = file.parent().and_then(Project::root_above);
         above_file.is_some() && above_file == Project::root_above(&self.root)
     }

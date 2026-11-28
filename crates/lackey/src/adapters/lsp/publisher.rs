@@ -109,7 +109,7 @@ impl Server {
     }
 
     /// How the person opens a long answer: the editor's key when it named one
-    /// (`<leader>mo opens the whole answer`), else the action's title.
+    /// (`<leader>mlo opens the whole answer`), else the action's title.
     fn open_answer_hint(&self) -> String {
         match self.client.key_for("openAnswer") {
             Some(key) => format!("{key} opens the whole answer"),
@@ -126,7 +126,7 @@ impl Server {
     }
 
     /// The `✦` marks of the finished tasks on a file. The file the task was asked in counts the
-    /// files (`· 2 files ·`); any other file says `· other file ·`, whatever order they were written in.
+    /// files (`· 2 files ·`); any other file says `· asked in another file ·`, whatever order they were written in.
     fn task_marks(&self, path: &Path, line_range: &dyn Fn(u32, u32) -> Range) -> Vec<Diagnostic> {
         lock(&self.shown)
             .iter()
@@ -190,7 +190,7 @@ impl Server {
 /// `lackey: cannot tell: <why>`, or the answer (only its first sentence and how to open the
 /// rest when it is long), then its cost and time.
 ///
-/// Example: a long answer reads `lackey: Tax is added at checkout. · <leader>mo opens the
+/// Example: a long answer reads `lackey: Tax is added at checkout. · <leader>mlo opens the
 /// whole answer` and below it `$0.09 · 15s`.
 fn reply_text(
     verdict: ReplyVerdict,

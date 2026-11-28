@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { doneText, endText, escapeSnippet, messageText, type Range, shifted, snippetFor, type Stop, stopAt, stopsInFile } from '../../src/holes';
 
 test('the_end_line_names_conjure_when_it_is_here_else_the_marks', () => {
-  assert.equal(endText(2, 3, true), 'spellbook: wrote 2 files · 3 holes · ctrl+m c to conjure the first');
+  assert.equal(endText(2, 3, true), 'spellbook: wrote 2 files · 3 holes · ctrl+m n to conjure the first');
   assert.equal(endText(2, 3, false), 'spellbook: wrote 2 files · 3 holes, marked (Problems)');
   assert.equal(endText(1, 1, false), 'spellbook: wrote 1 file · 1 hole, marked (Problems)');
   assert.equal(endText(2, 0, true), 'spellbook: wrote 2 files');
@@ -63,7 +63,7 @@ test('the_session_runs_in_the_first_stops_file_and_counts_the_others', () => {
 
 test('the_message_says_where_you_are_and_the_last_hole_says_done', () => {
   const s = stop('field', 1, 4, 14);
-  assert.equal(messageText(1, 3, s, true), 'hole 1 of 3 · field: its field · type to replace · Tab next · ctrl+m c conjure');
+  assert.equal(messageText(1, 3, s, true), 'hole 1 of 3 · field: its field · type to replace · Tab next · ctrl+m n conjure');
   assert.equal(messageText(2, 3, s, false), 'hole 2 of 3 · field: its field · type to replace · Tab next');
   assert.equal(messageText(3, 3, s, false), 'hole 3 of 3 · field: its field · type to replace · Tab done');
 });

@@ -52,11 +52,33 @@ export function dirtyText(file: string): string {
   return `spellbook: save ${file.split('/').at(-1) ?? file} first; a fix is planned against the file on disk`;
 }
 
-// preferredFix is the action `ctrl+m f` runs: the first action that runs `spellbook.fix` (the
+// preferredFix is the action `ctrl+m b f` runs (and `ctrl+m f` first): the first action that runs `spellbook.fix` (the
 // server lists the preferred one first).
 export function preferredFix<T extends FixAction>(actions: readonly T[]): T | undefined {
   const fixes = actions.filter(action => action.command?.command === 'spellbook.fix');
   return fixes.find(action => action.isPreferred) ?? fixes[0];
+}
+
+// FixThis is what `ctrl+m f` (fix this) does on a line: run the spellbook fix, run another
+// server's preferred quick fix, open the quick-fix menu (several fixes, none preferred), or say
+// there is nothing to fix.
+export type FixThis<T> = { run: T } | { menu: true } | { nothing: true };
+
+// fixThis picks what fix this does with the line's quick fixes: the spellbook fix first, else
+// the one preferred quick fix of any server, else the menu when there are fixes, else nothing.
+// The actions of scry, conjure and lackey are quick fixes by kind but fix nothing, so they are
+// left out.
+//
+// Example: on a line with ruff's preferred `Remove unused import` and scry's `scry: Show why`,
+// fix this runs ruff's fix.
+export function fixThis<T extends FixAction>(actions: readonly T[]): FixThis<T> {
+  const spellbook = preferredFix(actions);
+  if (spellbook) return { run: spellbook };
+  const fixes = actions.filter(action => !/^(scry|conjure|lackey): /.test(action.title) && action.title !== 'Conjure here');
+  const preferred = fixes.filter(action => action.isPreferred);
+  if (preferred.length === 1) return { run: preferred[0] };
+  if (fixes.length === 1) return { run: fixes[0] };
+  return fixes.length > 0 ? { menu: true } : { nothing: true };
 }
 
 // fixedText is the status line once a fix is applied: the rule and file, the files changed, the

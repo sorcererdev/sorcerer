@@ -44,41 +44,65 @@
     "commands": [
       {
         "command": "conjure.keys.here",
-        "title": "Conjure: Conjure here"
-      },
-      {
-        "command": "conjure.keys.undo",
-        "title": "Conjure: Undo"
+        "title": "Next step",
+        "category": "conjure"
       },
       {
         "command": "conjure.keys.tryHarder",
-        "title": "Conjure: Try harder"
+        "title": "Try the change again with more effort",
+        "category": "conjure"
+      },
+      {
+        "command": "conjure.keys.undo",
+        "title": "Undo the change",
+        "category": "conjure"
       },
       {
         "command": "conjure.keys.showWhy",
-        "title": "Conjure: Show why"
+        "title": "Why this step",
+        "category": "conjure"
+      },
+      {
+        "command": "conjure.keys.undoLast",
+        "title": "Undo the last change",
+        "category": "conjure"
       }
     ],
     "keybindings": [
       {
         "command": "conjure.keys.here",
-        "key": "ctrl+m c",
+        "key": "ctrl+m n",
         "when": "editorTextFocus"
       },
       {
-        "command": "conjure.keys.undo",
-        "key": "ctrl+m u",
+        "command": "conjure.keys.here",
+        "key": "ctrl+m c n",
         "when": "editorTextFocus"
       },
       {
         "command": "conjure.keys.tryHarder",
-        "key": "ctrl+m t",
+        "key": "ctrl+m c t",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "conjure.keys.undo",
+        "key": "ctrl+m c u",
         "when": "editorTextFocus"
       },
       {
         "command": "conjure.keys.showWhy",
-        "key": "ctrl+m w",
+        "key": "ctrl+m c w",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "conjure.keys.undoLast",
+        "key": "ctrl+m u",
+        "when": "editorTextFocus && sorcerer.lastChange == conjure"
+      },
+      {
+        "command": "conjure.keys.undoLast",
+        "key": "ctrl+m u",
+        "when": "editorTextFocus && !sorcerer.lastChange"
       }
     ]
   },

@@ -54,41 +54,85 @@
     "commands": [
       {
         "command": "spellbook.new",
-        "title": "Spellbook: New"
+        "title": "Generate…",
+        "category": "spellbook"
       },
       {
-        "command": "spellbook.check",
-        "title": "Spellbook: Check"
+        "command": "spellbook.fixThis",
+        "title": "Fix this",
+        "category": "spellbook"
       },
       {
         "command": "spellbook.fixHere",
-        "title": "Spellbook: Fix"
+        "title": "Fix",
+        "category": "spellbook"
+      },
+      {
+        "command": "spellbook.check",
+        "title": "Check the project's rules",
+        "category": "spellbook"
       },
       {
         "command": "spellbook.sync",
-        "title": "Spellbook: Sync"
+        "title": "Sync regions",
+        "category": "spellbook"
+      },
+      {
+        "command": "spellbook.holes",
+        "title": "List holes",
+        "category": "spellbook"
+      },
+      {
+        "command": "spellbook.undoLast",
+        "title": "Undo the last change",
+        "category": "spellbook"
       }
     ],
     "keybindings": [
       {
         "command": "spellbook.new",
-        "key": "ctrl+m n",
+        "key": "ctrl+m g",
         "when": "editorTextFocus"
       },
       {
-        "command": "spellbook.check",
-        "key": "ctrl+m k",
+        "command": "spellbook.new",
+        "key": "ctrl+m b g",
         "when": "editorTextFocus"
       },
       {
-        "command": "spellbook.fixHere",
+        "command": "spellbook.fixThis",
         "key": "ctrl+m f",
         "when": "editorTextFocus"
       },
       {
-        "command": "spellbook.sync",
-        "key": "ctrl+m s",
+        "command": "spellbook.fixHere",
+        "key": "ctrl+m b f",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "spellbook.check",
+        "key": "ctrl+m b k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "spellbook.sync",
+        "key": "ctrl+m b s",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "spellbook.holes",
+        "key": "ctrl+m b h",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "spellbook.undoLast",
+        "key": "ctrl+m u",
+        "when": "editorTextFocus && sorcerer.lastChange == spellbook"
+      },
+      {
+        "command": "spellbook.undoLast",
+        "key": "ctrl+m u",
+        "when": "editorTextFocus && !sorcerer.lastChange"
       }
     ]
   },

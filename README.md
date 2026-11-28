@@ -232,8 +232,10 @@ code --install-extension sorcererdev.lackey
   `scry.path` / `conjure.path` (your user settings only), then on PATH, then `~/.cargo/bin` and
   `~/.local/bin`. If it finds none it offers to download that version for you, checked against
   its sha256, so installing the binary first is optional.
-- **Lackey's keys** are `ctrl+m` chords (`ctrl+m a` runs an offer); the list is in
-  [its README](editors/vscode/lackey/README.md#keys).
+- **Keys** are `ctrl+m` chords, the same letters as Neovim's `<leader>m` keys: `ctrl+m a` runs
+  lackey's offer, `ctrl+m n` asks conjure for the next step, `ctrl+m u` undoes the last change,
+  and each product has a group (`ctrl+m s` scry, `ctrl+m c` conjure, `ctrl+m b` spellbook,
+  `ctrl+m l` lackey); the table is in [Editors](book/user/src/editor.md#keys).
 - **Keys.** VS Code copies the environment of your login shell when it starts. Put
   `JEV_API_KEY` and `ANTHROPIC_API_KEY` in your shell's profile (`~/.zshrc`, `~/.profile`),
   then quit VS Code completely and start it again. Started from a launcher or the Dock, it may
@@ -262,9 +264,10 @@ installed (scry is on by default; conjure, spellbook and lackey are off):
 ```
 
 On a finding's line, `<leader>ca` offers Show why, Show code and Dismiss; in a function it
-offers **Conjure here** (also `<leader>mc`). Lackey's keys: `<leader>ma` runs an offer,
-`<leader>md` shows a task's diff, `<leader>mz` undoes it; the full table is in
-[the Lackey chapter](book/user/src/lackey.md#in-neovim). Lackey only? Use
+offers **Conjure here** (also `<leader>mn`, next step). Lackey's keys: `<leader>ma` runs an
+offer, `<leader>mld` shows a task's diff, `<leader>mu` undoes the last change (a task, a
+conjured change or a spellbook plan); the full table is in
+[Editors](book/user/src/editor.md#keys). Lackey only? Use
 `scry = { enabled = false }, lackey = { enabled = true }`, or the plugin says `scry` is not on
 the path.
 

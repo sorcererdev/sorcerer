@@ -216,7 +216,10 @@ A pass looks at the units a change adds or alters, compared with a base:
 
 - `scry` alone: every file that differs from `HEAD` in your working tree, untracked files too.
 - `scry <file>…`: the files you name, against `HEAD`. (Saving a file in the editor is the
-  same, for that file.)
+  same, for that file, and so is the editor's *review this file now* key, `<leader>msr` in
+  Neovim and `ctrl+m s r` in VS Code, which saves a file with unsaved changes and otherwise
+  reviews it at once through the server's `scry.review` command; the other scry keys are in
+  [Editors](editor.md#keys).)
 - `--all`: every unit of each file in scope, not only the changed ones.
 - `--since <rev>`: the files your branch changed since it left `<rev>`. Scry compares against
   the merge base, the commit where your branch and `<rev>` last agree, so changes made on

@@ -4,7 +4,9 @@ import { LanguageClient, type LanguageClientOptions, type ServerOptions, State }
 import { candidates, find, isExecutable } from './binary';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
 import { Working } from './inline';
+import { registerKeys } from './keyActions';
 import { type OfferEnding, remembered } from './offer';
+import { registerReviewKeys } from './reviewKeys';
 import { parseWorking, spelledAs, type WorkingUnit } from './working';
 
 const INSTALL_LINE =
@@ -61,6 +63,8 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 // candidates); with none, it offers to download this extension's version of scry and starts
 // once that is in place. The offer is not awaited: VS Code need not wait for the user.
 export function activate(context: vscode.ExtensionContext): { drawn(): WorkingUnit[]; everDrawn(): WorkingUnit[] } {
+  registerKeys(context);
+  registerReviewKeys(context, folder => clients.get(folder.uri.toString()));
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;
   const setting = vscode.workspace.getConfiguration('scry').get<string>('path', '');

@@ -111,11 +111,17 @@ jobs:
           for f in binary download offer; do
             diff editors/vscode/scry/src/$f.ts editors/vscode/spellbook/src/$f.ts
           done
+          for f in lastChange undoLast; do
+            diff editors/vscode/conjure/src/$f.ts editors/vscode/spellbook/src/$f.ts
+          done
       - if: matrix.os == 'ubuntu-latest' && matrix.extension == 'lackey'
         working-directory: .
         run: |
           for f in binary download offer working inline; do
             diff editors/vscode/scry/src/$f.ts editors/vscode/lackey/src/$f.ts
+          done
+          for f in lastChange undoLast; do
+            diff editors/vscode/conjure/src/$f.ts editors/vscode/lackey/src/$f.ts
           done
       # the VS Code the e2e suites run, kept a week: a cold download or the stable-version
       # lookup times out now and then, and with a cached build @vscode/test-electron falls back

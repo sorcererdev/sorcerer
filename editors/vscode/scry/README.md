@@ -8,6 +8,22 @@ The extension is thin: it starts `scry lsp` for each workspace folder and VS Cod
 rest. Quick fixes on a finding offer Show why, Show code and Dismiss; the first time a project's
 own config asks for something that runs code, scry asks whether to trust the project.
 
+## Keys
+
+The same letters as the Neovim plugin's `<leader>m` keys, under **scry** in the Command Palette:
+
+| keys | does |
+|---|---|
+| `ctrl+m w`, `ctrl+m s w` | why is this flagged? (**scry: Show why** on the line) |
+| `ctrl+m s r` | review this file now (a file with unsaved changes is saved, which reviews it) |
+| `ctrl+m s x` | dismiss the finding, here or everywhere |
+| `ctrl+m s l` | list findings (the Problems view) |
+| `ctrl+m s c` | show the code the finding cites |
+
+On macOS `ctrl` is the Control key, not Command. On Windows and Linux `ctrl+m` alone is VS Code's
+"Toggle Tab Key Moves Focus"; as the first key of a chord it no longer does that. Change a
+binding in Keyboard Shortcuts (search `scry.keys`).
+
 ## Install the binary
 
 ```sh

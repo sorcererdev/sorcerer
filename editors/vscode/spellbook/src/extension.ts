@@ -6,10 +6,12 @@ import { registerCheck } from './checkCommand';
 import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from './download';
 import { holeDecoration, placeholderLook, registerHoleMarks } from './holeMarks';
 import { holeStatus } from './holeSession';
+import { registerHoles } from './holesCommand';
 import { messagePlace } from './messages';
 import { type AskerOverrides, registerNew } from './newCommand';
 import { type OfferEnding, remembered } from './offer';
 import { PlanPreviews } from './planPreview';
+import { LastChange, registerUndoLast } from './undoLast';
 
 // The release's installer line for this platform, like conjure's.
 export const INSTALL_LINE =
@@ -25,6 +27,9 @@ const MYSELF = "I'll install it myself";
 
 // one `spellbook lsp` per workspace folder, keyed by the folder's uri
 const clients = new Map<string, LanguageClient>();
+// the last change the server landed (a plan applied), for `ctrl+m u`: VS Code's own undo in each
+// file it changed
+const last = new LastChange({ tool: 'spellbook', gone: "spellbook's last change can no longer be undone" });
 // the binary the servers run, once found or downloaded; Spellbook: Check runs it too
 let found: string | undefined;
 
@@ -54,6 +59,7 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder): void {
   const options: LanguageClientOptions = {
     documentSelector: [{ scheme: 'file', pattern: `${folder.uri.fsPath}/**` }],
     workspaceFolder: folder,
+    middleware: { workspace: { handleApplyEdit: last.handleApplyEdit } },
   };
   const lc = new LanguageClient('spellbook', 'Spellbook', server, options);
   clients.set(key, lc);
@@ -91,6 +97,8 @@ export function activate(context: vscode.ExtensionContext): SpellbookApi {
   registerHoleMarks(context, look);
   const useAsker = registerNew(context, clientFor, new PlanPreviews(placeholderLook(look)));
   registerCheck(context, binaryFound, installText);
+  registerHoles(context, binaryFound, installText);
+  registerUndoLast(context, 'spellbook.undoLast', last);
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;
   const setting = vscode.workspace.getConfiguration('spellbook').get<string>('path', '');

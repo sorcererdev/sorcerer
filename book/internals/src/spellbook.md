@@ -443,9 +443,13 @@ files (the server shows those). `holeMarks.ts` draws the hole look from the mark
 `source`/`code` and the check JSON: the contract.
 
 A fix runs through the same chain. `fixCommand.ts` registers `spellbook.fix` (the code action's
-command: the editor, not the server, runs it) and `spellbook.fixHere` (`ctrl+m f`, which asks
+command: the editor, not the server, runs it), `spellbook.fixHere` (`ctrl+m b f`, which asks
 `vscode.executeCodeActionProvider` for the cursor's line and runs the first `spellbook.fix`
-action, `fix.ts` `preferredFix`). `fixHere` refuses a dirty buffer (`dirtyText`), then calls
+action, `fix.ts` `preferredFix`) and `spellbook.fixThis` (`ctrl+m f`, fix this: `fix.ts`
+`fixThis` picks the spellbook fix, else the one preferred quick fix of another server, else the
+quick-fix menu, leaving out scry's, conjure's and lackey's actions, which fix nothing).
+`holesCommand.ts` registers `spellbook.holes` (`ctrl+m b h`): `spellbook holes --json` in the
+folder's root, read by the pure `openHoles.ts`, in a QuickPick that opens the hole picked. `fixHere` refuses a dirty buffer (`dirtyText`), then calls
 `flowIn` (`newCommand.ts`) with a `Given` that carries the action's `generator`, `inputs`,
 `missing` and `fix` with the document's `version` filled in (the action has `version: null`):
 `newFlow` asks only the `missing` inputs and sends `spellbook.plan [generator, inputs, fix]`
@@ -481,8 +485,14 @@ handler and never blocks on a request, so Neovim's default handler lands the ser
 apply is pending and answers it (`util.apply_workspace_edit`: one undo step a buffer, buffers left
 modified; a `version: null` is `vim.NIL`, which that function accepts). `spellbook_plan.lua`
 (`M.lines`, `M.title`) draws `~ path (+a −r)` rows and each hunk with `DiffAdd`/`DiffDelete` line
-highlights. `keys.lua` binds `fix` to `M.fix_here`, which asks `vim.lsp.buf.code_action` for the
-first `spellbook.fix` quick fix on the line (`:Spellbook fix k=v` is the same with answers).
+highlights. `keys.lua` binds `spellbook_fix` (`<leader>mbf`) to `M.fix_here`, which asks
+`vim.lsp.buf.code_action` for the first `spellbook.fix` quick fix on the line (`:Spellbook fix
+k=v` is the same with answers); the common `fix` (`<leader>mf`, `fix_this` in `keys.lua`) asks
+every client on the buffer for the line's quick fixes (`M.actions_on_row`) and runs `M.fix_here`
+when one is a spellbook fix, else the line's preferred quick fix. `M.check(files)` runs
+`spellbook check --json [files]` (`<leader>mbk` is `M.check_file`, the current file) and
+`M.holes` runs `spellbook holes --json` (`:Spellbook holes`, `<leader>mbh`), both into the
+quickfix list through `spellbook_json`.
 
 ### Regions in the editor
 
@@ -536,13 +546,13 @@ The clients learn one word. VS Code: `plan.ts` words a file with `region` as `~ 
 +a −r` (`set up, N items` with `set_up`) and a sync's title (`spellbook: sync · 1 file changed`);
 `newFlow.ts` takes the generator `sync` without asking the server for generators (`SYNC_GENERATOR`)
 and ends a sync with no files with `syncedText` (`spellbook: regions up to date`, then the notes);
-`syncCommand.ts` registers **Spellbook: Sync** (`spellbook.sync`, `ctrl+m s`) as `flowIn` with
+`syncCommand.ts` registers **Sync regions** (`spellbook.sync`, `ctrl+m b s`) as `flowIn` with
 `{ generator: 'sync' }`; a region's quick fix goes through `fixCommand.ts` unchanged. The server's
 `window/showMessage` is taken over after the client starts (`extension.ts`,
 `showMessagesInPlace`): `messages.ts` (`messagePlace`) sends the save's `spellbook: synced region …`
 lines to the status bar and every other message to a notification of its level. sorcerer.nvim:
 `spellbook_plan.lua` (`changed_text`, `M.title`) words the same rows; `spellbook.lua` `M.sync`
-(`:Spellbook sync`, `keys.lua`'s `sync`, `<leader>ms`) and `M.fix` for a `sync` argument call
+(`:Spellbook sync`, `keys.lua`'s `spellbook_sync`, `<leader>mbs`) and `M.fix` for a `sync` argument call
 `planned_sync`, which plans `["sync", inputs]`, says `regions up to date` for no files, refuses a
 region file whose buffer is modified (`dirty_text`), and shows the float; the save's edit and
 message need nothing (Neovim's own `workspace/applyEdit` and `window/showMessage` handlers). The

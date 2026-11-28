@@ -6,7 +6,9 @@ import { assetUrl, binDir, install, releaseBase, releaseSize, targetFor } from '
 import { registerConjuredMarks } from './conjuredMarks';
 import { Working } from './inline';
 import { registerKeys } from './keyActions';
+import { UNDO_LAST } from './keys';
 import { type OfferEnding, remembered } from './offer';
+import { LastChange, registerUndoLast } from './undoLast';
 import { parseWorking, spelledAs, type WorkingUnit } from './working';
 
 const INSTALL_LINE =
@@ -24,6 +26,8 @@ const MYSELF = "I'll install it myself";
 const clients = new Map<string, LanguageClient>();
 // what each server is working on, drawn after the units' first lines
 const workings = new Map<string, Working>();
+// the last change a server landed, for `ctrl+m u` (conjure's own Undo on its mark)
+const last = new LastChange({ tool: 'conjure', title: 'conjure: Undo', markCode: 'change', gone: "conjure's last change can no longer be undone (its mark is gone)" });
 
 function startFor(binary: string, folder: vscode.WorkspaceFolder): void {
   const key = folder.uri.toString();
@@ -34,6 +38,7 @@ function startFor(binary: string, folder: vscode.WorkspaceFolder): void {
     workspaceFolder: folder,
     // tells the server this editor draws `sorcerer/working` (see Working)
     initializationOptions: { drawsWorking: true },
+    middleware: { workspace: { handleApplyEdit: last.handleApplyEdit } },
   };
   const lc = new LanguageClient('conjure', 'Conjure', server, options);
   clients.set(key, lc);
@@ -64,6 +69,7 @@ async function stopFor(folder: vscode.WorkspaceFolder): Promise<void> {
 // once that is in place. The offer is not awaited: VS Code need not wait for the user.
 export function activate(context: vscode.ExtensionContext): { drawn(): WorkingUnit[]; everDrawn(): WorkingUnit[] } {
   registerKeys(context);
+  registerUndoLast(context, UNDO_LAST, last);
   registerConjuredMarks(context);
   const version = String(context.extension.packageJSON.version);
   const storage = context.globalStorageUri.fsPath;

@@ -110,17 +110,17 @@ pub fn done_text(task: &TaskRecord, seconds: f64) -> String {
     parts.join(" · ")
 }
 
-/// The mark on the first changed line of a file a task changed:
-/// `✦ lackey: refuse late cancellations · 3 files · $0.84`, or `… · other file` on a file
-/// other than the one asked about.
+/// The mark on the first changed line of a file a task changed, saying plainly what it is:
+/// `✦ lackey changed this line in task "refuse late cancellations" · 3 files · $0.84`, or
+/// `… · asked in another file · …` on a file other than the one the task was asked in.
 pub fn task_mark_text(task: &TaskRecord, the_asked_file: bool) -> String {
     let which = if the_asked_file {
         files_text(task.files.len())
     } else {
-        "other file".to_string()
+        "asked in another file".to_string()
     };
     format!(
-        "\u{2726} lackey: {} · {which} · {}",
+        "\u{2726} lackey changed this line in task \"{}\" · {which} · {}",
         title_of(&task.instruction),
         usd(task.cost_usd)
     )
@@ -226,9 +226,9 @@ mod tests {
     fn a_mark_names_the_task_and_whether_it_is_the_asked_file() {
         assert_eq!(
             task_mark_text(&task(), true),
-            "✦ lackey: refuse late cancellations · 4 files · $0.71"
+            "✦ lackey changed this line in task \"refuse late cancellations\" · 4 files · $0.71"
         );
-        assert!(task_mark_text(&task(), false).contains("· other file ·"));
+        assert!(task_mark_text(&task(), false).contains("· asked in another file ·"));
     }
 
     #[test]

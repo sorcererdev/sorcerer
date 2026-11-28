@@ -24,11 +24,15 @@ conjure on, which it keeps off until you ask:
 require("sorcerer").setup({ conjure = { enabled = true } })
 ```
 
-The plugin binds the keys: `<leader>mc` conjures here (select lines first for a range),
-`<leader>mu` undoes the change, `<leader>mt` tries harder and `<leader>mw` says why. Each runs the
-code action of that name on the cursor's line, so the line offers what it always did. `keys = false`
-binds none, `keys = { undo = false }` skips one, and a key you already mapped is never overwritten
-(`:checkhealth sorcerer` lists it).
+The plugin binds the keys: `<leader>mn` asks for the next step here (select lines first for a
+range), and conjure's own group, `<leader>mc`, has `<leader>mcn` next step, `<leader>mct` try
+the change again with more effort, `<leader>mcu` undo the change and `<leader>mcw` why this step.
+`<leader>mu` undoes the last change whichever tool made it, so after a conjured change it is
+conjure's Undo too. Each runs the code action of that name on the cursor's line (*Conjure here*,
+*conjure: Try harder*, *conjure: Undo*, *conjure: Show why*), so the line offers what it always
+did. `keys = false` binds none, `keys = { conjure_undo = false }` skips one, and a key you
+already mapped is never overwritten (`:checkhealth sorcerer` lists it). The whole table is in
+[Editors](editor.md#keys).
 
 The plugin starts `conjure lsp` on the files you open, one server per project root, and does two
 things the server relies on: it reports every edit at once (`debounce_text_changes = 0`, so a
@@ -55,14 +59,16 @@ workspace's settings cannot choose the program it runs), then `PATH`, `~/.cargo/
 `~/.local/bin`; with none, it offers to download its own version's binary, checked against its
 checksum, as the Scry extension does. The actions are in the quick-fix menu (`Ctrl+.`), the
 marks in the Problems panel and, for a conjured change, as a green gutter icon and an
-overview-ruler tick. The keys are the Neovim plugin's, under a `ctrl+m` chord on every system
-(`ctrl` is Control on macOS too): `ctrl+m c` Conjure here, `ctrl+m u` Undo, `ctrl+m t` Try
-harder, `ctrl+m w` Show why; a line with no such action says so in the status bar. On Windows
-and Linux the chord replaces VS Code's "Toggle Tab Key Moves Focus" (`ctrl+m`); rebind any of
-them in Keyboard Shortcuts (search `conjure.keys`).
+overview-ruler tick. The keys are the Neovim plugin's, after `ctrl+m` on every system
+(`ctrl` is Control on macOS too): `ctrl+m n` (and `ctrl+m c n`) next step, `ctrl+m c t` try the
+change again with more effort, `ctrl+m c u` undo the change, `ctrl+m c w` why this step, and
+`ctrl+m u` undo the last change when conjure made it; a line with no such action says so in the
+status bar. In the Command Palette they are under **conjure** (**conjure: Next step**). On
+Windows and Linux the chord replaces VS Code's "Toggle Tab Key Moves Focus" (`ctrl+m`); rebind
+any of them in Keyboard Shortcuts (search `conjure.keys`).
 
 **Asking.** Put the cursor in a function, or select lines in one, and open the code-action menu
-(`<leader>mc` in Neovim, or `vim.lsp.buf.code_action()`; `Ctrl+.` in VS Code). *Conjure here* asks for one change
+(`<leader>mn` in Neovim, or `vim.lsp.buf.code_action()`; `ctrl+m n` or `Ctrl+.` in VS Code). *Conjure here* asks for one change
 there. On a line where scry has an open finding, *Conjure for this finding* asks for a change led
 by that finding. Outside a function nothing is offered (`put the cursor in a function to
 conjure` if you ask anyway).
