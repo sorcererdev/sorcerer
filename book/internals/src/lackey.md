@@ -141,7 +141,7 @@ changed files, the region's first), `clock.rs`.
 id), `jsonl_task_store.rs`, `markdown_journal.rs`, `json_permissions.rs`, `project_context.rs`
 (`FilesContext`), `scry_files.rs`, `steering_files.rs`, `state_files.rs` (`StateFiles`: every
 path under `.sorcerer/state/lackey/`), `notes_dir.rs` (`NotesDir`: `.sorcerer/notes/`, the
-notes' one writer: `write_task_note`, `write_answer`, each made new, never through a link, and
+notes' one writer: `write_task_note`, `write_answer`, each written only when missing (a note already there is the person's and is never rewritten, even by a newer answer), never through a link, and
 only in the project's own directory; `move_from` moves notes from the old `notes/` under the
 state directory, only when no link stands on its way (`is_inside_as_spelled`), which `LackeyServer::start` and `wiring::notes_dir` call; a new kind of note
 is one more method naming its file), `disk_editor.rs` (`DiskEditor`, the command line's
