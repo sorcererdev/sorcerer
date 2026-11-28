@@ -39,7 +39,8 @@ impl PackSource for GitPackSource {
 }
 
 fn clone(address: &PackAddress, into: &Path) -> Result<(), PackStop> {
-    let mut args = vec!["clone", "--quiet"];
+    // The pack's files arrive as committed: a Windows `core.autocrlf` would turn them CRLF.
+    let mut args = vec!["clone", "--quiet", "--config", "core.autocrlf=false"];
     if address.rev.is_none() {
         args.extend(["--depth", "1"]);
     }
