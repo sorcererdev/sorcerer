@@ -580,7 +580,9 @@ pub struct LostLine {
 /// line outside the blocks before whose text is inside a block after). Lines are compared
 /// trimmed, so an adopted line may take the block's indentation; a line written twice must be
 /// there twice, unless a block holds it now. Every marker line is kept, so a block that would
-/// swallow another region's block loses that block's markers and is refused.
+/// swallow another region's block loses that block's markers and is refused. The one exception
+/// is an opening marker's wording: sync rewrites it (a bare `// spellbook:region m` becomes the
+/// full line), which is allowed when `after` has as many blocks as `before`.
 ///
 /// Example: before `a\n// spellbook:region m\nx\n// spellbook:end m\nb\n` (the block on rows
 /// 1 to 3), an after without `x` loses nothing, one without `b` loses row 4 (`b`).
@@ -609,10 +611,15 @@ pub fn first_lost_line(
     for line in after.lines() {
         *left.entry(line.trim()).or_default() += 1;
     }
+    let reworded_openings: Vec<usize> = if blocks_before.len() == blocks_after.len() {
+        blocks_before.iter().map(|block| block.open_row).collect()
+    } else {
+        Vec::new()
+    };
     before
         .lines()
         .enumerate()
-        .filter(|(row, _)| !owned(blocks_before, *row))
+        .filter(|(row, _)| !owned(blocks_before, *row) && !reworded_openings.contains(row))
         .find_map(|(row, line)| {
             let text = line.trim();
             let still_there = match left.get_mut(text) {
@@ -937,6 +944,16 @@ init_at = ["after last line matching ^item ", "start of file"]
                 row: 4,
                 text: "b".into()
             })
+        );
+    }
+
+    #[test]
+    fn a_rewritten_opening_marker_is_not_a_lost_line() {
+        let before = "# spellbook:region m\nx\n# spellbook:end m\n";
+        let after = "# spellbook:region m (from a/*.txt; edit r.toml, not this block)\nx\n# spellbook:end m\n";
+        assert_eq!(
+            first_lost_line(before, &[block(0, 2)], after, &[block(0, 2)]),
+            None
         );
     }
 

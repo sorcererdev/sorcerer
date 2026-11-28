@@ -59,9 +59,9 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   (`with_built_ins`, not counted among the recorded inputs, left out when the generator declares
   its own `timestamp` input), then derived names, in order, as `fill` takes them; `with_derived`),
   `InputStop` and `input_stop_text`, `is_a_name`, and
-  `query_choices(files, glob, value)`: the glob compiled with `literal_separator` (so `*` is one
+  `query_choices(files, glob, exclude, value)`: the glob compiled with `literal_separator` (so `*` is one
   folder), matched against every file **and every folder above it**, read as the parent
-  folder's name, the stem or the path.
+  folder's name, the stem or the path; a match that any `exclude` glob (a `[query.X]` `exclude`, filled like the glob in `choices_for`) also matches is dropped.
 - `template.rs`: `render(template, values, derived, placeholder_of)` → `Rendered { text, holes }`;
   each hole's line is counted where its text lands, so a block placeholder keeps the
   indentation the template gave the hole.
@@ -82,7 +82,7 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   `parse_regions(text)`; `RegionInstance` (`Region::instance_in(file)`, `query_glob`, `query_excludes`,
   `items`, `opening_marker`, `closing_marker`); and the text work, all on plain strings: `find_block`
   (`Block { open_row, close_row, indent }` or `BrokenMarkers { row, why }`), `splice`, `Markers`,
-  `with_markers_at`, `outside_every_block`, `adopt`, `first_lost_line` (`LostLine`). See
+  `with_markers_at`, `outside_every_block`, `adopt`, `first_lost_line` (which lets an opening marker's wording change) (`LostLine`). See
   [A sync, end to end](#a-sync-end-to-end).
 - `record.rs`: `GenerationRecord` (a line of `generations.jsonl`; a fix adds `fix: RecordedFix`
   and `changed: Vec<ChangedFile>`, whose `region` names the owned region that rewrote the file), `OpenHole` and `HolesFile`
@@ -213,7 +213,7 @@ row `(region NAME: +a −r)` or `(region NAME: set up, N items)`, `hunks_text`, 
    whatever was remembered at its path, so a file deleted by hand and generated again lists each
    hole once.
 5. `open_holes` re-reads each saved place and keeps it at its current line while
-   `still_open` finds it; `holes.json` is rewritten with what is still open. A hole whose file is
+   `still_open` finds it (a short placeholder away from its recorded line only on a line that still holds the pieces of the line it was written in, `HolePlace::frame`, so another method's `()` does not keep a filled hole open); `holes.json` is rewritten with what is still open. A hole whose file is
    missing is kept (a stash or branch switch may bring it back) but not listed.
 
 ## A fix, end to end

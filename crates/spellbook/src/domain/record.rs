@@ -76,6 +76,9 @@ pub struct OpenHole {
     /// The signs beside the placeholder on its line (see `HolePlace::edges`).
     #[serde(default)]
     pub edges: String,
+    /// The pieces of the placeholder's line around the holes on it (see `HolePlace::frame`).
+    #[serde(default)]
+    pub frame: Vec<String>,
 }
 
 /// `holes.json`: the open holes, by file then line.
@@ -151,6 +154,7 @@ pub fn open_holes_of(plan: &Plan, written: &[String]) -> Vec<OpenHole> {
                     instruction: hole.instruction.clone(),
                     placeholder: place.text.clone(),
                     edges: place.edges.clone(),
+                    frame: place.frame.clone(),
                 })
                 .collect::<Vec<_>>()
         })

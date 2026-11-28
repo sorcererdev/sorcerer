@@ -1,5 +1,6 @@
 //! Fences: the paths a researcher may never read or send to a model.
-//! Secrets (`.env*` anywhere), sorcerer's own state (`.sorcerer/`, which
+//! Secrets (`.env*` anywhere, but for the committed templates `.env.example`, `.env.sample`
+//! and `.env.template`), sorcerer's own state (`.sorcerer/`, which
 //! holds other findings and the ledger), git's internals, anything outside
 //! the root (a symlink out, `..`), and the user's `[model] not_evidence`
 //! globs. A path is resolved (symlinks, `..`) before it is matched, and
@@ -19,7 +20,15 @@ use crate::{Error, Result};
 
 /// Paths fenced in every project: secret files (`.env`, `.env.local`, … anywhere), sorcerer's
 /// own state, and git's internals.
-pub const ALWAYS: &[&str] = &["**/.env*", SORCERER_DIR_FENCE, ".git/**"];
+pub const ALWAYS: &[&str] = &[ENV_FENCE, SORCERER_DIR_FENCE, ".git/**"];
+
+/// The fence over secret files: `.env` and anything starting with `.env`, in any directory.
+pub const ENV_FENCE: &str = "**/.env*";
+
+/// The file names that look like secrets but are committed templates with no values in them.
+/// They are let through the `.env*` fence (and only that one: a `not_evidence` entry still
+/// fences them). Matched ignoring case.
+pub const ENV_TEMPLATE_NAMES: [&str; 3] = [".env.example", ".env.sample", ".env.template"];
 
 /// The fence over sorcerer's own directory, which the notes are carved out of.
 pub const SORCERER_DIR_FENCE: &str = ".sorcerer/**";
@@ -32,8 +41,10 @@ pub const NOTES_DIR: &str = ".sorcerer/notes";
 #[derive(Debug, Clone)]
 pub struct Fences {
     pub(crate) root: PathBuf,
-    /// Every fence but sorcerer's own directory.
+    /// Every fence but sorcerer's own directory and the `.env*` secrets.
     globs: GlobSet,
+    /// `**/.env*`, which holds everywhere but for the committed templates (`.env.example`).
+    env_files: GlobSet,
     /// `.sorcerer/**`, which holds everywhere but in the notes.
     sorcerer_dir: GlobSet,
     patterns: Vec<String>,
@@ -53,14 +64,20 @@ impl Fences {
             .map(|pattern| pattern.to_string())
             .chain(not_evidence.iter().flat_map(|entry| directory_style(entry)))
             .collect();
-        let (sorcerer_dir, others): (Vec<String>, Vec<String>) = patterns
-            .iter()
-            .cloned()
-            .partition(|pattern| pattern == SORCERER_DIR_FENCE);
+        let special = |pattern: &String| pattern == SORCERER_DIR_FENCE || pattern == ENV_FENCE;
+        let (_, others): (Vec<String>, Vec<String>) = patterns.iter().cloned().partition(special);
+        let only = |wanted: &str| -> Vec<String> {
+            patterns
+                .iter()
+                .filter(|pattern| pattern.as_str() == wanted)
+                .cloned()
+                .collect()
+        };
         Ok(Fences {
             root,
             globs: case_insensitive_globs(&others)?,
-            sorcerer_dir: case_insensitive_globs(&sorcerer_dir)?,
+            env_files: case_insensitive_globs(&only(ENV_FENCE))?,
+            sorcerer_dir: case_insensitive_globs(&only(SORCERER_DIR_FENCE))?,
             patterns,
         })
     }
@@ -69,11 +86,15 @@ impl Fences {
     /// The empty path (the root itself) never may. [`Fences::allows`] takes any path and
     /// resolves it first.
     ///
+    /// A committed template (`.env.example`, `.env.sample`, `.env.template`) may be, wherever it
+    /// is; `.env`, `.env.local` and every other `.env*` may not.
+    ///
     /// Example: `.sorcerer/notes/plan.md` may be; `.sorcerer/state/ledger.jsonl`,
     /// `.sorcerer/notes/.env` and `.sorcerer/notes/../config.toml` (not resolved) may not.
     pub fn allows_relative(&self, rel: &Path) -> bool {
         !rel.as_os_str().is_empty()
             && !self.globs.is_match(rel)
+            && (is_env_template(rel) || !self.env_files.is_match(rel))
             && (is_in_notes(rel) || !self.sorcerer_dir.is_match(rel))
     }
 
@@ -103,6 +124,18 @@ impl Fences {
     pub fn root(&self) -> &Path {
         &self.root
     }
+}
+
+/// Whether the path's file is a committed `.env` template (`config/.env.example`), by name,
+/// ignoring case.
+fn is_env_template(rel: &Path) -> bool {
+    rel.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            ENV_TEMPLATE_NAMES
+                .iter()
+                .any(|template| template.eq_ignore_ascii_case(name))
+        })
 }
 
 /// Whether a resolved path, relative to the root, is the notes directory or inside it. Names

@@ -106,6 +106,8 @@ impl InputKind {
 pub struct Query {
     /// A template over the inputs given so far; `*` is one path segment.
     pub glob: String,
+    /// Globs, templates like `glob`, for paths the query leaves out (`{= dir =}/mod.rs`).
+    pub exclude: Vec<String>,
     pub value: QueryValue,
 }
 
@@ -229,7 +231,7 @@ const TOP_KEYS: &[&str] = &[
 const NOTES_KEYS: &[&str] = &["after"];
 const USE_KEYS: &[&str] = &["generator", "with"];
 const INPUT_KEYS: &[&str] = &["type", "one_of", "choices", "prompt", "optional", "default"];
-const QUERY_KEYS: &[&str] = &["glob", "value"];
+const QUERY_KEYS: &[&str] = &["glob", "exclude", "value"];
 const EDIT_KEYS: &[&str] = &[
     "create",
     "insert",
@@ -419,6 +421,7 @@ fn query(name: &str, table: &Table) -> Result<Query, String> {
     };
     Ok(Query {
         glob: keys.required_text("glob")?,
+        exclude: keys.texts("exclude")?,
         value,
     })
 }

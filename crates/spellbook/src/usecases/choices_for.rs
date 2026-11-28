@@ -159,10 +159,16 @@ fn enum_choices(
         .ok_or_else(|| InputStop::Template(format!("[query.{one_of}] is missing")))?;
     let glob = fill(&query.glob, &before.pairs())
         .map_err(|why| InputStop::Template(format!("[query.{one_of}] glob: {why}")))?;
+    let exclude = query
+        .exclude
+        .iter()
+        .map(|pattern| fill(pattern, &before.pairs()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|why| InputStop::Template(format!("[query.{one_of}] exclude: {why}")))?;
     let files = view
         .glob("**")
         .map_err(|e| InputStop::Template(format!("the project's files: {e}")))?;
-    let choices = query_choices(&files, &glob, query.value)
+    let choices = query_choices(&files, &glob, &exclude, query.value)
         .map_err(|why| InputStop::Template(format!("[query.{one_of}] {why}")))?;
     if choices.is_empty() {
         return Err(InputStop::NoChoices {

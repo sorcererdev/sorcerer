@@ -72,11 +72,15 @@ fn enums_name_queries_over_earlier_inputs(generator: &Generator) -> Result<(), S
             .iter()
             .map(|(earlier, _)| earlier.as_str())
             .collect();
-        for used in value_names(&query.glob, &format!("[query.{one_of}] glob"))? {
-            if !earlier.contains(&used) {
-                return Err(format!(
-                    "[query.{one_of}] glob: a query naming an input not yet given ({used}, before {name})"
-                ));
+        let templates = std::iter::once(("glob", &query.glob))
+            .chain(query.exclude.iter().map(|exclude| ("exclude", exclude)));
+        for (key, template) in templates {
+            for used in value_names(template, &format!("[query.{one_of}] {key}"))? {
+                if !earlier.contains(&used) {
+                    return Err(format!(
+                        "[query.{one_of}] {key}: a query naming an input not yet given ({used}, before {name})"
+                    ));
+                }
             }
         }
     }

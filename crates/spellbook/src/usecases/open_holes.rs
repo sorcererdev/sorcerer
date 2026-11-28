@@ -37,8 +37,8 @@ pub fn open_holes(
         }
         match look_again(deps.view, &hole) {
             Looked::Open(now) => {
-                found.push(now.clone());
-                kept.push(now);
+                found.push((*now).clone());
+                kept.push(*now);
             }
             Looked::Gone => {}
             // a stash or a branch switch may bring the file back: keep the row, list nothing
@@ -56,7 +56,7 @@ pub fn open_holes(
 }
 
 enum Looked {
-    Open(OpenHole),
+    Open(Box<OpenHole>),
     Gone,
     FileMissing,
     Unreadable,
@@ -71,10 +71,10 @@ fn look_again(view: &dyn CodebaseView, hole: &OpenHole) -> Looked {
         return Looked::Unreadable;
     };
     match still_open(hole, &text) {
-        Some(line) => Looked::Open(OpenHole {
+        Some(line) => Looked::Open(Box::new(OpenHole {
             line,
             ..hole.clone()
-        }),
+        })),
         None => Looked::Gone,
     }
 }

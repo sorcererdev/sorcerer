@@ -33,9 +33,26 @@ pub fn still_open(hole: &OpenHole, text: &str) -> Option<u32> {
         return None;
     }
     lines_nearest(hole.line, reach).find(|line| {
-        lines
-            .get((*line - 1) as usize)
-            .is_some_and(|row| whole_match_at(row, needle, edges).is_some())
+        lines.get((*line - 1) as usize).is_some_and(|row| {
+            whole_match_at(row, needle, edges).is_some()
+                && (marked || *line == hole.line || row_has_the_pieces(row, &hole.frame))
+        })
+    })
+}
+
+/// Whether the row holds the frame's pieces in order, spaces left out. A short placeholder found
+/// away from its recorded line is the hole's only when its line is still the line the hole was
+/// written in, so the `()` of another method's `Result<(), E>` does not keep a filled hole open.
+/// A hole recorded without a frame matches any row.
+fn row_has_the_pieces(row: &str, frame: &[String]) -> bool {
+    let squeezed: String = row.split_whitespace().collect();
+    let mut rest = squeezed.as_str();
+    frame.iter().all(|piece| match rest.find(piece.as_str()) {
+        Some(at) => {
+            rest = &rest[at + piece.len()..];
+            true
+        }
+        None => false,
     })
 }
 
@@ -113,6 +130,7 @@ mod tests {
             instruction: "x".into(),
             placeholder: placeholder.into(),
             edges: String::new(),
+            frame: Vec::new(),
         }
     }
 
@@ -173,6 +191,18 @@ mod tests {
         open.edges = ":,".into();
         let row = "fn f() -> Result<(), E> { pub id: (), }";
         assert_eq!(placeholder_span(&open, row), Some(34..36));
+    }
+
+    #[test]
+    fn a_filled_hole_is_not_the_same_placeholder_on_another_methods_line() {
+        let mut open = hole("returns", "()", 3);
+        open.edges = "<,".into();
+        open.frame = vec!["asyncfn".into(), "(&self)->Result<".into(), ",E>;".into()];
+        let filled = "trait T {\n    // x\n    async fn list(&self) -> Result<Vec<X>, E>;\n\n    async fn insert(&self, x: &X) -> Result<(), E>;\n}\n";
+        assert_eq!(still_open(&open, filled), None);
+        let waiting =
+            "trait T {\n    // x\n    // y\n    async fn list(&self) -> Result<(), E>;\n}\n";
+        assert_eq!(still_open(&open, waiting), Some(4));
     }
 
     #[test]

@@ -174,3 +174,21 @@ fn a_broken_marker_stops_the_plan_naming_the_line() {
         .unwrap_err();
     assert!(plan_stop_text(&new).starts_with("src/booking/queries/mod.rs:3"));
 }
+
+#[test]
+fn a_bare_opening_marker_is_rewritten_with_the_full_one() {
+    let project = bistro_rs();
+    write_file(
+        project.path(),
+        "src/booking/commands/mod.rs",
+        "// spellbook:region modules\n// spellbook:end modules\n",
+    );
+    let planned = sync(project.path(), SyncMode::Refresh);
+    PlanRig::new(project.path()).apply(planned.plan);
+    assert_eq!(
+        read(project.path(), "src/booking/commands/mod.rs"),
+        "// spellbook:region modules (from src/booking/commands/*.rs; edit .sorcerer/spellbook/regions.toml, not this block)\n\
+         pub mod create_booking;\n\
+         // spellbook:end modules\n"
+    );
+}
