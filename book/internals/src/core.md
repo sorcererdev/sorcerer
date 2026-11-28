@@ -314,15 +314,38 @@ gives up. Conjure checks a changed file with it ("parses", or "does not parse (l
 `pieces(template)` splits a template into `Piece::Text`, `Piece::Value { name, filters }`
 (`{= name|pascal =}`, filters left to right) and `Piece::Hole { name, kind, instruction }`
 (`{= ? handle: block | its first case =}`), refusing with a sentence a `{=` never closed,
-`{= if =}`/`{= for =}` (milestone 2), an empty name and a
+`{= if =}`/`{= elif =}`/`{= for =}`/`{= else =}`/`{= end =}` ("works only in a template body"), an empty name and a
 hole with no `: kind`. Another template language's `{{ … }}` and `{% … %}` are `Piece::Text`, so a
 generator can write an askama or Jinja page (spellbook's `refuse_braced_name` still catches
 `{{ name }}` around one of a generator's own names). An error quotes the template whole when it is short (a path) and by its first
 line and `…` when it is longer (`excerpt`), so a mistake in a file of template is not buried in the file.
 `fill(template, values)` fills the values and applies the filters; a
 hole is an error there ("a hole has no value here"), because only spellbook knows what goes in
-one. Conjure fills its language files' path templates with it; spellbook renders generators
-with `pieces`.
+one. Conjure fills its language files' path templates with it, and spellbook fills every
+one-line template with it (paths, `at`, `unless`, `with`, derives, notes, regions, fixes).
+
+A template *body* (a file a generator creates, an insert's `text`) has a second form that loops
+and branches, in `domain/template_blocks.rs`. `parse_body(template)` reads it into a tree of
+`Node`s: `Text`, `Value { path, filters }`, `Hole { name, kind, instruction, line }`,
+`For { item, list, line, body }` and `If { branches, otherwise, line }`. Paths
+(`domain/template_paths.rs`: `Path { root, steps, line }`, `Step::Field` for `.name`,
+`Step::Key` for `[path]`) read into records, so `kinds[f.kind].rust` looks a row up by an item's
+part. Conditions (`domain/template_conditions.rs`: `Condition`, `Operand`, `parse_condition`)
+are `==`, `!=`, `not`, `and`, `or` by precedence, without parentheses. While reading, a line
+holding only one control tag is cut out whole (`control_only_lines`, `trimmed_texts`), newline
+included, so a loop over three items writes three lines. Structure mistakes (a `for` with no
+`end`, a stray `end`, `else` outside `if`) are errors naming the template line.
+
+`expand(nodes, bindings, template)` walks the tree against `Bindings`, a map of `Datum`s
+(`Text`, `Flag`, `List`, `Record`): a `for` repeats its body with the item and a `loop` record
+(`first`, `last`, `index` from 1) in scope (`Lookup::inside_loop`), an `if` keeps its first
+branch whose condition holds (a flag is itself; text and lists hold when not empty), values are
+filtered as `fill` does. The result is `Expanded::Text` and `Expanded::Hole` in order, which
+spellbook's `render` turns into text and placed holes. `walk_paths`, `loops_in` and
+`holes_in_loops` let spellbook check a body when it loads, before anything renders.
+
+The flat reader stays for one-line templates because they never need a loop, and keeping them
+on `pieces`/`fill` means a control tag in a path is refused rather than quietly read.
 
 `domain/generated_regions.rs`: `REGION_OPENS` (`spellbook:region`, the words that open a region
 spellbook keeps; spellbook's `region.rs` takes its `OPENS` from it) and `generated_regions_line(texts)`,

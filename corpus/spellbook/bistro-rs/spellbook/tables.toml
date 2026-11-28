@@ -1,0 +1,11 @@
+# Lookup tables the generators' templates read by key: `{= kinds[f.kind].rust =}`. Each row is a
+# kind a list item may name (`keys_of = { kind = "kinds" }` checks it); each column is pack data.
+
+[kinds.text]
+rust = "String"
+
+[kinds.int]
+rust = "i64"
+
+[kinds.bool]
+rust = "bool"

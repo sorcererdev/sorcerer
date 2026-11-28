@@ -25,7 +25,8 @@ pub enum Piece<'t> {
 }
 
 /// Splits a template into its pieces. Errors name the trouble and quote the template: a `{=`
-/// never closed, `{= if =}`/`{= for =}` (not yet), an empty name, or a hole without its
+/// never closed, `{= if =}`/`{= for =}` (those work only in a template body, see
+/// [`crate::domain::template_blocks`]), an empty name, or a hole without its
 /// `: kind`. Another template language's marks (`{{ title }}`, `{% for %}`) are text: a generator
 /// may write an askama or Jinja page.
 ///
@@ -97,7 +98,7 @@ pub fn filled_value(
 /// first line cut short, since a whole file of template says nothing about where the trouble is.
 ///
 /// Example: a six-line template is quoted as its first line and `…`.
-fn excerpt(template: &str) -> String {
+pub(crate) fn excerpt(template: &str) -> String {
     const LONGEST: usize = 60;
     let first = template.lines().next().unwrap_or_default();
     let is_short = !template.contains('\n') && template.chars().count() <= LONGEST;
@@ -128,6 +129,21 @@ fn value_piece<'t>(inside: &'t str, template: &str) -> Result<Piece<'t>, String>
 }
 
 fn hole_piece<'t>(inside: &'t str, template: &str) -> Result<Piece<'t>, String> {
+    let (name, kind, instruction) = hole_parts(inside, template)?;
+    Ok(Piece::Hole {
+        name,
+        kind,
+        instruction,
+    })
+}
+
+/// A hole's name, kind and instruction, from what follows its `?`.
+///
+/// Example: `hole_parts("check: block | do it", "…")` is `Ok(("check", "block", "do it"))`.
+pub(crate) fn hole_parts<'t>(
+    inside: &'t str,
+    template: &str,
+) -> Result<(&'t str, &'t str, &'t str), String> {
     let (head, instruction) = inside.split_once('|').unwrap_or((inside, ""));
     let (name, kind) = head.split_once(':').ok_or_else(|| {
         format!(
@@ -142,18 +158,14 @@ fn hole_piece<'t>(inside: &'t str, template: &str) -> Result<Piece<'t>, String> 
             "the hole `{name}` has no `: kind` (in `{template}`)"
         ));
     }
-    Ok(Piece::Hole {
-        name,
-        kind,
-        instruction: instruction.trim(),
-    })
+    Ok((name, kind, instruction.trim()))
 }
 
 fn refuse_control_words(name: &str, template: &str) -> Result<(), String> {
     let first_word = name.split_whitespace().next().unwrap_or_default();
-    if ["if", "for", "else", "end"].contains(&first_word) {
+    if ["if", "elif", "for", "else", "end"].contains(&first_word) {
         Err(format!(
-            "`{{= {first_word} =}}` arrives in milestone 2 (in `{template}`)"
+            "`{{= {first_word} =}}` works only in a template body (in `{template}`)"
         ))
     } else {
         Ok(())
@@ -267,10 +279,25 @@ mod tests {
             Ok(vec![Piece::Text("{{ name }}{% if x %}")])
         );
         let condition = pieces("{= if x =}y{= end =}").unwrap_err();
-        assert!(condition.contains("arrives in milestone 2"), "{condition}");
+        assert!(
+            condition.contains("works only in a template body"),
+            "{condition}"
+        );
         let each = pieces("{= for x in xs =}").unwrap_err();
-        assert!(each.contains("arrives in milestone 2"), "{each}");
+        assert!(each.contains("works only in a template body"), "{each}");
         assert!(pieces("{=  =}").unwrap_err().contains("no name"));
+    }
+
+    #[test]
+    fn control_tags_work_only_in_a_template_body() {
+        assert_eq!(
+            fill("{= if x =}", &[]).unwrap_err(),
+            "`{= if =}` works only in a template body (in `{= if x =}`)"
+        );
+        assert_eq!(
+            fill("{= elif x =}", &[]).unwrap_err(),
+            "`{= elif =}` works only in a template body (in `{= elif x =}`)"
+        );
     }
 
     #[test]

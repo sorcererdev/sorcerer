@@ -1,0 +1,31 @@
+name        = "Repository"
+summary     = "A model of a service: one field per item, and its columns"
+description = "models/NAME.rs: the struct with a field per item of fields (Option when marked ?), COLUMNS in the same order, and is_valid to write. models/mod.rs lists it through the modules region."
+language    = "rust"
+examples    = ["spellbook new repository --set model=dish --set fields=\"name:text,price_cents:int,available:bool,notes:text?\""]
+
+[inputs.service]
+type   = "enum"
+one_of = "services"
+prompt = "The service it belongs to"
+
+[inputs.model]
+type   = "ident"
+prompt = "The model, a noun (dish, opening_hours)"
+
+[inputs.fields]
+type    = "list"
+item    = "{name}:{kind}"
+keys_of = { kind = "kinds" }
+prompt  = "The fields, name:kind with ? when it may be empty (name:text,price_cents:int,notes:text?)"
+
+[derive]
+dir = "src/{= service|snake =}/models"
+
+[query.services]
+glob  = "src/*/models"
+value = "parent folder"
+
+[[edits]]
+create   = "{= dir =}/{= model|snake =}.rs"
+template = "repository.rs.dt"

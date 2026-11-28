@@ -1,1 +1,0 @@
-generator command (templates/command.py.dt): `{= if =}` arrives in milestone 2 (in `"""{= ? purpose: text | what this command does =}"""…`)

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **Spellbook: list inputs, lookup tables, and templates that loop and branch.** An input of
+  `type = "list"` takes several items in one line, read by its `item` pattern:
+  `spellbook new repository --set model=dish --set fields="name:text,price_cents:int,notes:text?"`
+  (`item = "{name}:{kind}"`; a trailing `?` marks an item optional). `keys_of = { kind = "kinds" }`
+  checks a part against `.sorcerer/spellbook/tables.toml`, lookup tables of text a template reads
+  as `{= kinds[f.kind].rust =}`; a typo stops the plan naming the input, the item and the allowed
+  keys. A template file now loops and branches: `{= for f in fields =} … {= end =}` (with
+  `loop.first`, `loop.last`, `loop.index`), `{= if … =}`/`{= elif … =}`/`{= else =}` with `==`,
+  `!=`, `not`, `and`, `or`. A line holding only a control tag vanishes whole, so a loop over three
+  fields writes three lines. Mistakes (a missing `end`, a part the pattern lacks, a column a row
+  lacks, a hole inside a loop) are load errors naming the template line. Both editors ask a list
+  as one line of text.
+
 ## 0.5.0 — 2026-11-28
 
 - **Spellbook: what a pack needs to start a project.** `spellbook init --pack <repo>[@rev]` copies a

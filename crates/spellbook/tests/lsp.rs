@@ -20,8 +20,8 @@ use spellbook::adapters::lsp::{ServerConfig, serve};
 use spellbook::ports::clock::Clock;
 use support::{
     CLOSE_TABLE_PATH, CLOSE_TABLE_TEST, CLOSE_TABLE_TEST_PATH, bistro_project, bistro_rs_project,
-    bistro_rs_with_regions, bistro_with_the_fix, test_cache, use_corpus_rules, vendored_project,
-    write_file,
+    bistro_rs_with_regions, bistro_with_listing, bistro_with_the_fix, test_cache, use_corpus_rules,
+    vendored_project, write_file,
 };
 use tempfile::TempDir;
 
@@ -340,6 +340,27 @@ fn generators_lists_the_command_generator_with_its_inputs() {
         [("app", "enum"), ("service", "enum"), ("command", "ident")]
     );
     assert_eq!(generators[0]["inputs"][0]["optional"], false);
+    s.stop();
+}
+
+#[test]
+fn the_generators_list_says_list() {
+    let dir = bistro_with_listing();
+    let s = served(dir.path());
+    let reply = s.command("spellbook.generators", json!([]));
+    let listing = reply
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|generator| generator["id"] == "listing")
+        .unwrap();
+    assert_eq!(listing["inputs"][1]["name"], "fields");
+    assert_eq!(listing["inputs"][1]["type"], "list");
+    let stop = s.command(
+        "spellbook.plan",
+        json!(["listing", { "model": "dish", "fields": "weight:flaot" }]),
+    );
+    assert_eq!(stop["input"], "fields", "{stop}");
     s.stop();
 }
 

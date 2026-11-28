@@ -115,6 +115,23 @@ test('a_retry_that_then_plans_goes_on_to_apply', async () => {
   assert.deepEqual(await newFlow(bistro({ 'spellbook.plan': [stop, plan] }), asker), applied);
 });
 
+test('a_list_input_is_asked_as_one_line_of_text_and_a_bad_item_asks_it_again', async () => {
+  const listing: Generator = {
+    id: 'listing', name: 'Listing', summary: 'A model and its fields',
+    inputs: [{ name: 'fields', type: 'list', prompt: 'The fields, name:kind (price:int,notes:text?)' }],
+  };
+  const stop = { stop: '`fields`: `w:flaot`: `flaot` is not a kind (one of: int, text)', input: 'fields', choices: [] };
+  const server = fakeServer({ 'spellbook.generators': [listing], 'spellbook.plan': [stop, plan], 'spellbook.apply': applied });
+  const asker = fakeAsker({ generator: 'listing', texts: ['w:flaot', 'w:float'] });
+  assert.deepEqual(await newFlow(server, asker), applied);
+  assert.deepEqual(asker.asked, [
+    'fields? The fields, name:kind (price:int,notes:text?)',
+    'fields? The fields, name:kind (price:int,notes:text?)',
+  ]);
+  assert.deepEqual(server.calls.filter(c => c[0] === 'spellbook.choices'), []);
+  assert.deepEqual(asker.said, [['warn', stop.stop]]);
+});
+
 test('a_stop_on_any_command_is_said_and_ends', async () => {
   for (const name of ['spellbook.generators', 'spellbook.choices', 'spellbook.plan', 'spellbook.apply']) {
     const asker = fakeAsker({ generator: 'command', choices: ['booking'], texts: ['x'] });

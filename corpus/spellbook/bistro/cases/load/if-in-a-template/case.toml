@@ -1,5 +1,0 @@
-# A template with `if`: a template fills, it does not branch.
-generator = "command"
-
-[inputs]
-command = "cancel_table"

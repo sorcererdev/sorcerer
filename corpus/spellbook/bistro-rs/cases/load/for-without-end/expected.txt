@@ -1,0 +1,1 @@
+generator repository (templates/repository.rs.dt): `{= for f in fields =}` (line 5) has no `{= end =}`

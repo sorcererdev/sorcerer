@@ -15,6 +15,7 @@ pub mod holes;
 pub mod holes_table;
 pub mod inputs;
 pub mod language_syntax;
+pub mod list_items;
 pub mod open_hole_places;
 pub mod pack;
 pub mod path_pattern;
@@ -25,5 +26,7 @@ pub mod report;
 pub mod rule;
 pub mod rule_query;
 pub mod rule_settings;
+pub mod tables;
 pub mod template;
+pub mod template_checks;
 // spellbook:end domain-modules

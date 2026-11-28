@@ -8,6 +8,7 @@ mod fix_fixtures;
 mod fixed_clock;
 #[path = "../../../sorcerer-core/tests/support/language_corpora.rs"]
 mod language_corpora;
+mod list_fixtures;
 mod plan_rig;
 mod project_fixtures;
 #[path = "../../../sorcerer-core/tests/support/test_grammars.rs"]
@@ -23,6 +24,8 @@ pub use fix_fixtures::*;
 pub use fixed_clock::*;
 #[allow(unused_imports)]
 pub use language_corpora::*;
+#[allow(unused_imports)]
+pub use list_fixtures::*;
 #[allow(unused_imports)]
 pub use plan_rig::*;
 #[allow(unused_imports)]

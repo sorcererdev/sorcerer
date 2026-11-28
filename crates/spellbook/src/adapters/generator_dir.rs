@@ -12,6 +12,7 @@ use sorcerer_core::domain::project::Project;
 use crate::domain::generator::{FILES_DIR, Generator, read_generator};
 use crate::domain::generator_checks::check_generator;
 use crate::domain::generator_problems::GeneratorProblem;
+use crate::domain::tables::{TABLES_FILE, Tables, read_tables};
 use crate::ports::generators::Generators;
 
 /// Where a project keeps its generators, relative to its root.
@@ -141,12 +142,27 @@ fn load_alone(dir: &Path, languages: &Languages) -> Result<Generator, GeneratorP
     let templates =
         templates_in(&dir.join("templates")).map_err(|why| problem("templates/", why))?;
     let files = files_in(&dir.join(FILES_DIR)).map_err(|why| problem("files/", why))?;
+    let tables = tables_beside(dir).map_err(|why| problem(TABLES_FILE, why))?;
     let generator = Generator {
         files,
+        tables,
         ..read_generator(&id, &text, templates).map_err(|why| problem("generator.toml", why))?
     };
     check_generator(&generator, languages).map_err(|found| problem(&found.file, found.why))?;
     Ok(generator)
+}
+
+/// The lookup tables in `tables.toml` beside the generators folder (`.sorcerer/spellbook/`);
+/// none when there is no such file.
+fn tables_beside(generator_dir: &Path) -> Result<Tables, String> {
+    let Some(spellbook_dir) = generator_dir.parent().and_then(Path::parent) else {
+        return Ok(Tables::default());
+    };
+    match std::fs::read_to_string(spellbook_dir.join(TABLES_FILE)) {
+        Ok(text) => read_tables(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Tables::default()),
+        Err(e) => Err(format!("{TABLES_FILE}: {e}")),
+    }
 }
 
 /// Every file under `templates/`, by its path there with `/`, and its text.

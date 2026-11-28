@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use anyhow::Result;
-use sorcerer_core::domain::templates::{Piece, pieces};
+use sorcerer_core::domain::template_blocks::{Node, holes_in, parse_body};
 
 use crate::adapters::wiring::Wired;
 use crate::domain::generator::{Edit, EditBody, Generator, InputKind, OnExists, OnMissing};
@@ -77,6 +77,7 @@ fn input_rows(wired: &Wired, generator: &Generator) -> Vec<Vec<String>> {
                         Err(stop) => format!("({})", input_stop_text(&stop)),
                     }
                 }
+                InputKind::List { pattern, .. } => format!("one item: {}", pattern.written()),
                 _ => String::new(),
             };
             let kind = if input.optional {
@@ -127,12 +128,14 @@ fn hole_rows(generator: &Generator) -> Vec<Vec<String>> {
     let mut seen: Vec<String> = Vec::new();
     let mut rows = Vec::new();
     for text in generator.templates.values() {
-        for piece in pieces(text).unwrap_or_default() {
-            if let Piece::Hole {
+        let nodes = parse_body(text).unwrap_or_default();
+        for hole in holes_in(&nodes) {
+            if let Node::Hole {
                 name,
                 kind,
                 instruction,
-            } = piece
+                ..
+            } = *hole
                 && !seen.iter().any(|known| known == name)
             {
                 seen.push(name.to_string());

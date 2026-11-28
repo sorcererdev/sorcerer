@@ -1,0 +1,21 @@
+//! A {= model|words =}, as it is stored.
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct {= model|pascal =} {
+    {= for f in fields =}
+    {= if f.kind == "bool" =}
+    /// Defaults to false.
+    {= end =}
+    pub {= f.name =}: {= if f.optional =}Option<{= kinds[f.kind].rust =}>{= else =}{= kinds[f.kind].rust =}{= end =},
+    {= end =}
+}
+
+/// The table's columns, in the struct's order.
+pub const COLUMNS: &str = "{= for f in fields =}{= f.name =}{= if not loop.last =}, {= end =}{= end =}";
+
+impl {= model|pascal =} {
+    /// Whether the record may be saved.
+    pub fn is_valid(&self) -> bool {
+        {= ? valid: block | when the record may be saved =}
+    }
+}

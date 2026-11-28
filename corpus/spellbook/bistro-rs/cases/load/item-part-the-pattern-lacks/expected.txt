@@ -1,0 +1,1 @@
+generator repository (templates/repository.rs.dt): `f.title` (line 9): an item of `fields` has the parts name, kind, optional

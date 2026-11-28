@@ -1,0 +1,1 @@
+generator command (generator.toml): [[edits]] 2 create: `{= if =}` works only in a template body (in `{= dir =}/{= if command =}{= command_ =}{= end =}.py`)

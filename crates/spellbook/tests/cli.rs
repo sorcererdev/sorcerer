@@ -162,6 +162,30 @@ fn a_missing_input_exits_2_with_prompt_and_choices() {
 }
 
 #[test]
+fn a_bad_item_stops_with_the_input_named() {
+    let dir = bistro_with_listing();
+    let words = [
+        "new",
+        "listing",
+        "--set",
+        "model=dish",
+        "--set",
+        "fields=weight_kg:flaot",
+    ];
+    let (code, out, err) = run(dir.path(), &words);
+    assert_eq!(code, 2);
+    assert_eq!(
+        err,
+        "spellbook: `fields`: `weight_kg:flaot`: `flaot` is not a kind (one of: int, ref, text)\n  give it with --set fields=VALUE\n"
+    );
+    assert!(out.is_empty());
+    let (code, out, _) = run(dir.path(), &[&words[..], &["--json"]].concat());
+    assert_eq!(code, 2);
+    let stop: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(stop["input"], "fields");
+}
+
+#[test]
 fn holes_lists_four_places_then_three() {
     let dir = bistro_project();
     run(

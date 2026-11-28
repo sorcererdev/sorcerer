@@ -5,6 +5,7 @@ use sorcerer_core::ports::view::CodebaseView;
 
 use crate::domain::generator::{Generator, Input, InputKind};
 use crate::domain::inputs::{Given, InputStop, Values, is_a_name, query_choices};
+use crate::domain::list_items::ListItem;
 
 /// Every input had, then the derived names; or why not.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub enum Resolved {
 pub fn resolve_inputs(view: &dyn CodebaseView, generator: &Generator, given: &Given) -> Resolved {
     match resolve_up_to(view, generator, given, generator.inputs.len())
         .map(|values| values.with_built_ins(generator, given))
+        .map(|values| values.with_tables(&generator.tables))
         .and_then(|values| values.with_derived(generator).map_err(InputStop::Template))
     {
         Ok(values) => Resolved::Ready(values),
@@ -61,7 +63,7 @@ pub fn choices_for(
     )
 }
 
-/// The first `count` inputs resolved, in order.
+/// The first `count` inputs resolved, in order; a list input is read into its items too.
 fn resolve_up_to(
     view: &dyn CodebaseView,
     generator: &Generator,
@@ -72,13 +74,32 @@ fn resolve_up_to(
         .iter()
         .try_fold(Values::default(), |values, (name, input)| {
             let value = resolve_one(view, generator, given, &values, name, input)?;
-            let mut entries: Vec<(String, String)> = values
-                .pairs()
-                .into_iter()
-                .map(|(n, v)| (n.to_string(), v.to_string()))
-                .collect();
-            entries.push((name.clone(), value));
-            Ok(Values::of_inputs(entries))
+            let values = values.with_input(name, &value);
+            match list_items(generator, name, input, &value)? {
+                Some(items) => Ok(values.with_list(name, items)),
+                None => Ok(values),
+            }
+        })
+}
+
+/// A list input's value read into its items by its pattern; `None` for another kind. An item
+/// that does not follow the pattern stops, naming the input, the item and why.
+fn list_items(
+    generator: &Generator,
+    name: &str,
+    input: &Input,
+    value: &str,
+) -> Result<Option<Vec<ListItem>>, InputStop> {
+    let InputKind::List { pattern, keys_of } = &input.kind else {
+        return Ok(None);
+    };
+    pattern
+        .items(value, keys_of, &generator.tables)
+        .map(Some)
+        .map_err(|problem| InputStop::BadItem {
+            input: name.into(),
+            item: problem.item,
+            why: problem.why,
         })
 }
 
