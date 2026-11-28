@@ -81,6 +81,10 @@ each grammar got there.
 - **JSON** has no comments, so it has no allow comments, no owned regions, and nothing for
   lackey to read.
 - **HTML, CSS, YAML, TOML** have no units: they are reviewed by your rules, not by scry.
+- **CSS** uses our fork of tree-sitter-css (`sorcererdev/tree-sitter-css`, upstream v0.25.0 plus
+  pull request #105), because the released grammar cannot parse modern CSS such as `@container`
+  queries and a plan that wrote such a file was refused with "would not parse". The shipped
+  `language.toml` pins the fork's commit; it goes back to upstream once #105 is released (issue #6).
 
 ## When an existing project upgrades
 
