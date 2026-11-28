@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-28
 
 - **Spellbook: what a pack needs to start a project.** `spellbook init --pack <repo>[@rev]` copies a
   pack's `.sorcerer/` into the project (keeping the project's own files, refusing a project that has
