@@ -55,6 +55,7 @@ mod tests {
             instruction: "x".into(),
             placeholder: placeholder.into(),
             edges: String::new(),
+            frame: Vec::new(),
         }
     }
 

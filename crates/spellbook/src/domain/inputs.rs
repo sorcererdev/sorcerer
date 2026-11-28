@@ -231,30 +231,41 @@ pub fn is_a_name(value: &str) -> bool {
 }
 
 /// The values a query finds among the project's files: every file, and every folder holding
-/// one, whose path matches the glob, read as the query says, sorted and each once. In the glob
-/// `*` stays inside one folder and `**` crosses folders.
+/// one, whose path matches the glob and none of the `exclude` globs, read as the query says,
+/// sorted and each once. In the globs `*` stays inside one folder and `**` crosses folders.
 ///
 /// Example: with `src/bistro/main.py` among the files, `src/*/main.py` read as the parent folder
 /// gives `["bistro"]`; `src/bistro/*/models` matches the folder `src/bistro/booking/models`.
+/// With `src/ports/*.rs` and the exclude `src/ports/mod.rs`, a file `mod.rs` is not a match.
 pub fn query_choices(
     files: &[PathBuf],
     glob: &str,
+    exclude: &[String],
     value: QueryValue,
 ) -> Result<Vec<String>, String> {
-    let matcher = GlobBuilder::new(glob)
-        .literal_separator(true)
-        .build()
-        .map_err(|e| format!("the glob `{glob}`: {e}"))?
-        .compile_matcher();
+    let matcher = matcher_of(glob)?;
+    let excluded = exclude
+        .iter()
+        .map(|pattern| matcher_of(pattern))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut found: Vec<String> = files
         .iter()
         .flat_map(|file| file.ancestors().filter(|path| !path.as_os_str().is_empty()))
         .filter(|path| matcher.is_match(path))
+        .filter(|path| !excluded.iter().any(|skip| skip.is_match(path)))
         .map(|path| value_of(path, value))
         .collect();
     found.sort();
     found.dedup();
     Ok(found)
+}
+
+fn matcher_of(glob: &str) -> Result<globset::GlobMatcher, String> {
+    GlobBuilder::new(glob)
+        .literal_separator(true)
+        .build()
+        .map(|glob| glob.compile_matcher())
+        .map_err(|e| format!("the glob `{glob}`: {e}"))
 }
 
 fn value_of(path: &Path, value: QueryValue) -> String {

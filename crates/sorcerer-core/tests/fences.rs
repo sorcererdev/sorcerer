@@ -29,6 +29,29 @@ fn src_files_are_allowed() {
 }
 
 #[test]
+fn env_templates_are_not_fenced_but_other_env_files_are() {
+    let d = project();
+    let f = fences(d.path());
+    assert!(f.allows(Path::new(".env.example")));
+    assert!(f.allows(Path::new("config/.env.sample")));
+    assert!(f.allows(Path::new("app/.ENV.TEMPLATE")));
+    assert!(!f.allows(Path::new(".env.example.local")));
+    assert!(!f.allows(Path::new(".env.production")));
+    assert!(!f.allows(Path::new(".env")));
+}
+
+#[test]
+fn not_evidence_still_fences_an_env_template() {
+    let d = project();
+    let f = Fences::new(
+        sorcerer_core::adapters::platform::paths::canonical(d.path()).unwrap(),
+        &["**/.env.example".to_string()],
+    )
+    .unwrap();
+    assert!(!f.allows(Path::new(".env.example")));
+}
+
+#[test]
 fn env_files_anywhere_are_fenced() {
     let d = project();
     let f = fences(d.path());

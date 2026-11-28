@@ -79,7 +79,10 @@ so there is no setting to name a different variable.
 
 Some paths are fenced: no model is shown them, and no citation may point at them.
 
-- `.env` and anything starting with `.env`, in any directory;
+- `.env` and anything starting with `.env`, in any directory, except the committed templates
+  `.env.example`, `.env.sample` and `.env.template`, which hold no secrets and are read like
+  any file (`.env.local` and the rest stay fenced; a `not_evidence` entry can fence a template
+  too). A tool that can only deny by glob (`claude -p`) still denies the templates;
 - `.sorcerer/` (what the tools remember, including other findings and costs) and `.git/`;
   the one exception is `.sorcerer/notes/`, your notes and lackey's, which are read like
   any file (a link in it onto a fenced path stays fenced, and so does a `.env` in it);

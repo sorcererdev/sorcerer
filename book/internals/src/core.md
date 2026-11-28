@@ -405,6 +405,8 @@ path first (symlinks and `..`, through the nearest existing ancestor for a file 
 written) and then matches with `allows_relative`, ignoring case. A path that cannot be resolved for certain (a
 `..` past a missing directory, a dangling symlink) is fenced.
 
+**The `.env` templates.** `ENV_FENCE` (`**/.env*`) is likewise a glob set of its own (`env_files`), and `allows_relative` lets a path through it when `is_env_template` holds: the file name is one of `ENV_TEMPLATE_NAMES` (`.env.example`, `.sample`, `.template`), ignoring case. The exception is only to that fence, so a `not_evidence` glob still fences a template. `deny_patterns` (for `claude`'s glob-only deny rules) still names `**/.env*`, since a glob cannot make the exception.
+
 **The notes carve-out.** `NOTES_DIR` (`.sorcerer/notes`) is the one place under `.sorcerer/`
 that is not fenced. `Fences` keeps `.sorcerer/**` (`SORCERER_DIR_FENCE`) in a glob set of its
 own, and `allows_relative` lets a path through it only when `is_in_notes` holds: the first two

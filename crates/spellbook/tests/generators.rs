@@ -286,6 +286,35 @@ fn a_query_naming_a_later_input_is_refused() {
 }
 
 #[test]
+fn a_query_exclude_naming_a_later_input_is_refused() {
+    let why = toml_problem(
+        "glob  = \"src/{= app =}/*/models\"",
+        "glob  = \"src/{= app =}/*/models\"\nexclude = [\"src/{= command =}/x\"]",
+    );
+    assert!(
+        why.contains("[query.services] exclude: a query naming an input not yet given (command"),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_query_leaves_out_the_paths_its_exclude_matches() {
+    use spellbook::domain::generator::QueryValue;
+    use spellbook::domain::inputs::query_choices;
+    let files: Vec<std::path::PathBuf> = ["src/ports/a.rs", "src/ports/mod.rs", "src/ports/b.rs"]
+        .iter()
+        .map(Into::into)
+        .collect();
+    let found = |exclude: &[&str]| {
+        let exclude: Vec<String> = exclude.iter().map(ToString::to_string).collect();
+        query_choices(&files, "src/ports/*.rs", &exclude, QueryValue::Stem).unwrap()
+    };
+    assert_eq!(found(&[]), ["a", "b", "mod"]);
+    assert_eq!(found(&["src/ports/mod.rs"]), ["a", "b"]);
+    assert_eq!(found(&["src/ports/mod.rs", "**/b.rs"]), ["a"]);
+}
+
+#[test]
 fn a_hole_kind_the_language_lacks_is_refused() {
     let why = template_problem("{= ? handle: block |", "{= ? handle: statement |");
     assert!(

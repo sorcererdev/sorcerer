@@ -25,6 +25,13 @@ pub struct HolePlace {
     /// elsewhere. Empty in records written before it existed.
     #[serde(default)]
     pub edges: String,
+    /// The rest of the placeholder's line, as the pieces around the holes on it, spaces left
+    /// out (`async fn todo_method(&self) -> Result<(), E>;` with its two holes is
+    /// `["asyncfn", "(&self)->Result<", ",E>;"]`). Tells the hole's own line from another line
+    /// that happens to hold the same short placeholder. Empty in records written before it
+    /// existed.
+    #[serde(default)]
+    pub frame: Vec<String>,
 }
 
 /// A hole of one generation, with every place it appears.
@@ -49,6 +56,8 @@ pub struct HoleAt {
     pub text: String,
     /// See [`HolePlace::edges`].
     pub edges: String,
+    /// See [`HolePlace::frame`].
+    pub frame: Vec<String>,
 }
 
 /// The holes of a generation, gathered file by file in the order the files are written.
@@ -72,6 +81,7 @@ impl HoleBook {
                 line: hole.line,
                 text: hole.text.clone(),
                 edges: hole.edges.clone(),
+                frame: hole.frame.clone(),
             };
             match self.holes.iter_mut().find(|known| known.name == hole.name) {
                 Some(known)
@@ -114,6 +124,7 @@ mod tests {
             line,
             text: format!("todo_{name}"),
             edges: String::new(),
+            frame: Vec::new(),
         }
     }
 
@@ -136,13 +147,15 @@ mod tests {
                     file: "a.x".into(),
                     line: 10,
                     text: "todo_field".into(),
-                    edges: String::new()
+                    edges: String::new(),
+                    frame: Vec::new()
                 },
                 HolePlace {
                     file: "a_test.x".into(),
                     line: 11,
                     text: "todo_field".into(),
-                    edges: String::new()
+                    edges: String::new(),
+                    frame: Vec::new()
                 }
             ]
         );
