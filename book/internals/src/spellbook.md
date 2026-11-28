@@ -15,8 +15,12 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `config.rs`: `SpellbookConfig { enabled, exclude, sync_on_save }` (`sync_on_save` is read by the server's sync on save, `adapters/lsp/sync_on_save.rs`), `spellbook_config`, `PRODUCT`, `SPELLBOOK_IS_OFF`; `enabled` is read by `cli/run_cli.rs::run_command` and
   the server (`republish`, `wired_for_commands`).
 - `generator.rs`: the types (`Generator`, `Input`/`InputKind`, `Query`/`QueryValue`,
-  `Edit::{Create, Insert}`/`EditBody`/`OnExists`/`OnMissing`, `HoleSource`, `Use`) and `read_generator(id, text, templates)`, which
-  reads `generator.toml` key by key with errors naming the place (`[inputs.app] type: …`). The
+  `Edit::{Create, Insert}`/`EditBody::{Template, Text, Copy}`/`OnExists`/`OnMissing`, `HoleSource`, `Use`) and `read_generator(id, text, templates)`, which
+  reads `generator.toml` key by key with errors naming the place (`[inputs.app] type: …`).
+  `edit_body` takes exactly one of `template`, `text` or `copy` (`copied_file`: a path under
+  `FILES_DIR`, kept as its path there; `copy` is create-only). `Generator.files` (the bytes of
+  `files/`, which `read_generator` leaves empty and `generator_dir.rs` fills) and
+  `Generator.notes_after` (`[notes] after`, read by `notes_after`) carry pack-shaped data. The
   workspace's `toml` sorts a table's keys, so the order of `[inputs.X]` headers and `[derive]`
   lines (which is the order inputs are asked and names derived) is read from the text with a
   regular expression (`section_order`, `derive_order`).
@@ -27,8 +31,10 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `generator_checks.rs`: `check_generator(generator, languages)`, the checks across the file:
   the language is the project's; an enum's `one_of` names a query whose glob uses only earlier
   inputs (an enum with `choices` is `InputKind::Fixed`: its list is its choices, `choices_for` returns it
-  without resolving earlier inputs, and `one_of` and `choices` together are refused by `read_generator`); every edit's template exists; paths, derives and derived holes use known names and no
-  holes; every template parses as a template (core's `pieces`) and uses known names; a hole
+  without resolving earlier inputs, and `one_of` and `choices` together are refused by `read_generator`); every edit's template exists in `templates/` and every `copy` in `files/` (`edit_templates_exist`); paths, derives, derived holes and notes use known names (the inputs, `TIMESTAMP`, the derived names: `known_names`) and no
+  holes; every template parses as a template (core's `pieces`) and uses known names, and its text
+  holds no `{{ name }}` around one of them (`refuse_braced_name`: other `{{ … }}` is an askama or
+  Jinja page's own text); a hole
   has one kind and one plain instruction; a placeholder hole's kind is in the generator
   language's `[holes]`; an insert's phrases with no `{= =}` parse (`Anchor::parse`), its `unless`
   compiles once filled with stand-in values (`inserts_are_well_formed`).
@@ -48,8 +54,11 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   `with_line_ending`.
 - `holes_table.rs`: `holes_table(language)` reads `[holes]` strictly from `Language.rest`;
   `placeholder(language, kind, name, instruction)` fills a kind's template with core's `fill`.
-- `inputs.rs`: `Given` (what was typed), `Values` (inputs then derived names, in order, as
-  `fill` takes them; `with_derived`), `InputStop` and `input_stop_text`, `is_a_name`, and
+- `inputs.rs`: `Given` (what was typed; `with_timestamp(now)` adds the built-in `TIMESTAMP`
+  as `YYYYMMDDHHMMSS` unless given), `Values` (inputs, then the built-in timestamp
+  (`with_built_ins`, not counted among the recorded inputs, left out when the generator declares
+  its own `timestamp` input), then derived names, in order, as `fill` takes them; `with_derived`),
+  `InputStop` and `input_stop_text`, `is_a_name`, and
   `query_choices(files, glob, value)`: the glob compiled with `literal_separator` (so `*` is one
   folder), matched against every file **and every folder above it**, read as the parent
   folder's name, the stem or the path.
@@ -59,8 +68,10 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 - `holes.rs`: `Hole { name, kind, instruction, source: HoleOrigin, places }`,
   `HolePlace { file, line, text }`, and `HoleBook`, which gathers one generation's holes file by
   file (one hole per name, every place).
-- `plan.rs`: `Plan { id, generator, inputs, files, holes, fix, notes }`, `FixOrigin`, `PlannedFile`
-  (`new_file`, `left`, `changed(path, before, after)`, which works out `changes`, `hunks`,
+- `plan.rs`: `Plan { id, generator, inputs, files, holes, fix, notes }` (`notes`: the generators'
+  `[notes] after`, then region hints), `FixOrigin`, `PlannedFile`
+  (`new_file`, `copied(path, bytes)` (UTF-8 bytes become text; others `binary: Some(BinaryBody)`,
+  which serializes as its length, with empty `text`), `bytes()` (what `apply_plan` writes), `left`, `changed(path, before, after)`, which works out `changes`, `hunks`,
   `added`, `removed`; `before` is what the apply checks the disk against; `region` and `set_up` when an
   owned region rewrote it), `FileStatus::{New,
   Skipped, Changed, Unchanged}`, `PlanStop` (with `FindingGone`, `NoReplaceCase`, `Anchor`,
@@ -107,6 +118,10 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
   count, in the findings' order), `Baseline::marked_unchanged_first(findings, unchanged)` (the same,
   but the findings `unchanged` names take the entries first: `check --since` passes "not on an added
   line") and `Baseline::change_to(newer)` (`BaselineChange { paid_off, new }`).
+- `pack.rs`: `PackAddress::parse` (`<repo>[@rev]`: the last `@` with no `/`, `\` or `:` after it),
+  `PackRecord` and its `text()` (`.sorcerer/pack.toml`: `name`, `repo`, `rev`), `pack_name`
+  (the pack's root `pack.toml` `name`, else the repository's folder), `PACK_RECORD`,
+  `SPELLBOOK_DIR`, `PackStop` and `pack_stop_text`.
 - `rule_settings.rs`: `with_project_settings(rules, settings) -> ProjectRules { run, off }`: the
   `[spellbook.rules]` severities laid over the rules, `off` ones left out of `run` and listed, a
   setting for no rule refused naming it. `config.rs`'s `SpellbookConfig.rules` holds the settings
@@ -115,13 +130,15 @@ Spellbook depends on `sorcerer-core` and `sorcerer-lsp` only. It makes no model 
 `ports/`: `generators.rs` (`Generators`: `all`, `named`), `grammars.rs` (`Grammars::for_path`:
 the loaded language of a path, or none; `covers` and `comment_marks` (core's `CommentMarks`: a
 comment's start and, where comments close, its end), which `CachedGrammars` answers from the
-language's data without loading a grammar), `workspace.rs` (`Workspace::write_new`,
+language's data without loading a grammar), `workspace.rs` (`Workspace::write_new(path, bytes)`,
 `Workspace::write_changed(path, before, after)`, `WriteRefused` with `Changed`),
 `generation_store.rs`, `holes_store.rs`, `clock.rs`, `rule_runner.rs` (`RuleRunner::findings_in`,
 `RuleRunner::enclosing(file, text, span, kinds)`: the nearest node of those kinds around a
 finding), `anchors.rs` (`Anchors::resolve(file, text, anchor)`, and
 `resolve_inserting(file, text, anchor, inserting)`, which an insert's `at` uses so a target may
-choose by the text; its default is `resolve`), `report_store.rs`.
+choose by the text; its default is `resolve`), `report_store.rs`, `pack_source.rs` (`PackSource::fetch`
+→ `FetchedPack { rev, manifest, files: Vec<PackFile> }`, and `SorcererDir` (`holds`, `write`):
+the project's `.sorcerer/`, which the `Workspace` port fences off).
 
 `usecases/`: `list_generators.rs` (`GeneratorSummary`, also the editor's picker reply),
 `choices_for.rs` (`resolve_inputs`, `choices_for`), `plan_generation.rs` (`PlanDeps`, which
@@ -134,12 +151,21 @@ question on), `fixes_for.rs`
 (`FixOffer`, `fixes_for`, `region_fix_offer`), `plan_fix.rs` (`FixDeps`, `FindingAt`, `plan_fix`), `apply_plan.rs`
 (`ApplyDeps`, `apply_plan(deps, plan, ChangesLanded)`, `AppliedGeneration` with `changed`), `open_holes.rs` (`HolesDeps`, `open_holes`), `check_files.rs` (`CheckDeps`, which carries `regions`, `off` and `baseline`, `check_files`), `check_project.rs`
 (`check_project`), `check_since.rs` (`check_since(deps, rev)`), `check_texts.rs`
-(`check_texts(deps, texts)`: texts not on disk, over a `PlannedView`).
+(`check_texts(deps, texts)`: texts not on disk, over a `PlannedView`), `install_pack.rs`
+(`InstallDeps`, `install_pack(deps, address)` → `InstalledPack { record, copied, kept }`: refuse a
+project with `.sorcerer/spellbook/` before fetching, fetch, copy what the project lacks, keep what
+it has, write the record).
 
-`adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`,
+`adapters/`: `generator_dir.rs` (`GENERATORS_DIR`, `generators_in`, `generator_named`, `files_in` (a
+folder's files as bytes: `files/` as is, `templates/` through `templates_in`, which refuses one that
+is not UTF-8),
 `load_generator`, which follows `[[uses]]` with `uses_agree`: each used generator there and
 loading, its `with` names its inputs, no cycle, at most four in a chain; `GeneratorDirs`), `cached_grammars.rs` (`CachedGrammars` over
-`Languages::for_path` and `Languages::load`), `disk_workspace.rs`, `jsonl_generation_store.rs`,
+`Languages::for_path` and `Languages::load`), `disk_workspace.rs`, `git_pack_source.rs`
+(`GitPackSource`: `git clone` (`--depth 1` with no revision) into a `tempfile` folder, `checkout
+--detach REV`, `rev-parse HEAD`, then the `.sorcerer/` files read with `state/` left out and a link
+refused; `GIT_TERMINAL_PROMPT=0` so it never waits; only `git` is run, the same on every platform),
+`disk_sorcerer_dir.rs` (`DiskSorcererDir`), `jsonl_generation_store.rs`,
 `json_holes.rs` (core's `Store` at `spellbook/holes.json`), `json_report.rs` (the same at
 `spellbook/report.json`), `regions_toml.rs` (`load_regions`), `baseline_toml.rs` (`BASELINE_FILE`, `load_baseline`,
 `write_baseline`), `rules_toml.rs` (`load_rules`, `RULES_FILE`; `check_fixes` checks every
@@ -152,26 +178,34 @@ read fresh with `[spellbook.rules]` over them, the baseline, the settings and th
 `adapters/lsp/`: the server, below.
 
 `cli/`: `arguments.rs`, `file_arguments.rs` (`relative_to_root`: `check`/`holes` file arguments made project-relative), `run_cli.rs` (`main`, `main_with(args, cwd, env, wire, out, err)`),
-one file a cli subcommand (`list.rs`, `show.rs`, `new.rs`, `fix.rs`, `sync.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`),
+one file a cli subcommand (`init.rs`, `list.rs`, `show.rs`, `new.rs`, `fix.rs`, `sync.rs`, `holes.rs`, `check.rs`, `doctor.rs`, `trust.rs`, `lsp.rs`;
+`run_before_a_project` serves `lsp` and `init`, which run before a project is opened: `init` takes
+`Project::root_above(cwd)`, else the folder itself),
 `format.rs` (`columns`, `count`, and the plan rows the commands share: `file_row`, which words a region's
 row `(region NAME: +a −r)` or `(region NAME: set up, N items)`, `hunks_text`, `notes_text`), `console.rs`.
 
 ## One generation, end to end
 
-1. `generator_named` loads the directory: `read_generator`, then `check_generator`.
-2. `resolve_inputs` takes the inputs in the generator's order: a given value (an enum's
+1. `generator_named` loads the directory: `read_generator`, the `files/` bytes, then
+   `check_generator`.
+2. `plan_edits` adds the built-in timestamp from `PlanDeps.clock` (`Given::with_timestamp`;
+   `--set timestamp=…` wins). `resolve_inputs` takes the inputs in the generator's order: a given value (an enum's
    checked against `choices_for`, an ident's against `is_a_name`), else an enum's only choice,
    else the default, else empty when optional, else `InputStop::Missing` with the choices. Then
-   `Values::with_derived` adds `[derive]` in order.
-3. `plan_generation`, for each edit: fill the path and keep it (`relative_path`, then
+   `Values::with_built_ins` adds the timestamp and `Values::with_derived` adds `[derive]` in order.
+3. `plan_edits` (`own_edits`), for each edit: fill the path and keep it (`relative_path`, then
    `Fences::allows_relative`); an existing file is skipped or stops the plan; the body is a
-   text, or a template rendered with `render` and the placeholders of **the language of the
+   text, a `copy` (`PlannedFile::copied`: the bytes as they are), or a template rendered with `render` and the placeholders of **the language of the
    file's own path** (`Grammars::for_path`): a generator's `.html` or empty `__init__.py` is not
    the generator's language. A placeholder hole in a file no language covers stops the plan.
-   Every new file a language covers is parsed (`parse_errors_of`); an error line is
-   `PlanStop::DoesNotParse` naming the template. Then the holes are gathered (`HoleBook`) and
-   the id made. Nothing is written.
-4. `apply_plan` writes each new file through `Workspace::write_new` (`DiskWorkspace`
+   Every new file a language covers is parsed (`parse_errors_of`), but a binary copy never is; an error line is
+   `PlanStop::DoesNotParse` naming the template. Then the holes are gathered (`HoleBook`), the
+   `[notes] after` filled, and each `[[uses]]` planned by `with_used` (which hands the used
+   generator this one's timestamp and appends its notes once each, `PlanSoFar::with_notes`); then
+   the id is made. Nothing is written. In an empty project this is the same: every shipped
+   language is in `Project.languages`, so `check_generator`'s language check passes with no file
+   of the language there.
+4. `apply_plan` writes each new file's `PlannedFile::bytes()` through `Workspace::write_new` (`DiskWorkspace`
    refuses with `Fences::allows`, which follows links, and opens with `create_new`, so a file
    that appeared since the plan is never overwritten), stops at the first refusal, appends the
    record for what was written, and adds the placeholder places to `holes.json`. Rows kept for
@@ -639,7 +673,12 @@ design end to end, `the_fix_session_of_the_design_runs_end_to_end`); `anchors.rs
 command-shaped files (one-line and one-per-line lists, a call narrowed with `in`); `fix.rs`
 `fixes_for` and `plan_fix` + `apply_plan` with `use-port` (on the import, on a `sqlite3.connect`
 statement with its hole, and a second run that has nothing to do). `use_corpus_rules` copies the
-corpus's generators with its rules, since the rules' fixes name them.
+corpus's generators with its rules, since the rules' fixes name them. `cli.rs` also runs the
+`starter` corpus's `app` (the font's bytes, the binary row, the chain's notes once each, a
+`--set timestamp` naming the used migration, `plan.notes` in `--json`) and `init --pack` on a local
+repository made with `git` in a temporary folder (a tag, the project's own file kept, `state/` left
+out, the default branch named by its folder, a project with a spellbook refused, a revision git
+lacks); `generators.rs` the `copy` and `[notes]` sentences and `{{ name }}`.
 
 `adoption.rs` covers the baseline, `check --since` (in a fresh git repository) and `[spellbook.rules]`
 through `main_with`; the corpus's `adopt` cases (`corpus/spellbook/README.md`) run the same on bistro
@@ -654,7 +693,10 @@ do, a generator's plan naming its region). The VS Code e2e's last case saves han
 bistro with the corpus's `__init__.py` markers in place: closed, the file is synced on disk; open, the
 buffer gets the edit and stays unsaved.
 
-`corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust);
+`corpus.rs` runs the corpora in `corpus/spellbook/<name>/` (`bistro` Python, `bistro-rs` Rust, and
+`starter`, which has no `base` in its `corpus.toml`: an empty project, where `app` writes a manifest,
+a main, a copied script and a binary font and plans the first migration by `[[uses]]`; a `new` case
+compares a written file byte for byte when it is not UTF-8, `assert_same_file`);
 `corpus.toml`'s `overlay` (the corpus's `base/`, the files that carry region markers) is laid over the
 shared base for every case unless the case says `base = "shared"` (`project_of(dir, corpus, Base)`);
 `cases/sync/<id>.{toml,patch}` runs the command line through `main_with` (`mode` for `sync`, or a whole

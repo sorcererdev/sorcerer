@@ -16,6 +16,7 @@ pub mod holes_table;
 pub mod inputs;
 pub mod language_syntax;
 pub mod open_hole_places;
+pub mod pack;
 pub mod path_pattern;
 pub mod plan;
 pub mod record;

@@ -215,7 +215,11 @@ fn generation_or_nothing(
 }
 
 fn values_of(deps: &PlanDeps, generator: &Generator, inputs: &Given) -> Result<Values, PlanStop> {
-    match resolve_inputs(deps.view, generator, inputs) {
+    match resolve_inputs(
+        deps.view,
+        generator,
+        &inputs.with_timestamp(deps.clock.now()),
+    ) {
         Resolved::Ready(values) => Ok(values),
         Resolved::Stop(stop) => Err(PlanStop::Input(stop)),
     }

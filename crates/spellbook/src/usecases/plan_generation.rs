@@ -14,9 +14,9 @@ use sorcerer_core::ports::view::CodebaseView;
 use crate::domain::anchor::{Anchor, Resolution, resolution_text};
 use crate::domain::change::{apply_changes, change_at};
 use crate::domain::generator::{Edit, EditBody, Generator, OnExists, OnMissing};
-use crate::domain::holes::{HoleAt, HoleBook};
+use crate::domain::holes::{Hole, HoleAt, HoleBook};
 use crate::domain::holes_table::placeholder;
-use crate::domain::inputs::{Given, Values};
+use crate::domain::inputs::{Given, TIMESTAMP, Values};
 use crate::domain::plan::{
     Applied, FileStatus, Plan, PlanStop, PlannedFile, line_count, plan_id, relative_path,
 };
@@ -58,27 +58,79 @@ pub fn plan_generation(
     refresh_regions(deps, plan)
 }
 
-/// Plans a generation's edits, regions left alone: the inputs resolved, each edit's path and
-/// text rendered (placeholders from the language of the file's own path), each path kept inside
-/// the project and off the fences, an existing file skipped or the plan stopped as the edit
-/// says, each insert placed by its phrase (or left out when its `unless` holds), every
-/// `[[uses]]` planned after it, and every new or changed file a language covers parsed. A
-/// generator with inserts whose every edit is in place already is `NothingToDo`.
+/// Plans a generation's edits, regions left alone: the inputs resolved (the built-in
+/// `timestamp` from the clock unless given), each edit's path and text rendered (placeholders
+/// from the language of the file's own path), each path kept inside the project and off the
+/// fences, an existing file skipped or the plan stopped as the edit says, each insert placed by
+/// its phrase (or left out when its `unless` holds), every `[[uses]]` planned after it, and every
+/// new or changed file a language covers parsed. The plan's notes are the generator's `[notes]
+/// after`, then those of each `[[uses]]`, each line once. A generator with inserts whose every
+/// edit is in place already is `NothingToDo`.
 ///
 /// Example: in bistro, `command` with `command=cancel_table` plans `__init__.py` (skipped: it is
 /// there), `cancel_table.py` and `cancel_table__test.py`, and the holes `field`, `type` and
 /// `handle` with placeholders in the code.
 pub fn plan_edits(deps: &PlanDeps, generator: &Generator, given: &Given) -> Result<Plan, PlanStop> {
-    let values = match resolve_inputs(deps.view, generator, given) {
+    let given = given.with_timestamp(deps.clock.now());
+    let values = match resolve_inputs(deps.view, generator, &given) {
         Resolved::Ready(values) => values,
         Resolved::Stop(stop) => return Err(PlanStop::Input(stop)),
     };
+    let own = own_edits(deps, generator, &values)?;
+    let planned = generator
+        .uses
+        .iter()
+        .try_fold(own, |so_far, used| with_used(deps, &values, so_far, used))?;
+    let nothing_new = planned
+        .files
+        .iter()
+        .all(PlannedFile::leaves_the_code_as_it_is);
+    if (has_inserts(generator) || !generator.uses.is_empty()) && nothing_new {
+        return Err(PlanStop::NothingToDo(Applied::Generation));
+    }
+    let inputs = values.inputs();
+    Ok(Plan {
+        id: plan_id(&generator.id, &inputs, &deps.clock.now().to_rfc3339()),
+        generator: generator.id.clone(),
+        inputs,
+        files: planned.files,
+        holes: planned.holes,
+        fix: None,
+        notes: planned.notes,
+    })
+}
+
+/// What a plan holds while its `[[uses]]` are planned after the generator's own edits.
+struct PlanSoFar {
+    files: Vec<PlannedFile>,
+    holes: Vec<Hole>,
+    notes: Vec<String>,
+}
+
+impl PlanSoFar {
+    /// These notes and then `more`, each line once, in the order first seen.
+    fn with_notes(mut self, more: Vec<String>) -> PlanSoFar {
+        for note in more {
+            if !self.notes.contains(&note) {
+                self.notes.push(note);
+            }
+        }
+        self
+    }
+}
+
+/// The generator's own edits planned, their holes counted, its notes filled.
+fn own_edits(
+    deps: &PlanDeps,
+    generator: &Generator,
+    values: &Values,
+) -> Result<PlanSoFar, PlanStop> {
     let drafts = generator
         .edits
         .iter()
         .enumerate()
         .try_fold(Vec::new(), |drafts, (number, edit)| {
-            draft_edit(deps, generator, &values, drafts, number + 1, edit)
+            draft_edit(deps, generator, values, drafts, number + 1, edit)
         })?;
     let drafts: Vec<Draft> = drafts.into_iter().map(Draft::finished).collect();
     let holes = drafts
@@ -88,39 +140,30 @@ pub fn plan_edits(deps: &PlanDeps, generator: &Generator, given: &Given) -> Resu
         })
         .map_err(PlanStop::Template)?
         .holes();
-    let own = (drafts.into_iter().map(|draft| draft.file).collect(), holes);
-    let (files, holes) = generator
-        .uses
+    let notes = generator
+        .notes_after
         .iter()
-        .try_fold(own, |so_far, used| with_used(deps, &values, so_far, used))?;
-    let nothing_new = files.iter().all(|file: &PlannedFile| {
-        matches!(file.status, FileStatus::Skipped | FileStatus::Unchanged)
-    });
-    if (has_inserts(generator) || !generator.uses.is_empty()) && nothing_new {
-        return Err(PlanStop::NothingToDo(Applied::Generation));
-    }
-    let inputs = values.inputs();
-    Ok(Plan {
-        id: plan_id(&generator.id, &inputs, &deps.clock.now().to_rfc3339()),
-        generator: generator.id.clone(),
-        inputs,
-        files,
+        .map(|note| fill(note, &values.pairs()).map_err(PlanStop::Template))
+        .collect::<Result<Vec<_>, _>>()?;
+    let none_yet = PlanSoFar {
+        files: drafts.into_iter().map(|draft| draft.file).collect(),
         holes,
-        fix: None,
         notes: Vec::new(),
-    })
+    };
+    Ok(none_yet.with_notes(notes))
 }
 
 /// The plan so far with one `[[uses]]` planned after it, over a view of the project with the
 /// plan so far laid on it: the used plan's new files appended, a file it changes again kept as
-/// one change from the disk's text, its holes appended. A used generator with nothing to do adds
-/// nothing.
+/// one change from the disk's text, its holes and notes appended. The used generator gets this
+/// generator's `timestamp`, so a chain names its files with one time. A used generator with
+/// nothing to do adds nothing.
 fn with_used(
     deps: &PlanDeps,
     values: &Values,
-    (mut files, mut holes): (Vec<PlannedFile>, Vec<crate::domain::holes::Hole>),
+    so_far: PlanSoFar,
     used: &crate::domain::generator::Use,
-) -> Result<(Vec<PlannedFile>, Vec<crate::domain::holes::Hole>), PlanStop> {
+) -> Result<PlanSoFar, PlanStop> {
     let generator = match deps.generators.named(&used.generator) {
         Some(Ok(generator)) => generator,
         Some(Err(problem)) => return Err(PlanStop::Generator(problem.to_string())),
@@ -138,6 +181,15 @@ fn with_used(
         .collect::<Result<_, String>>()
         .map(Given)
         .map_err(PlanStop::Template)?;
+    let given = match values.get(TIMESTAMP) {
+        Some(timestamp) => given.with_timestamp_text(timestamp),
+        None => given,
+    };
+    let PlanSoFar {
+        mut files,
+        mut holes,
+        notes,
+    } = so_far;
     let planned = files
         .iter()
         .filter(|file| matches!(file.status, FileStatus::New | FileStatus::Changed))
@@ -155,7 +207,13 @@ fn with_used(
     };
     let plan = match plan_edits(&over_the_plan, &generator, &given) {
         Ok(plan) => plan,
-        Err(PlanStop::NothingToDo(_)) => return Ok((files, holes)),
+        Err(PlanStop::NothingToDo(_)) => {
+            return Ok(PlanSoFar {
+                files,
+                holes,
+                notes,
+            });
+        }
         Err(stop) => return Err(stop),
     };
     for file in plan.files {
@@ -175,7 +233,12 @@ fn with_used(
         }
     }
     holes.extend(plan.holes);
-    Ok((files, holes))
+    let so_far = PlanSoFar {
+        files,
+        holes,
+        notes,
+    };
+    Ok(so_far.with_notes(plan.notes))
 }
 
 /// One planned file and the holes it holds.
@@ -282,6 +345,8 @@ impl Insert<'_> {
         let template = match self.edit.body() {
             EditBody::Text(text) => text.as_str(),
             EditBody::Template(name) => &self.generator.templates[name],
+            // reading the generator refuses `copy` in an insert
+            EditBody::Copy(_) => return Err(self.stop(&path, "copy goes with create".into())),
         };
         let rendered = render_in_language(
             self.generator,
@@ -460,7 +525,8 @@ fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// One edit planned: its path kept, an existing file decided, its text rendered and parsed.
+/// One edit planned: its path kept, an existing file decided, its text rendered (or its file
+/// copied unchanged) and parsed; a binary copy is never parsed.
 fn draft_file(
     deps: &PlanDeps,
     generator: &Generator,
@@ -481,14 +547,29 @@ fn draft_file(
         .grammars
         .for_path(Path::new(&path))
         .map_err(|e| PlanStop::Template(format!("{path}: {e}")))?;
-    let rendered = rendered_body(generator, values, edit, &path, language.as_deref())?;
-    if let Some(loaded) = &language {
-        refuse_a_parse_error(loaded, &rendered.text, edit, &path)?;
+    let draft = match edit.body() {
+        EditBody::Copy(file) => Draft {
+            file: PlannedFile::copied(path.clone(), generator.files[file].clone()),
+            holes: Vec::new(),
+        },
+        EditBody::Text(text) => Draft {
+            file: PlannedFile::new_file(path.clone(), text.clone()),
+            holes: Vec::new(),
+        },
+        EditBody::Template(name) => {
+            let template = &generator.templates[name];
+            let rendered =
+                render_in_language(generator, values, template, &path, language.as_deref())?;
+            Draft {
+                file: PlannedFile::new_file(path.clone(), rendered.text),
+                holes: rendered.holes,
+            }
+        }
+    };
+    if let (Some(loaded), None) = (&language, &draft.file.binary) {
+        refuse_a_parse_error(loaded, &draft.file.text, edit, &path)?;
     }
-    Ok(Draft {
-        file: PlannedFile::new_file(path, rendered.text),
-        holes: rendered.holes,
-    })
+    Ok(draft)
 }
 
 /// The edit's path filled and kept only when it stays in the project and off the fences.
@@ -518,27 +599,6 @@ fn skipped(path: String) -> Draft {
         file: PlannedFile::left(path, FileStatus::Skipped),
         holes: Vec::new(),
     }
-}
-
-/// The file's text: a text edit as it is, a template rendered with the placeholders of the
-/// language the path belongs to.
-fn rendered_body(
-    generator: &Generator,
-    values: &Values,
-    edit: &Edit,
-    path: &str,
-    language: Option<&Loaded>,
-) -> Result<Rendered, PlanStop> {
-    let template = match edit.body() {
-        EditBody::Text(text) => {
-            return Ok(Rendered {
-                text: text.clone(),
-                holes: Vec::new(),
-            });
-        }
-        EditBody::Template(name) => &generator.templates[name],
-    };
-    render_in_language(generator, values, template, path, language)
 }
 
 /// A template rendered with the placeholders of the language the path belongs to; a hole in a
@@ -596,6 +656,7 @@ fn refuse_a_parse_error(
             template: match edit.body() {
                 EditBody::Template(name) => format!("templates/{name}"),
                 EditBody::Text(_) => "its text".into(),
+                EditBody::Copy(file) => format!("files/{file}"),
             },
             file: path.into(),
             line: *line,

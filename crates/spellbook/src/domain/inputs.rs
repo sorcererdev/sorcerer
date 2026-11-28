@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use globset::GlobBuilder;
 use sorcerer_core::domain::name_forms::words_of;
 use sorcerer_core::domain::paths::forward_slashes;
@@ -35,7 +36,29 @@ impl Given {
     pub fn get(&self, name: &str) -> Option<&str> {
         self.0.get(name).map(String::as_str)
     }
+
+    /// These inputs with the built-in `timestamp` set to `now` (UTC, `YYYYMMDDHHMMSS`), unless
+    /// it was given already: `--set timestamp=…` wins, so a test or a re-run can fix it.
+    ///
+    /// Example: at 2026-11-22 12:00:00 UTC, with nothing given, `timestamp` is `20261122120000`.
+    pub fn with_timestamp(&self, now: DateTime<Utc>) -> Given {
+        self.with_timestamp_text(&now.format("%Y%m%d%H%M%S").to_string())
+    }
+
+    /// These inputs with `timestamp` set to this text, unless it was given already.
+    pub fn with_timestamp_text(&self, timestamp: &str) -> Given {
+        let mut given = self.0.clone();
+        given
+            .entry(TIMESTAMP.to_string())
+            .or_insert_with(|| timestamp.to_string());
+        Given(given)
+    }
 }
+
+/// The built-in input every generator may use without declaring it: the time the plan was made,
+/// UTC, as `YYYYMMDDHHMMSS` (`20261122120000`), the way migration tools name their files.
+/// A generator that declares its own `timestamp` input has that instead.
+pub const TIMESTAMP: &str = "timestamp";
 
 /// The inputs resolved, then the derived names, in order: what a template may use. An ident is
 /// kept as it was typed; a filter gives its other forms, so `CancelTable` and `cancel_table`
@@ -71,6 +94,24 @@ impl Values {
             .iter()
             .find(|(known, _)| known == name)
             .map(|(_, value)| value.as_str())
+    }
+
+    /// These values and the built-in `timestamp` from what was given, unless the generator
+    /// declares an input of that name (then it is among the inputs already). It is not an input:
+    /// a generation's record leaves it out, as it does the derived names.
+    pub fn with_built_ins(self, generator: &Generator, given: &Given) -> Values {
+        let declared = generator.inputs.iter().any(|(name, _)| name == TIMESTAMP);
+        match given.get(TIMESTAMP) {
+            Some(timestamp) if !declared => {
+                let mut entries = self.entries;
+                entries.push((TIMESTAMP.to_string(), timestamp.to_string()));
+                Values {
+                    entries,
+                    inputs: self.inputs,
+                }
+            }
+            _ => self,
+        }
     }
 
     /// These values and the generator's `[derive]` names, each filled with everything before it.

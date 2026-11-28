@@ -1,0 +1,38 @@
+name     = "app"
+summary  = "A new Rust web app: its manifest, its main, its vendored files and its first migration"
+language = "rust"
+
+[inputs.app]
+type   = "ident"
+prompt = "The app's name"
+
+[inputs.title]
+type    = "text"
+prompt  = "The title its pages show"
+default = "My app"
+
+[[edits]]
+create   = "Cargo.toml"
+template = "Cargo.toml.dt"
+
+[[edits]]
+create   = "src/main.rs"
+template = "main.rs.dt"
+
+# Vendored files are copied as they are: a script whose text holds `{= =}` is not rendered, and a
+# font is bytes.
+[[edits]]
+create = "static/vendor/tiny.min.js"
+copy   = "files/vendor/tiny.min.js"
+
+[[edits]]
+create    = "static/fonts/mark.woff2"
+copy      = "files/fonts/mark.woff2"
+on_exists = "skip"
+
+[[uses]]
+generator = "migration"
+with      = { name = "init" }
+
+[notes]
+after = ["cd {= app|kebab =} && cp .env.example .env", "cargo run"]

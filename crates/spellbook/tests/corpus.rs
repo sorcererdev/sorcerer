@@ -75,3 +75,8 @@ fn bistro_adopts_check_on_old_code() {
 fn bistro_rs_adopts_check_on_old_code() {
     run_adopt_cases(&corpus_dir("bistro-rs"));
 }
+
+#[test]
+fn starter_holds_its_cases() {
+    run_new_cases(&corpus_dir("starter"));
+}

@@ -50,6 +50,12 @@ pub struct Generator {
     pub templates: BTreeMap<String, String>,
     /// `[[uses]]`: other generators planned into the same plan after this one's edits.
     pub uses: Vec<Use>,
+    /// Each file under `files/` (by its path there with `/`) and its bytes: what a `copy` edit
+    /// writes unchanged.
+    pub files: BTreeMap<String, Vec<u8>>,
+    /// `[notes] after`: lines printed once the plan lands, each a template over the inputs and
+    /// derived names (what to run next, a file to fill in).
+    pub notes_after: Vec<String>,
 }
 
 /// `[[uses]]`: another generator planned into the same plan, its inputs templates over this
@@ -179,7 +185,15 @@ pub enum EditBody {
     Template(String),
     /// The text itself, written as it is.
     Text(String),
+    /// `copy = "files/<path>"`: the file's path under `files/`, its bytes written unchanged (never
+    /// rendered, so `{= =}` in it stays as it is; binary allowed).
+    ///
+    /// Example: `copy = "files/htmx.min.js"` is `Copy("htmx.min.js")`.
+    Copy(String),
 }
+
+/// Where `copy` files sit in a generator's directory.
+pub const FILES_DIR: &str = "files";
 
 /// What to do when the file to create is already there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,7 +224,9 @@ const TOP_KEYS: &[&str] = &[
     "holes",
     "context",
     "uses",
+    "notes",
 ];
+const NOTES_KEYS: &[&str] = &["after"];
 const USE_KEYS: &[&str] = &["generator", "with"];
 const INPUT_KEYS: &[&str] = &["type", "one_of", "choices", "prompt", "optional", "default"];
 const QUERY_KEYS: &[&str] = &["glob", "value"];
@@ -220,12 +236,13 @@ const EDIT_KEYS: &[&str] = &[
     "at",
     "template",
     "text",
+    "copy",
     "on_exists",
     "unless",
     "when",
     "on_missing",
 ];
-const CREATE_ONLY: &[&str] = &["on_exists"];
+const CREATE_ONLY: &[&str] = &["on_exists", "copy"];
 const INSERT_ONLY: &[&str] = &["at", "unless", "when", "on_missing"];
 const HOLE_KEYS: &[&str] = &["source", "value"];
 
@@ -268,7 +285,22 @@ pub fn read_generator(
         context: top.texts("context")?,
         templates,
         uses: uses(&top)?,
+        files: BTreeMap::new(),
+        notes_after: notes_after(&top)?,
     })
+}
+
+/// `[notes] after`: the lines to print once the plan lands, in order.
+fn notes_after(top: &Keys) -> Result<Vec<String>, String> {
+    let Some(value) = top.table.get("notes") else {
+        return Ok(Vec::new());
+    };
+    let table = value
+        .as_table()
+        .ok_or_else(|| "[notes] must be a table, `after = [\"…\"]`".to_string())?;
+    let keys = Keys::new("[notes]", table);
+    keys.refuse_unknown(NOTES_KEYS)?;
+    keys.texts("after")
 }
 
 /// `[[uses]]`: each a generator id and its `with`.
@@ -427,12 +459,7 @@ fn edits(top: &Keys) -> Result<Vec<Edit>, String> {
 fn edit(number: usize, table: &Table) -> Result<Edit, String> {
     let keys = Keys::new(&format!("[[edits]] {number}"), table);
     keys.refuse_unknown(EDIT_KEYS)?;
-    let body = match (keys.text("template")?, keys.text("text")?) {
-        (Some(template), None) => EditBody::Template(template),
-        (None, Some(text)) => EditBody::Text(text),
-        (Some(_), Some(_)) => return Err(keys.at("give template or text, not both")),
-        (None, None) => return Err(keys.at("give template (a file under templates/) or text")),
-    };
+    let body = edit_body(&keys)?;
     match (keys.text("create")?, keys.text("insert")?) {
         (Some(path), None) => {
             keys.refuse_keys_of_the_other("create", INSERT_ONLY)?;
@@ -477,6 +504,42 @@ fn edit(number: usize, table: &Table) -> Result<Edit, String> {
         (None, None) => {
             Err(keys.at("give create (a new file) or insert (lines in a file that is there)"))
         }
+    }
+}
+
+/// What an edit writes: a template, a text, or a file copied from `files/`, exactly one.
+fn edit_body(keys: &Keys) -> Result<EditBody, String> {
+    let copy = match keys.text("copy")? {
+        Some(path) => Some(copied_file(&path).map_err(|why| keys.at(&why))?),
+        None => None,
+    };
+    let given = [
+        keys.text("template")?.map(EditBody::Template),
+        keys.text("text")?.map(EditBody::Text),
+        copy,
+    ];
+    let mut bodies = given.into_iter().flatten();
+    match (bodies.next(), bodies.next()) {
+        (Some(body), None) => Ok(body),
+        (Some(_), Some(_)) => Err(keys.at("give one of template, text or copy")),
+        (None, _) => {
+            Err(keys
+                .at("give template (a file under templates/), text, or copy (a file under files/)"))
+        }
+    }
+}
+
+/// `copy`'s value: a path under `files/`, kept as its path there.
+///
+/// Example: `files/fonts/inter.woff2` is `fonts/inter.woff2`; `templates/x.dt` is refused.
+fn copied_file(path: &str) -> Result<EditBody, String> {
+    match path.strip_prefix(&format!("{FILES_DIR}/")) {
+        Some(inside) if !inside.is_empty() && !inside.split('/').any(|part| part == "..") => {
+            Ok(EditBody::Copy(inside.to_string()))
+        }
+        _ => Err(format!(
+            "copy = \"{path}\": write a path under {FILES_DIR}/ (copy = \"{FILES_DIR}/<file>\")"
+        )),
     }
 }
 

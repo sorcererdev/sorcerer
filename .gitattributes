@@ -12,3 +12,5 @@ corpus/conjure/*/replies/** -text
 # The triage eval's recordings are keyed by the texts Jev reads, its scenarios among them.
 corpus/lackey/*/jev/** -text
 corpus/lackey/*/scenarios/** -text
+# Fonts copied unchanged by a generator (corpus/spellbook/starter): bytes, never text.
+*.woff2 binary

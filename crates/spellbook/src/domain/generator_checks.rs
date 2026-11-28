@@ -12,9 +12,10 @@ use regex::Regex;
 use sorcerer_core::domain::templates::fill;
 
 use crate::domain::anchor::Anchor;
-use crate::domain::generator::{Edit, EditBody, Generator, HoleSource, InputKind};
+use crate::domain::generator::{Edit, EditBody, FILES_DIR, Generator, HoleSource, InputKind};
 use crate::domain::generator_problems::function_style_text;
 use crate::domain::holes_table::{holes_table, missing_kind_text};
+use crate::domain::inputs::TIMESTAMP;
 
 /// A problem the checks found: the generator's file it is in, and the sentence.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,21 +83,24 @@ fn enums_name_queries_over_earlier_inputs(generator: &Generator) -> Result<(), S
     Ok(())
 }
 
+/// Every `template` names a file in `templates/`, every `copy` a file in `files/`.
 fn edit_templates_exist(generator: &Generator) -> Result<(), String> {
     for (number, edit) in generator.edits.iter().enumerate() {
-        if let EditBody::Template(template) = edit.body()
-            && !generator.templates.contains_key(template)
-        {
-            return Err(format!(
-                "[[edits]] {}: template \"{template}\" is not a file in templates/",
-                number + 1
-            ));
-        }
+        let missing = match edit.body() {
+            EditBody::Template(template) if !generator.templates.contains_key(template) => {
+                format!("template \"{template}\" is not a file in templates/")
+            }
+            EditBody::Copy(file) if !generator.files.contains_key(file) => {
+                format!("copy \"{FILES_DIR}/{file}\" is not a file in {FILES_DIR}/")
+            }
+            _ => continue,
+        };
+        return Err(format!("[[edits]] {}: {missing}", number + 1));
     }
     Ok(())
 }
 
-/// Paths, derived names and derived holes are templates of values only, over names the
+/// Paths, derived names, derived holes and notes are templates of values only, over names the
 /// generator gives.
 fn names_and_values_are_plain(generator: &Generator) -> Result<(), String> {
     let known = known_names(generator);
@@ -112,7 +116,11 @@ fn names_and_values_are_plain(generator: &Generator) -> Result<(), String> {
     let holes = generator.holes.iter().map(|(name, source)| match source {
         HoleSource::Derived { value } => (format!("[holes.{name}] value"), value.clone()),
     });
-    for (place, template) in paths.chain(derives).chain(holes) {
+    let notes = generator
+        .notes_after
+        .iter()
+        .map(|note| ("[notes] after".to_string(), note.clone()));
+    for (place, template) in paths.chain(derives).chain(holes).chain(notes) {
         for used in value_names(&template, &place)? {
             refuse_unknown_name(used, &known, &place)?;
         }
@@ -196,12 +204,36 @@ fn templates_are_well_formed(generator: &Generator) -> Result<(), CheckProblem> 
             why,
         };
         for piece in pieces(text).map_err(in_template)? {
-            if let Piece::Value { name, .. } = piece {
-                refuse_unknown_name(name, &known, "the template").map_err(in_template)?;
+            match piece {
+                Piece::Value { name, .. } => {
+                    refuse_unknown_name(name, &known, "the template").map_err(in_template)?
+                }
+                Piece::Text(text) => refuse_braced_name(text, &known).map_err(in_template)?,
+                Piece::Hole { .. } => {}
             }
         }
     }
     Ok(())
+}
+
+/// `{{ name }}` is text (an askama or Jinja page writes it), but around a name the generator
+/// gives it is almost surely the value meant, written in another template language.
+///
+/// Example: in a generator with the input `page`, `{{ page }}` is refused with the sentence
+/// saying to write `{= page =}`; `{{ title }}` is written as it is.
+fn refuse_braced_name(text: &str, known: &[&str]) -> Result<(), String> {
+    let braced = Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(\|[^}]*)?\}\}").expect("regex");
+    match braced
+        .captures_iter(text)
+        .map(|found| found.get(1).map_or("", |name| name.as_str()))
+        .find(|name| known.contains(name))
+    {
+        Some(name) => Err(format!(
+            "`{{{{ {name} }}}}` is written as it is; to put the value of {name} here write {{= {name} =}} \
+             (a page whose own variable is called {name} needs the input named otherwise)"
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Every hole name has one kind and one instruction across the templates; the instruction is
@@ -273,12 +305,13 @@ fn two_ways_text(name: &str, first_file: &str) -> String {
     )
 }
 
-/// The names a template may use: the inputs and the derived names.
+/// The names a template may use: the inputs, the built-in `timestamp` and the derived names.
 fn known_names(generator: &Generator) -> Vec<&str> {
     generator
         .inputs
         .iter()
         .map(|(name, _)| name.as_str())
+        .chain([TIMESTAMP])
         .chain(generator.derive.iter().map(|(name, _)| name.as_str()))
         .collect()
 }

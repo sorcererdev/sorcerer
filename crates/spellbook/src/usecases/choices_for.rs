@@ -13,7 +13,8 @@ pub enum Resolved {
     Stop(InputStop),
 }
 
-/// Resolves the generator's inputs in its order, then its derived names. Each input is the value
+/// Resolves the generator's inputs in its order, then the built-in `timestamp` (when it was
+/// given: the plan sets it from its clock), then its derived names. Each input is the value
 /// given (an enum's checked against its choices, an ident's against what a name is); when none
 /// is given, an enum with one choice takes it, then the input's `default`, then empty for an
 /// optional one; otherwise the generation stops asking for it, with its choices.
@@ -22,6 +23,7 @@ pub enum Resolved {
 /// `bistro` (the only folder under `src/` holding `main.py`).
 pub fn resolve_inputs(view: &dyn CodebaseView, generator: &Generator, given: &Given) -> Resolved {
     match resolve_up_to(view, generator, given, generator.inputs.len())
+        .map(|values| values.with_built_ins(generator, given))
         .and_then(|values| values.with_derived(generator).map_err(InputStop::Template))
     {
         Ok(values) => Resolved::Ready(values),

@@ -1,0 +1,12 @@
+# The first generation in an empty project: the manifest, the main, a script and a font copied
+# unchanged, and (by [[uses]]) the first migration, named by the plan's clock.
+generator = "app"
+
+[inputs]
+app = "tracker"
+
+[[holes]]
+name = "schema"
+kind = "stmt"
+file = "migrations/20261122120000_init.sql"
+line = 2

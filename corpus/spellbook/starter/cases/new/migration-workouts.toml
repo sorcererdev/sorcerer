@@ -1,0 +1,11 @@
+# A migration on its own: the file named by the plan's clock, its SQL hole a statement.
+generator = "migration"
+
+[inputs]
+name = "add_workouts"
+
+[[holes]]
+name = "schema"
+kind = "stmt"
+file = "migrations/20261122120000_add_workouts.sql"
+line = 2

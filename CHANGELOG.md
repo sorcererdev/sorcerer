@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Spellbook: what a pack needs to start a project.** `spellbook init --pack <repo>[@rev]` copies a
+  pack's `.sorcerer/` into the project (keeping the project's own files, refusing a project that has
+  a spellbook) and records `{ name, repo, rev }` in `.sorcerer/pack.toml`. A `create` edit may
+  `copy = "files/<path>"` a file unchanged (binary too: fonts, minified scripts). `{= timestamp =}`
+  is built in (UTC `YYYYMMDDHHMMSS`, `--set timestamp=…` fixes it). `[notes] after = ["…"]` prints
+  what to do next once the plan lands (in `--json` as `plan.notes`). Templates keep another template
+  language's `{{ … }}` and `{% … %}` as text, so a generator can write an askama or Jinja page; only
+  `{{ name }}` around one of the generator's own names is still refused. A generator already ran in
+  an empty project; the new `starter` corpus proves it.
+
 - **Breaking: the editor keys are grouped by product.** In both editors the keys you use most sit
   right under the prefix (`<leader>m` in Neovim, `ctrl+m` in VS Code): `a` do this (lackey), `f`
   fix this, `g` generate… (spellbook), `n` next step (conjure), `u` undo the last change, `w`

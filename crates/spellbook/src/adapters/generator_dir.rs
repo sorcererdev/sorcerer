@@ -1,5 +1,5 @@
 //! Generators on disk: each directory under `.sorcerer/spellbook/generators/` holds a
-//! `generator.toml` and its `templates/`.
+//! `generator.toml`, its `templates/` and, when an edit copies files unchanged, its `files/`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use sorcerer_core::domain::language::Languages;
 use sorcerer_core::domain::paths::forward_slashes;
 use sorcerer_core::domain::project::Project;
 
-use crate::domain::generator::{Generator, read_generator};
+use crate::domain::generator::{FILES_DIR, Generator, read_generator};
 use crate::domain::generator_checks::check_generator;
 use crate::domain::generator_problems::GeneratorProblem;
 use crate::ports::generators::Generators;
@@ -140,23 +140,40 @@ fn load_alone(dir: &Path, languages: &Languages) -> Result<Generator, GeneratorP
         .map_err(|e| problem("generator.toml", e.to_string()))?;
     let templates =
         templates_in(&dir.join("templates")).map_err(|why| problem("templates/", why))?;
-    let generator =
-        read_generator(&id, &text, templates).map_err(|why| problem("generator.toml", why))?;
+    let files = files_in(&dir.join(FILES_DIR)).map_err(|why| problem("files/", why))?;
+    let generator = Generator {
+        files,
+        ..read_generator(&id, &text, templates).map_err(|why| problem("generator.toml", why))?
+    };
     check_generator(&generator, languages).map_err(|found| problem(&found.file, found.why))?;
     Ok(generator)
 }
 
 /// Every file under `templates/`, by its path there with `/`, and its text.
 fn templates_in(dir: &Path) -> Result<BTreeMap<String, String>, String> {
+    files_in(dir)?
+        .into_iter()
+        .map(|(name, bytes)| match String::from_utf8(bytes) {
+            Ok(text) => Ok((name, text)),
+            Err(_) => Err(format!(
+                "{name} is not UTF-8 text; a file to copy unchanged belongs in {FILES_DIR}/"
+            )),
+        })
+        .collect()
+}
+
+/// Every file under a folder (none when it is not there), by its path there with `/`, and its
+/// bytes.
+fn files_in(dir: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
     let mut found = BTreeMap::new();
-    collect_templates(dir, dir, &mut found)?;
+    collect_files(dir, dir, &mut found)?;
     Ok(found)
 }
 
-fn collect_templates(
+fn collect_files(
     top: &Path,
     dir: &Path,
-    found: &mut BTreeMap<String, String>,
+    found: &mut BTreeMap<String, Vec<u8>>,
 ) -> Result<(), String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Ok(());
@@ -164,15 +181,14 @@ fn collect_templates(
     for entry in entries {
         let path = entry.map_err(|e| e.to_string())?.path();
         if path.is_dir() {
-            collect_templates(top, &path, found)?;
+            collect_files(top, &path, found)?;
         } else {
-            let text =
-                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             let name = path
                 .strip_prefix(top)
                 .map(forward_slashes)
                 .unwrap_or_default();
-            found.insert(name, text);
+            found.insert(name, bytes);
         }
     }
     Ok(())

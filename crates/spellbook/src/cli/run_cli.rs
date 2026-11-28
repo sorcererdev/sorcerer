@@ -16,7 +16,7 @@ use crate::domain::config::{SPELLBOOK_IS_OFF, spellbook_config};
 use super::arguments::{Cli, Cmd};
 use super::console::print_usage_or_error;
 use super::file_arguments::relative_to_root;
-use super::{check, doctor, fix, holes, list, lsp, new, rules, show, sync, trust};
+use super::{check, doctor, fix, holes, init, list, lsp, new, rules, show, sync, trust};
 
 /// The program's entry: runs the command in the current directory, with the real files,
 /// grammars and clock.
@@ -58,6 +58,26 @@ pub fn main_with(
     code
 }
 
+/// The commands that run before a project is opened: the language server (the editor sends its
+/// root at initialize, and the server opens the project itself) and `init --pack` (a pack goes
+/// into a folder that may have no `.sorcerer/` yet, nor git: the folder itself is the root).
+fn run_before_a_project(
+    cmd: &Cmd,
+    cwd: &Path,
+    env: &dyn Env,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Option<Result<i32>> {
+    match cmd {
+        Cmd::Lsp => Some(lsp::lsp(env)),
+        Cmd::Init { pack } => {
+            let root = Project::root_above(cwd).unwrap_or_else(|| cwd.to_path_buf());
+            Some(init::init(&root, pack, out, err))
+        }
+        _ => None,
+    }
+}
+
 fn run_command(
     cmd: Cmd,
     cwd: &Path,
@@ -66,9 +86,8 @@ fn run_command(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<i32> {
-    // the editor sends its root at initialize; the server opens the project itself
-    if matches!(cmd, Cmd::Lsp) {
-        return lsp::lsp(env);
+    if let Some(done) = run_before_a_project(&cmd, cwd, env, out, err) {
+        return done;
     }
     let project = Project::open(cwd)?;
     let works_on_code = !matches!(cmd, Cmd::Trust { .. } | Cmd::Doctor);
@@ -77,7 +96,7 @@ fn run_command(
         return Ok(2);
     }
     match cmd {
-        Cmd::Lsp => unreachable!("served above"),
+        Cmd::Lsp | Cmd::Init { .. } => unreachable!("served above"),
         Cmd::Trust { revoke } => trust::trust(&project, env, revoke, out),
         Cmd::Doctor => doctor::doctor(&project, env, out),
         Cmd::List => list::list(&wire(project)?, out),

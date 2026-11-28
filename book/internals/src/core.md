@@ -314,8 +314,10 @@ gives up. Conjure checks a changed file with it ("parses", or "does not parse (l
 `pieces(template)` splits a template into `Piece::Text`, `Piece::Value { name, filters }`
 (`{= name|pascal =}`, filters left to right) and `Piece::Hole { name, kind, instruction }`
 (`{= ? handle: block | its first case =}`), refusing with a sentence a `{=` never closed,
-`{{ }}` (another template language), `{= if =}`/`{= for =}` (milestone 2), an empty name and a
-hole with no `: kind`. An error quotes the template whole when it is short (a path) and by its first
+`{= if =}`/`{= for =}` (milestone 2), an empty name and a
+hole with no `: kind`. Another template language's `{{ … }}` and `{% … %}` are `Piece::Text`, so a
+generator can write an askama or Jinja page (spellbook's `refuse_braced_name` still catches
+`{{ name }}` around one of a generator's own names). An error quotes the template whole when it is short (a path) and by its first
 line and `…` when it is longer (`excerpt`), so a mistake in a file of template is not buried in the file.
 `fill(template, values)` fills the values and applies the filters; a
 hole is an error there ("a hole has no value here"), because only spellbook knows what goes in

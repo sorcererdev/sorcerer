@@ -1,0 +1,11 @@
+name     = "page"
+summary  = "An askama page template"
+language = "rust"
+
+[inputs.page]
+type   = "ident"
+prompt = "The page's name"
+
+[[edits]]
+create   = "templates/{= page|snake =}.html"
+template = "page.html.dt"

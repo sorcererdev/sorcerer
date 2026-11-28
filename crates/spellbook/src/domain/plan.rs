@@ -104,6 +104,21 @@ pub struct PlannedFile {
     /// For a region set up by `sync --init`: how many items its block holds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub set_up: Option<u32>,
+    /// For a new file copied from a generator's `files/` that is not UTF-8 text (a font, an
+    /// image): its bytes, written instead of `text` (which is empty). JSON shows the byte count.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binary: Option<BinaryBody>,
+}
+
+/// A binary file's bytes. It serializes as its length, so a plan's JSON says
+/// `"binary": 15360` rather than carrying the font.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryBody(pub Vec<u8>);
+
+impl Serialize for BinaryBody {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(self.0.len() as u64)
+    }
 }
 
 fn is_zero(count: &u32) -> bool {
@@ -125,6 +140,30 @@ impl PlannedFile {
             removed: 0,
             region: None,
             set_up: None,
+            binary: None,
+        }
+    }
+
+    /// A new file copied byte for byte: as text when its bytes are UTF-8 (so it is shown and
+    /// parse-checked like any file), else as a binary file with no lines.
+    ///
+    /// Example: a minified `htmx.min.js` becomes a text file of one line; a `.woff2` font a
+    /// binary file of its 15360 bytes.
+    pub fn copied(path: String, bytes: Vec<u8>) -> PlannedFile {
+        match String::from_utf8(bytes) {
+            Ok(text) => PlannedFile::new_file(path, text),
+            Err(not_text) => PlannedFile {
+                binary: Some(BinaryBody(not_text.into_bytes())),
+                ..PlannedFile::new_file(path, String::new())
+            },
+        }
+    }
+
+    /// The bytes to write for a new file: its binary body, or its text.
+    pub fn bytes(&self) -> &[u8] {
+        match &self.binary {
+            Some(BinaryBody(bytes)) => bytes,
+            None => self.text.as_bytes(),
         }
     }
 
@@ -148,6 +187,7 @@ impl PlannedFile {
             before,
             region: None,
             set_up: None,
+            binary: None,
         }
     }
 
@@ -171,6 +211,7 @@ impl PlannedFile {
             removed: 0,
             region: None,
             set_up: None,
+            binary: None,
         }
     }
 }

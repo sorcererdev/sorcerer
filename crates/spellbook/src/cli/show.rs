@@ -97,6 +97,7 @@ fn edit_rows(generator: &Generator) -> Vec<Vec<String>> {
             let body = match edit.body() {
                 EditBody::Template(name) => format!("from templates/{name}"),
                 EditBody::Text(_) => "a fixed text".into(),
+                EditBody::Copy(file) => format!("copied from files/{file}"),
             };
             let when = match edit {
                 Edit::Create {

@@ -94,7 +94,8 @@ pub fn region_fix_offer(finding: &Finding) -> Option<FixOffer> {
 /// project does not decide (an enum with one choice is decided). Found by resolving, and when an
 /// input is missing, standing in its first choice (or a name) to find the next.
 fn missing_inputs(view: &dyn CodebaseView, generator: &Generator, given: &Given) -> Vec<String> {
-    let mut asked = given.clone();
+    // any time stands in for the plan's: only the inputs a person gives are asked
+    let mut asked = given.with_timestamp(chrono::DateTime::UNIX_EPOCH);
     let mut missing = Vec::new();
     for _ in 0..generator.inputs.len() {
         match resolve_inputs(view, generator, &asked) {

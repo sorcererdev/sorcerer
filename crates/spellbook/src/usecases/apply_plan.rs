@@ -128,7 +128,7 @@ fn write_new_files(
 ) -> (Vec<String>, Option<(String, WriteRefused)>) {
     let mut written = Vec::new();
     for file in plan.new_files() {
-        if let Err(refused) = workspace.write_new(Path::new(&file.path), &file.text) {
+        if let Err(refused) = workspace.write_new(Path::new(&file.path), file.bytes()) {
             return (written, Some((file.path.clone(), refused)));
         }
         written.push(file.path.clone());

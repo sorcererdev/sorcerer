@@ -1,0 +1,17 @@
+name     = "migration"
+summary  = "One SQL migration, named by the time it was made"
+language = "rust"
+
+[inputs.name]
+type   = "ident"
+prompt = "What the migration does, as a name"
+
+[derive]
+file = "{= timestamp =}_{= name|snake =}"
+
+[[edits]]
+create   = "migrations/{= file =}.sql"
+template = "migration.sql.dt"
+
+[notes]
+after = ["cargo run"]
