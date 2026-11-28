@@ -198,11 +198,181 @@ fn an_unknown_key_suggests_text_for_content() {
     );
 }
 
+/// The problem loading `listing` once its file and template are changed.
+fn listing_problem(toml: &str, template: &str) -> String {
+    let dir = bistro_with_listing();
+    write_generator(dir.path(), "listing", toml, &[("listing.py.dt", template)]);
+    let project = vendored_project(dir.path());
+    generator_named(&project, "listing")
+        .unwrap()
+        .unwrap_err()
+        .to_string()
+}
+
+fn listing_toml_problem(from: &str, to: &str) -> String {
+    assert!(LISTING_TOML.contains(from), "{from}");
+    listing_problem(&LISTING_TOML.replacen(from, to, 1), LISTING_PY)
+}
+
+fn listing_template_problem(template: &str) -> String {
+    listing_problem(LISTING_TOML, template)
+}
+
 #[test]
-fn a_list_input_arrives_in_milestone_2() {
-    let why = toml_problem("type   = \"ident\"", "type   = \"list\"");
+fn a_list_input_loads() {
+    let dir = bistro_with_listing();
+    let project = vendored_project(dir.path());
+    let generator = generator_named(&project, "listing").unwrap().unwrap();
+    let InputKind::List { pattern, keys_of } = &generator.inputs[1].1.kind else {
+        panic!("{:?}", generator.inputs[1]);
+    };
+    assert_eq!(pattern.written(), "{name}:{kind}:{target?}");
+    assert_eq!(keys_of["kind"], "kinds");
+    let no_item = listing_toml_problem("item    = \"{name}:{kind}:{target?}\"\n", "");
     assert!(
-        why.contains("[inputs.command]: type = \"list\" arrives in milestone 2"),
+        no_item.contains(
+            "[inputs.fields]: a list needs `item`, the pattern of one item (\"{name}:{kind}\")"
+        ),
+        "{no_item}"
+    );
+    let colour = listing_toml_problem("{ kind = \"kinds\" }", "{ colour = \"kinds\" }");
+    assert!(
+        colour.contains(
+            "[inputs.fields]: keys_of names `colour`, which is not a part of `{name}:{kind}:{target?}`"
+        ),
+        "{colour}"
+    );
+    let sorts = listing_toml_problem("{ kind = \"kinds\" }", "{ kind = \"sorts\" }");
+    assert!(
+        sorts.contains(
+            "[inputs.fields]: keys_of names table `sorts`, which tables.toml does not have"
+        ),
+        "{sorts}"
+    );
+}
+
+#[test]
+fn tables_toml_mistakes_say_where() {
+    let dir = bistro_with_listing();
+    write_file(dir.path(), TABLES_PATH, "[kinds.text]\npy = 1\n");
+    let project = vendored_project(dir.path());
+    let number = generator_named(&project, "listing")
+        .unwrap()
+        .unwrap_err()
+        .to_string();
+    assert!(
+        number.contains("tables.toml [kinds.text] py: a value is text"),
+        "{number}"
+    );
+    write_file(
+        dir.path(),
+        TABLES_PATH,
+        &format!("{TABLES_TOML}\n[fields.a]\npy = \"x\"\n"),
+    );
+    let named = generator_named(&project, "listing")
+        .unwrap()
+        .unwrap_err()
+        .to_string();
+    assert!(
+        named.contains(
+            "tables.toml: table `fields` has the name of an input of generator `listing`; rename one"
+        ),
+        "{named}"
+    );
+}
+
+#[test]
+fn a_for_over_a_text_input_is_refused() {
+    let why = listing_template_problem("{= for f in model =}{= end =}\n");
+    assert!(why.contains("(templates/listing.py.dt)"), "{why}");
+    assert!(
+        why.contains("`{= for f in model =}` (line 1): `model` is not a list input"),
+        "{why}"
+    );
+}
+
+#[test]
+fn an_unknown_part_is_refused() {
+    let why = listing_template_problem("x = 1\n{= for f in fields =}{= f.colour =}{= end =}\n");
+    assert!(
+        why.contains(
+            "`f.colour` (line 2): an item of `fields` has the parts name, kind, target, optional"
+        ),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_missing_column_is_refused() {
+    let dir = bistro_with_listing();
+    write_file(
+        dir.path(),
+        TABLES_PATH,
+        &format!("{TABLES_TOML}\n[kinds.text]\nsql = \"TEXT\"\n")
+            .replace("[kinds.text]\npy = \"str\"\n\n", ""),
+    );
+    let template = "x = 1\n{= for f in fields =}{= kinds[f.kind].sql =}{= end =}\n";
+    write_generator(
+        dir.path(),
+        "listing",
+        LISTING_TOML,
+        &[("listing.py.dt", template)],
+    );
+    let project = vendored_project(dir.path());
+    let why = generator_named(&project, "listing")
+        .unwrap()
+        .unwrap_err()
+        .to_string();
+    assert!(
+        why.contains("`kinds[f.kind].sql` (line 2): row `int` of table `kinds` has no `sql`"),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_lookup_key_must_be_a_keys_of_part() {
+    let why =
+        listing_template_problem("x = 1\n{= for f in fields =}{= kinds[f.name].py =}{= end =}\n");
+    assert!(
+        why.contains(
+            "`kinds[f.name]` (line 2): `name` is not checked against `kinds`; look up a part keys_of names"
+        ),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_hole_inside_for_is_refused() {
+    let why = listing_template_problem(
+        "{= for f in fields =}\nx = 1\n{= ? check: block | do it =}\n{= end =}\n",
+    );
+    assert!(
+        why.contains(
+            "a hole inside `{= for =}` would repeat; move `{= ? check … =}` (line 3) outside the loop"
+        ),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_loop_name_may_not_hide_an_input() {
+    let why = listing_template_problem("{= for model in fields =}{= end =}\n");
+    assert!(
+        why.contains(
+            "`{= for model in fields =}` (line 1): `model` is an input; name the item something else"
+        ),
+        "{why}"
+    );
+}
+
+#[test]
+fn control_tags_in_a_path_are_refused() {
+    let why = listing_toml_problem(
+        "create   = \"src/bistro/{= model|snake =}.py\"",
+        "create   = \"src/{= if model =}a.py\"",
+    );
+    assert!(
+        why.contains("`{= if =}` works only in a template body (in `src/{= if model =}a.py`)"),
         "{why}"
     );
 }
@@ -262,10 +432,13 @@ fn an_insert_phrase_and_its_unless_are_checked_at_load() {
 }
 
 #[test]
-fn an_if_in_a_template_arrives_in_milestone_2() {
+fn an_if_without_its_end_names_its_line() {
     let why = template_problem("from dataclasses", "{= if app =}from dataclasses");
     assert!(why.contains("(templates/command.py.dt)"), "{why}");
-    assert!(why.contains("arrives in milestone 2"), "{why}");
+    assert!(
+        why.contains("the `{= if =}` on line 3 has no `{= end =}`"),
+        "{why}"
+    );
 }
 
 #[test]

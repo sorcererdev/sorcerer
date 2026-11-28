@@ -24,6 +24,8 @@ use regex::Regex;
 use toml::{Table, Value};
 
 use crate::domain::generator_problems::{unknown_key_text, unknown_value_text};
+use crate::domain::list_items::ItemPattern;
+use crate::domain::tables::Tables;
 
 /// One generator, its file read and checked.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +58,9 @@ pub struct Generator {
     /// `[notes] after`: lines printed once the plan lands, each a template over the inputs and
     /// derived names (what to run next, a file to fill in).
     pub notes_after: Vec<String>,
+    /// The project's lookup tables (`tables.toml` beside the generators), which a template reads
+    /// as `{= kinds[f.kind].rust =}` and a list input's `keys_of` checks items against.
+    pub tables: Tables,
 }
 
 /// `[[uses]]`: another generator planned into the same plan, its inputs templates over this
@@ -88,6 +93,14 @@ pub enum InputKind {
     Fixed { choices: Vec<String> },
     /// Any text.
     Text,
+    /// Items in one line of text (`name:text,price:int`), each read by the pattern; a part
+    /// `keys_of` names must be a row key of that table.
+    ///
+    /// Example: `item = "{name}:{kind}"`, `keys_of = { kind = "kinds" }`.
+    List {
+        pattern: ItemPattern,
+        keys_of: BTreeMap<String, String>,
+    },
 }
 
 impl InputKind {
@@ -97,6 +110,7 @@ impl InputKind {
             InputKind::Ident => "ident",
             InputKind::Enum { .. } | InputKind::Fixed { .. } => "enum",
             InputKind::Text => "text",
+            InputKind::List { .. } => "list",
         }
     }
 }
@@ -230,7 +244,9 @@ const TOP_KEYS: &[&str] = &[
 ];
 const NOTES_KEYS: &[&str] = &["after"];
 const USE_KEYS: &[&str] = &["generator", "with"];
-const INPUT_KEYS: &[&str] = &["type", "one_of", "choices", "prompt", "optional", "default"];
+const INPUT_KEYS: &[&str] = &[
+    "type", "one_of", "choices", "item", "keys_of", "prompt", "optional", "default",
+];
 const QUERY_KEYS: &[&str] = &["glob", "exclude", "value"];
 const EDIT_KEYS: &[&str] = &[
     "create",
@@ -289,6 +305,7 @@ pub fn read_generator(
         uses: uses(&top)?,
         files: BTreeMap::new(),
         notes_after: notes_after(&top)?,
+        tables: Tables::default(),
     })
 }
 
@@ -348,21 +365,16 @@ fn input(name: &str, table: &Table) -> Result<Input, String> {
         "ident" => InputKind::Ident,
         "text" => InputKind::Text,
         "enum" => enum_kind(&keys, table)?,
+        "list" => list_kind(&keys)?,
         other => {
             return Err(keys.at(&unknown_value_text(
                 "type",
                 other,
-                &["ident", "enum", "text"],
+                &["ident", "enum", "text", "list"],
             )));
         }
     };
-    if !is_enum(&kind) {
-        for key in ["one_of", "choices"] {
-            if table.contains_key(key) {
-                return Err(keys.at(&format!("{key} belongs to an input of type \"enum\"")));
-            }
-        }
-    }
+    refuse_keys_of_other_types(&keys, &kind)?;
     let default = keys.text("default")?;
     if let (InputKind::Fixed { choices }, Some(value)) = (&kind, &default)
         && !choices.contains(value)
@@ -380,8 +392,40 @@ fn input(name: &str, table: &Table) -> Result<Input, String> {
     })
 }
 
-fn is_enum(kind: &InputKind) -> bool {
-    matches!(kind, InputKind::Enum { .. } | InputKind::Fixed { .. })
+/// `one_of` and `choices` belong to an enum, `item` and `keys_of` to a list.
+fn refuse_keys_of_other_types(keys: &Keys, kind: &InputKind) -> Result<(), String> {
+    let is_enum = matches!(kind, InputKind::Enum { .. } | InputKind::Fixed { .. });
+    let is_list = matches!(kind, InputKind::List { .. });
+    let others = [
+        ("one_of", "enum", is_enum),
+        ("choices", "enum", is_enum),
+        ("item", "list", is_list),
+        ("keys_of", "list", is_list),
+    ];
+    match others
+        .iter()
+        .find(|(key, _, belongs)| !belongs && keys.table.contains_key(*key))
+    {
+        Some((key, owner, _)) => {
+            Err(keys.at(&format!("{key} belongs to an input of type \"{owner}\"")))
+        }
+        None => Ok(()),
+    }
+}
+
+/// A list's item pattern (`item`, required) and the parts checked against tables (`keys_of`).
+fn list_kind(keys: &Keys) -> Result<InputKind, String> {
+    let written = keys.text("item")?.ok_or_else(|| {
+        keys.at("a list needs `item`, the pattern of one item (\"{name}:{kind}\")")
+    })?;
+    let pattern = ItemPattern::parse(&written).map_err(|why| keys.at(&format!("item: {why}")))?;
+    let keys_of = keys.text_table("keys_of")?;
+    if let Some(part) = keys_of.keys().find(|part| !pattern.has_part(part)) {
+        return Err(keys.at(&format!(
+            "keys_of names `{part}`, which is not a part of `{written}`"
+        )));
+    }
+    Ok(InputKind::List { pattern, keys_of })
 }
 
 /// An enum's values come from a project query (`one_of`) or from the generator (`choices`),
@@ -678,6 +722,27 @@ impl<'t> Keys<'t> {
             (1, Some(Value::String(text))) => Ok(Some(text.clone())),
             _ => Err(shape()),
         }
+    }
+
+    /// A table of texts: `keys_of = { kind = "kinds" }`; none when the key is absent.
+    fn text_table(&self, key: &str) -> Result<BTreeMap<String, String>, String> {
+        let Some(value) = self.table.get(key) else {
+            return Ok(BTreeMap::new());
+        };
+        let shape = || {
+            self.at(&format!(
+                "{key} is a table of texts, `{{ part = \"table\" }}`"
+            ))
+        };
+        value
+            .as_table()
+            .ok_or_else(shape)?
+            .iter()
+            .map(|(name, value)| match value {
+                Value::String(text) => Ok((name.clone(), text.clone())),
+                _ => Err(shape()),
+            })
+            .collect()
     }
 
     fn texts(&self, key: &str) -> Result<Vec<String>, String> {

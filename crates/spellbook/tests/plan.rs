@@ -3,7 +3,8 @@
 mod support;
 
 use sorcerer_core::adapters::files_view::FilesView;
-use spellbook::adapters::generator_dir::generators_in;
+use sorcerer_core::domain::template_blocks::Datum;
+use spellbook::adapters::generator_dir::{generator_named, generators_in};
 use spellbook::domain::generator::Generator;
 use spellbook::domain::inputs::{Given, InputStop, Values, input_stop_text};
 use spellbook::usecases::choices_for::{Resolved, choices_for, resolve_inputs};
@@ -588,4 +589,214 @@ fn an_insert_whose_phrase_misses_stops_the_plan_naming_it() {
         plan_stop_text(&stop),
         "[[edits]] 2 insert (src/bistro/booking/commands/nope.py): `end of parameters in Nope.__init__`: no function `Nope.__init__` in nope.py; nothing was written"
     );
+}
+
+// ---- list inputs, loops and branches ----
+
+/// The `listing` generator and a view of bistro with it.
+fn listing_in(dir: &std::path::Path) -> (Generator, FilesView) {
+    let (project, view) = project_with_vendored_grammars(dir);
+    let generator = generator_named(&project, "listing").unwrap().unwrap();
+    (generator, view)
+}
+
+fn listing_values(fields: &str) -> Resolved {
+    let dir = bistro_with_listing();
+    let (generator, view) = listing_in(dir.path());
+    resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("model", "dish"), ("fields", fields)]),
+    )
+}
+
+fn items_of(values: &Values, name: &str) -> Vec<Datum> {
+    match values.bindings().0.get(name) {
+        Some(Datum::List(items)) => items.clone(),
+        other => panic!("{name}: {other:?}"),
+    }
+}
+
+fn part(item: &Datum, name: &str) -> Datum {
+    match item {
+        Datum::Record(parts) => parts[name].clone(),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_list_input_is_parsed_into_items() {
+    let values = ready(listing_values("name:text,dish:ref:dishes,notes:text?"));
+    let items = items_of(&values, "fields");
+    assert_eq!(items.len(), 3);
+    assert_eq!(part(&items[1], "target"), Datum::Text("dishes".into()));
+    assert_eq!(part(&items[2], "optional"), Datum::Flag(true));
+    assert_eq!(part(&items[0], "target"), Datum::Text(String::new()));
+    assert_eq!(part(&items[0], "optional"), Datum::Flag(false));
+    // the text is kept as typed, for one-line templates and `[[uses]] with`
+    assert_eq!(
+        values.get("fields"),
+        Some("name:text,dish:ref:dishes,notes:text?")
+    );
+}
+
+#[test]
+fn a_bad_item_names_the_part_and_the_keys() {
+    let text = |fields: &str| input_stop_text(&stopped(listing_values(fields)));
+    let stop = stopped(listing_values("weight:flaot"));
+    assert_eq!(stop.input(), Some("fields"));
+    assert_eq!(
+        input_stop_text(&stop),
+        "`fields`: `weight:flaot`: `flaot` is not a kind (one of: int, ref, text)"
+    );
+    assert_eq!(
+        text("a:text,,b:int"),
+        "`fields`: an empty item (two commas together)"
+    );
+    assert_eq!(
+        text("a"),
+        "`fields`: `a`: `a` has 1 part; an item is `{name}:{kind}:{target?}`"
+    );
+    assert!(
+        text("a:text:x:y").contains("`a:text:x:y` has 4 parts; an item is"),
+        "{}",
+        text("a:text:x:y")
+    );
+    assert_eq!(
+        text("Bad Name:text"),
+        "`fields`: `Bad Name:text`: `Bad Name` is not a name"
+    );
+}
+
+#[test]
+fn an_optional_list_may_be_empty() {
+    let dir = bistro_with_listing();
+    let toml = LISTING_TOML.replace(
+        "prompt  = \"The fields",
+        "optional = true\nprompt  = \"The fields",
+    );
+    write_generator(
+        dir.path(),
+        "listing",
+        &toml,
+        &[("listing.py.dt", LISTING_PY)],
+    );
+    let (generator, view) = listing_in(dir.path());
+    let values = ready(resolve_inputs(
+        &view,
+        &generator,
+        &given(&[("model", "dish")]),
+    ));
+    assert!(items_of(&values, "fields").is_empty());
+    let rig = PlanRig::new(dir.path());
+    let plan = rig.plan("listing", &[("model", "dish")]).unwrap();
+    assert_eq!(plan.files[0].text, "class Dish:\n");
+}
+
+#[test]
+fn a_list_renders_one_line_per_item() {
+    let dir = bistro_with_listing();
+    let rig = PlanRig::new(dir.path());
+    let plan = rig
+        .plan(
+            "listing",
+            &[
+                ("model", "dish"),
+                ("fields", "name:text,price:int,notes:text?"),
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        plan.files[0].text,
+        "class Dish:\n    name: str\n    price: int\n    notes: str | None\n"
+    );
+}
+
+#[test]
+fn a_list_passes_through_uses() {
+    let dir = bistro_with_listing();
+    let outer = r#"name     = "Outer"
+language = "python"
+
+[inputs.model]
+type = "ident"
+
+[inputs.fields]
+type = "list"
+item = "{name}:{kind}"
+
+[[uses]]
+generator = "listing"
+with      = { model = "{= model =}", fields = "{= fields =}" }
+"#;
+    write_generator(dir.path(), "outer", outer, &[]);
+    let rig = PlanRig::new(dir.path());
+    let plan = rig
+        .plan(
+            "outer",
+            &[
+                ("model", "dish"),
+                ("fields", "name:text,price:int,notes:text?"),
+            ],
+        )
+        .unwrap();
+    let file = plan
+        .files
+        .iter()
+        .find(|file| file.path == "src/bistro/dish.py")
+        .unwrap();
+    assert_eq!(
+        file.text,
+        "class Dish:\n    name: str\n    price: int\n    notes: str | None\n"
+    );
+}
+
+const BRANCHING_TOML: &str = r#"name     = "Branching"
+language = "python"
+
+[inputs.kind]
+type    = "enum"
+choices = ["query", "command"]
+
+[[edits]]
+create   = "src/bistro/branch.py"
+template = "branch.py.dt"
+"#;
+
+const BRANCHING_PY: &str = "{= if kind == \"query\" =}\ndef ask():\n    {= ? answer: block | what it returns =}\n{= else =}\ndef do():\n    pass\n{= end =}\n";
+
+fn branching_plan(kind: &str) -> spellbook::domain::plan::Plan {
+    let dir = bistro_project();
+    write_generator(
+        dir.path(),
+        "branching",
+        BRANCHING_TOML,
+        &[("branch.py.dt", BRANCHING_PY)],
+    );
+    let rig = PlanRig::new(dir.path());
+    rig.plan("branching", &[("kind", kind)]).unwrap()
+}
+
+#[test]
+fn an_if_on_a_text_input_branches() {
+    assert!(
+        branching_plan("query").files[0]
+            .text
+            .starts_with("def ask():\n    raise NotImplementedError")
+    );
+    assert_eq!(
+        branching_plan("command").files[0].text,
+        "def do():\n    pass\n"
+    );
+}
+
+#[test]
+fn a_hole_inside_if_is_listed_only_when_rendered() {
+    let names = |plan: &spellbook::domain::plan::Plan| -> Vec<String> {
+        plan.holes.iter().map(|hole| hole.name.clone()).collect()
+    };
+    let query = branching_plan("query");
+    assert_eq!(names(&query), ["answer"]);
+    assert_eq!(query.holes[0].places[0].line, 2);
+    assert!(names(&branching_plan("command")).is_empty());
 }

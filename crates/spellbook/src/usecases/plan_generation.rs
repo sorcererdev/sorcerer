@@ -8,7 +8,8 @@ use regex::Regex;
 use sorcerer_core::domain::facts::parse_errors_of;
 use sorcerer_core::domain::fences::Fences;
 use sorcerer_core::domain::language::Loaded;
-use sorcerer_core::domain::templates::{Piece, fill, pieces};
+use sorcerer_core::domain::template_blocks::{Node, holes_in, parse_body};
+use sorcerer_core::domain::templates::fill;
 use sorcerer_core::ports::view::CodebaseView;
 
 use crate::domain::anchor::{Anchor, Resolution, resolution_text};
@@ -629,17 +630,13 @@ fn render_in_language(
         .map_err(|why| PlanStop::Template(format!("{path}: {why}")))
 }
 
-/// The first hole in a template that no `[holes.X]` fills.
+/// The first hole in a template that no `[holes.X]` fills (in any branch, taken or not).
 fn first_placeholder_hole(template: &str, generator: &Generator) -> Option<String> {
-    pieces(template)
-        .ok()?
-        .into_iter()
-        .find_map(|piece| match piece {
-            Piece::Hole { name, .. } if !generator.holes.contains_key(name) => {
-                Some(name.to_string())
-            }
-            _ => None,
-        })
+    let nodes = parse_body(template).ok()?;
+    holes_in(&nodes).into_iter().find_map(|hole| match hole {
+        Node::Hole { name, .. } if !generator.holes.contains_key(*name) => Some(name.to_string()),
+        _ => None,
+    })
 }
 
 fn refuse_a_parse_error(

@@ -1,11 +1,12 @@
-//! A template rendered: values filled (with their filters), holes `[holes.X]` derives filled
-//! from the inputs, and every other hole replaced by its kind's placeholder, each hole's line
-//! remembered.
+//! A template rendered: loops and branches expanded, values filled (with their filters), holes
+//! `[holes.X]` derives filled from the inputs, and every other hole replaced by its kind's
+//! placeholder, each hole's line remembered.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-use sorcerer_core::domain::templates::{Piece, fill, filled_value, pieces};
+use sorcerer_core::domain::template_blocks::{Expanded, expand, parse_body};
+use sorcerer_core::domain::templates::fill;
 
 use crate::domain::generator::HoleSource;
 use crate::domain::holes::{HoleAt, HoleOrigin};
@@ -18,9 +19,10 @@ pub struct Rendered {
     pub holes: Vec<HoleAt>,
 }
 
-/// Renders a template. A hole `derived` names is filled from its value template; any other is
-/// replaced by `placeholder_of(kind, name, instruction)`, which sits where the hole sat, so a
-/// block placeholder keeps the indentation the template gave the hole.
+/// Renders a template body: its loops and branches expanded against the values (see
+/// [`expand`]), then each hole filled. A hole `derived` names is filled from its value template;
+/// any other is replaced by `placeholder_of(kind, name, instruction)`, which sits where the hole
+/// sat, so a block placeholder keeps the indentation the template gave the hole.
 ///
 /// Example: `    {= ? handle: block | its first case =}` with a placeholder of
 /// `fail("hole handle: its first case")` renders as `    fail("hole handle: its first case")`,
@@ -31,18 +33,14 @@ pub fn render(
     derived: &BTreeMap<String, HoleSource>,
     placeholder_of: &dyn Fn(&str, &str, &str) -> Result<String, String>,
 ) -> Result<Rendered, String> {
+    let nodes = parse_body(template)?;
+    let expanded = expand(&nodes, &values.bindings(), template)?;
     let pairs = values.pairs();
-    let mut text = String::new();
-    let mut holes: Vec<HoleAt> = Vec::new();
-    let mut starts: Vec<usize> = Vec::new();
-    let mut ends: Vec<usize> = Vec::new();
-    for piece in pieces(template)? {
-        match piece {
-            Piece::Text(plain) => text.push_str(plain),
-            Piece::Value { name, filters } => {
-                text.push_str(&filled_value(name, &filters, &pairs, template)?);
-            }
-            Piece::Hole {
+    let mut writing = Writing::default();
+    for part in expanded {
+        match part {
+            Expanded::Text(plain) => writing.text.push_str(&plain),
+            Expanded::Hole {
                 name,
                 kind,
                 instruction,
@@ -56,38 +54,63 @@ pub fn render(
                         HoleOrigin::Placeholder,
                     ),
                 };
-                let before = text.rsplit('\n').next().unwrap_or("");
-                let edge_before = before.chars().rev().find(|c| !c.is_whitespace());
-                holes.push(HoleAt {
-                    name: name.into(),
-                    kind: kind.into(),
-                    instruction: instruction.into(),
-                    source,
-                    line: line_after(&text),
-                    text: filled.clone(),
-                    edges: edge_before.map(String::from).unwrap_or_else(|| "\n".into()),
-                    frame: Vec::new(),
-                });
-                starts.push(text.len());
-                text.push_str(&filled);
-                ends.push(text.len());
+                writing.place_hole(name, kind, instruction, source, &filled);
             }
         }
     }
-    for (hole, end) in holes.iter_mut().zip(&ends) {
-        let rest = text[*end..].split('\n').next().unwrap_or("");
-        hole.edges
-            .push(rest.chars().find(|c| !c.is_whitespace()).unwrap_or('\n'));
+    Ok(writing.finished())
+}
+
+/// The text written so far, the holes placed in it and where each sits.
+#[derive(Default)]
+struct Writing {
+    text: String,
+    holes: Vec<HoleAt>,
+    spans: Vec<Range<usize>>,
+}
+
+impl Writing {
+    /// Writes a hole's filling and remembers the hole: its line and what comes before it.
+    fn place_hole(
+        &mut self,
+        name: &str,
+        kind: &str,
+        instruction: &str,
+        source: HoleOrigin,
+        filled: &str,
+    ) {
+        let before = self.text.rsplit('\n').next().unwrap_or("");
+        let edge_before = before.chars().rev().find(|c| !c.is_whitespace());
+        self.holes.push(HoleAt {
+            name: name.into(),
+            kind: kind.into(),
+            instruction: instruction.into(),
+            source,
+            line: line_after(&self.text),
+            text: filled.to_string(),
+            edges: edge_before.map(String::from).unwrap_or_else(|| "\n".into()),
+            frame: Vec::new(),
+        });
+        let start = self.text.len();
+        self.text.push_str(filled);
+        self.spans.push(start..self.text.len());
     }
-    let spans: Vec<Range<usize>> = starts
-        .into_iter()
-        .zip(ends.iter().copied())
-        .map(|(a, b)| a..b)
-        .collect();
-    for (hole, span) in holes.iter_mut().zip(&spans) {
-        hole.frame = line_frame(&text, span, &spans);
+
+    /// The rendered text, each hole given what follows it and the pieces of its line.
+    fn finished(self) -> Rendered {
+        let Writing {
+            text,
+            mut holes,
+            spans,
+        } = self;
+        for (hole, span) in holes.iter_mut().zip(&spans) {
+            let rest = text[span.end..].split('\n').next().unwrap_or("");
+            hole.edges
+                .push(rest.chars().find(|c| !c.is_whitespace()).unwrap_or('\n'));
+            hole.frame = line_frame(&text, span, &spans);
+        }
+        Rendered { text, holes }
     }
-    Ok(Rendered { text, holes })
 }
 
 /// The pieces of the hole's line around the holes on that line, spaces left out.

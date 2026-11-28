@@ -132,6 +132,30 @@ pub fn holes_in_loops<'t>(nodes: &[Node<'t>]) -> Vec<(&'t str, usize)> {
         .collect()
 }
 
+/// Every hole in a body, in the order the template holds them, those inside loops and branches
+/// included.
+///
+/// Example: `a{= if x =}{= ? check: block =}{= end =}` gives the one `Node::Hole` named `check`.
+pub fn holes_in<'a, 't>(nodes: &'a [Node<'t>]) -> Vec<&'a Node<'t>> {
+    nodes
+        .iter()
+        .flat_map(|node| match node {
+            Node::Hole { .. } => vec![node],
+            Node::For { body, .. } => holes_in(body),
+            Node::If {
+                branches,
+                otherwise,
+                ..
+            } => branches
+                .iter()
+                .flat_map(|(_, body)| holes_in(body))
+                .chain(holes_in(otherwise))
+                .collect(),
+            Node::Text(_) | Node::Value { .. } => Vec::new(),
+        })
+        .collect()
+}
+
 /// Every loop in a body, outer before inner: its item name, its list name and its line.
 ///
 /// Example: `{= for f in fields =}{= end =}` gives `[("f", "fields", 1)]`.
@@ -678,21 +702,11 @@ fn visit_path<'a, 't>(
 }
 
 fn all_holes<'t>(nodes: &[Node<'t>]) -> Vec<(&'t str, usize)> {
-    nodes
-        .iter()
-        .flat_map(|node| match node {
-            Node::Hole { name, line, .. } => vec![(*name, *line)],
-            Node::For { body, .. } => all_holes(body),
-            Node::If {
-                branches,
-                otherwise,
-                ..
-            } => branches
-                .iter()
-                .flat_map(|(_, body)| all_holes(body))
-                .chain(all_holes(otherwise))
-                .collect(),
-            _ => Vec::new(),
+    holes_in(nodes)
+        .into_iter()
+        .filter_map(|node| match node {
+            Node::Hole { name, line, .. } => Some((*name, *line)),
+            _ => None,
         })
         .collect()
 }

@@ -9,9 +9,12 @@ use chrono::{DateTime, Utc};
 use globset::GlobBuilder;
 use sorcerer_core::domain::name_forms::words_of;
 use sorcerer_core::domain::paths::forward_slashes;
+use sorcerer_core::domain::template_blocks::{Bindings, Datum};
 use sorcerer_core::domain::templates::fill;
 
 use crate::domain::generator::{Generator, QueryValue};
+use crate::domain::list_items::ListItem;
+use crate::domain::tables::Tables;
 
 /// What the person gave, by input name, as typed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -62,18 +65,67 @@ pub const TIMESTAMP: &str = "timestamp";
 
 /// The inputs resolved, then the derived names, in order: what a template may use. An ident is
 /// kept as it was typed; a filter gives its other forms, so `CancelTable` and `cancel_table`
-/// fill `{= command|snake =}` the same.
+/// fill `{= command|snake =}` the same. A list input is kept as typed among them (so a one-line
+/// template and `[[uses]] with` pass it on whole) and read into its items beside them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Values {
     entries: Vec<(String, String)>,
     inputs: usize,
+    lists: Vec<(String, Vec<ListItem>)>,
+    tables: Tables,
 }
 
 impl Values {
     /// Inputs resolved so far, in the generator's order.
     pub fn of_inputs(entries: Vec<(String, String)>) -> Values {
         let inputs = entries.len();
-        Values { entries, inputs }
+        Values {
+            entries,
+            inputs,
+            ..Values::default()
+        }
+    }
+
+    /// These values and one more input after them.
+    pub fn with_input(mut self, name: &str, value: &str) -> Values {
+        self.entries.push((name.to_string(), value.to_string()));
+        self.inputs = self.entries.len();
+        self
+    }
+
+    /// These values and a list input's items (its text is among the inputs already).
+    pub fn with_list(mut self, name: &str, items: Vec<ListItem>) -> Values {
+        self.lists.push((name.to_string(), items));
+        self
+    }
+
+    /// These values and the lookup tables a template body may read.
+    pub fn with_tables(self, tables: &Tables) -> Values {
+        Values {
+            tables: tables.clone(),
+            ..self
+        }
+    }
+
+    /// Everything a template body reads: every name as text, each list input as its items
+    /// (each a record of its parts and the `optional` flag), and each lookup table as a record
+    /// of rows.
+    ///
+    /// Example: with `model = dish` and `fields = "name:text?"`, `model` is the text `dish` and
+    /// `fields` a list of one record `{ name: "name", kind: "text", optional: yes }`.
+    pub fn bindings(&self) -> Bindings {
+        let tables = self.tables.datum();
+        let lists = self.lists.iter().map(|(name, items)| {
+            let items = items.iter().map(ListItem::datum).collect();
+            (name.clone(), Datum::List(items))
+        });
+        tables
+            .into_iter()
+            .chain(Bindings::from_pairs(&self.pairs()).0)
+            .chain(lists)
+            .fold(Bindings::default(), |bindings, (name, datum)| {
+                bindings.with(&name, datum)
+            })
     }
 
     /// Every name and value, as [`fill`] takes them.
@@ -105,10 +157,7 @@ impl Values {
             Some(timestamp) if !declared => {
                 let mut entries = self.entries;
                 entries.push((TIMESTAMP.to_string(), timestamp.to_string()));
-                Values {
-                    entries,
-                    inputs: self.inputs,
-                }
+                Values { entries, ..self }
             }
             _ => self,
         }
@@ -127,10 +176,7 @@ impl Values {
                     .map_err(|why| format!("[derive] {name}: {why}"))?;
                 let mut entries = values.entries;
                 entries.push((name.clone(), value));
-                Ok(Values {
-                    entries,
-                    inputs: values.inputs,
-                })
+                Ok(Values { entries, ..values })
             })
     }
 }
@@ -154,6 +200,12 @@ pub enum InputStop {
     NoChoices { input: String, query: String },
     /// An ident that is not a name.
     NotAName { input: String, given: String },
+    /// An item of a list input that does not follow its pattern.
+    BadItem {
+        input: String,
+        item: String,
+        why: String,
+    },
     /// A template over the inputs did not fill (a query's glob, a derived name).
     Template(String),
 }
@@ -165,7 +217,8 @@ impl InputStop {
             InputStop::Missing { input, .. }
             | InputStop::NotAChoice { input, .. }
             | InputStop::NoChoices { input, .. }
-            | InputStop::NotAName { input, .. } => Some(input),
+            | InputStop::NotAName { input, .. }
+            | InputStop::BadItem { input, .. } => Some(input),
             InputStop::Template(_) => None,
         }
     }
@@ -200,7 +253,18 @@ pub fn input_stop_text(stop: &InputStop) -> String {
         InputStop::NotAName { input, given } => {
             format!("{input}: \"{given}\" is not a name (letters, digits, _, - and spaces)")
         }
+        InputStop::BadItem { input, item, why } => bad_item_text(input, item, why),
         InputStop::Template(why) => why.clone(),
+    }
+}
+
+/// Example: "`fields`: `weight_kg:flaot`: `flaot` is not a kind (one of: bool, int, text)";
+/// an empty item is not quoted ("`fields`: an empty item (two commas together)").
+fn bad_item_text(input: &str, item: &str, why: &str) -> String {
+    if item.is_empty() {
+        format!("`{input}`: {why}")
+    } else {
+        format!("`{input}`: `{item}`: {why}")
     }
 }
 

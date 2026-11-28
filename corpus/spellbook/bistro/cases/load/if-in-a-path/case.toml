@@ -1,0 +1,5 @@
+# A path with `if`: only a template body loops and branches; a path is one line of values.
+generator = "command"
+
+[inputs]
+command = "cancel_table"

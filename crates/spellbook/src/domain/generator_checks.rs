@@ -5,17 +5,18 @@
 
 use std::collections::BTreeMap;
 
-use sorcerer_core::domain::language::Languages;
-use sorcerer_core::domain::templates::{Piece, pieces};
-
 use regex::Regex;
-use sorcerer_core::domain::templates::fill;
+use sorcerer_core::domain::language::Languages;
+use sorcerer_core::domain::template_blocks::{Node, holes_in, parse_body};
+use sorcerer_core::domain::templates::{Piece, fill, pieces};
 
 use crate::domain::anchor::Anchor;
 use crate::domain::generator::{Edit, EditBody, FILES_DIR, Generator, HoleSource, InputKind};
 use crate::domain::generator_problems::function_style_text;
 use crate::domain::holes_table::{holes_table, missing_kind_text};
 use crate::domain::inputs::TIMESTAMP;
+use crate::domain::tables::TABLES_FILE;
+use crate::domain::template_checks::{BodyNames, check_body};
 
 /// A problem the checks found: the generator's file it is in, and the sentence.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +39,8 @@ pub fn check_generator(generator: &Generator, languages: &Languages) -> Result<(
     in_generator_file(edit_templates_exist(generator))?;
     in_generator_file(names_and_values_are_plain(generator))?;
     in_generator_file(inserts_are_well_formed(generator))?;
+    in_generator_file(keys_of_name_tables(generator))?;
+    tables_are_not_named_like_inputs(generator)?;
     templates_are_well_formed(generator)?;
     holes_agree(generator, languages)
 }
@@ -190,34 +193,81 @@ fn inserts_are_well_formed(generator: &Generator) -> Result<(), String> {
             })?;
         }
         if let EditBody::Text(text) = body {
-            for piece in pieces(text).map_err(|why| format!("{}: {why}", place("text")))? {
-                if let Piece::Value { name, .. } = piece {
-                    refuse_unknown_name(name, &known, &place("text"))?;
-                }
-            }
+            body_is_well_formed(generator, text, &known)
+                .map_err(|why| format!("{}: {why}", place("text")))?;
         }
     }
     Ok(())
 }
 
-fn templates_are_well_formed(generator: &Generator) -> Result<(), CheckProblem> {
-    let known = known_names(generator);
-    for (file, text) in &generator.templates {
-        let in_template = |why: String| CheckProblem {
-            file: format!("templates/{file}"),
-            why,
+/// Every list input's `keys_of` names a table `tables.toml` has.
+fn keys_of_name_tables(generator: &Generator) -> Result<(), String> {
+    for (name, input) in &generator.inputs {
+        let InputKind::List { keys_of, .. } = &input.kind else {
+            continue;
         };
-        for piece in pieces(text).map_err(in_template)? {
-            match piece {
-                Piece::Value { name, .. } => {
-                    refuse_unknown_name(name, &known, "the template").map_err(in_template)?
-                }
-                Piece::Text(text) => refuse_braced_name(text, &known).map_err(in_template)?,
-                Piece::Hole { .. } => {}
-            }
+        if let Some(table) = keys_of
+            .values()
+            .find(|table| generator.tables.rows(table).is_none())
+        {
+            return Err(format!(
+                "[inputs.{name}]: keys_of names table `{table}`, which {TABLES_FILE} does not have"
+            ));
         }
     }
     Ok(())
+}
+
+/// A table named like an input would hide it in a template.
+fn tables_are_not_named_like_inputs(generator: &Generator) -> Result<(), CheckProblem> {
+    match generator
+        .tables
+        .names()
+        .find(|table| generator.inputs.iter().any(|(input, _)| input == table))
+    {
+        Some(table) => Err(CheckProblem {
+            file: TABLES_FILE.into(),
+            why: format!(
+                "{TABLES_FILE}: table `{table}` has the name of an input of generator `{}`; rename one",
+                generator.id
+            ),
+        }),
+        None => Ok(()),
+    }
+}
+
+fn templates_are_well_formed(generator: &Generator) -> Result<(), CheckProblem> {
+    let known = known_names(generator);
+    for (file, text) in &generator.templates {
+        body_is_well_formed(generator, text, &known).map_err(|why| CheckProblem {
+            file: format!("templates/{file}"),
+            why,
+        })?;
+    }
+    Ok(())
+}
+
+/// A template body reads as a tree, and every name, part, loop, lookup and hole in it is one
+/// the generator gives (see [`check_body`]).
+fn body_is_well_formed(generator: &Generator, text: &str, known: &[&str]) -> Result<(), String> {
+    refuse_function_style(text)?;
+    let nodes = parse_body(text)?;
+    refuse_braced_name(text, known)?;
+    let names = BodyNames { generator, known };
+    check_body(&nodes, &names)
+}
+
+/// `{= pascalCase(command) =}` is olifant's style: say the filter to write instead.
+fn refuse_function_style(text: &str) -> Result<(), String> {
+    let tag = Regex::new(r"\{=(.*?)=\}").expect("regex");
+    let found = tag.captures_iter(text).find_map(|found| {
+        let written = found[1].split('|').next().unwrap_or_default().trim();
+        function_style_text(written)
+    });
+    match found {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
 }
 
 /// `{{ name }}` is text (an askama or Jinja page writes it), but around a name the generator
@@ -249,12 +299,14 @@ fn holes_agree(generator: &Generator, languages: &Languages) -> Result<(), Check
             file: format!("templates/{file}"),
             why,
         };
-        for piece in pieces(text).map_err(in_template)? {
-            let Piece::Hole {
+        let nodes = parse_body(text).map_err(in_template)?;
+        for hole in holes_in(&nodes) {
+            let Node::Hole {
                 name,
                 kind,
                 instruction,
-            } = piece
+                ..
+            } = *hole
             else {
                 continue;
             };

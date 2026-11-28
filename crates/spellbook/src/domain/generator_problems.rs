@@ -49,12 +49,8 @@ pub fn unknown_key_text(key: &str, known: &[&str]) -> String {
 
 /// What to say about a value a key does not take.
 ///
-/// Example: `type = "list"` gives "type = \"list\" arrives in milestone 2"; `type = "nmae"`
-/// gives "type = \"nmae\" is not one of: ident, enum, text".
+/// Example: `type = "nmae"` gives "type = \"nmae\" is not one of: ident, enum, text, list".
 pub fn unknown_value_text(key: &str, value: &str, known: &[&str]) -> String {
-    if key == "type" && value == "list" {
-        return "type = \"list\" arrives in milestone 2".into();
-    }
     format!("{key} = \"{value}\" is not one of: {}", known.join(", "))
 }
 
