@@ -756,8 +756,8 @@ mod tests {
             .with(
                 "kinds",
                 record(&[
-                    ("text", record(&[("rust", text("String"))])),
-                    ("int", record(&[("rust", text("i64"))])),
+                    ("text", record(&[("code", text("String"))])),
+                    ("int", record(&[("code", text("i64"))])),
                 ]),
             )
     }
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn control_only_lines_vanish() {
-        let template = "struct X {\n    {= for f in fields =}\n    {= f.name =}: {= kinds[f.kind].rust =},\n    {= end =}\n}\n";
+        let template = "struct X {\n    {= for f in fields =}\n    {= f.name =}: {= kinds[f.kind].code =},\n    {= end =}\n}\n";
         assert_eq!(
             rendered(template),
             Ok("struct X {\n    name: String,\n    price: i64,\n    notes: String,\n}\n".into())
@@ -951,7 +951,7 @@ mod tests {
 
     #[test]
     fn the_walks_see_paths_loops_and_holes() {
-        let template = "{= for f in fields =}\n{= kinds[f.kind].rust =}\n{= ? check: block =}\n{= end =}\n{= if model =}{= end =}";
+        let template = "{= for f in fields =}\n{= kinds[f.kind].code =}\n{= ? check: block =}\n{= end =}\n{= if model =}{= end =}";
         let nodes = parse_body(template).unwrap();
         let mut seen = Vec::new();
         walk_paths(&nodes, &mut |path, scope| {
@@ -960,7 +960,7 @@ mod tests {
         assert_eq!(
             seen,
             [
-                ("kinds[f.kind].rust".to_string(), 1),
+                ("kinds[f.kind].code".to_string(), 1),
                 ("f.kind".to_string(), 1),
                 ("model".to_string(), 0)
             ]

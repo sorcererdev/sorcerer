@@ -34,7 +34,7 @@ pub const TABLES_FILE: &str = "tables.toml";
 /// Reads `tables.toml`. Every top-level name is a table, each of its entries a row, and every
 /// cell text; anything else is an error naming where it is.
 ///
-/// Example: `[kinds.text]\nrust = 1` is refused with
+/// Example: `[kinds.text]\ncode = 1` is refused with
 /// "tables.toml [kinds.text] rust: a value is text".
 pub fn read_tables(text: &str) -> Result<Tables, String> {
     let top: Table = toml::from_str(text).map_err(|e| format!("{TABLES_FILE}: {}", e.message()))?;
@@ -109,17 +109,17 @@ mod tests {
     #[test]
     fn rows_and_cells_are_read() {
         let tables =
-            read_tables("[kinds.text]\nrust = \"String\"\n[kinds.int]\nrust = \"i64\"\n").unwrap();
+            read_tables("[kinds.text]\ncode = \"String\"\n[kinds.int]\ncode = \"i64\"\n").unwrap();
         let rows = tables.rows("kinds").unwrap();
-        assert_eq!(rows["int"]["rust"], "i64");
+        assert_eq!(rows["int"]["code"], "i64");
         assert_eq!(tables.names().collect::<Vec<_>>(), ["kinds"]);
     }
 
     #[test]
     fn a_value_that_is_not_text_is_refused() {
         assert_eq!(
-            read_tables("[kinds.text]\nrust = 1\n").unwrap_err(),
-            "tables.toml [kinds.text] rust: a value is text"
+            read_tables("[kinds.text]\ncode = 1\n").unwrap_err(),
+            "tables.toml [kinds.text] code: a value is text"
         );
         assert!(
             read_tables("kinds = 1\n")

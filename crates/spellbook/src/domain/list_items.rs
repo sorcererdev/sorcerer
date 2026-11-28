@@ -271,7 +271,7 @@ mod tests {
 
     fn kinds() -> (BTreeMap<String, String>, Tables) {
         let tables =
-            read_tables("[kinds.text]\nrust = \"String\"\n[kinds.int]\nrust = \"i64\"\n").unwrap();
+            read_tables("[kinds.text]\ncode = \"String\"\n[kinds.int]\ncode = \"i64\"\n").unwrap();
         (
             BTreeMap::from([("kind".to_string(), "kinds".to_string())]),
             tables,

@@ -280,8 +280,8 @@ mod tests {
 
     #[test]
     fn a_path_prints_as_written() {
-        let path = parse_path("kinds[f.kind].rust", 1).unwrap();
-        assert_eq!(path.to_string(), "kinds[f.kind].rust");
+        let path = parse_path("kinds[f.kind].code", 1).unwrap();
+        assert_eq!(path.to_string(), "kinds[f.kind].code");
         assert_eq!(path.written_upto(1), "kinds[f.kind]");
     }
 
@@ -299,18 +299,18 @@ mod tests {
             Datum::Record(BTreeMap::from([(
                 "int".to_string(),
                 Datum::Record(BTreeMap::from([(
-                    "rust".to_string(),
+                    "code".to_string(),
                     Datum::Text("i64".into()),
                 )])),
             )])),
         );
         let lookup = Lookup::new(&bindings);
-        let path = parse_path("kinds[k].rust", 1).unwrap();
+        let path = parse_path("kinds[k].code", 1).unwrap();
         assert_eq!(lookup.resolve(&path, "t"), Ok(&Datum::Text("i64".into())));
-        let missing = parse_path("kinds[k].sql", 1).unwrap();
+        let missing = parse_path("kinds[k].store", 1).unwrap();
         assert_eq!(
             lookup.resolve(&missing, "t").unwrap_err(),
-            "`kinds[k].sql` (line 1): `kinds[k]` has no `sql` (it has rust)"
+            "`kinds[k].store` (line 1): `kinds[k]` has no `store` (it has code)"
         );
     }
 }
