@@ -3,7 +3,7 @@
   "displayName": "Lackey",
   "description": "A coding agent whose whole interface is your editor: it answers and checks what you write, offers what you ask for, and works in your buffers when you accept. Runs Claude Code (claude -p) on your own subscription",
   "publisher": "sorcererdev",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

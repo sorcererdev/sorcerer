@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-11-28
 
 - **Spellbook: list inputs, lookup tables, and templates that loop and branch.** An input of
   `type = "list"` takes several items in one line, read by its `item` pattern:
