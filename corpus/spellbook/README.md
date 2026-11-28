@@ -7,7 +7,7 @@ runs them. It costs nothing, calls no model, touches no network and runs in CI.
 | corpus | language | generators | tests |
 |---|---|---|---|
 | [`bistro/`](bistro/README.md) | Python | `command`, `query`, `port`, `use-port`, `add-port` | `bistro_holds_its_cases`, `bistro_check_cases_find_what_was_planted`, `bistro_holds_its_fix_cases`, `bistro_keeps_its_regions`, `bistro_adopts_check_on_old_code`, `bistro_load_mistakes_say_what_is_wrong` |
-| [`bistro-rs/`](bistro-rs/README.md) | Rust | `command`, `port`, `use-port`, `add-port` | `bistro_rs_holds_its_cases`, `bistro_rs_check_cases_find_what_was_planted`, `bistro_rs_holds_its_fix_cases`, `bistro_rs_keeps_its_regions`, `bistro_rs_adopts_check_on_old_code`, `bistro_rs_load_mistakes_say_what_is_wrong` |
+| [`bistro-rs/`](bistro-rs/README.md) | Rust | `command`, `port`, `use-port`, `add-port`, `repository` | `bistro_rs_holds_its_cases`, `bistro_rs_check_cases_find_what_was_planted`, `bistro_rs_holds_its_fix_cases`, `bistro_rs_keeps_its_regions`, `bistro_rs_adopts_check_on_old_code`, `bistro_rs_load_mistakes_say_what_is_wrong` |
 
 ## What a corpus holds
 
@@ -15,7 +15,7 @@ runs them. It costs nothing, calls no model, touches no network and runs in CI.
 |---|---|
 | `corpus.toml` | `name`, `language`, `base`: the project every case starts from, a path to another corpus's `base/`, and `overlay`: this corpus's own folder of files laid over it |
 | `base/` | the overlay: the files that carry region markers (bistro-rs's five `mod.rs`, bistro's `commands/__init__.py`), laid over the shared base for every case unless the case says `base = "shared"` (the scry and conjure corpora run models on the shared base, so it is not touched) |
-| `spellbook/` | copied to `.sorcerer/spellbook/` in a copy of the base: `generators/<id>/{generator.toml, templates/}`, `rules.toml` and `regions.toml` |
+| `spellbook/` | copied to `.sorcerer/spellbook/` in a copy of the base: `generators/<id>/{generator.toml, templates/}`, `rules.toml`, `regions.toml` and `tables.toml` (the lookup tables a template reads, `{= kinds[f.kind].rust =}`) |
 | `cases/new/<id>.toml` | a generator run: `generator`, `[inputs]`, and `[[holes]]` (`name`, `kind`, `file`, `line`), one for each place a hole is still open afterwards |
 | `expected/new/<id>/<path>` | every file the run wrote or changed (a region's file among them), as a person would accept it: every placeholder in place, parsing |
 | `cases/holes/<id>.toml` and `.patch` | a `new`, then the person's edit (the patch, applied with `git apply`) filling a hole; the `[[holes]]` are what stays open |

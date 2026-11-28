@@ -1,0 +1,13 @@
+# A list input: one struct field per item (Option for `notes:text?`), the bool marked, and
+# COLUMNS joined with `loop.last`.
+generator = "repository"
+
+[inputs]
+model  = "dish"
+fields = "name:text,price_cents:int,available:bool,notes:text?"
+
+[[holes]]
+name = "valid"
+kind = "block"
+file = "src/booking/models/dish.rs"
+line = 18

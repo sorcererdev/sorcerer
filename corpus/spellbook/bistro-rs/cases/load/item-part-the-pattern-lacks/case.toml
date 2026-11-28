@@ -1,0 +1,4 @@
+# An item part the pattern does not have: `item = "{name}:{kind}"`, so `f.title` is a slip
+# for `f.name`, caught when the generator loads.
+generator = "repository"
+inputs    = { model = "dish", fields = "name:text" }

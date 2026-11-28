@@ -1,0 +1,4 @@
+# A loop whose `{= end =}` is missing: the whole struct would repeat, so it is a load error with
+# the loop's line.
+generator = "repository"
+inputs    = { model = "dish", fields = "name:text" }
